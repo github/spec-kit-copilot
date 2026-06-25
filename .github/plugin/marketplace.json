@@ -1,0 +1,18 @@
+{
+  "name": "spec-kit-marketplace",
+  "owner": {
+    "name": "GitHub"
+  },
+  "metadata": {
+    "description": "Spec Kit plugins for GitHub Copilot CLI.",
+    "version": "0.11.8"
+  },
+  "plugins": [
+    {
+      "name": "spec-kit-copilot",
+      "description": "Exposes the Spec Kit (specify) CLI to GitHub Copilot CLI as skills for spec-driven development.",
+      "version": "0.11.8",
+      "source": "."
+    }
+  ]
+}

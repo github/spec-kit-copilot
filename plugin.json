@@ -1,0 +1,21 @@
+{
+  "name": "spec-kit-copilot",
+  "description": "Spec Kit for GitHub Copilot CLI. Exposes the Specify CLI — part of GitHub Spec Kit, a toolkit for Spec-Driven Development (SDD) — to the Copilot agent as skills for scaffolding projects and managing extensions, presets, bundles, and workflows.",
+  "version": "0.11.8",
+  "author": {
+    "name": "GitHub",
+    "url": "https://github.com/github/spec-kit-copilot"
+  },
+  "homepage": "https://github.com/github/spec-kit-copilot",
+  "repository": "https://github.com/github/spec-kit-copilot",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven development",
+    "ai coding agents",
+    "software engineering",
+    "cli",
+    "copilot",
+    "specification"
+  ],
+  "skills": "skills/"
+}
