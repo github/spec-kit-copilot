@@ -8,6 +8,20 @@ of focused **skills** — one per `specify` command group — so the agent knows
 how to drive the `specify` CLI on your behalf (scaffolding Copilot projects, managing
 extensions/presets/bundles, running workflows, and maintaining the CLI).
 
+**Status:** active development. This is a companion to the agent-agnostic
+[Spec Kit](https://github.com/github/spec-kit) project, focused on making the Copilot
+CLI and Copilot App integration smoother.
+
+## Background
+
+[Spec Kit](https://github.com/github/spec-kit) provides the `specify` CLI for
+Spec-Driven Development and is intentionally agent-agnostic. This repository delivers
+the **Copilot** companion: a skills plugin so Copilot CLI and Copilot App users get a
+first-class, guided experience driving `specify` without leaving the agent.
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and
+[open issues](https://github.com/github/spec-kit-copilot/issues) for the current roadmap.
+
 ## Skills
 
 | Skill | Wraps | Purpose |
@@ -111,3 +125,19 @@ spec-kit-copilot/
     ├── speckit-workflow-step/SKILL.md
     └── speckit-self/SKILL.md
 ```
+
+## License
+
+This project is licensed under the terms of the MIT open source license. Please refer to the [LICENSE](./LICENSE) file for the full terms.
+
+## Maintainers
+
+This project is maintained by GitHub staff. See [`.github/CODEOWNERS`](.github/CODEOWNERS) for the current owners.
+
+## Support
+
+See [SUPPORT.md](./SUPPORT.md) for how to get help and file issues. Please also review the [Code of Conduct](./CODE_OF_CONDUCT.md) and [Security Policy](./SECURITY.md).
+
+## Acknowledgement
+
+Built on top of [Spec Kit](https://github.com/github/spec-kit) and its `specify` CLI. Thanks to the Spec Kit team and community.
