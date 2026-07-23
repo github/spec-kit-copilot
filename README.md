@@ -111,7 +111,7 @@ right `specify` command. For example:
 > [!NOTE]
 > Community walkthroughs are independently created and maintained by their respective authors. Review their content before following along and use at your own discretion.
 
-See this plugin driving Spec-Driven Development end to end with these community-contributed walkthroughs:
+See this plugin driving Spec-Driven Development end to end with this community-contributed walkthrough:
 
 - **[Issue-to-implementation with the assess extension](https://github.com/mnriem/spec-kit-copilot-plugin-demo)** — Takes a raw GitHub issue from idea to shipped change entirely through GitHub Copilot CLI and this plugin: first the Idea Assessment Pipeline (the `assess` extension — intake → research → define → shape → decide) turns the issue into a scored go/no-go decision, then Spec-Driven Development (specify → plan → tasks → implement) delivers the change. Every step documents the exact prompt entered into Copilot.
 
