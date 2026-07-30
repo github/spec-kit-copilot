@@ -79,5 +79,10 @@ runs the CLI.
    the README "Versioning" note. Keep the `speckit-cli-setup` skill installing the
    **latest** `specify-cli` from PyPI (no `@vX.Y.Z` pin); only touch the `>= 0.11`
    minimum notes if the floor actually changes.
-4. Reinstall and verify: `copilot plugin install ./` then `copilot plugin list`
-   should report the new version with the expected skill count.
+4. Reinstall and verify. `copilot plugin install` takes a `plugin@marketplace`,
+   `owner/repo`, `owner/repo:path`, or git URL — it does **not** accept a local path.
+   After the change is pushed and the marketplace catalog is refreshed
+   (`copilot plugin marketplace update spec-kit-marketplace`), run
+   `copilot plugin install spec-kit-copilot@spec-kit-marketplace` (or
+   `copilot plugin update`) and confirm `copilot plugin list` reports the new version
+   with the expected skill count.
