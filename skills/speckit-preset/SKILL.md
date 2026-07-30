@@ -48,8 +48,10 @@ specify preset catalog remove <name>
 ## Notes
 
 - Resolution priority: **lower number = higher precedence** (default `10`).
-- A preset can also be installed at project creation: `specify init <name> --preset <id>`
-  (see the speckit-init skill).
+- A preset can also be installed at project creation:
+  `specify init <name> --integration copilot --integration-options="--skills" --script sh --preset <id>`
+  (use `--script ps` on Windows; see the speckit-init skill for the full OS-aware form and
+  why `--script` is required).
 - Use `specify preset resolve` to debug unexpected template resolution.
 - Unlike extensions/bundles, `specify preset add` does **not** scaffold skills — a
   preset overrides the **templates** used to generate command content and is applied

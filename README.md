@@ -51,9 +51,12 @@ sub-commands, options, and usage notes. The plugin is described by the
   specify --version
   ```
 
-> **Versioning:** this plugin tracks the Specify CLI version (lockstep). Plugin
-> `0.11.8` targets `specify 0.11.8`; install or upgrade the matching CLI with
-> `specify self upgrade`.
+> **Versioning:** this plugin is **not** pinned to a specific Specify CLI version.
+> It targets the **latest** `specify` published on PyPI (package `specify-cli`), with a
+> minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills. Install or
+> upgrade with `uv tool install specify-cli` / `uv tool upgrade specify-cli` (or the
+> `pipx` equivalents), or `specify self upgrade`. The plugin's own `version` in
+> `plugin.json` is independent of the CLI version.
 
 ## Installation
 

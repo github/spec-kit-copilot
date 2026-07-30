@@ -47,7 +47,7 @@ Here are a few things you can do that will increase the likelihood of your pull 
 
 ### Versioning
 
-This plugin tracks the `specify` CLI version in lockstep. When revving, bump `plugin.json` and both versions in `.github/plugin/marketplace.json` together to the targeted `specify` release, and update the README "Versioning" note. See [`AGENTS.md`](AGENTS.md) for the full checklist.
+This plugin is **not** pinned to a specific `specify` CLI version — it targets the **latest** `specify-cli` published on PyPI, with a minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills. The plugin's own `version` in `plugin.json` (and `.github/plugin/marketplace.json`) is an independent semver that tracks changes to the plugin/skills, not the CLI release. When revving, bump `plugin.json` and both `.github/plugin/marketplace.json` versions together, and update the README "Versioning" note. See [`AGENTS.md`](AGENTS.md) for the full checklist.
 
 ## Resources
 
