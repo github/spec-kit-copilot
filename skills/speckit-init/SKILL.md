@@ -44,36 +44,52 @@ it first, then continue.
 infrastructure, and the Copilot command files. It runs offline from assets
 bundled in the installed CLI.
 
-Common forms (always Copilot + skills mode):
+Common forms (always Copilot + skills mode). Pick the `--script` flavor for the
+user's OS — `sh` on **macOS/Linux**, `ps` on **Windows** (the examples below use
+`sh`; swap in `--script ps` on Windows):
 
 ```bash
 # New project directory
-specify init <project-name> --integration copilot --integration-options="--skills"
+specify init <project-name> --integration copilot --integration-options="--skills" --script sh
 
 # Initialize in the current directory
-specify init . --integration copilot --integration-options="--skills"
-specify init --here --integration copilot --integration-options="--skills"
+specify init . --integration copilot --integration-options="--skills" --script sh
+specify init --here --integration copilot --integration-options="--skills" --script sh
 
 # Current directory is non-empty: skip the confirmation prompt
-specify init --here --integration copilot --integration-options="--skills" --force
+specify init --here --integration copilot --integration-options="--skills" --script sh --force
 
 # Install a preset at init time
-specify init <project-name> --integration copilot --integration-options="--skills" --preset healthcare-compliance
+specify init <project-name> --integration copilot --integration-options="--skills" --script sh --preset healthcare-compliance
+```
+
+On Windows, use `--script ps` instead:
+
+```powershell
+specify init <project-name> --integration copilot --integration-options="--skills" --script ps
 ```
 
 ### Key options
 
 - `--integration copilot` — always use this in the Copilot plugin.
 - `--integration-options="--skills"` — **required**; scaffolds spec-kit commands as Copilot Agent Skills (`SKILL.md`) instead of `.agent.md` files.
+- `--script <sh|ps|py>` — choose the helper script flavor. **Required in non-interactive
+  shells** (like this agent session): omitting it makes `specify init` prompt for the
+  script type and hang. Use `sh` on **macOS/Linux**, `ps` on **Windows**; `py` is a
+  cross-platform Python fallback.
+- `--ignore-agent-tools` — skip checks for the agent's CLI tools. **Recommended** for the
+  Copilot plugin so init doesn't fail on missing external agent CLIs.
 - `--here` / `.` — initialize in the current directory instead of creating a new one.
 - `--force` — skip the confirmation when `--here` targets a non-empty directory.
 - `--preset <id>` — install a preset during initialization.
-- `--script <sh|ps>` — choose the helper script flavor.
-- `--ignore-agent-tools` — skip checks for the agent's CLI tools.
 
 ## Notes
 
 - Prefer non-interactive flags so the command does not block on prompts.
+- **Always pass `--script`** (`sh` on macOS/Linux, `ps` on Windows, `py` anywhere).
+  In a non-interactive session `specify init` auto-defaults `--integration`, but it does
+  **not** default `--script` — so omitting it drops into an interactive prompt and hangs
+  the agent shell. This is the most common cause of `specify init` appearing to freeze.
 - Always pass both `--integration copilot` and `--integration-options="--skills"`;
   the skills layout is what makes spec-kit commands (and later-added extensions)
   show up as `SKILL.md` for Copilot.
