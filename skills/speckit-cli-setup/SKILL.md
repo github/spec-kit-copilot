@@ -38,8 +38,10 @@ uv tool install specify-cli
 # Alternative: pipx (persistent install, latest from PyPI)
 pipx install specify-cli
 
-# One-off / ephemeral (no install) — handy to bootstrap a project
-uvx --from specify-cli specify init . --integration copilot --integration-options="--skills"
+# One-off / ephemeral (no install) — handy to bootstrap a project.
+# Pass --script (py keeps this cross-platform) so the PTY-backed agent shell
+# doesn't hit the interactive "Choose script type" chooser and hang.
+uvx --from specify-cli specify init . --integration copilot --integration-options="--skills" --script py
 ```
 
 If neither `uv` nor `pipx` is available, tell the user to install `uv` first
