@@ -25,9 +25,9 @@ commands back to the agent.
   substantive text only when their upstream artifacts are absent; shape
   requires `problem.md`; decide requires `problem.md` and warns that a missing
   `concept.md` prevents a go verdict. Optional stage guidance is passed through.
-- **Artifact preview** — click any completed stage to read its Markdown
-  (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) in a
-  side pane.
+- **Rendered artifact preview** — view completed Markdown artifacts
+  (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) as
+  formatted headings, lists, code, blockquotes, and tables in a side pane.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
   kick off `speckit.assess.intake`.
 - **Guided prerequisite setup** — when Spec Kit or the `assess` extension is

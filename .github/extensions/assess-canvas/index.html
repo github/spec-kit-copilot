@@ -76,11 +76,21 @@
   }
   .toast.show { opacity: 1; }
   .empty { padding: 28px; text-align: center; }
-  pre.md {
-    white-space: pre-wrap; word-wrap: break-word; overflow: auto;
-    font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
-    font-size: 12px; background: rgba(127,127,127,.08); padding: 12px; border-radius: 8px;
-  }
+  .md { overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 18px 0 8px; line-height: 1.25; }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 17px; border-bottom: 1px solid var(--border-color-default, #d0d7de); padding-bottom: 5px; }
+  .md h3 { font-size: 15px; }
+  .md h4 { font-size: 14px; }
+  .md p { margin: 8px 0; }
+  .md ul, .md ol { margin: 8px 0; padding-left: 24px; }
+  .md blockquote { margin: 10px 0; padding: 2px 12px; border-left: 3px solid var(--border-color-default, #d0d7de); color: var(--text-color-muted, #656d76); }
+  .md code { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; background: rgba(127,127,127,.1); border-radius: 4px; padding: 2px 4px; }
+  .md pre { white-space: pre-wrap; overflow: auto; background: rgba(127,127,127,.08); padding: 12px; border-radius: 8px; }
+  .md pre code { background: transparent; padding: 0; }
+  .md table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  .md th, .md td { border: 1px solid var(--border-color-default, #d0d7de); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .md th { background: rgba(127,127,127,.08); font-weight: var(--font-weight-semibold, 600); }
   .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
   dialog {
@@ -123,7 +133,7 @@
       <strong id="artTitle">Artifact</strong>
       <button class="closex" id="closeArt" title="Close">×</button>
     </div>
-    <pre class="md" id="artBody"></pre>
+    <div class="md" id="artBody"></div>
   </aside>
 </div>
 <dialog id="stageDialog">
@@ -360,8 +370,141 @@ async function viewArtifact(slug, stage, title) {
   try {
     const r = await fetch("/api/artifact?slug=" + encodeURIComponent(slug) + "&stage=" + encodeURIComponent(stage));
     const j = await r.json();
-    document.getElementById("artBody").textContent = j.ok ? j.content : ("Error: " + (j.error || "failed"));
+    if (j.ok) renderMarkdown(document.getElementById("artBody"), j.content);
+    else document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
   } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+}
+
+function renderMarkdown(container, markdown) {
+  container.replaceChildren();
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (line.startsWith("```")) {
+      const code = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+      if (i < lines.length) i++;
+      const pre = document.createElement("pre");
+      const node = document.createElement("code");
+      node.textContent = code.join("\n");
+      pre.appendChild(node);
+      container.appendChild(pre);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement("h" + heading[1].length);
+      appendInline(node, heading[2]);
+      container.appendChild(node);
+      i++;
+      continue;
+    }
+
+    if (i + 1 < lines.length && isTableRow(line) && isTableDivider(lines[i + 1])) {
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      splitTableRow(line).forEach((cell) => {
+        const th = document.createElement("th");
+        appendInline(th, cell);
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      i += 2;
+      const tbody = document.createElement("tbody");
+      while (i < lines.length && isTableRow(lines[i]) && lines[i].trim()) {
+        const tr = document.createElement("tr");
+        splitTableRow(lines[i]).forEach((cell) => {
+          const td = document.createElement("td");
+          appendInline(td, cell);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+        i++;
+      }
+      table.appendChild(tbody);
+      container.appendChild(table);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      const list = document.createElement(unordered ? "ul" : "ol");
+      const pattern = unordered ? /^\s*[-*+]\s+(.+)$/ : /^\s*\d+\.\s+(.+)$/;
+      while (i < lines.length) {
+        const item = lines[i].match(pattern);
+        if (!item) break;
+        const li = document.createElement("li");
+        appendInline(li, item[1]);
+        list.appendChild(li);
+        i++;
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
+      const node = document.createElement("blockquote");
+      appendInline(node, quote.join(" "));
+      container.appendChild(node);
+      continue;
+    }
+
+    const paragraph = [];
+    while (i < lines.length && lines[i].trim() && !startsMarkdownBlock(lines, i)) paragraph.push(lines[i++].trim());
+    if (!paragraph.length) {
+      paragraph.push(lines[i++].trim());
+    }
+    const node = document.createElement("p");
+    appendInline(node, paragraph.join(" "));
+    container.appendChild(node);
+  }
+}
+
+function startsMarkdownBlock(lines, index) {
+  const line = lines[index];
+  return line.startsWith("```")
+    || /^(#{1,4})\s+/.test(line)
+    || /^\s*[-*+]\s+/.test(line)
+    || /^\s*\d+\.\s+/.test(line)
+    || /^\s*>\s?/.test(line)
+    || (index + 1 < lines.length && isTableRow(line) && isTableDivider(lines[index + 1]));
+}
+
+function isTableRow(line) {
+  return line.includes("|");
+}
+
+function isTableDivider(line) {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function appendInline(parent, text) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  for (const match of String(text).matchAll(pattern)) {
+    if (match.index > cursor) parent.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    const token = match[0];
+    const node = document.createElement(token.startsWith("`") ? "code" : (token.startsWith("**") ? "strong" : "em"));
+    node.textContent = token.startsWith("**") ? token.slice(2, -2) : token.slice(1, -1);
+    parent.appendChild(node);
+    cursor = match.index + token.length;
+  }
+  if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
 document.getElementById("closeArt").onclick = () => document.getElementById("aside").classList.remove("open");
 
