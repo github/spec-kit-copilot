@@ -12,13 +12,13 @@
 | Problem validity | weak | The product-owner/business-analyst persona is identified and the visibility problem is plausible, but only one broad request exists and no observed workflow failure establishes severity or recurrence. |
 | Evidence strength | weak | Research found useful internal prior art and constraints but no interviews, usage data, repeated requests, external prior art, or measured baseline. |
 | Value vs. inaction | unknown | Existing skills and the bundled workflow may already be sufficient; the cost of reconstructing state from chat and files has not been measured. |
-| Feasibility / appetite | adequate | A recommended small pilot exists, and the working assess canvas demonstrates the core read-and-dispatch interaction pattern, though the appetite remains low-confidence. |
+| Feasibility / appetite | weak | The recommended full visual workspace is a large, months-scale appetite with low confidence; the assess canvas proves the interaction pattern but not full-cycle orchestration, recovery, or concurrency. |
 | Strategic fit | adequate | A guided Copilot experience aligns with the repository README, but the project constitution is still an unfilled template and provides no ratified strategic criteria. |
 | Risk posture | weak | Experimental canvas APIs, Spec Kit version mismatch, stale state, and workflow recovery risks are identified but not yet credibly mitigated. |
 
 ## Verdict & Rationale
 
-**Needs clarification.** The target persona is now identified and the idea has a bounded concept with credible local technical precedent, but the gate cannot return `go` because evidence strength is explicitly weak and the value over existing skills/workflows is unknown. The next investment should validate that product owners and business analysts repeatedly lose workflow context, establish a baseline and decision threshold, and confirm that the small pilot can derive trustworthy status within a supported Spec Kit version boundary. If that evidence is not found, the existing experience should remain the preferred option.
+**Needs clarification.** The target persona is identified and the full visual SDD workspace aligns with the stated preference to avoid command-line-driven orchestration, but the gate cannot return `go` because evidence strength and appetite fit are weak while value over existing skills/workflows remains unknown. The next investment should validate recurring workflow pain, establish a baseline and decision threshold, confirm that trustworthy full-cycle state can be represented, and determine whether a phased large appetite is justified within a supported Spec Kit version boundary. If that evidence is not found, the existing experience should remain the preferred option.
 
 ## If needs-clarification
 
@@ -27,7 +27,8 @@
   - [NEEDS CLARIFICATION: what observed delays, abandonment, or recovery errors result from the current chat, skills, and workflow experience]
   - [NEEDS CLARIFICATION: what baseline and minimum improvement would justify a separate canvas surface]
   - [NEEDS CLARIFICATION: whether repository artifacts and workflow metadata can represent paused, failed, and resumed state reliably]
-  - [NEEDS CLARIFICATION: which Spec Kit versions the pilot supports and how compatibility will be bounded]
+  - [NEEDS CLARIFICATION: whether stakeholders will fund a phased months-scale appetite for the full visual workspace]
+  - [NEEDS CLARIFICATION: which Spec Kit versions the visual workspace supports and how compatibility will be bounded]
 - **Revisit stage**: research
 
 ## If go — Handoff to `/speckit-specify`
