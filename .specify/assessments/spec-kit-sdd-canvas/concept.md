@@ -10,7 +10,7 @@
 
 - **Sketch**: Give a product owner or business analyst who is "vibe coding" one focused side-panel view of the active Spec Kit feature: current SDD stage, expected and completed artifacts, pending review gate, and the next available command. Actions hand work back to the foreground agent, while the canvas derives progress from repository artifacts and workflow state rather than becoming a second workflow engine.
 - **Appetite**: small (days, as a fixed validation budget; confidence is low)
-- **Trade-offs**: Tests whether visibility improves without replacing existing skills or workflows and follows the proven assess-canvas interaction pattern. It sacrifices broad automation, multi-feature portfolio views, and deep failure recovery; filesystem-derived state may be incomplete or stale.
+- **Trade-offs**: Tests whether visibility improves without replacing existing skills or workflows and follows the proven assess-canvas interaction pattern. It does not satisfy the newly explicit goal of completing the SDD workflow without command-line dependence, and it sacrifices broad automation, multi-feature portfolio views, and deep failure recovery.
 - **Rabbit holes**: Supporting every Spec Kit version and extension, inferring stage state from inconsistent artifacts, adding editing rather than preview, and expanding the pilot into workflow orchestration.
 
 ### Option B — Full visual SDD workspace
@@ -29,7 +29,7 @@
 
 ## Recommendation
 
-Proceed with **Option B — Full visual SDD workspace** because the identified product-owner/business-analyst persona is expected to prefer a visual experience over command-line-driven orchestration. The concept should cover the complete SDD journey while retaining Spec Kit as the underlying execution and artifact system, so users can provide inputs, review outputs, resolve clarifications, approve gates, and recover runs from the canvas. This is a large appetite with low evidence confidence: specification should therefore define phased acceptance boundaries and explicit stop criteria rather than treating every workflow and extension as day-one scope.
+Proceed with **Option B — Full visual SDD workspace** because the updated problem definition explicitly includes completing the SDD workflow without command-line dependence for the identified product-owner/business-analyst persona. The concept should cover the complete SDD journey while retaining Spec Kit as the underlying execution and artifact system, so users can provide inputs, review outputs, resolve clarifications, approve gates, and recover runs from the canvas. This is a large appetite with low evidence confidence: specification should therefore define phased acceptance boundaries and explicit stop criteria rather than treating every workflow and extension as day-one scope.
 
 ## Out of Scope (for the recommended option)
 
