@@ -7,9 +7,9 @@
 ## Users & Demand
 
 - The only direct demand signal currently recorded is one request to create a canvas app for the Spec Kit SDD process; this establishes stated interest but not frequency, urgency, or willingness to adopt. — [source: `.specify/assessments/spec-kit-sdd-canvas/intake.md`] (confidence: high, cited)
+- The intended user segment is product owners or business analysts who are "vibe coding" with Spec Kit and GitHub Copilot. This identifies the persona but does not establish how often that group experiences the problem. — [source: user clarification submitted through the assess canvas, 2026-07-31] (confidence: high, cited)
 - The repository explicitly targets GitHub Copilot CLI and Copilot App users who want a first-class guided experience for driving `specify` without leaving the agent. — [source: `README.md:15-20`] (confidence: high, cited)
 - No support-ticket volume, user interviews, usage analytics, conversion data, or repeated requests were available in the repository. — [source: repository inspection] (confidence: high, cited)
-- The likely primary audience is existing Spec Kit users who prefer a visual progress surface over chat-only orchestration. — [ASSUMPTION] (confidence: low)
 
 ## Prior Art
 
@@ -35,13 +35,12 @@
 ## Evidence Against the Idea
 
 - Existing skills and the bundled workflow may already solve orchestration adequately; without evidence of navigation or visibility pain, a canvas risks duplicating controls rather than removing a demonstrated bottleneck. — [source: `README.md:25-42,97-107`; `.specify/workflows/speckit/workflow.yml:1-78`] (confidence: medium, cited)
-- The only current demand signal is a single broad request with no defined users or success metric, making scope and value difficult to validate. — [source: `.specify/assessments/spec-kit-sdd-canvas/intake.md:8-27`] (confidence: high, cited)
+- The target persona is now identified, but the only demand signal remains a single broad request with no observed behavior or success metric, making scope and value difficult to validate. — [source: `.specify/assessments/spec-kit-sdd-canvas/intake.md:8-27`; user clarification submitted through the assess canvas, 2026-07-31] (confidence: high, cited)
 - Full SDD includes branching state, review gates, generated artifacts, and potentially long-running implementation work, so extrapolating directly from the simpler assess funnel may underestimate interaction and recovery complexity. — [source: `.specify/workflows/speckit/workflow.yml:43-78`; `.github/extensions/assess-canvas/README.md:14-29`] (confidence: medium, cited)
 - Building against an explicitly experimental canvas API creates maintenance risk, especially alongside the observed Spec Kit version mismatch. — [source: `/Applications/GitHub Copilot.app/Contents/Resources/copilot-sdk/canvas.d.ts:13-14`; `.specify/init-options.json:8`; `plugin.json:4`] (confidence: high, cited)
 
 ## Gaps & Open Questions
 
-- [NEEDS CLARIFICATION: which user segment experiences enough SDD navigation or visibility pain to justify a canvas]
 - [NEEDS CLARIFICATION: whether the canvas should wrap the bundled workflow, individual skills, or both]
 - [NEEDS CLARIFICATION: which artifacts and review gates must be visible or actionable]
 - [NEEDS CLARIFICATION: what success metric would distinguish useful workflow guidance from duplicated UI]
@@ -61,4 +60,5 @@
 - `.github/skills/speckit-assess-research/SKILL.md` (local research policy)
 - `/Applications/GitHub Copilot.app/Contents/Resources/copilot-sdk/docs/extensions.md` (installed SDK documentation)
 - `/Applications/GitHub Copilot.app/Contents/Resources/copilot-sdk/canvas.d.ts` (installed SDK type definitions)
+- User clarification submitted through the assess canvas on 2026-07-31 (target persona)
 - No external URLs fetched; connection-safety validation was unavailable.
