@@ -40,6 +40,10 @@
     background: var(--background-color-default, #ffffff);
     padding: 8px 0 12px; border-bottom: 1px solid var(--border-color-default, #d0d7de);
   }
+  body.artifact-view .closex {
+    font-size: 13px; border: 1px solid var(--border-color-default, #d0d7de);
+    border-radius: 6px; padding: 5px 10px;
+  }
   .funnel { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
   .stage-chip {
     border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px;
@@ -340,7 +344,7 @@ document.getElementById("viewStage").onclick = () => {
   const { stage, slug, title } = PENDING_STAGE;
   PENDING_STAGE = null;
   document.getElementById("stageDialog").close();
-  openArtifactWindow(slug, stage, title + " — " + STAGE_LABELS[stage]);
+  openArtifactView(slug, stage, title + " — " + STAGE_LABELS[stage]);
 };
 document.getElementById("cancelStage").onclick = () => {
   PENDING_STAGE = null;
@@ -385,12 +389,9 @@ async function viewArtifact(slug, stage, title) {
   } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
 }
 
-function openArtifactWindow(slug, stage, title) {
+function openArtifactView(slug, stage, title) {
   const params = new URLSearchParams({ artifact: slug, stage, title });
-  const url = "/?" + params.toString();
-  const opened = window.open(url, "_blank");
-  if (opened) opened.opener = null;
-  else window.location.assign(url);
+  window.location.assign("/?" + params.toString());
 }
 
 function renderMarkdown(container, markdown) {
@@ -525,7 +526,7 @@ function appendInline(parent, text) {
   if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
 document.getElementById("closeArt").onclick = () => {
-  if (document.body.classList.contains("artifact-view")) window.close();
+  if (document.body.classList.contains("artifact-view")) window.location.assign("/");
   else document.getElementById("aside").classList.remove("open");
 };
 
@@ -534,7 +535,8 @@ const artifactSlug = artifactParams.get("artifact");
 const artifactStage = artifactParams.get("stage");
 if (artifactSlug && STAGE_LABELS[artifactStage]) {
   document.body.classList.add("artifact-view");
-  document.getElementById("closeArt").title = "Close window";
+  document.getElementById("closeArt").textContent = "← Dashboard";
+  document.getElementById("closeArt").title = "Back to dashboard";
   viewArtifact(
     artifactSlug,
     artifactStage,

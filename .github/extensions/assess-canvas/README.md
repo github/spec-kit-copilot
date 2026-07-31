@@ -28,7 +28,7 @@ commands back to the agent.
 - **Rendered artifact preview** — view completed Markdown artifacts
   (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) as
   formatted headings, lists, code, blockquotes, and tables in a dedicated
-  full-width window.
+  full-width canvas view with a **Back to dashboard** control.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
   kick off `speckit.assess.intake`.
 - **Guided prerequisite setup** — when Spec Kit or the `assess` extension is
