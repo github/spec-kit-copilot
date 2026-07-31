@@ -27,7 +27,8 @@ commands back to the agent.
   `concept.md` prevents a go verdict. Optional stage guidance is passed through.
 - **Rendered artifact preview** — view completed Markdown artifacts
   (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) as
-  formatted headings, lists, code, blockquotes, and tables in a side pane.
+  formatted headings, lists, code, blockquotes, and tables in a dedicated
+  full-width window.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
   kick off `speckit.assess.intake`.
 - **Guided prerequisite setup** — when Spec Kit or the `assess` extension is

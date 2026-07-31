@@ -30,6 +30,16 @@
     border-left: 1px solid var(--border-color-default, #d0d7de); padding: 16px 20px;
   }
   aside.open { display: block; }
+  body.artifact-view header, body.artifact-view main { display: none; }
+  body.artifact-view aside {
+    display: block; width: 100%; max-width: none; min-height: 100vh;
+    border-left: 0; padding: 24px clamp(20px, 6vw, 80px);
+  }
+  body.artifact-view .art-head {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+    padding: 8px 0 12px; border-bottom: 1px solid var(--border-color-default, #d0d7de);
+  }
   .funnel { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
   .stage-chip {
     border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px;
@@ -330,7 +340,7 @@ document.getElementById("viewStage").onclick = () => {
   const { stage, slug, title } = PENDING_STAGE;
   PENDING_STAGE = null;
   document.getElementById("stageDialog").close();
-  viewArtifact(slug, stage, title + " — " + STAGE_LABELS[stage]);
+  openArtifactWindow(slug, stage, title + " — " + STAGE_LABELS[stage]);
 };
 document.getElementById("cancelStage").onclick = () => {
   PENDING_STAGE = null;
@@ -373,6 +383,14 @@ async function viewArtifact(slug, stage, title) {
     if (j.ok) renderMarkdown(document.getElementById("artBody"), j.content);
     else document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
   } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+}
+
+function openArtifactWindow(slug, stage, title) {
+  const params = new URLSearchParams({ artifact: slug, stage, title });
+  const url = "/?" + params.toString();
+  const opened = window.open(url, "_blank");
+  if (opened) opened.opener = null;
+  else window.location.assign(url);
 }
 
 function renderMarkdown(container, markdown) {
@@ -506,14 +524,30 @@ function appendInline(parent, text) {
   }
   if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
-document.getElementById("closeArt").onclick = () => document.getElementById("aside").classList.remove("open");
+document.getElementById("closeArt").onclick = () => {
+  if (document.body.classList.contains("artifact-view")) window.close();
+  else document.getElementById("aside").classList.remove("open");
+};
 
-try {
-  const es = new EventSource("/events");
-  es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
-  es.onerror = () => {};
-} catch (e) { /* fall back to one-shot fetch */ }
-fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+const artifactParams = new URLSearchParams(window.location.search);
+const artifactSlug = artifactParams.get("artifact");
+const artifactStage = artifactParams.get("stage");
+if (artifactSlug && STAGE_LABELS[artifactStage]) {
+  document.body.classList.add("artifact-view");
+  document.getElementById("closeArt").title = "Close window";
+  viewArtifact(
+    artifactSlug,
+    artifactStage,
+    artifactParams.get("title") || (artifactSlug + " — " + STAGE_LABELS[artifactStage]),
+  );
+} else {
+  try {
+    const es = new EventSource("/events");
+    es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
+    es.onerror = () => {};
+  } catch (e) { /* fall back to one-shot fetch */ }
+  fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+}
 </script>
 </body>
 </html>
