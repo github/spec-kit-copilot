@@ -282,12 +282,12 @@ function canRunStage(stage, assessment) {
   return false;
 }
 
-async function run(command, slug, idea, instructions) {
+async function run(command, slug, idea, instructions, overwrite) {
   try {
     const r = await fetch("/api/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command, slug, idea, instructions }),
+      body: JSON.stringify({ command, slug, idea, instructions, overwrite }),
     });
     const j = await r.json();
     if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
@@ -297,9 +297,11 @@ async function run(command, slug, idea, instructions) {
 function openStageDialog(stage, slug, redo, title) {
   const assessment = STATE.assessments.find((item) => item.slug === slug);
   const config = stageDialogConfig(stage, assessment);
-  PENDING_STAGE = { stage, slug, title, required: config.required };
+  PENDING_STAGE = { stage, slug, title, required: config.required, overwrite: redo };
   document.getElementById("stageDialogTitle").textContent = (redo ? "Redo " : "Run ") + STAGE_LABELS[stage];
-  document.getElementById("stageHelp").textContent = config.help;
+  document.getElementById("stageHelp").textContent = redo
+    ? "Rerunning confirms overwrite of the existing artifact. Its still-valid content will be preserved while updated inputs are applied. " + config.help
+    : config.help;
   document.getElementById("stageInstructions").value = "";
   document.getElementById("stageInstructions").placeholder = config.placeholder;
   document.getElementById("viewStage").hidden = !redo;
@@ -365,12 +367,12 @@ document.getElementById("cancelStage").onclick = () => {
 };
 document.getElementById("confirmStage").onclick = () => {
   if (!PENDING_STAGE) return;
-  const { stage, slug, required } = PENDING_STAGE;
+  const { stage, slug, required, overwrite } = PENDING_STAGE;
   const value = document.getElementById("stageInstructions").value.trim();
   if (required && !value) { toast("Input is required for this stage"); return; }
   PENDING_STAGE = null;
   document.getElementById("stageDialog").close();
-  run(STAGE_CMD[stage], slug, stage === "intake" ? value : null, stage === "intake" ? null : value);
+  run(STAGE_CMD[stage], slug, stage === "intake" ? value : null, stage === "intake" ? null : value, overwrite);
 };
 
 document.getElementById("setupBtn").onclick = async () => {
@@ -385,7 +387,7 @@ document.getElementById("intakeBtn").onclick = () => {
   const idea = document.getElementById("idea").value.trim();
   const slug = document.getElementById("newslug").value.trim();
   if (!idea) { toast("Enter an idea first"); return; }
-  run("speckit.assess.intake", slug || null, idea, null);
+  run("speckit.assess.intake", slug || null, idea, null, false);
   document.getElementById("idea").value = "";
   document.getElementById("newslug").value = "";
 };

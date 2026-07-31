@@ -67,19 +67,26 @@ async function readBody(req) {
 
 // Turn a stage command + slug (+ idea for intake) into the slash-command
 // prompt we hand to the agent. Rejects anything outside the allowlist.
-function buildPrompt(command, slug, idea, instructions) {
+function buildPrompt(command, slug, idea, instructions, overwrite = false) {
     if (!isAllowedCommand(command)) return { error: "command not allowed" };
+    const stage = STAGES.find((item) => item.command === command);
+    const assessment = currentState().assessments.find((item) => item.slug === slug);
+    const artifactExists = Boolean(stage && assessment?.stages?.[stage.key]?.exists);
+    if (artifactExists && !overwrite) return { error: `${stage.file} exists; rerun requires overwrite confirmation` };
+    const rerunInstruction = artifactExists
+        ? `The user clicked Rerun and explicitly authorizes overwriting ${stage.file}. Read the existing artifact as context, preserve still-valid content, and incorporate updated upstream artifacts and guidance.`
+        : "";
     if (command === "speckit.assess.intake") {
         const capturedIdea = typeof idea === "string" ? idea.trim() : "";
         if (!capturedIdea) return { error: "intake needs idea text" };
         const parts = [];
         parts.push(capturedIdea);
+        if (rerunInstruction) parts.push(rerunInstruction);
         if (slug) parts.push(`slug=${slug}`);
         return { prompt: `/${command} ${parts.join(" ")}`.trim() };
     }
     if (!slug) return { error: "slug required" };
     const direction = typeof instructions === "string" ? instructions.trim() : "";
-    const assessment = currentState().assessments.find((item) => item.slug === slug);
     const has = (stage) => Boolean(assessment?.stages?.[stage]?.exists);
     if (command === "speckit.assess.research" && !has("intake") && !direction) {
         return { error: "research needs substantive idea text when intake.md is missing" };
@@ -93,7 +100,8 @@ function buildPrompt(command, slug, idea, instructions) {
     if (command === "speckit.assess.decide" && !has("define")) {
         return { error: "decide requires problem.md; run define first" };
     }
-    return { prompt: `/${command}${direction ? ` ${direction}` : ""} slug=${slug}` };
+    const details = [rerunInstruction, direction].filter(Boolean).join(" ");
+    return { prompt: `/${command}${details ? ` ${details}` : ""} slug=${slug}` };
 }
 
 function clarificationRun(slugInput, stageInput, indexInput, answerInput) {
@@ -215,7 +223,7 @@ function makeHandler(entry) {
                 const slug = normalizeSlug(body.slug || "");
                 const idea = typeof body.idea === "string" ? body.idea.slice(0, 4000) : "";
                 const instructions = typeof body.instructions === "string" ? body.instructions.slice(0, 4000) : "";
-                const built = buildPrompt(command, slug, idea, instructions);
+                const built = buildPrompt(command, slug, idea, instructions, body.overwrite === true);
                 if (built.error) {
                     sendJson(res, 400, { ok: false, error: built.error });
                     return;
@@ -316,6 +324,10 @@ const canvas = createCanvas({
                         type: "string",
                         description: "Optional direction, constraints, links, or questions for research, define, shape, or decide.",
                     },
+                    overwrite: {
+                        type: "boolean",
+                        description: "Required true when rerunning a stage whose artifact already exists.",
+                    },
                 },
                 required: ["stage"],
             },
@@ -326,7 +338,13 @@ const canvas = createCanvas({
                 const stage = stageByKey(ctx.input?.stage);
                 if (!stage) throw new CanvasError("invalid_stage", "Unknown stage");
                 const slug = normalizeSlug(ctx.input?.slug || "");
-                const built = buildPrompt(stage.command, slug, ctx.input?.idea || "", ctx.input?.instructions || "");
+                const built = buildPrompt(
+                    stage.command,
+                    slug,
+                    ctx.input?.idea || "",
+                    ctx.input?.instructions || "",
+                    ctx.input?.overwrite === true,
+                );
                 if (built.error) throw new CanvasError("invalid_input", built.error);
                 session.send({ prompt: built.prompt });
                 return { ok: true, prompt: built.prompt };

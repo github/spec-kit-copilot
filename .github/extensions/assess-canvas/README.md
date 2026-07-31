@@ -19,8 +19,8 @@ commands back to the agent.
   the recorded verdict, and a one-click **Run &lt;next stage&gt;** button.
 - **Rerun from any stage** — every available stage pill stays enabled. Clicking
   one opens its run dialog, where the current artifact can also be previewed.
-  Re-running an earlier stage marks later artifacts stale until those stages
-  are rerun.
+  Rerun explicitly authorizes overwrite, uses the existing artifact as context,
+  preserves still-valid content, and marks later artifacts stale until rerun.
 - **Stage-aware inputs** — intake requires an idea; research and define require
   substantive text only when their upstream artifacts are absent; shape
   requires `problem.md`; decide requires `problem.md` and warns that a missing
@@ -62,7 +62,8 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 - `clarify_item` — validates a clarification by artifact/index, captures the
   user's answer, and reruns the owning stage.
 - `run_stage` — runs or reruns a stage
-  (`{ slug, stage, idea?, instructions? }`) by sending the matching command.
+  (`{ slug, stage, idea?, instructions?, overwrite? }`) by sending the matching
+  command. Existing artifacts require `overwrite: true`.
 
 ## Install
 

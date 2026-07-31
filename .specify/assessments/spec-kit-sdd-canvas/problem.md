@@ -6,11 +6,11 @@
 
 ## Problem Statement
 
-GitHub Copilot users working through Spec Kit's multi-stage SDD cycle may have difficulty seeing their current stage, required review gates, generated artifacts, and next action without reconstructing state from chat and repository files. Whether this creates enough recurring friction to justify additional product work is not yet validated by user or usage evidence.
+Product owners and business analysts who are "vibe coding" with GitHub Copilot and Spec Kit may have difficulty seeing their current SDD stage, required review gates, generated artifacts, and next action without reconstructing state from chat and repository files. Whether this creates enough recurring friction to justify additional product work is not yet validated by observed behavior or usage evidence.
 
 ## Affected Users & Stakeholders
 
-- **Users**: GitHub Copilot CLI and Copilot App users who run Spec Kit workflows — potentially affected by fragmented workflow state across chat, skills, and repository artifacts; the frequency and severity are [NEEDS CLARIFICATION].
+- **Users**: Product owners and business analysts who are "vibe coding" through Spec Kit workflows in GitHub Copilot — potentially affected by fragmented workflow state across chat, skills, and repository artifacts; the frequency and severity remain [NEEDS CLARIFICATION].
 - **Stakeholders**: Spec Kit Copilot plugin maintainers — responsible for a coherent Copilot integration and ongoing compatibility.
 - **Stakeholders**: [NEEDS CLARIFICATION: sponsoring team or product owner] — decides whether the observed user problem warrants investment.
 - **Stakeholders**: [NEEDS CLARIFICATION: Spec Kit workflow maintainers] — impacted by assumptions about workflow stages, gates, and artifact formats.
@@ -44,7 +44,7 @@ Users retain the existing natural-language skills and bundled workflow, which ma
 
 ## Open Questions
 
-- [NEEDS CLARIFICATION: which user segment experiences this problem and how often]
+- [NEEDS CLARIFICATION: how often product owners or business analysts who are vibe coding experience this problem]
 - [NEEDS CLARIFICATION: what concrete failures or delays users experience with the current chat, skills, and workflow experience]
 - [NEEDS CLARIFICATION: whether the relevant unit of progress is a workflow run, feature directory, branch, or another identity]
 - [NEEDS CLARIFICATION: which artifacts and review gates users must see or act on]
