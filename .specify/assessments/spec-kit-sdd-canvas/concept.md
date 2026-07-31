@@ -8,7 +8,7 @@
 
 ### Option A — Read-only SDD navigator pilot
 
-- **Sketch**: Give a user one focused side-panel view of the active Spec Kit feature: current SDD stage, expected and completed artifacts, pending review gate, and the next available command. Actions hand work back to the foreground agent, while the canvas derives progress from repository artifacts and workflow state rather than becoming a second workflow engine.
+- **Sketch**: Give a product owner or business analyst who is "vibe coding" one focused side-panel view of the active Spec Kit feature: current SDD stage, expected and completed artifacts, pending review gate, and the next available command. Actions hand work back to the foreground agent, while the canvas derives progress from repository artifacts and workflow state rather than becoming a second workflow engine.
 - **Appetite**: small (days, as a fixed validation budget; confidence is low)
 - **Trade-offs**: Tests whether visibility improves without replacing existing skills or workflows and follows the proven assess-canvas interaction pattern. It sacrifices broad automation, multi-feature portfolio views, and deep failure recovery; filesystem-derived state may be incomplete or stale.
 - **Rabbit holes**: Supporting every Spec Kit version and extension, inferring stage state from inconsistent artifacts, adding editing rather than preview, and expanding the pilot into workflow orchestration.
@@ -29,7 +29,7 @@
 
 ## Recommendation
 
-Proceed only with **Option A — Read-only SDD navigator pilot** under a fixed small appetite. It is the narrowest option that can test the stated goals: faster identification of current stage and next action, easier artifact discovery, and clearer recovery after pauses. The existing assess canvas provides credible local prior art, while keeping workflow execution in the agent avoids prematurely duplicating the bundled engine. The pilot should be treated as a validation vehicle, not evidence that a full cockpit is warranted; if baseline and follow-up observations cannot show a meaningful clarity improvement, stop rather than expand.
+Proceed only with **Option A — Read-only SDD navigator pilot** under a fixed small appetite for the identified product-owner/business-analyst persona. It is the narrowest option that can test the stated goals: faster identification of current stage and next action, easier artifact discovery, and clearer recovery after pauses. The existing assess canvas provides credible local prior art, while keeping workflow execution in the agent avoids prematurely duplicating the bundled engine. The pilot should be treated as a validation vehicle, not evidence that a full cockpit is warranted; if baseline and follow-up observations cannot show a meaningful clarity improvement, stop rather than expand.
 
 ## Out of Scope (for the recommended option)
 
@@ -43,7 +43,7 @@ Proceed only with **Option A — Read-only SDD navigator pilot** under a fixed s
 
 ## Assumptions to Validate
 
-- Spec Kit users have recurring difficulty identifying their current stage, artifacts, and next action.
+- Product owners and business analysts who are "vibe coding" with Spec Kit have recurring difficulty identifying their current stage, artifacts, and next action.
 - Repository artifacts and available workflow metadata are sufficient to derive useful status without a second source of truth.
 - A side-panel view improves stage-identification time and user-rated clarity over chat and direct file inspection.
 - Users prefer actions to return control to the foreground agent rather than execute invisibly inside the canvas.
