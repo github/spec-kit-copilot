@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Idea Assessment</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background-color-default, #ffffff);
+    color: var(--text-color-default, #1f2328);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: var(--text-body-medium, 14px);
+    line-height: var(--leading-body-medium, 20px);
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color-default, #d0d7de);
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+  }
+  h1 { margin: 0 0 4px; font-size: var(--text-title-large, 22px); font-weight: var(--font-weight-semibold, 600); }
+  .muted { color: var(--text-color-muted, #656d76); }
+  .layout { display: flex; }
+  main { flex: 1; padding: 16px 20px; min-width: 0; }
+  aside {
+    width: 46%; max-width: 620px; display: none;
+    border-left: 1px solid var(--border-color-default, #d0d7de); padding: 16px 20px;
+  }
+  aside.open { display: block; }
+  .funnel { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
+  .stage-chip {
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; display: flex; gap: 6px; align-items: center;
+  }
+  .count { font-weight: 600; }
+  .verdicts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { border-radius: 999px; padding: 2px 8px; font-size: 12px; border: 1px solid var(--border-color-default, #d0d7de); }
+  .badge.go { color: var(--true-color-green, #1a7f37); border-color: var(--true-color-green-muted, #1a7f3766); }
+  .badge.kill { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #cf222e66); }
+  .badge.clar { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .cards { display: grid; gap: 12px; margin-top: 12px; }
+  .card { border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 2px; font-size: 15px; }
+  .slug { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; }
+  .pills { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  .pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; color: inherit;
+    border: 1px solid var(--border-color-default, #d0d7de); background: transparent; cursor: pointer;
+  }
+  .pill.done { background: var(--true-color-green-muted, #1a7f3722); border-color: transparent; }
+  .pill.next { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
+  .pill.pending { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  button.action {
+    cursor: pointer; border: 1px solid var(--color-focus-outline, #0969da);
+    background: var(--color-focus-outline, #0969da); color: var(--color-white, #ffffff);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px;
+  }
+  button.action.secondary { background: transparent; color: var(--color-focus-outline, #0969da); }
+  button:disabled { opacity: .5; cursor: default; }
+  .new { margin-top: 16px; border: 1px dashed var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  textarea, input[type=text] {
+    width: 100%; background: transparent; color: inherit; font-family: inherit; font-size: 13px;
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 6px; padding: 8px;
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--text-color-default, #1f2328); color: var(--background-color-default, #ffffff);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .empty { padding: 28px; text-align: center; }
+  pre.md {
+    white-space: pre-wrap; word-wrap: break-word; overflow: auto;
+    font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+    font-size: 12px; background: rgba(127,127,127,.08); padding: 12px; border-radius: 8px;
+  }
+  .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Idea Assessment Pipeline</h1>
+  <div class="muted" id="root">…</div>
+  <div class="funnel" id="funnel"></div>
+  <div class="verdicts" id="verdicts"></div>
+</header>
+<div class="layout">
+  <main>
+    <div id="cards" class="cards"></div>
+    <div class="new">
+      <strong>New idea → intake</strong>
+      <p class="muted" style="margin: 6px 0;">Paste an idea (or a URL). Optionally set a slug.</p>
+      <textarea id="idea" placeholder="Let users work offline and sync when they reconnect"></textarea>
+      <div class="row" style="margin-top: 8px;">
+        <input type="text" id="newslug" placeholder="slug (optional, e.g. offline-mode)" style="max-width: 60%;" />
+        <button class="action" id="intakeBtn">Run intake</button>
+      </div>
+    </div>
+  </main>
+  <aside id="aside">
+    <div class="art-head">
+      <strong id="artTitle">Artifact</strong>
+      <button class="closex" id="closeArt" title="Close">×</button>
+    </div>
+    <pre class="md" id="artBody"></pre>
+  </aside>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const STAGE_LABELS = { intake: "Intake", research: "Research", define: "Define", shape: "Shape", decide: "Decide" };
+const STAGE_CMD = {
+  intake: "speckit.assess.intake", research: "speckit.assess.research", define: "speckit.assess.define",
+  shape: "speckit.assess.shape", decide: "speckit.assess.decide",
+};
+let STATE = null;
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2800);
+}
+function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function render(state) {
+  STATE = state;
+  document.getElementById("root").textContent = state.exists
+    ? state.assessDir
+    : "No .specify/assessments yet — create your first idea below.";
+
+  const f = document.getElementById("funnel"); f.innerHTML = "";
+  state.stages.forEach((s) => {
+    const d = document.createElement("div"); d.className = "stage-chip";
+    d.innerHTML = "<span>" + esc(s.label) + "</span><span class=\"count\">" + (state.funnel[s.key] || 0) + "</span>";
+    f.appendChild(d);
+  });
+
+  const v = document.getElementById("verdicts"); v.innerHTML = "";
+  const vd = state.verdicts || {};
+  const mk = (cls, label, n) => { const b = document.createElement("span"); b.className = "badge " + cls; b.textContent = label + ": " + (n || 0); return b; };
+  v.appendChild(mk("go", "go", vd.go));
+  v.appendChild(mk("clar", "needs-clarification", vd["needs-clarification"]));
+  v.appendChild(mk("kill", "kill", vd.kill));
+
+  const c = document.getElementById("cards"); c.innerHTML = "";
+  if (!state.assessments.length) {
+    const e = document.createElement("div"); e.className = "empty muted";
+    e.textContent = "No assessments yet.";
+    c.appendChild(e);
+  }
+  state.assessments.forEach((a) => c.appendChild(card(a)));
+}
+
+function card(a) {
+  const el = document.createElement("div"); el.className = "card";
+  const head = document.createElement("div"); head.className = "row";
+  const left = document.createElement("div");
+  left.innerHTML = "<h3>" + esc(a.title) + "</h3><span class=\"slug muted\">" + esc(a.slug) + "</span>";
+  head.appendChild(left);
+  if (a.verdict) {
+    const cls = a.verdict === "go" ? "go" : (a.verdict === "kill" ? "kill" : "clar");
+    const b = document.createElement("span"); b.className = "badge " + cls; b.textContent = a.verdict;
+    head.appendChild(b);
+  }
+  el.appendChild(head);
+
+  const pills = document.createElement("div"); pills.className = "pills";
+  STATE.stages.forEach((s) => {
+    const st = a.stages[s.key];
+    const kind = st.done ? "done" : (a.nextStage === s.key ? "next" : "pending");
+    const p = document.createElement("button");
+    p.className = "pill " + kind;
+    p.textContent = STAGE_LABELS[s.key];
+    if (st.done) {
+      p.title = "View " + st.file;
+      p.onclick = () => viewArtifact(a.slug, s.key, a.title + " — " + STAGE_LABELS[s.key]);
+    } else if (kind === "next") {
+      p.title = "Run " + s.command;
+      p.onclick = () => run(STAGE_CMD[s.key], a.slug, null);
+    } else {
+      p.disabled = true;
+    }
+    pills.appendChild(p);
+  });
+  el.appendChild(pills);
+
+  const foot = document.createElement("div"); foot.className = "row";
+  const hint = document.createElement("span"); hint.className = "muted"; hint.style.fontSize = "12px";
+  hint.textContent = a.nextStage ? ("Next: " + STAGE_LABELS[a.nextStage]) : (a.verdict ? "Decided" : "Complete");
+  foot.appendChild(hint);
+  if (a.nextStage) {
+    const btn = document.createElement("button"); btn.className = "action";
+    btn.textContent = "Run " + STAGE_LABELS[a.nextStage];
+    btn.onclick = () => run(STAGE_CMD[a.nextStage], a.slug, null);
+    foot.appendChild(btn);
+  }
+  el.appendChild(foot);
+  return el;
+}
+
+async function run(command, slug, idea) {
+  try {
+    const r = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command, slug, idea }),
+    });
+    const j = await r.json();
+    if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
+  } catch (e) { toast("Error: " + e.message); }
+}
+
+document.getElementById("intakeBtn").onclick = () => {
+  const idea = document.getElementById("idea").value.trim();
+  const slug = document.getElementById("newslug").value.trim();
+  if (!idea) { toast("Enter an idea first"); return; }
+  run("speckit.assess.intake", slug || null, idea);
+  document.getElementById("idea").value = "";
+  document.getElementById("newslug").value = "";
+};
+
+async function viewArtifact(slug, stage, title) {
+  const aside = document.getElementById("aside"); aside.classList.add("open");
+  document.getElementById("artTitle").textContent = title;
+  document.getElementById("artBody").textContent = "Loading…";
+  try {
+    const r = await fetch("/api/artifact?slug=" + encodeURIComponent(slug) + "&stage=" + encodeURIComponent(stage));
+    const j = await r.json();
+    document.getElementById("artBody").textContent = j.ok ? j.content : ("Error: " + (j.error || "failed"));
+  } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+}
+document.getElementById("closeArt").onclick = () => document.getElementById("aside").classList.remove("open");
+
+try {
+  const es = new EventSource("/events");
+  es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
+  es.onerror = () => {};
+} catch (e) { /* fall back to one-shot fetch */ }
+fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+</script>
+</body>
+</html>
