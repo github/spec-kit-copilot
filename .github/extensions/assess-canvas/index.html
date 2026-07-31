@@ -46,14 +46,13 @@
   .card h3 { margin: 0 0 2px; font-size: 15px; }
   .slug { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; }
   .pills { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
-  .stage-wrap { display: inline-flex; gap: 2px; }
   .pill {
     font-size: 11px; padding: 3px 8px; border-radius: 6px; color: inherit;
     border: 1px solid var(--border-color-default, #d0d7de); background: transparent; cursor: pointer;
   }
   .pill.done { background: var(--true-color-green-muted, #1a7f3722); border-color: transparent; }
   .pill.stale { border-color: var(--true-color-yellow, #9a6700); color: var(--true-color-yellow, #9a6700); }
-  .pill.redo { opacity: .8; }
+  .pill.available { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
   .pill.next { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
   .pill.pending { opacity: .5; cursor: default; }
   .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
@@ -129,9 +128,10 @@
 </div>
 <dialog id="stageDialog">
   <h2 id="stageDialogTitle">Run stage</h2>
-  <p class="muted" style="margin: 0 0 10px;">The slug is required and already selected. Add optional direction, links, constraints, or questions for this run.</p>
+  <p class="muted" id="stageHelp" style="margin: 0 0 10px;"></p>
   <textarea id="stageInstructions" placeholder="Optional guidance for this stage"></textarea>
   <div class="dialog-actions">
+    <button class="action secondary" id="viewStage">View artifact</button>
     <button class="action secondary" id="cancelStage">Cancel</button>
     <button class="action" id="confirmStage">Run stage</button>
   </div>
@@ -205,31 +205,21 @@ function card(a) {
   const pills = document.createElement("div"); pills.className = "pills";
   STATE.stages.forEach((s) => {
     const st = a.stages[s.key];
-    const kind = st.done ? "done" : (st.stale ? "stale" : (a.nextStage === s.key ? "next" : "pending"));
+    const available = canRunStage(s.key, a);
+    const kind = st.done ? "done" : (st.stale ? "stale" : (a.nextStage === s.key ? "next" : (available ? "available" : "pending")));
     const p = document.createElement("button");
     p.className = "pill " + kind;
     p.textContent = STAGE_LABELS[s.key] + (st.stale ? " (stale)" : "");
-    let control = p;
     if (st.exists) {
-      p.title = "View " + st.file;
-      p.onclick = () => viewArtifact(a.slug, s.key, a.title + " — " + STAGE_LABELS[s.key]);
-      const redo = document.createElement("button");
-      redo.className = "pill redo";
-      redo.textContent = st.stale ? "Rerun" : "Redo";
-      redo.title = "Run " + s.command + " again";
-      redo.onclick = () => openStageDialog(s.key, a.slug, true);
-      const wrap = document.createElement("span");
-      wrap.className = "stage-wrap";
-      wrap.appendChild(p);
-      wrap.appendChild(redo);
-      control = wrap;
-    } else if (kind === "next") {
+      p.title = "Run " + s.command + " again";
+      p.onclick = () => openStageDialog(s.key, a.slug, true, a.title);
+    } else if (available) {
       p.title = "Run " + s.command;
-      p.onclick = () => openStageDialog(s.key, a.slug, false);
+      p.onclick = () => openStageDialog(s.key, a.slug, false, a.title);
     } else {
       p.disabled = true;
     }
-    pills.appendChild(control);
+    pills.appendChild(p);
   });
   el.appendChild(pills);
 
@@ -241,11 +231,18 @@ function card(a) {
     const btn = document.createElement("button"); btn.className = "action";
     const nextState = a.stages[a.nextStage];
     btn.textContent = (nextState && nextState.stale ? "Rerun " : "Run ") + STAGE_LABELS[a.nextStage];
-    btn.onclick = () => openStageDialog(a.nextStage, a.slug, Boolean(nextState && nextState.exists));
+    btn.onclick = () => openStageDialog(a.nextStage, a.slug, Boolean(nextState && nextState.exists), a.title);
+    btn.disabled = !canRunStage(a.nextStage, a);
     foot.appendChild(btn);
   }
   el.appendChild(foot);
   return el;
+}
+
+function canRunStage(stage, assessment) {
+  if (stage === "intake" || stage === "research" || stage === "define") return true;
+  if (stage === "shape" || stage === "decide") return Boolean(assessment.stages.define.exists);
+  return false;
 }
 
 async function run(command, slug, idea, instructions) {
@@ -260,24 +257,83 @@ async function run(command, slug, idea, instructions) {
   } catch (e) { toast("Error: " + e.message); }
 }
 
-function openStageDialog(stage, slug, redo) {
-  PENDING_STAGE = { stage, slug };
+function openStageDialog(stage, slug, redo, title) {
+  const assessment = STATE.assessments.find((item) => item.slug === slug);
+  const config = stageDialogConfig(stage, assessment);
+  PENDING_STAGE = { stage, slug, title, required: config.required };
   document.getElementById("stageDialogTitle").textContent = (redo ? "Redo " : "Run ") + STAGE_LABELS[stage];
+  document.getElementById("stageHelp").textContent = config.help;
   document.getElementById("stageInstructions").value = "";
+  document.getElementById("stageInstructions").placeholder = config.placeholder;
+  document.getElementById("viewStage").hidden = !redo;
+  document.getElementById("confirmStage").textContent = redo ? "Run again" : "Run stage";
   document.getElementById("stageDialog").showModal();
 }
 
+function stageDialogConfig(stage, assessment) {
+  const stages = assessment ? assessment.stages : {};
+  if (stage === "intake") {
+    return {
+      required: true,
+      help: "Provide the raw idea, URL, ticket, or codebase pointer. The slug is already selected.",
+      placeholder: "Required idea or source",
+    };
+  }
+  if (stage === "research") {
+    const required = !stages.intake?.exists;
+    return {
+      required,
+      help: required
+        ? "intake.md is missing, so substantive idea text is required. You may also include research direction or links."
+        : "Uses intake.md. Optionally add research direction or links.",
+      placeholder: required ? "Required idea and research direction" : "Optional research direction or links",
+    };
+  }
+  if (stage === "define") {
+    const required = !stages.intake?.exists && !stages.research?.exists;
+    return {
+      required,
+      help: required
+        ? "intake.md and research.md are missing, so substantive problem text is required."
+        : "Uses intake.md and research.md when present. Optionally add problem context or emphasis.",
+      placeholder: required ? "Required problem description" : "Optional problem context or emphasis",
+    };
+  }
+  if (stage === "shape") {
+    return {
+      required: false,
+      help: "Requires and uses problem.md. Optionally add scope, appetite, or trade-off direction.",
+      placeholder: "Optional scope, appetite, or trade-off direction",
+    };
+  }
+  return {
+    required: false,
+    help: stages.concept?.exists
+      ? "Requires problem.md and reviews all available artifacts. Optionally add decision criteria."
+      : "Requires problem.md. concept.md is missing, so a go verdict is not allowed. Optionally add decision criteria.",
+    placeholder: "Optional decision criteria",
+  };
+}
+
+document.getElementById("viewStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { stage, slug, title } = PENDING_STAGE;
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  viewArtifact(slug, stage, title + " — " + STAGE_LABELS[stage]);
+};
 document.getElementById("cancelStage").onclick = () => {
   PENDING_STAGE = null;
   document.getElementById("stageDialog").close();
 };
 document.getElementById("confirmStage").onclick = () => {
   if (!PENDING_STAGE) return;
-  const { stage, slug } = PENDING_STAGE;
-  const instructions = document.getElementById("stageInstructions").value.trim();
+  const { stage, slug, required } = PENDING_STAGE;
+  const value = document.getElementById("stageInstructions").value.trim();
+  if (required && !value) { toast("Input is required for this stage"); return; }
   PENDING_STAGE = null;
   document.getElementById("stageDialog").close();
-  run(STAGE_CMD[stage], slug, null, instructions);
+  run(STAGE_CMD[stage], slug, stage === "intake" ? value : null, stage === "intake" ? null : value);
 };
 
 document.getElementById("setupBtn").onclick = async () => {

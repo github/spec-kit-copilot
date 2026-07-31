@@ -17,11 +17,14 @@ commands back to the agent.
   plus a tally of `go` / `needs-clarification` / `kill` verdicts.
 - **Per-idea cards** — title, slug, a pill per stage (done / next / pending),
   the recorded verdict, and a one-click **Run &lt;next stage&gt;** button.
-- **Redo from any stage** — completed artifacts remain previewable and expose a
-  separate **Redo** action. Re-running an earlier stage marks later artifacts
-  stale until those stages are rerun.
-- **Stage guidance** — research, define, shape, and decide accept optional
-  direction, links, constraints, or questions; only the slug is required.
+- **Rerun from any stage** — every available stage pill stays enabled. Clicking
+  one opens its run dialog, where the current artifact can also be previewed.
+  Re-running an earlier stage marks later artifacts stale until those stages
+  are rerun.
+- **Stage-aware inputs** — intake requires an idea; research and define require
+  substantive text only when their upstream artifacts are absent; shape
+  requires `problem.md`; decide requires `problem.md` and warns that a missing
+  `concept.md` prevents a go verdict. Optional stage guidance is passed through.
 - **Artifact preview** — click any completed stage to read its Markdown
   (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) in a
   side pane.

@@ -69,14 +69,29 @@ async function readBody(req) {
 function buildPrompt(command, slug, idea, instructions) {
     if (!isAllowedCommand(command)) return { error: "command not allowed" };
     if (command === "speckit.assess.intake") {
+        const capturedIdea = typeof idea === "string" ? idea.trim() : "";
+        if (!capturedIdea) return { error: "intake needs idea text" };
         const parts = [];
-        if (idea) parts.push(idea);
+        parts.push(capturedIdea);
         if (slug) parts.push(`slug=${slug}`);
-        if (!parts.length) return { error: "intake needs an idea or a slug" };
         return { prompt: `/${command} ${parts.join(" ")}`.trim() };
     }
     if (!slug) return { error: "slug required" };
     const direction = typeof instructions === "string" ? instructions.trim() : "";
+    const assessment = currentState().assessments.find((item) => item.slug === slug);
+    const has = (stage) => Boolean(assessment?.stages?.[stage]?.exists);
+    if (command === "speckit.assess.research" && !has("intake") && !direction) {
+        return { error: "research needs substantive idea text when intake.md is missing" };
+    }
+    if (command === "speckit.assess.define" && !has("intake") && !has("research") && !direction) {
+        return { error: "define needs substantive problem text when intake.md and research.md are missing" };
+    }
+    if (command === "speckit.assess.shape" && !has("define")) {
+        return { error: "shape requires problem.md; run define first" };
+    }
+    if (command === "speckit.assess.decide" && !has("define")) {
+        return { error: "decide requires problem.md; run define first" };
+    }
     return { prompt: `/${command}${direction ? ` ${direction}` : ""} slug=${slug}` };
 }
 
