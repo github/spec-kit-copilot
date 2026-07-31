@@ -25,6 +25,12 @@ import {
 
 let PROJECT_ROOT = findProjectRoot();
 const INDEX_HTML = readFileSync(fileURLToPath(new URL("./index.html", import.meta.url)), "utf8");
+const SETUP_PROMPT = [
+    "Set up the Spec Kit assess pipeline in this repository.",
+    "If `.specify/` is missing, run `specify init --here --force --integration copilot --integration-options=\"--skills\"`.",
+    "Then run `specify extension add assess` and reload Copilot skills in this session.",
+    "Report when the assess commands are ready.",
+].join(" ");
 
 // instanceId -> { server, url, clients:Set<res>, lastSig:string, timer }
 const servers = new Map();
@@ -112,6 +118,11 @@ function makeHandler(entry) {
                 sendJson(res, 200, readArtifact(PROJECT_ROOT, url.searchParams.get("slug"), url.searchParams.get("stage")));
                 return;
             }
+            if (path === "/api/setup" && req.method === "POST") {
+                session.send({ prompt: SETUP_PROMPT });
+                sendJson(res, 200, { ok: true, prompt: SETUP_PROMPT });
+                return;
+            }
             if (path === "/events") {
                 res.writeHead(200, {
                     "Content-Type": "text/event-stream",
@@ -124,6 +135,10 @@ function makeHandler(entry) {
                 return;
             }
             if (path === "/api/run" && req.method === "POST") {
+                if (currentState().prerequisites.setupRequired) {
+                    sendJson(res, 409, { ok: false, error: "Set up Spec Kit and the assess extension first" });
+                    return;
+                }
                 const body = await readBody(req);
                 const command = String(body.command || "");
                 const slug = normalizeSlug(body.slug || "");
@@ -170,6 +185,7 @@ const canvas = createCanvas({
                 const state = currentState();
                 return {
                     projectRoot: state.projectRoot,
+                    prerequisites: state.prerequisites,
                     exists: state.exists,
                     funnel: state.funnel,
                     verdicts: state.verdicts,
@@ -182,6 +198,14 @@ const canvas = createCanvas({
                         verdict: a.verdict,
                     })),
                 };
+            },
+        },
+        {
+            name: "setup_assess",
+            description: "Initialize Spec Kit if needed and install the assess extension before running the funnel.",
+            handler: async () => {
+                session.send({ prompt: SETUP_PROMPT });
+                return { ok: true, prompt: SETUP_PROMPT };
             },
         },
         {
@@ -201,6 +225,9 @@ const canvas = createCanvas({
                 required: ["stage"],
             },
             handler: async (ctx) => {
+                if (currentState().prerequisites.setupRequired) {
+                    throw new CanvasError("setup_required", "Set up Spec Kit and the assess extension first");
+                }
                 const stage = stageByKey(ctx.input?.stage);
                 if (!stage) throw new CanvasError("invalid_stage", "Unknown stage");
                 const slug = normalizeSlug(ctx.input?.slug || "");

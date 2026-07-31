@@ -22,6 +22,9 @@ commands back to the agent.
   side pane.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
   kick off `speckit.assess.intake`.
+- **Guided prerequisite setup** — when Spec Kit or the `assess` extension is
+  missing, the canvas makes setup the first step and sends the required setup
+  work to the agent instead of forwarding an unavailable assess command.
 - **Live updates** — the panel refreshes automatically (SSE) as the assess
   commands write new artifacts.
 
@@ -42,6 +45,7 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 ## Agent-callable actions
 
 - `list_assessments` — returns all assessments with per-stage progress and verdict.
+- `setup_assess` — asks the agent to initialize Spec Kit and install `assess`.
 - `run_stage` — runs a stage (`{ slug, stage, idea? }`) by sending the matching command.
 
 ## Install
@@ -59,10 +63,10 @@ it.
 
 ## Requirements
 
-- The `assess` extension installed in the target project
-  (`specify extension add assess`) so the `/speckit.assess.*` commands exist.
-- An initialized Spec Kit project (`.specify/` present). Assessments are written
-  under `.specify/assessments/<slug>/`.
+The canvas detects whether the project is initialized and whether `assess` is
+installed. If either prerequisite is missing, it presents a setup action before
+the intake form. Assessments are written under
+`.specify/assessments/<slug>/`.
 
 ## Files
 

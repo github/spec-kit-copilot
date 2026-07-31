@@ -93,7 +93,12 @@
 <div class="layout">
   <main>
     <div id="cards" class="cards"></div>
-    <div class="new">
+    <div class="new" id="setup" hidden>
+      <strong>Set up Idea Assessment</strong>
+      <p class="muted" id="setupText" style="margin: 6px 0 10px;"></p>
+      <button class="action" id="setupBtn">Set up Spec Kit assess</button>
+    </div>
+    <div class="new" id="newIdea">
       <strong>New idea → intake</strong>
       <p class="muted" style="margin: 6px 0;">Paste an idea (or a URL). Optionally set a slug.</p>
       <textarea id="idea" placeholder="Let users work offline and sync when they reconnect"></textarea>
@@ -129,9 +134,16 @@ function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<"
 
 function render(state) {
   STATE = state;
-  document.getElementById("root").textContent = state.exists
-    ? state.assessDir
-    : "No .specify/assessments yet — create your first idea below.";
+  const prereq = state.prerequisites || {};
+  const setupRequired = Boolean(prereq.setupRequired);
+  document.getElementById("root").textContent = setupRequired
+    ? "Setup required before starting an assessment."
+    : (state.exists ? state.assessDir : "No assessments yet — create your first idea below.");
+  document.getElementById("setup").hidden = !setupRequired;
+  document.getElementById("newIdea").hidden = setupRequired;
+  document.getElementById("setupText").textContent = prereq.initialized
+    ? "Spec Kit is initialized, but the assess extension is not installed."
+    : "Initialize Spec Kit in this repository, then install its assess extension.";
 
   const f = document.getElementById("funnel"); f.innerHTML = "";
   state.stages.forEach((s) => {
@@ -214,6 +226,14 @@ async function run(command, slug, idea) {
     if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
   } catch (e) { toast("Error: " + e.message); }
 }
+
+document.getElementById("setupBtn").onclick = async () => {
+  try {
+    const r = await fetch("/api/setup", { method: "POST" });
+    const j = await r.json();
+    if (j.ok) toast("Setup sent to chat"); else toast("Error: " + (j.error || "failed"));
+  } catch (e) { toast("Error: " + e.message); }
+};
 
 document.getElementById("intakeBtn").onclick = () => {
   const idea = document.getElementById("idea").value.trim();

@@ -92,9 +92,16 @@ function readIfFile(p) {
 // Build the full dashboard state for a project root.
 export function scanAssessments(projectRoot) {
     const assessDir = join(projectRoot, ".specify", "assessments");
+    const initialized = isRealDir(join(projectRoot, ".specify"));
+    const assessInstalled = isRealDir(join(projectRoot, ".specify", "extensions", "assess"));
     const result = {
         projectRoot,
         assessDir,
+        prerequisites: {
+            initialized,
+            assessInstalled,
+            setupRequired: !initialized || !assessInstalled,
+        },
         exists: isRealDir(assessDir),
         stages: STAGES.map(({ key, label, blurb, command }) => ({ key, label, blurb, command })),
         assessments: [],
