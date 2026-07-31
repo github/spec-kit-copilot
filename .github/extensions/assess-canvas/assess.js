@@ -209,6 +209,42 @@ export function readArtifact(projectRoot, slug, stageKey) {
     return { ok: true, slug: cleanSlug, stage: stage.key, file: stage.file, content };
 }
 
+const CLARIFICATION_SECTIONS = new Set([
+    "first-glance unknowns",
+    "gaps & open questions",
+    "open questions",
+    "if needs-clarification",
+]);
+
+export function extractClarifications(text) {
+    const clarifications = [];
+    let section = "";
+    let inCodeFence = false;
+    for (const line of String(text || "").split(/\r?\n/)) {
+        if (line.startsWith("```")) {
+            inCodeFence = !inCodeFence;
+            continue;
+        }
+        if (inCodeFence) continue;
+        const heading = line.match(/^#{2,4}\s+(.+?)\s*$/);
+        if (heading) {
+            section = heading[1].trim().toLowerCase();
+            continue;
+        }
+        if (!CLARIFICATION_SECTIONS.has(section)) continue;
+        const item = line.match(/^\s*(?:[-*+]|\d+\.)\s+(.+)$/);
+        if (!item) continue;
+        for (const match of item[1].matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+            clarifications.push({
+                index: clarifications.length,
+                section,
+                question: match[1].trim(),
+            });
+        }
+    }
+    return clarifications;
+}
+
 // Build a signature string for change detection (used by the SSE poller).
 export function stateSignature(state) {
     const parts = [state.exists ? "1" : "0"];

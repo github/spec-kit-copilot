@@ -29,6 +29,10 @@ commands back to the agent.
   (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) as
   formatted headings, lists, code, blockquotes, and tables in a dedicated
   full-width canvas view with a **Back to dashboard** control.
+- **Targeted clarification** — clarification items in designated question
+  sections render a **Clarify** action. The canvas requires an answer in a
+  confirmation dialog before it sends a validated stage rerun and overwrite
+  request to the agent.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
   kick off `speckit.assess.intake`.
 - **Guided prerequisite setup** — when Spec Kit or the `assess` extension is
@@ -55,6 +59,8 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
 - `list_assessments` — returns all assessments with per-stage progress and verdict.
 - `setup_assess` — asks the agent to initialize Spec Kit and install `assess`.
+- `clarify_item` — validates a clarification by artifact/index, captures the
+  user's answer, and reruns the owning stage.
 - `run_stage` — runs or reruns a stage
   (`{ slug, stage, idea?, instructions? }`) by sending the matching command.
 

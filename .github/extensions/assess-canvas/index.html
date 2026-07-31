@@ -105,6 +105,8 @@
   .md table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
   .md th, .md td { border: 1px solid var(--border-color-default, #d0d7de); padding: 6px 8px; text-align: left; vertical-align: top; }
   .md th { background: rgba(127,127,127,.08); font-weight: var(--font-weight-semibold, 600); }
+  .clarify-action { margin-left: 8px; padding: 2px 8px !important; font-size: 11px !important; }
+  .clarification-question { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--color-focus-outline, #0969da); background: rgba(127,127,127,.08); }
   .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
   dialog {
@@ -160,6 +162,16 @@
     <button class="action" id="confirmStage">Run stage</button>
   </div>
 </dialog>
+<dialog id="clarifyDialog">
+  <h2>Resolve clarification</h2>
+  <p class="muted" id="clarifyHelp" style="margin: 0 0 8px;"></p>
+  <div class="clarification-question" id="clarifyQuestion"></div>
+  <textarea id="clarifyAnswer" placeholder="Required clarification answer"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="cancelClarify">Cancel</button>
+    <button class="action" id="confirmClarify">Submit and rerun stage</button>
+  </div>
+</dialog>
 <div class="toast" id="toast"></div>
 <script>
 const STAGE_LABELS = { intake: "Intake", research: "Research", define: "Define", shape: "Shape", decide: "Decide" };
@@ -169,6 +181,7 @@ const STAGE_CMD = {
 };
 let STATE = null;
 let PENDING_STAGE = null;
+let PENDING_CLARIFICATION = null;
 
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -382,9 +395,20 @@ async function viewArtifact(slug, stage, title) {
   document.getElementById("artTitle").textContent = title;
   document.getElementById("artBody").textContent = "Loading…";
   try {
-    const r = await fetch("/api/artifact?slug=" + encodeURIComponent(slug) + "&stage=" + encodeURIComponent(stage));
-    const j = await r.json();
-    if (j.ok) renderMarkdown(document.getElementById("artBody"), j.content);
+    const query = "?slug=" + encodeURIComponent(slug) + "&stage=" + encodeURIComponent(stage);
+    const [artifactResponse, clarificationResponse] = await Promise.all([
+      fetch("/api/artifact" + query),
+      fetch("/api/clarifications" + query),
+    ]);
+    const j = await artifactResponse.json();
+    const clarificationResult = await clarificationResponse.json();
+    if (j.ok) {
+      renderMarkdown(document.getElementById("artBody"), j.content, {
+        slug,
+        stage,
+        clarifications: clarificationResult.ok ? clarificationResult.clarifications : [],
+      });
+    }
     else document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
   } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
 }
@@ -394,10 +418,12 @@ function openArtifactView(slug, stage, title) {
   window.location.assign("/?" + params.toString());
 }
 
-function renderMarkdown(container, markdown) {
+function renderMarkdown(container, markdown, context) {
   container.replaceChildren();
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   let i = 0;
+  let section = "";
+  let clarificationIndex = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
@@ -420,6 +446,7 @@ function renderMarkdown(container, markdown) {
       const node = document.createElement("h" + heading[1].length);
       appendInline(node, heading[2]);
       container.appendChild(node);
+      section = heading[2].trim().toLowerCase();
       i++;
       continue;
     }
@@ -462,6 +489,18 @@ function renderMarkdown(container, markdown) {
         if (!item) break;
         const li = document.createElement("li");
         appendInline(li, item[1]);
+        if (isClarificationSection(section)) {
+          const matches = [...item[1].matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)];
+          matches.forEach(() => {
+            const clarification = context.clarifications[clarificationIndex++];
+            if (!clarification) return;
+            const button = document.createElement("button");
+            button.className = "action secondary clarify-action";
+            button.textContent = "Clarify";
+            button.onclick = () => openClarificationDialog(context.slug, context.stage, clarification);
+            li.appendChild(button);
+          });
+        }
         list.appendChild(li);
         i++;
       }
@@ -488,6 +527,50 @@ function renderMarkdown(container, markdown) {
     container.appendChild(node);
   }
 }
+
+function isClarificationSection(section) {
+  return [
+    "first-glance unknowns",
+    "gaps & open questions",
+    "open questions",
+    "if needs-clarification",
+  ].includes(section);
+}
+
+function openClarificationDialog(slug, stage, clarification) {
+  const target = stage === "decide" ? "the revisit stage recorded in the decision" : STAGE_LABELS[stage];
+  PENDING_CLARIFICATION = { slug, stage, index: clarification.index };
+  document.getElementById("clarifyHelp").textContent =
+    "Submitting this answer confirms rerunning " + target + " and overwriting its existing artifact.";
+  document.getElementById("clarifyQuestion").textContent = clarification.question;
+  document.getElementById("clarifyAnswer").value = "";
+  document.getElementById("clarifyDialog").showModal();
+}
+
+document.getElementById("cancelClarify").onclick = () => {
+  PENDING_CLARIFICATION = null;
+  document.getElementById("clarifyDialog").close();
+};
+document.getElementById("confirmClarify").onclick = async () => {
+  if (!PENDING_CLARIFICATION) return;
+  const answer = document.getElementById("clarifyAnswer").value.trim();
+  if (!answer) { toast("Enter a clarification answer"); return; }
+  const pending = PENDING_CLARIFICATION;
+  try {
+    const response = await fetch("/api/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...pending, answer }),
+    });
+    const result = await response.json();
+    if (!result.ok) { toast("Error: " + (result.error || "failed")); return; }
+    PENDING_CLARIFICATION = null;
+    document.getElementById("clarifyDialog").close();
+    window.location.assign("/");
+  } catch (error) {
+    toast("Error: " + error.message);
+  }
+};
 
 function startsMarkdownBlock(lines, index) {
   const line = lines[index];
