@@ -66,7 +66,7 @@ async function readBody(req) {
 
 // Turn a stage command + slug (+ idea for intake) into the slash-command
 // prompt we hand to the agent. Rejects anything outside the allowlist.
-function buildPrompt(command, slug, idea) {
+function buildPrompt(command, slug, idea, instructions) {
     if (!isAllowedCommand(command)) return { error: "command not allowed" };
     if (command === "speckit.assess.intake") {
         const parts = [];
@@ -76,7 +76,8 @@ function buildPrompt(command, slug, idea) {
         return { prompt: `/${command} ${parts.join(" ")}`.trim() };
     }
     if (!slug) return { error: "slug required" };
-    return { prompt: `/${command} slug=${slug}` };
+    const direction = typeof instructions === "string" ? instructions.trim() : "";
+    return { prompt: `/${command}${direction ? ` ${direction}` : ""} slug=${slug}` };
 }
 
 function broadcast(entry) {
@@ -143,7 +144,8 @@ function makeHandler(entry) {
                 const command = String(body.command || "");
                 const slug = normalizeSlug(body.slug || "");
                 const idea = typeof body.idea === "string" ? body.idea.slice(0, 4000) : "";
-                const built = buildPrompt(command, slug, idea);
+                const instructions = typeof body.instructions === "string" ? body.instructions.slice(0, 4000) : "";
+                const built = buildPrompt(command, slug, idea, instructions);
                 if (built.error) {
                     sendJson(res, 400, { ok: false, error: built.error });
                     return;
@@ -221,6 +223,10 @@ const canvas = createCanvas({
                         description: "Which stage to run.",
                     },
                     idea: { type: "string", description: "Idea text (only used for the intake stage)." },
+                    instructions: {
+                        type: "string",
+                        description: "Optional direction, constraints, links, or questions for research, define, shape, or decide.",
+                    },
                 },
                 required: ["stage"],
             },
@@ -231,7 +237,7 @@ const canvas = createCanvas({
                 const stage = stageByKey(ctx.input?.stage);
                 if (!stage) throw new CanvasError("invalid_stage", "Unknown stage");
                 const slug = normalizeSlug(ctx.input?.slug || "");
-                const built = buildPrompt(stage.command, slug, ctx.input?.idea || "");
+                const built = buildPrompt(stage.command, slug, ctx.input?.idea || "", ctx.input?.instructions || "");
                 if (built.error) throw new CanvasError("invalid_input", built.error);
                 session.send({ prompt: built.prompt });
                 return { ok: true, prompt: built.prompt };

@@ -46,11 +46,14 @@
   .card h3 { margin: 0 0 2px; font-size: 15px; }
   .slug { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; }
   .pills { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  .stage-wrap { display: inline-flex; gap: 2px; }
   .pill {
     font-size: 11px; padding: 3px 8px; border-radius: 6px; color: inherit;
     border: 1px solid var(--border-color-default, #d0d7de); background: transparent; cursor: pointer;
   }
   .pill.done { background: var(--true-color-green-muted, #1a7f3722); border-color: transparent; }
+  .pill.stale { border-color: var(--true-color-yellow, #9a6700); color: var(--true-color-yellow, #9a6700); }
+  .pill.redo { opacity: .8; }
   .pill.next { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
   .pill.pending { opacity: .5; cursor: default; }
   .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
@@ -81,6 +84,14 @@
   }
   .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
+  dialog {
+    width: min(520px, calc(100% - 32px)); color: inherit;
+    background: var(--background-color-default, #ffffff);
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .35); }
+  dialog h2 { margin: 0 0 6px; font-size: 17px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -116,6 +127,15 @@
     <pre class="md" id="artBody"></pre>
   </aside>
 </div>
+<dialog id="stageDialog">
+  <h2 id="stageDialogTitle">Run stage</h2>
+  <p class="muted" style="margin: 0 0 10px;">The slug is required and already selected. Add optional direction, links, constraints, or questions for this run.</p>
+  <textarea id="stageInstructions" placeholder="Optional guidance for this stage"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="cancelStage">Cancel</button>
+    <button class="action" id="confirmStage">Run stage</button>
+  </div>
+</dialog>
 <div class="toast" id="toast"></div>
 <script>
 const STAGE_LABELS = { intake: "Intake", research: "Research", define: "Define", shape: "Shape", decide: "Decide" };
@@ -124,6 +144,7 @@ const STAGE_CMD = {
   shape: "speckit.assess.shape", decide: "speckit.assess.decide",
 };
 let STATE = null;
+let PENDING_STAGE = null;
 
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -184,20 +205,31 @@ function card(a) {
   const pills = document.createElement("div"); pills.className = "pills";
   STATE.stages.forEach((s) => {
     const st = a.stages[s.key];
-    const kind = st.done ? "done" : (a.nextStage === s.key ? "next" : "pending");
+    const kind = st.done ? "done" : (st.stale ? "stale" : (a.nextStage === s.key ? "next" : "pending"));
     const p = document.createElement("button");
     p.className = "pill " + kind;
-    p.textContent = STAGE_LABELS[s.key];
-    if (st.done) {
+    p.textContent = STAGE_LABELS[s.key] + (st.stale ? " (stale)" : "");
+    let control = p;
+    if (st.exists) {
       p.title = "View " + st.file;
       p.onclick = () => viewArtifact(a.slug, s.key, a.title + " — " + STAGE_LABELS[s.key]);
+      const redo = document.createElement("button");
+      redo.className = "pill redo";
+      redo.textContent = st.stale ? "Rerun" : "Redo";
+      redo.title = "Run " + s.command + " again";
+      redo.onclick = () => openStageDialog(s.key, a.slug, true);
+      const wrap = document.createElement("span");
+      wrap.className = "stage-wrap";
+      wrap.appendChild(p);
+      wrap.appendChild(redo);
+      control = wrap;
     } else if (kind === "next") {
       p.title = "Run " + s.command;
-      p.onclick = () => run(STAGE_CMD[s.key], a.slug, null);
+      p.onclick = () => openStageDialog(s.key, a.slug, false);
     } else {
       p.disabled = true;
     }
-    pills.appendChild(p);
+    pills.appendChild(control);
   });
   el.appendChild(pills);
 
@@ -207,25 +239,46 @@ function card(a) {
   foot.appendChild(hint);
   if (a.nextStage) {
     const btn = document.createElement("button"); btn.className = "action";
-    btn.textContent = "Run " + STAGE_LABELS[a.nextStage];
-    btn.onclick = () => run(STAGE_CMD[a.nextStage], a.slug, null);
+    const nextState = a.stages[a.nextStage];
+    btn.textContent = (nextState && nextState.stale ? "Rerun " : "Run ") + STAGE_LABELS[a.nextStage];
+    btn.onclick = () => openStageDialog(a.nextStage, a.slug, Boolean(nextState && nextState.exists));
     foot.appendChild(btn);
   }
   el.appendChild(foot);
   return el;
 }
 
-async function run(command, slug, idea) {
+async function run(command, slug, idea, instructions) {
   try {
     const r = await fetch("/api/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command, slug, idea }),
+      body: JSON.stringify({ command, slug, idea, instructions }),
     });
     const j = await r.json();
     if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
   } catch (e) { toast("Error: " + e.message); }
 }
+
+function openStageDialog(stage, slug, redo) {
+  PENDING_STAGE = { stage, slug };
+  document.getElementById("stageDialogTitle").textContent = (redo ? "Redo " : "Run ") + STAGE_LABELS[stage];
+  document.getElementById("stageInstructions").value = "";
+  document.getElementById("stageDialog").showModal();
+}
+
+document.getElementById("cancelStage").onclick = () => {
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+};
+document.getElementById("confirmStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { stage, slug } = PENDING_STAGE;
+  const instructions = document.getElementById("stageInstructions").value.trim();
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  run(STAGE_CMD[stage], slug, null, instructions);
+};
 
 document.getElementById("setupBtn").onclick = async () => {
   try {
@@ -239,7 +292,7 @@ document.getElementById("intakeBtn").onclick = () => {
   const idea = document.getElementById("idea").value.trim();
   const slug = document.getElementById("newslug").value.trim();
   if (!idea) { toast("Enter an idea first"); return; }
-  run("speckit.assess.intake", slug || null, idea);
+  run("speckit.assess.intake", slug || null, idea, null);
   document.getElementById("idea").value = "";
   document.getElementById("newslug").value = "";
 };

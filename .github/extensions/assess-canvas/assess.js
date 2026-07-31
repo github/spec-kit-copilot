@@ -128,26 +128,32 @@ export function scanAssessments(projectRoot) {
         const stages = {};
         let completed = 0;
         let nextStage = null;
+        let chainCurrent = true;
+        let latestMtime = 0;
         for (const stage of STAGES) {
             const filePath = join(dir, stage.file);
-            let done = false;
+            let exists = false;
             let mtime = null;
             try {
                 const st = statSync(filePath);
                 if (st.isFile()) {
-                    done = true;
+                    exists = true;
                     mtime = st.mtimeMs;
                 }
             } catch {
                 // absent
             }
-            stages[stage.key] = { done, file: stage.file, mtime };
+            const stale = exists && (!chainCurrent || (latestMtime > 0 && mtime < latestMtime));
+            const done = exists && !stale;
+            stages[stage.key] = { exists, done, stale, file: stage.file, mtime };
             if (done) {
                 completed++;
                 result.funnel[stage.key]++;
+                latestMtime = Math.max(latestMtime, mtime);
             } else if (!nextStage) {
                 nextStage = stage.key;
             }
+            if (!done) chainCurrent = false;
         }
 
         let verdict = null;
@@ -210,7 +216,7 @@ export function stateSignature(state) {
         parts.push(a.slug);
         for (const stage of STAGES) {
             const s = a.stages[stage.key];
-            parts.push(s.done ? String(Math.round(s.mtime || 0)) : "-");
+            parts.push(s.mtime ? `${Math.round(s.mtime)}:${s.stale ? "s" : "d"}` : "-");
         }
         parts.push(a.verdict || "-");
     }

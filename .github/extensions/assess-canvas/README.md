@@ -17,6 +17,11 @@ commands back to the agent.
   plus a tally of `go` / `needs-clarification` / `kill` verdicts.
 - **Per-idea cards** — title, slug, a pill per stage (done / next / pending),
   the recorded verdict, and a one-click **Run &lt;next stage&gt;** button.
+- **Redo from any stage** — completed artifacts remain previewable and expose a
+  separate **Redo** action. Re-running an earlier stage marks later artifacts
+  stale until those stages are rerun.
+- **Stage guidance** — research, define, shape, and decide accept optional
+  direction, links, constraints, or questions; only the slug is required.
 - **Artifact preview** — click any completed stage to read its Markdown
   (`intake.md`, `research.md`, `problem.md`, `concept.md`, `decision.md`) in a
   side pane.
@@ -46,7 +51,8 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
 - `list_assessments` — returns all assessments with per-stage progress and verdict.
 - `setup_assess` — asks the agent to initialize Spec Kit and install `assess`.
-- `run_stage` — runs a stage (`{ slug, stage, idea? }`) by sending the matching command.
+- `run_stage` — runs or reruns a stage
+  (`{ slug, stage, idea?, instructions? }`) by sending the matching command.
 
 ## Install
 
