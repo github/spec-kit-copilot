@@ -70,9 +70,15 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
 ## Install
 
-**In this repo (committed):** the extension lives at
-`.github/extensions/assess-canvas/`. Copilot CLI discovers it automatically when
-run inside the repo — no install step.
+**Via marketplace (recommended):**
+
+```bash
+copilot plugin marketplace add OWNER/spec-kit-copilot
+copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
+```
+
+The plugin manifest lives at `plugins/spec-kit-copilot-assess/plugin.json` and
+declares this directory through its `extensions/` component path.
 
 **Anywhere else (gist):** share it as a private gist
 ("Share extension as gist…" in the command palette, or the `share_extension`

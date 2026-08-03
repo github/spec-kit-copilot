@@ -1,10 +1,16 @@
-# AGENTS.md — Maintainer guidance for the Spec Kit Copilot plugin
+# AGENTS.md — Maintainer guidance for Spec Kit Copilot integrations
 
-This file captures the design decisions behind this plugin so they are not
+This file captures the design decisions behind these integrations so they are not
 accidentally reverted when revving or regenerating it. Read this before adding,
 removing, or regenerating skills.
 
-## What this plugin is
+## What this repository is
+
+The **Copilot integration hub for Spec Kit**. It can contain independently versioned
+Copilot CLI/App plugins, skills, extensions, canvases, hooks, and workflow surfaces.
+Do not assume every integration belongs in the core skills plugin.
+
+## Core skills plugin
 
 A **GitHub Copilot CLI plugin** (`plugin.json` + `skills/<name>/SKILL.md`) that
 exposes the Spec Kit **`specify` CLI** to the Copilot agent. Each skill documents a
@@ -44,13 +50,16 @@ runs the CLI.
    handles upgrading an already-installed CLI. Keep this prerequisite wiring when
    adding new skills.
 
-3. **The plugin is not pinned to a specific Specify CLI version.** It targets the
+3. **Plugins are independently versioned and are not pinned to Specify CLI.** The
+   core `spec-kit-copilot` plugin targets the
    **latest** `specify` published on PyPI (package `specify-cli`), with a minimum floor
    of **>= 0.11** for the `bundle` / `workflow step` skills — do **not** hard-pin an
    `@vX.Y.Z` install tag in the skills. The plugin's own `version` in `plugin.json` and
    `.github/plugin/marketplace.json` is an **independent** semver that tracks changes to
-   the plugin/skills themselves, not the CLI release. When revving the plugin, bump those
-   versions together and update the README "Versioning" note. Note: `specify init` stamps
+   the plugin/skills themselves, not the CLI release. Marketplace metadata and each
+   plugin entry must match the component they describe; do not force unrelated plugins
+   to share a version. When revving a plugin, update its manifest, marketplace entry,
+   and README version note together. Note: `specify init` stamps
    whichever installed CLI version ran it into the generated project
    (`.specify/init-options.json`, integration manifests), so the CLI version is
    determined at init time, not by this plugin.
@@ -67,16 +76,17 @@ runs the CLI.
    and automatically on the next session start. This is distinct from this plugin's own
    skills, which are refreshed with `copilot plugin install` / `/plugin`.
 
-## When revving the plugin
+## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release
    (`specify <group> --help`, including nested `catalog` / `step` groups).
 2. Add/adjust skills for new or changed command groups — but keep decision (1):
    no integration-management skill, and `init` stays Copilot + skills mode
    (`--integration copilot --integration-options="--skills"`).
-3. Bump the plugin's own `version` in `plugin.json` + both versions in
-   `.github/plugin/marketplace.json` together (independent plugin semver), and update
-   the README "Versioning" note. Keep the `speckit-cli-setup` skill installing the
+3. Bump the core plugin's `version` in `plugin.json` and its marketplace entry
+   together. Bump marketplace metadata when the catalog changes. Do not bump
+   `spec-kit-copilot-assess` unless that plugin changes. Update the README "Versioning"
+   note. Keep the `speckit-cli-setup` skill installing the
    **latest** `specify-cli` from PyPI (no `@vX.Y.Z` pin); only touch the `>= 0.11`
    minimum notes if the floor actually changes.
 4. Reinstall and verify. `copilot plugin install` takes a `plugin@marketplace`,
