@@ -18,27 +18,30 @@ Always check availability before doing anything else:
 specify --version
 ```
 
-- **Prints a version (e.g. `specify 0.11.8`)** → the CLI is installed. If a skill needs
+- **Prints a version (e.g. `specify 0.15.0`)** → the CLI is installed. If a skill needs
   `bundle` or `workflow step`, ensure the version is **>= 0.11**; if it is older, hand
   off to the **speckit-self** skill to upgrade.
 - **`command not found` / non-zero exit** → not installed. Install it (below).
 
 ## Install
 
-Spec Kit's `specify` CLI is distributed from its Git repository. **[uv](https://docs.astral.sh/uv/)**
-is the recommended installer; **[pipx](https://pipx.pypa.io/)** is an alternative.
-This plugin targets `specify` **0.11.8** (see the README "Versioning" note), so install
-that tag (or a newer release):
+Spec Kit's `specify` CLI is published on PyPI as
+**[`specify-cli`](https://pypi.org/project/specify-cli/)**. Install the **latest**
+release — this plugin is not pinned to a specific `specify` version.
+**[uv](https://docs.astral.sh/uv/)** is the recommended installer;
+**[pipx](https://pipx.pypa.io/)** is an alternative:
 
 ```bash
-# Recommended: uv (persistent install)
-uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.11.8
+# Recommended: uv (persistent install, latest from PyPI)
+uv tool install specify-cli
 
-# Alternative: pipx (persistent install)
-pipx install "specify-cli @ git+https://github.com/github/spec-kit.git@v0.11.8"
+# Alternative: pipx (persistent install, latest from PyPI)
+pipx install specify-cli
 
-# One-off / ephemeral (no install) — handy to bootstrap a project
-uvx --from git+https://github.com/github/spec-kit.git@v0.11.8 specify init . --integration copilot --integration-options="--skills"
+# One-off / ephemeral (no install) — handy to bootstrap a project.
+# Pass --script (py keeps this cross-platform) so the PTY-backed agent shell
+# doesn't hit the interactive "Choose script type" chooser and hang.
+uvx --from specify-cli specify init . --integration copilot --integration-options="--skills" --script py
 ```
 
 If neither `uv` nor `pipx` is available, tell the user to install `uv` first
@@ -58,7 +61,9 @@ specify check
   finds that `specify` is not available, it should run this skill's detect/install
   steps first, then retry.
 - For an **already-installed** CLI that just needs a newer version, prefer the
-  **speckit-self** skill (`specify self upgrade`) over reinstalling.
-- Replace `@v0.11.8` with the latest tag from
-  <https://github.com/github/spec-kit/releases> if you intentionally want the newest
-  release rather than the version this plugin targets.
+  **speckit-self** skill (`specify self upgrade`) over reinstalling. To refresh a
+  `uv`/`pipx` install to the latest PyPI release, use `uv tool upgrade specify-cli`
+  or `pipx upgrade specify-cli`.
+- Installing from PyPI always pulls the latest published `specify-cli`. Only pin a
+  specific version (e.g. `uv tool install "specify-cli==0.15.0"`) if you have a
+  concrete reason to hold back.
