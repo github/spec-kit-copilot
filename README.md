@@ -1,28 +1,39 @@
-# Spec Kit Copilot Plugin
+# Spec Kit for GitHub Copilot
 
-A GitHub Copilot CLI **skills plugin** that exposes the [Spec Kit](https://github.com/github/spec-kit)
-`specify` command-line tool to the Copilot agent.
+**Copilot-native integrations for Spec Kit across GitHub Copilot CLI, the Copilot
+App, and VS Code.**
 
-Instead of dispatching prompts to a separate agent, this plugin gives Copilot a set
-of focused **skills** — one per `specify` command group — so the agent knows when and
-how to drive the `specify` CLI on your behalf (scaffolding Copilot projects, managing
-extensions/presets/bundles, running workflows, and maintaining the CLI).
+This repository hosts Copilot-specific integrations and Spec Kit components tailored
+for Copilot: CLI skills, App canvases, and future plugins, hooks, or workflow surfaces.
+Spec Kit remains agent-agnostic; this companion repository provides the first-class
+Copilot experience around it.
 
-**Status:** active development. This is a companion to the agent-agnostic
-[Spec Kit](https://github.com/github/spec-kit) project, focused on making the Copilot
-CLI and Copilot App integration smoother.
+**Status:** active development.
 
 ## Background
 
-[Spec Kit](https://github.com/github/spec-kit) provides the `specify` CLI for
-Spec-Driven Development and is intentionally agent-agnostic. This repository delivers
-the **Copilot** companion: a skills plugin so Copilot CLI and Copilot App users get a
-first-class, guided experience driving `specify` without leaving the agent.
+[Spec Kit](https://github.com/github/spec-kit) provides the `specify` CLI and
+agent-independent foundations for Spec-Driven Development. This repository packages
+the integrations that are specifically useful to Copilot users without adding
+Copilot-only behavior to the core Spec Kit project.
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and
 [open issues](https://github.com/github/spec-kit-copilot/issues) for the current roadmap.
 
-## Skills
+## Plugins
+
+| Plugin | Version | Surface | Purpose |
+| --- | --- | --- | --- |
+| `spec-kit-copilot` | 0.15.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
+| `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
+
+The plugins are independently installable and versioned. Install the core skills,
+the assessment canvas, or both.
+
+## Core skills plugin
+
+`spec-kit-copilot` gives Copilot focused skills—one per `specify` command group—so
+the agent knows when and how to drive the CLI on your behalf.
 
 | Skill | Wraps | Purpose |
 | --- | --- | --- |
@@ -41,9 +52,22 @@ field tells Copilot when to load the skill; the body documents the exact `specif
 sub-commands, options, and usage notes. The plugin is described by the
 [`plugin.json`](plugin.json) manifest at the repository root.
 
+## Assessment canvas plugin
+
+`spec-kit-copilot-assess` ships `assess-canvas`, a side-panel dashboard for the
+optional Spec Kit `assess` extension. It visualizes the intake → research → define
+→ shape → decide funnel, previews artifacts, and invokes the generated assess skills.
+When the project is not initialized for Spec Kit or does not have `assess`
+installed, the canvas guides the agent through setup first.
+
+The canvas has its own plugin manifest and release cadence; installing the core
+`spec-kit-copilot` skills does not enable it. The canvas SDK is currently experimental,
+so its wire protocol may change in future Copilot CLI releases.
+
 ## Requirements
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
+- Copilot CLI 1.0.71 or later when installing `spec-kit-copilot-assess`
 - The Spec Kit `specify` CLI on your `PATH`:
 
   ```bash
@@ -51,12 +75,13 @@ sub-commands, options, and usage notes. The plugin is described by the
   specify --version
   ```
 
-> **Versioning:** this plugin is **not** pinned to a specific Specify CLI version.
-> It targets the **latest** `specify` published on PyPI (package `specify-cli`), with a
+> **Versioning:** each plugin has an independent version and is not pinned to a
+> specific Specify CLI version. The core plugin targets the **latest** `specify`
+> published on PyPI (package `specify-cli`), with a
 > minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills. Install or
 > upgrade with `uv tool install specify-cli` / `uv tool upgrade specify-cli` (or the
-> `pipx` equivalents), or `specify self upgrade`. The plugin's own `version` in
-> `plugin.json` is independent of the CLI version.
+> `pipx` equivalents), or `specify self upgrade`. Each plugin's own `version` is
+> independent of the CLI version.
 
 ## Installation
 
@@ -64,20 +89,21 @@ sub-commands, options, and usage notes. The plugin is described by the
 
 This repository ships a marketplace manifest at
 [`.github/plugin/marketplace.json`](.github/plugin/marketplace.json). Register the
-marketplace, then install the plugin from it:
+marketplace, then install either or both plugins:
 
 ```bash
 copilot plugin marketplace add OWNER/spec-kit-copilot
 copilot plugin install spec-kit-copilot@spec-kit-marketplace
+copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
 ```
 
-### Local development install
+### Local development loading
 
-Point `copilot plugin install` at this directory while iterating (note: direct
-path/URL installs are deprecated and may be removed in a future release):
+Load either plugin directly from a checkout while iterating:
 
 ```bash
-copilot plugin install ./spec-kit-copilot
+copilot --plugin-dir . plugin list
+copilot --plugin-dir plugins/spec-kit-copilot-assess plugin list
 ```
 
 Verify it loaded:
@@ -88,13 +114,14 @@ copilot plugin list
 /skills list
 ```
 
-> When iterating on the plugin locally, run `copilot plugin install ./spec-kit-copilot`
-> again to refresh the cached components.
+For a persistent branch install, use `OWNER/REPO` for the core plugin or
+`OWNER/REPO:plugins/spec-kit-copilot-assess` for the canvas plugin.
 
 Uninstall with the plugin's `name` (from `plugin.json`), not its path:
 
 ```bash
 copilot plugin uninstall spec-kit-copilot
+copilot plugin uninstall spec-kit-copilot-assess
 ```
 
 ## Usage
@@ -122,10 +149,15 @@ See this plugin driving Spec-Driven Development end to end with this community-c
 
 ```javascript
 spec-kit-copilot/
-├── plugin.json              # Plugin manifest (required)
+├── plugin.json              # Core skills plugin manifest
 ├── README.md
 ├── .github/plugin/
 │   └── marketplace.json     # Marketplace manifest (for distribution)
+├── plugins/
+│   └── spec-kit-copilot-assess/
+│       ├── plugin.json      # Assessment canvas plugin manifest
+│       └── extensions/
+│           └── assess-canvas/
 └── skills/
     ├── speckit-cli-setup/SKILL.md
     ├── speckit-init/SKILL.md

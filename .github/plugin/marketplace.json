@@ -4,8 +4,8 @@
     "name": "GitHub"
   },
   "metadata": {
-    "description": "Spec Kit plugins for GitHub Copilot CLI.",
-    "version": "0.15.0"
+    "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
+    "version": "0.15.1"
   },
   "plugins": [
     {
@@ -13,6 +13,12 @@
       "description": "Exposes the Spec Kit (specify) CLI to GitHub Copilot CLI as skills for spec-driven development.",
       "version": "0.15.0",
       "source": "."
+    },
+    {
+      "name": "spec-kit-copilot-assess",
+      "description": "Adds an Idea Assessment canvas for the Spec Kit assess extension.",
+      "version": "0.1.0",
+      "source": "plugins/spec-kit-copilot-assess"
     }
   ]
 }

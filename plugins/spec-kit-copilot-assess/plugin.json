@@ -1,0 +1,20 @@
+{
+  "name": "spec-kit-copilot-assess",
+  "description": "A GitHub Copilot App canvas for the Spec Kit assess idea-discovery funnel.",
+  "version": "0.1.0",
+  "author": {
+    "name": "GitHub",
+    "url": "https://github.com/github/spec-kit-copilot"
+  },
+  "homepage": "https://github.com/github/spec-kit-copilot",
+  "repository": "https://github.com/github/spec-kit-copilot",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven development",
+    "copilot",
+    "canvas",
+    "assessment",
+    "idea discovery"
+  ],
+  "extensions": "extensions/"
+}
