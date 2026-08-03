@@ -176,8 +176,8 @@
 <script>
 const STAGE_LABELS = { intake: "Intake", research: "Research", define: "Define", shape: "Shape", decide: "Decide" };
 const STAGE_CMD = {
-  intake: "speckit.assess.intake", research: "speckit.assess.research", define: "speckit.assess.define",
-  shape: "speckit.assess.shape", decide: "speckit.assess.decide",
+  intake: "speckit-assess-intake", research: "speckit-assess-research", define: "speckit-assess-define",
+  shape: "speckit-assess-shape", decide: "speckit-assess-decide",
 };
 let STATE = null;
 let PENDING_STAGE = null;
@@ -387,7 +387,7 @@ document.getElementById("intakeBtn").onclick = () => {
   const idea = document.getElementById("idea").value.trim();
   const slug = document.getElementById("newslug").value.trim();
   if (!idea) { toast("Enter an idea first"); return; }
-  run("speckit.assess.intake", slug || null, idea, null, false);
+  run("speckit-assess-intake", slug || null, idea, null, false);
   document.getElementById("idea").value = "";
   document.getElementById("newslug").value = "";
 };

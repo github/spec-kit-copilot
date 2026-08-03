@@ -8,8 +8,8 @@ Spec-Driven Development.
 
 The canvas gives that pipeline a side-panel UI: it lists every assessment under
 `.specify/assessments/<slug>/`, shows which stages are done, previews each
-Markdown artifact, and drives the pipeline by sending `/speckit.assess.*`
-commands back to the agent.
+Markdown artifact, and drives the pipeline by invoking the generated
+`speckit-assess-*` skills through the agent.
 
 ## What it does
 
@@ -34,7 +34,7 @@ commands back to the agent.
   confirmation dialog before it sends a validated stage rerun and overwrite
   request to the agent.
 - **New idea → intake** — paste an idea (or URL), optionally set a slug, and
-  kick off `speckit.assess.intake`.
+  kick off `speckit-assess-intake`.
 - **Guided prerequisite setup** — when Spec Kit or the `assess` extension is
   missing, the canvas makes setup the first step and sends the required setup
   work to the agent instead of forwarding an unavailable assess command.
@@ -48,11 +48,11 @@ extension's safety guardrails still apply.
 ## How it drives the pipeline
 
 Buttons in the canvas POST to a loopback HTTP endpoint, which calls
-`session.send({ prompt: "/speckit.assess.<stage> slug=<slug>" })`. The command
+`session.send({ prompt: "/skill:speckit-assess-<stage> slug=<slug>" })`. The skill
 runs in your normal chat session — watch the transcript for the agent's work
 and any prompts (e.g. slug confirmation, URL-fetch approval).
 
-Commands are restricted to the five `speckit.assess.*` verbs and slugs are
+Commands are restricted to the five `speckit-assess-*` skills and slugs are
 normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
 ## Agent-callable actions

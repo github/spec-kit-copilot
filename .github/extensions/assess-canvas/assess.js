@@ -5,20 +5,20 @@
 // canvas can render the five-stage discovery funnel.
 //
 // This module is pure filesystem inspection — it never writes and never
-// drives the agent. All mutation happens by sending `/speckit.assess.*`
-// commands back to the agent from extension.mjs.
+// drives the agent. All mutation happens by invoking the generated
+// `speckit-assess-*` skills from extension.mjs.
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // The five discovery stages, in funnel order. Each stage owns exactly one
-// artifact file (see the assess extension README) and one slash command.
+// artifact file (see the assess extension README) and one generated skill.
 export const STAGES = [
-    { key: "intake", file: "intake.md", command: "speckit.assess.intake", label: "Intake", blurb: "Capture the raw idea" },
-    { key: "research", file: "research.md", command: "speckit.assess.research", label: "Research", blurb: "Gather + challenge evidence" },
-    { key: "define", file: "problem.md", command: "speckit.assess.define", label: "Define", blurb: "Problem, goals, metrics" },
-    { key: "shape", file: "concept.md", command: "speckit.assess.shape", label: "Shape", blurb: "Options + appetite" },
-    { key: "decide", file: "decision.md", command: "speckit.assess.decide", label: "Decide", blurb: "go / clarify / kill" },
+    { key: "intake", file: "intake.md", command: "speckit-assess-intake", label: "Intake", blurb: "Capture the raw idea" },
+    { key: "research", file: "research.md", command: "speckit-assess-research", label: "Research", blurb: "Gather + challenge evidence" },
+    { key: "define", file: "problem.md", command: "speckit-assess-define", label: "Define", blurb: "Problem, goals, metrics" },
+    { key: "shape", file: "concept.md", command: "speckit-assess-shape", label: "Shape", blurb: "Options + appetite" },
+    { key: "decide", file: "decision.md", command: "speckit-assess-decide", label: "Decide", blurb: "go / clarify / kill" },
 ];
 
 const COMMAND_ALLOWLIST = new Set(STAGES.map((s) => s.command));
@@ -61,7 +61,8 @@ export function findProjectRoot(startDir = process.cwd()) {
 
 function isRealDir(p) {
     try {
-        return statSync(p).isDirectory();
+        const stat = lstatSync(p);
+        return !stat.isSymbolicLink() && stat.isDirectory();
     } catch {
         return false;
     }
@@ -82,7 +83,8 @@ function firstHeadingTitle(text, fallback) {
 
 function readIfFile(p) {
     try {
-        if (!statSync(p).isFile()) return null;
+        const stat = lstatSync(p);
+        if (stat.isSymbolicLink() || !stat.isFile()) return null;
         return readFileSync(p, "utf8");
     } catch {
         return null;
@@ -127,34 +129,48 @@ export function scanAssessments(projectRoot) {
 
         const stages = {};
         let completed = 0;
-        let nextStage = null;
-        let chainCurrent = true;
-        let latestMtime = 0;
         for (const stage of STAGES) {
             const filePath = join(dir, stage.file);
             let exists = false;
             let mtime = null;
             try {
-                const st = statSync(filePath);
-                if (st.isFile()) {
+                const st = lstatSync(filePath);
+                if (!st.isSymbolicLink() && st.isFile()) {
                     exists = true;
                     mtime = st.mtimeMs;
                 }
             } catch {
                 // absent
             }
-            const stale = exists && (!chainCurrent || (latestMtime > 0 && mtime < latestMtime));
-            const done = exists && !stale;
-            stages[stage.key] = { exists, done, stale, file: stage.file, mtime };
+            stages[stage.key] = { exists, done: false, stale: false, file: stage.file, mtime };
+        }
+
+        const required = {
+            intake: [],
+            research: [],
+            define: [],
+            shape: ["define"],
+            decide: ["define"],
+        };
+        for (let index = 0; index < STAGES.length; index++) {
+            const stage = STAGES[index];
+            const state = stages[stage.key];
+            const requiredCurrent = required[stage.key].every((key) => stages[key].done);
+            const newerInput = STAGES.slice(0, index).some((input) => {
+                const inputState = stages[input.key];
+                return inputState.exists && inputState.mtime > state.mtime;
+            });
+            const stale = state.exists && (!requiredCurrent || newerInput);
+            const done = state.exists && !stale;
+            state.done = done;
+            state.stale = stale;
             if (done) {
                 completed++;
                 result.funnel[stage.key]++;
-                latestMtime = Math.max(latestMtime, mtime);
-            } else if (!nextStage) {
-                nextStage = stage.key;
             }
-            if (!done) chainCurrent = false;
         }
+        const furthestDone = STAGES.reduce((latest, stage, index) => stages[stage.key].done ? index : latest, -1);
+        const nextStage = furthestDone >= STAGES.length - 1 ? null : STAGES[furthestDone + 1].key;
 
         let verdict = null;
         let title = slug;
@@ -198,12 +214,33 @@ export function readArtifact(projectRoot, slug, stageKey) {
     const stage = stageByKey(stageKey);
     if (!stage) return { ok: false, error: "invalid stage" };
 
-    const assessDir = resolve(join(projectRoot, ".specify", "assessments"));
-    const filePath = resolve(join(assessDir, cleanSlug, stage.file));
-    const expected = join(assessDir, cleanSlug, stage.file);
-    if (filePath !== expected) return { ok: false, error: "path escape" };
-    if (!filePath.startsWith(assessDir + "/")) return { ok: false, error: "path escape" };
-    if (!existsSync(filePath)) return { ok: false, error: "not found" };
+    const specifyDir = resolve(join(projectRoot, ".specify"));
+    const assessDir = join(specifyDir, "assessments");
+    const slugDir = join(assessDir, cleanSlug);
+    const filePath = join(slugDir, stage.file);
+    try {
+        const components = [
+            [specifyDir, "directory"],
+            [assessDir, "directory"],
+            [slugDir, "directory"],
+            [filePath, "file"],
+        ];
+        for (const [path, type] of components) {
+            const stat = lstatSync(path);
+            if (stat.isSymbolicLink()) return { ok: false, error: "symlink not allowed" };
+            if (type === "directory" ? !stat.isDirectory() : !stat.isFile()) {
+                return { ok: false, error: type === "file" ? "not a file" : "not a directory" };
+            }
+        }
+        const realAssessDir = realpathSync(assessDir);
+        const realFilePath = realpathSync(filePath);
+        const containedPath = relative(realAssessDir, realFilePath);
+        if (!containedPath || containedPath.startsWith(`..${sep}`) || containedPath === ".." || isAbsolute(containedPath)) {
+            return { ok: false, error: "path escape" };
+        }
+    } catch {
+        return { ok: false, error: "not found" };
+    }
     const content = readIfFile(filePath);
     if (content === null) return { ok: false, error: "not a file" };
     return { ok: true, slug: cleanSlug, stage: stage.key, file: stage.file, content };
@@ -247,7 +284,11 @@ export function extractClarifications(text) {
 
 // Build a signature string for change detection (used by the SSE poller).
 export function stateSignature(state) {
-    const parts = [state.exists ? "1" : "0"];
+    const parts = [
+        state.exists ? "1" : "0",
+        state.prerequisites.initialized ? "i" : "-",
+        state.prerequisites.assessInstalled ? "a" : "-",
+    ];
     for (const a of state.assessments) {
         parts.push(a.slug);
         for (const stage of STAGES) {
