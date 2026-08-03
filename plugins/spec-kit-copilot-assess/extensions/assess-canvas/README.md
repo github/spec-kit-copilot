@@ -45,6 +45,29 @@ The canvas is **read-only against the filesystem**; it never writes assessment
 files. All changes happen through the `assess` commands themselves, so the
 extension's safety guardrails still apply.
 
+## Opening the dashboard
+
+This is a **canvas extension**, so it renders in the **GitHub Copilot app** side
+panel — not in the plain terminal CLI. Installing the plugin only *registers* the
+canvas; nothing opens automatically.
+
+To open it, ask Copilot in chat, e.g. **"Open the Idea Assessment pipeline"** (or
+"open the assessment dashboard"). The agent matches your request to this canvas
+(`id: assess-canvas`, displayName **"Idea Assessment"**) and opens it in a side
+panel. There is no slash command or menu entry — discovery is the agent matching
+the canvas name/description.
+
+Once it is open you can drive it two ways:
+
+- **Click the panel** — the intake form and each card's Run/Rerun and Clarify
+  buttons.
+- **Ask the agent** — the canvas also exposes agent-callable actions
+  (`list_assessments`, `setup_assess`, `run_stage`, `clarify_item`), so "run the
+  research stage on <slug>" works too.
+
+If the project isn't set up for Spec Kit or the `assess` extension isn't
+installed, the canvas shows a setup step first.
+
 ## How it drives the pipeline
 
 Buttons in the canvas POST to a loopback HTTP endpoint, which calls

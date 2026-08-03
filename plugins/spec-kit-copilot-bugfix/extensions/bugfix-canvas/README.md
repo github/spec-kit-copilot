@@ -46,6 +46,29 @@ The canvas is **read-only against the filesystem**; it never writes bug files.
 All changes happen through the `bug` commands themselves, so the extension's
 safety guardrails still apply (only `speckit-bug-fix` ever edits source code).
 
+## Opening the dashboard
+
+This is a **canvas extension**, so it renders in the **GitHub Copilot app** side
+panel — not in the plain terminal CLI. Installing the plugin only *registers* the
+canvas; nothing opens automatically.
+
+To open it, ask Copilot in chat, e.g. **"Open the Bug Fix Pipeline"** (or "open
+the bug fix dashboard"). The agent matches your request to this canvas
+(`id: bugfix-canvas`, displayName **"Bug Fix Pipeline"**) and opens it in a side
+panel. There is no slash command or menu entry — discovery is the agent matching
+the canvas name/description.
+
+Once it is open you can drive it two ways:
+
+- **Click the panel** — the New bug → assess form and each card's Run/Rerun and
+  Clarify buttons.
+- **Ask the agent** — the canvas also exposes agent-callable actions
+  (`list_bugs`, `setup_bug`, `run_stage`, `clarify_item`), so "run assess on this
+  stack trace in the bug pipeline" works too.
+
+If the project isn't set up for Spec Kit or the `bug` extension isn't installed,
+the canvas shows a setup step first.
+
 ## How it drives the pipeline
 
 Buttons in the canvas POST to a loopback HTTP endpoint, which calls

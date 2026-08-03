@@ -152,6 +152,16 @@ right `specify` command. For example:
 - "Install the platform-starter bundle" → `speckit-bundle`
 - "Is there a newer specify release?" → `speckit-self`
 
+### Opening a canvas dashboard
+
+The **Assessment canvas** and **Bug fix canvas** plugins are *canvas extensions*:
+they render in the **GitHub Copilot app** side panel, not the terminal CLI.
+Installing one only registers its canvas — nothing opens automatically. To open a
+dashboard, ask Copilot, e.g. **"Open the Idea Assessment pipeline"** or **"Open
+the Bug Fix Pipeline"**. The agent opens the matching canvas in a side panel;
+from there you can click its buttons or ask the agent to drive the stages. There
+is no slash command or menu entry. See each plugin's README for details.
+
 ## Walkthroughs
 
 > [!NOTE]
