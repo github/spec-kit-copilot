@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Spec Kit plugins for GitHub Copilot CLI.",
-    "version": "0.15.0"
+    "version": "0.15.1"
   },
   "plugins": [
     {
       "name": "spec-kit-copilot",
       "description": "Exposes Spec Kit to GitHub Copilot CLI through SDD skills and the Idea Assessment canvas.",
-      "version": "0.15.0",
+      "version": "0.15.1",
       "source": "."
     }
   ]

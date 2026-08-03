@@ -93,6 +93,6 @@ the intake form. Assessments are written under
 | File | Purpose |
 |------|---------|
 | `extension.mjs` | SDK wiring: per-instance loopback server, HTTP + SSE endpoints, canvas actions, `session.send` driving. |
-| `assess.js` | Filesystem scan: project-root resolution, stage/verdict detection, safe artifact reads. |
+| `assess.mjs` | Filesystem scan: project-root resolution, stage/verdict detection, safe artifact reads. |
 | `index.html` | The dashboard UI (served to the canvas iframe). |
 | `copilot-extension.json` | Manifest for gist share/install. |

@@ -177,7 +177,7 @@
     <button class="action" id="confirmClarify">Submit and rerun stage</button>
   </div>
 </dialog>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const STAGE_LABELS = { intake: "Intake", research: "Research", define: "Define", shape: "Shape", decide: "Decide" };
 const STAGE_CMD = {
@@ -288,7 +288,11 @@ function card(a) {
 
 function canRunStage(stage, assessment) {
   if (stage === "intake" || stage === "research" || stage === "define") return true;
-  if (stage === "shape" || stage === "decide") return Boolean(assessment.stages.define.done);
+  if (stage === "shape") return Boolean(assessment.stages.define.done);
+  if (stage === "decide") {
+    return Boolean(assessment.stages.define.done)
+      && (!assessment.stages.shape.exists || assessment.stages.shape.done);
+  }
   return false;
 }
 

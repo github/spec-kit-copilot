@@ -23,15 +23,15 @@ import {
     extractClarifications,
     stateSignature,
     STAGES,
-} from "./assess.js";
+} from "./assess.mjs";
 
 let PROJECT_ROOT = findProjectRoot();
 const INDEX_HTML = readFileSync(fileURLToPath(new URL("./index.html", import.meta.url)), "utf8");
 const SETUP_PROMPT = [
     "Set up the Spec Kit assess pipeline in this repository.",
-    "If `.specify/` is missing, run `specify init --here --force --integration copilot --integration-options=\"--skills\" --script py --ignore-agent-tools`.",
-    "Then run `specify extension add assess` and reload Copilot skills in this session.",
-    "Report when the assess commands are ready.",
+    "If `.specify/` is missing or the project is not configured for Copilot skills mode, run `specify init --here --force --integration copilot --integration-options=\"--skills\" --script py --ignore-agent-tools`.",
+    "If assess is absent, run `specify extension add assess`; if it is installed but disabled, run `specify extension enable assess`.",
+    "Confirm all five `speckit-assess-*` skills exist under `.github/skills/`, reload Copilot skills in this session, and report when they are ready.",
 ].join(" ");
 
 // instanceId -> { server, url, clients:Set<res>, lastSig:string, timer }
@@ -60,6 +60,9 @@ function hasCapability(entry, candidate) {
 function stagePrerequisiteError(stageKey, assessment) {
     if ((stageKey === "shape" || stageKey === "decide") && !assessment?.stages?.define?.done) {
         return `${stageKey} requires a current problem.md; rerun define first`;
+    }
+    if (stageKey === "decide" && assessment?.stages?.shape?.exists && !assessment.stages.shape.done) {
+        return "decide requires a current concept.md when present; rerun shape first";
     }
     return null;
 }
@@ -116,7 +119,7 @@ function buildPrompt(command, slug, idea, instructions, overwrite = false) {
     return { prompt: `/skill:${command}${details ? ` ${details}` : ""} slug=${slug}` };
 }
 
-function clarificationRun(slugInput, stageInput, indexInput, questionInput, answerInput) {
+async function clarificationRun(slugInput, stageInput, indexInput, questionInput, answerInput) {
     const slug = normalizeSlug(slugInput || "");
     const stage = stageByKey(stageInput);
     const index = Number(indexInput);
@@ -154,7 +157,7 @@ function clarificationRun(slugInput, stageInput, indexInput, questionInput, answ
         `Rerun the ${target.key} stage and update its existing artifact; the user explicitly confirmed this rerun and overwrite in the canvas.`,
         `slug=${slug}`,
     ].join(" ");
-    session.send({ prompt });
+    await session.send({ prompt });
     return {
         ok: true,
         prompt,
@@ -226,12 +229,12 @@ function makeHandler(entry) {
             }
             if (path === "/api/clarify" && req.method === "POST") {
                 const body = await readBody(req);
-                const result = clarificationRun(body.slug, body.stage, body.index, body.question, body.answer);
+                const result = await clarificationRun(body.slug, body.stage, body.index, body.question, body.answer);
                 sendJson(res, result.error ? 400 : 200, result.error ? { ok: false, error: result.error } : result);
                 return;
             }
             if (path === "/api/setup" && req.method === "POST") {
-                session.send({ prompt: SETUP_PROMPT });
+                await session.send({ prompt: SETUP_PROMPT });
                 sendJson(res, 200, { ok: true, prompt: SETUP_PROMPT });
                 return;
             }
@@ -261,7 +264,7 @@ function makeHandler(entry) {
                     sendJson(res, 400, { ok: false, error: built.error });
                     return;
                 }
-                session.send({ prompt: built.prompt });
+                await session.send({ prompt: built.prompt });
                 sendJson(res, 200, { ok: true, prompt: built.prompt });
                 return;
             }
@@ -329,7 +332,7 @@ const canvas = createCanvas({
             name: "setup_assess",
             description: "Initialize Spec Kit if needed and install the assess extension before running the funnel.",
             handler: async () => {
-                session.send({ prompt: SETUP_PROMPT });
+                await session.send({ prompt: SETUP_PROMPT });
                 return { ok: true, prompt: SETUP_PROMPT };
             },
         },
@@ -348,7 +351,7 @@ const canvas = createCanvas({
                 required: ["slug", "stage", "index", "question", "answer"],
             },
             handler: async (ctx) => {
-                const result = clarificationRun(
+                const result = await clarificationRun(
                     ctx.input?.slug,
                     ctx.input?.stage,
                     ctx.input?.index,
@@ -398,7 +401,7 @@ const canvas = createCanvas({
                     ctx.input?.overwrite === true,
                 );
                 if (built.error) throw new CanvasError("invalid_input", built.error);
-                session.send({ prompt: built.prompt });
+                await session.send({ prompt: built.prompt });
                 return { ok: true, prompt: built.prompt };
             },
         },

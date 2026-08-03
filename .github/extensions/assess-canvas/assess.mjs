@@ -8,7 +8,7 @@
 // drives the agent. All mutation happens by invoking the generated
 // `speckit-assess-*` skills from extension.mjs.
 
-import { closeSync, lstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // The five discovery stages, in funnel order. Each stage owns exactly one
@@ -50,15 +50,14 @@ export function normalizeSlug(raw) {
 // finally fall back to the starting directory itself.
 export function findProjectRoot(startDir = process.cwd()) {
     let dir = resolve(startDir);
-    let gitRoot = null;
     for (let i = 0; i < 50; i++) {
         if (isRealDir(join(dir, ".specify"))) return dir;
-        if (gitRoot === null && isGitMarker(join(dir, ".git"))) gitRoot = dir;
+        if (isGitMarker(join(dir, ".git"))) return dir;
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
     }
-    return gitRoot ?? resolve(startDir);
+    return resolve(startDir);
 }
 
 function isGitMarker(p) {
@@ -102,33 +101,79 @@ function firstHeadingTitle(text, fallback) {
     return m[1].replace(/^[A-Za-z ]+:\s*/, "").trim() || fallback;
 }
 
-function readPrefixIfFile(p, maxBytes = SCAN_PREFIX_BYTES) {
-    let fd;
+function isContained(realRoot, realPath) {
+    const containedPath = relative(realRoot, realPath);
+    return Boolean(containedPath)
+        && containedPath !== ".."
+        && !containedPath.startsWith(`..${sep}`)
+        && !isAbsolute(containedPath);
+}
+
+function realDirectoryWithin(p, realRoot) {
     try {
         const stat = lstatSync(p);
-        if (stat.isSymbolicLink() || !stat.isFile()) return null;
-        fd = openSync(p, "r");
+        if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+        const realPath = realpathSync(p);
+        return !realRoot || realPath === realRoot || isContained(realRoot, realPath) ? realPath : null;
+    } catch {
+        return null;
+    }
+}
+
+function openVerifiedFile(p, realRoot) {
+    let fd;
+    try {
+        const before = lstatSync(p);
+        if (before.isSymbolicLink() || !before.isFile()) return null;
+        const beforeRealPath = realpathSync(p);
+        if (!isContained(realRoot, beforeRealPath)) return null;
+        fd = openSync(p, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+        const opened = fstatSync(fd);
+        const after = lstatSync(p);
+        const afterRealPath = realpathSync(p);
+        if (
+            !opened.isFile()
+            || after.isSymbolicLink()
+            || !after.isFile()
+            || opened.dev !== after.dev
+            || opened.ino !== after.ino
+            || beforeRealPath !== afterRealPath
+            || !isContained(realRoot, afterRealPath)
+        ) {
+            closeSync(fd);
+            fd = undefined;
+            return null;
+        }
+        return { fd, stat: opened };
+    } catch {
+        if (fd !== undefined) closeSync(fd);
+        return null;
+    }
+}
+
+function readPrefixIfFile(p, realRoot, maxBytes = SCAN_PREFIX_BYTES) {
+    const opened = openVerifiedFile(p, realRoot);
+    if (!opened) return null;
+    try {
         const buffer = Buffer.allocUnsafe(maxBytes);
-        const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+        const bytesRead = readSync(opened.fd, buffer, 0, maxBytes, 0);
         return buffer.subarray(0, bytesRead).toString("utf8");
     } catch {
         return null;
     } finally {
-        if (fd !== undefined) closeSync(fd);
+        closeSync(opened.fd);
     }
 }
 
-function readArtifactFile(p) {
-    let fd;
+function readArtifactFile(p, realRoot) {
+    const opened = openVerifiedFile(p, realRoot);
+    if (!opened) return { ok: false, error: "not found" };
     try {
-        const stat = lstatSync(p);
-        if (stat.isSymbolicLink() || !stat.isFile()) return { ok: false, error: "not a file" };
-        if (stat.size > MAX_ARTIFACT_BYTES) {
+        if (opened.stat.size > MAX_ARTIFACT_BYTES) {
             return { ok: false, error: "artifact too large", maxBytes: MAX_ARTIFACT_BYTES };
         }
-        fd = openSync(p, "r");
         const buffer = Buffer.allocUnsafe(MAX_ARTIFACT_BYTES + 1);
-        const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+        const bytesRead = readSync(opened.fd, buffer, 0, buffer.length, 0);
         if (bytesRead > MAX_ARTIFACT_BYTES) {
             return { ok: false, error: "artifact too large", maxBytes: MAX_ARTIFACT_BYTES };
         }
@@ -136,16 +181,49 @@ function readArtifactFile(p) {
     } catch {
         return { ok: false, error: "not found" };
     } finally {
-        if (fd !== undefined) closeSync(fd);
+        closeSync(opened.fd);
     }
+}
+
+function readJsonIfFile(p, realRoot) {
+    const text = readPrefixIfFile(p, realRoot);
+    if (text === null) return null;
+    try {
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
+
+function isVerifiedFile(p, realRoot) {
+    const opened = openVerifiedFile(p, realRoot);
+    if (!opened) return false;
+    closeSync(opened.fd);
+    return true;
+}
+
+function isAssessReady(projectRoot, realProjectRoot, initialized) {
+    if (!initialized || !hasRealDirectoryChain(projectRoot, ".specify", "extensions", "assess")) return false;
+    const registry = readJsonIfFile(join(projectRoot, ".specify", "extensions", ".registry"), realProjectRoot);
+    const registration = registry?.extensions?.assess;
+    if (!registration?.enabled || !Array.isArray(registration.registered_skills)) return false;
+    const registered = new Set(registration.registered_skills);
+    return STAGES.every((stage) => (
+        registered.has(stage.command)
+        && hasRealDirectoryChain(projectRoot, ".github", "skills", stage.command)
+        && isVerifiedFile(join(projectRoot, ".github", "skills", stage.command, "SKILL.md"), realProjectRoot)
+    ));
 }
 
 // Build the full dashboard state for a project root.
 export function scanAssessments(projectRoot) {
+    const realProjectRoot = realDirectoryWithin(projectRoot);
     const assessDir = join(projectRoot, ".specify", "assessments");
-    const initialized = hasRealDirectoryChain(projectRoot, ".specify");
-    const assessmentsExist = initialized && hasRealDirectoryChain(projectRoot, ".specify", "assessments");
-    const assessInstalled = initialized && hasRealDirectoryChain(projectRoot, ".specify", "extensions", "assess");
+    const initialized = Boolean(realProjectRoot) && hasRealDirectoryChain(projectRoot, ".specify");
+    const realAssessDir = initialized && hasRealDirectoryChain(projectRoot, ".specify", "assessments")
+        ? realDirectoryWithin(assessDir, realProjectRoot)
+        : null;
+    const assessInstalled = isAssessReady(projectRoot, realProjectRoot, initialized);
     const result = {
         projectRoot,
         assessDir,
@@ -154,7 +232,7 @@ export function scanAssessments(projectRoot) {
             assessInstalled,
             setupRequired: !initialized || !assessInstalled,
         },
-        exists: assessmentsExist,
+        exists: Boolean(realAssessDir),
         stages: STAGES.map(({ key, label, blurb, command }) => ({ key, label, blurb, command })),
         assessments: [],
         funnel: Object.fromEntries(STAGES.map((s) => [s.key, 0])),
@@ -225,10 +303,10 @@ export function scanAssessments(projectRoot) {
 
         let verdict = null;
         let title = slug;
-        const intakeText = readPrefixIfFile(join(dir, "intake.md"));
+        const intakeText = readPrefixIfFile(join(dir, "intake.md"), realAssessDir);
         if (intakeText) title = firstHeadingTitle(intakeText, slug);
         if (stages.decide.done) {
-            const decisionText = readPrefixIfFile(join(dir, "decision.md"));
+            const decisionText = readPrefixIfFile(join(dir, "decision.md"), realAssessDir);
             if (decisionText) {
                 verdict = parseVerdict(decisionText);
                 if (result.verdicts[verdict] !== undefined) result.verdicts[verdict]++;
@@ -269,6 +347,7 @@ export function readArtifact(projectRoot, slug, stageKey) {
     const assessDir = join(specifyDir, "assessments");
     const slugDir = join(assessDir, cleanSlug);
     const filePath = join(slugDir, stage.file);
+    let realAssessDir;
     try {
         const components = [
             [specifyDir, "directory"],
@@ -283,16 +362,15 @@ export function readArtifact(projectRoot, slug, stageKey) {
                 return { ok: false, error: type === "file" ? "not a file" : "not a directory" };
             }
         }
-        const realAssessDir = realpathSync(assessDir);
+        const realProjectRoot = realDirectoryWithin(projectRoot);
+        realAssessDir = realProjectRoot ? realDirectoryWithin(assessDir, realProjectRoot) : null;
+        if (!realAssessDir) return { ok: false, error: "path escape" };
         const realFilePath = realpathSync(filePath);
-        const containedPath = relative(realAssessDir, realFilePath);
-        if (!containedPath || containedPath.startsWith(`..${sep}`) || containedPath === ".." || isAbsolute(containedPath)) {
-            return { ok: false, error: "path escape" };
-        }
+        if (!isContained(realAssessDir, realFilePath)) return { ok: false, error: "path escape" };
     } catch {
         return { ok: false, error: "not found" };
     }
-    const artifact = readArtifactFile(filePath);
+    const artifact = readArtifactFile(filePath, realAssessDir);
     if (!artifact.ok) return artifact;
     return { ok: true, slug: cleanSlug, stage: stage.key, file: stage.file, content: artifact.content };
 }
