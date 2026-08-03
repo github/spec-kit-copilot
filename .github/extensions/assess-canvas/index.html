@@ -561,7 +561,7 @@ function isClarificationSection(section) {
 
 function openClarificationDialog(slug, stage, clarification) {
   const target = stage === "decide" ? "the revisit stage recorded in the decision" : STAGE_LABELS[stage];
-  PENDING_CLARIFICATION = { slug, stage, index: clarification.index };
+  PENDING_CLARIFICATION = { slug, stage, index: clarification.index, question: clarification.question };
   document.getElementById("clarifyHelp").textContent =
     "Submitting this answer confirms rerunning " + target + " and overwriting its existing artifact.";
   document.getElementById("clarifyQuestion").textContent = clarification.question;

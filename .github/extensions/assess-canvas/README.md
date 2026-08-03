@@ -62,7 +62,7 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
 - `list_assessments` — returns all assessments with per-stage progress and verdict.
 - `setup_assess` — asks the agent to initialize Spec Kit and install `assess`.
-- `clarify_item` — validates a clarification by artifact/index, captures the
+- `clarify_item` — validates a clarification by artifact/index/question, captures the
   user's answer, and reruns the owning stage.
 - `run_stage` — runs or reruns a stage
   (`{ slug, stage, idea?, instructions?, overwrite? }`) by sending the matching

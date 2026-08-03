@@ -1,7 +1,7 @@
 # Spec Kit Copilot Plugin
 
-A GitHub Copilot CLI **skills plugin** that exposes the [Spec Kit](https://github.com/github/spec-kit)
-`specify` command-line tool to the Copilot agent.
+A GitHub Copilot CLI plugin that exposes the [Spec Kit](https://github.com/github/spec-kit)
+`specify` command-line tool through agent skills and an Idea Assessment canvas.
 
 Instead of dispatching prompts to a separate agent, this plugin gives Copilot a set
 of focused **skills** — one per `specify` command group — so the agent knows when and
@@ -41,9 +41,24 @@ field tells Copilot when to load the skill; the body documents the exact `specif
 sub-commands, options, and usage notes. The plugin is described by the
 [`plugin.json`](plugin.json) manifest at the repository root.
 
+## Canvas extension
+
+The plugin also ships `assess-canvas`, a side-panel dashboard for the optional
+Spec Kit `assess` extension. It visualizes the intake → research → define → shape
+→ decide funnel, previews artifacts, and invokes the generated assess skills.
+When the project is not initialized for Spec Kit or does not have `assess`
+installed, the canvas guides the agent through setup first.
+
+The canvas is declared through the plugin manifest's `extensions` component path.
+Installing `spec-kit-copilot` from this repository's marketplace therefore installs
+both the skills and the canvas; `marketplace.json` lists the plugin rather than a
+separate raw extension. The canvas SDK is currently experimental, so its wire
+protocol may change in future Copilot CLI releases.
+
 ## Requirements
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
+  (1.0.71 or later for canvas support)
 - The Spec Kit `specify` CLI on your `PATH`:
 
   ```bash
@@ -124,6 +139,8 @@ See this plugin driving Spec-Driven Development end to end with this community-c
 spec-kit-copilot/
 ├── plugin.json              # Plugin manifest (required)
 ├── README.md
+├── .github/extensions/
+│   └── assess-canvas/       # Idea Assessment canvas extension
 ├── .github/plugin/
 │   └── marketplace.json     # Marketplace manifest (for distribution)
 └── skills/

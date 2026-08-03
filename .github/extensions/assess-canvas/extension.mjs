@@ -29,7 +29,7 @@ let PROJECT_ROOT = findProjectRoot();
 const INDEX_HTML = readFileSync(fileURLToPath(new URL("./index.html", import.meta.url)), "utf8");
 const SETUP_PROMPT = [
     "Set up the Spec Kit assess pipeline in this repository.",
-    "If `.specify/` is missing, run `specify init --here --force --integration copilot --integration-options=\"--skills\"`.",
+    "If `.specify/` is missing, run `specify init --here --force --integration copilot --integration-options=\"--skills\" --script py --ignore-agent-tools`.",
     "Then run `specify extension add assess` and reload Copilot skills in this session.",
     "Report when the assess commands are ready.",
 ].join(" ");
@@ -116,14 +116,16 @@ function buildPrompt(command, slug, idea, instructions, overwrite = false) {
     return { prompt: `/skill:${command}${details ? ` ${details}` : ""} slug=${slug}` };
 }
 
-function clarificationRun(slugInput, stageInput, indexInput, answerInput) {
+function clarificationRun(slugInput, stageInput, indexInput, questionInput, answerInput) {
     const slug = normalizeSlug(slugInput || "");
     const stage = stageByKey(stageInput);
     const index = Number(indexInput);
+    const expectedQuestion = typeof questionInput === "string" ? questionInput.trim().slice(0, 4000) : "";
     const answer = typeof answerInput === "string" ? answerInput.trim().slice(0, 4000) : "";
     if (!slug) return { error: "valid slug required" };
     if (!stage) return { error: "valid artifact stage required" };
     if (!Number.isInteger(index) || index < 0) return { error: "valid clarification index required" };
+    if (!expectedQuestion) return { error: "clarification question required" };
     if (!answer) return { error: "clarification answer required" };
 
     const state = currentState();
@@ -132,6 +134,7 @@ function clarificationRun(slugInput, stageInput, indexInput, answerInput) {
     if (!artifact.ok) return { error: artifact.error };
     const clarification = extractClarifications(artifact.content)[index];
     if (!clarification) return { error: "clarification no longer exists" };
+    if (clarification.question !== expectedQuestion) return { error: "clarification changed; reopen the artifact" };
 
     let target = stage;
     if (stage.key === "decide") {
@@ -223,7 +226,7 @@ function makeHandler(entry) {
             }
             if (path === "/api/clarify" && req.method === "POST") {
                 const body = await readBody(req);
-                const result = clarificationRun(body.slug, body.stage, body.index, body.answer);
+                const result = clarificationRun(body.slug, body.stage, body.index, body.question, body.answer);
                 sendJson(res, result.error ? 400 : 200, result.error ? { ok: false, error: result.error } : result);
                 return;
             }
@@ -339,12 +342,19 @@ const canvas = createCanvas({
                     slug: { type: "string" },
                     stage: { type: "string", enum: STAGES.map((s) => s.key) },
                     index: { type: "integer", minimum: 0 },
+                    question: { type: "string" },
                     answer: { type: "string" },
                 },
-                required: ["slug", "stage", "index", "answer"],
+                required: ["slug", "stage", "index", "question", "answer"],
             },
             handler: async (ctx) => {
-                const result = clarificationRun(ctx.input?.slug, ctx.input?.stage, ctx.input?.index, ctx.input?.answer);
+                const result = clarificationRun(
+                    ctx.input?.slug,
+                    ctx.input?.stage,
+                    ctx.input?.index,
+                    ctx.input?.question,
+                    ctx.input?.answer,
+                );
                 if (result.error) throw new CanvasError("invalid_clarification", result.error);
                 return result;
             },

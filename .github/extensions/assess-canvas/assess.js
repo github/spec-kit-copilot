@@ -8,7 +8,7 @@
 // drives the agent. All mutation happens by invoking the generated
 // `speckit-assess-*` skills from extension.mjs.
 
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // The five discovery stages, in funnel order. Each stage owns exactly one
@@ -23,6 +23,8 @@ export const STAGES = [
 
 const COMMAND_ALLOWLIST = new Set(STAGES.map((s) => s.command));
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
+const MAX_ARTIFACT_BYTES = 1024 * 1024;
+const SCAN_PREFIX_BYTES = 64 * 1024;
 
 export function isAllowedCommand(command) {
     return COMMAND_ALLOWLIST.has(command);
@@ -51,12 +53,21 @@ export function findProjectRoot(startDir = process.cwd()) {
     let gitRoot = null;
     for (let i = 0; i < 50; i++) {
         if (isRealDir(join(dir, ".specify"))) return dir;
-        if (gitRoot === null && isRealDir(join(dir, ".git"))) gitRoot = dir;
+        if (gitRoot === null && isGitMarker(join(dir, ".git"))) gitRoot = dir;
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
     }
     return gitRoot ?? resolve(startDir);
+}
+
+function isGitMarker(p) {
+    try {
+        const stat = lstatSync(p);
+        return !stat.isSymbolicLink() && (stat.isDirectory() || stat.isFile());
+    } catch {
+        return false;
+    }
 }
 
 function isRealDir(p) {
@@ -91,13 +102,41 @@ function firstHeadingTitle(text, fallback) {
     return m[1].replace(/^[A-Za-z ]+:\s*/, "").trim() || fallback;
 }
 
-function readIfFile(p) {
+function readPrefixIfFile(p, maxBytes = SCAN_PREFIX_BYTES) {
+    let fd;
     try {
         const stat = lstatSync(p);
         if (stat.isSymbolicLink() || !stat.isFile()) return null;
-        return readFileSync(p, "utf8");
+        fd = openSync(p, "r");
+        const buffer = Buffer.allocUnsafe(maxBytes);
+        const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+        return buffer.subarray(0, bytesRead).toString("utf8");
     } catch {
         return null;
+    } finally {
+        if (fd !== undefined) closeSync(fd);
+    }
+}
+
+function readArtifactFile(p) {
+    let fd;
+    try {
+        const stat = lstatSync(p);
+        if (stat.isSymbolicLink() || !stat.isFile()) return { ok: false, error: "not a file" };
+        if (stat.size > MAX_ARTIFACT_BYTES) {
+            return { ok: false, error: "artifact too large", maxBytes: MAX_ARTIFACT_BYTES };
+        }
+        fd = openSync(p, "r");
+        const buffer = Buffer.allocUnsafe(MAX_ARTIFACT_BYTES + 1);
+        const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+        if (bytesRead > MAX_ARTIFACT_BYTES) {
+            return { ok: false, error: "artifact too large", maxBytes: MAX_ARTIFACT_BYTES };
+        }
+        return { ok: true, content: buffer.subarray(0, bytesRead).toString("utf8") };
+    } catch {
+        return { ok: false, error: "not found" };
+    } finally {
+        if (fd !== undefined) closeSync(fd);
     }
 }
 
@@ -186,10 +225,10 @@ export function scanAssessments(projectRoot) {
 
         let verdict = null;
         let title = slug;
-        const intakeText = readIfFile(join(dir, "intake.md"));
+        const intakeText = readPrefixIfFile(join(dir, "intake.md"));
         if (intakeText) title = firstHeadingTitle(intakeText, slug);
         if (stages.decide.done) {
-            const decisionText = readIfFile(join(dir, "decision.md"));
+            const decisionText = readPrefixIfFile(join(dir, "decision.md"));
             if (decisionText) {
                 verdict = parseVerdict(decisionText);
                 if (result.verdicts[verdict] !== undefined) result.verdicts[verdict]++;
@@ -253,9 +292,9 @@ export function readArtifact(projectRoot, slug, stageKey) {
     } catch {
         return { ok: false, error: "not found" };
     }
-    const content = readIfFile(filePath);
-    if (content === null) return { ok: false, error: "not a file" };
-    return { ok: true, slug: cleanSlug, stage: stage.key, file: stage.file, content };
+    const artifact = readArtifactFile(filePath);
+    if (!artifact.ok) return artifact;
+    return { ok: true, slug: cleanSlug, stage: stage.key, file: stage.file, content: artifact.content };
 }
 
 const CLARIFICATION_SECTIONS = new Set([

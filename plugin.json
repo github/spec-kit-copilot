@@ -17,5 +17,6 @@
     "copilot",
     "specification"
   ],
-  "skills": "skills/"
+  "skills": "skills/",
+  "extensions": ".github/extensions/"
 }
