@@ -1,0 +1,21 @@
+{
+  "name": "spec-kit-copilot-bugfix",
+  "description": "A GitHub Copilot App canvas for the Spec Kit bug triage assess -> fix -> test pipeline.",
+  "version": "0.1.0",
+  "author": {
+    "name": "GitHub",
+    "url": "https://github.com/github/spec-kit-copilot"
+  },
+  "homepage": "https://github.com/github/spec-kit-copilot",
+  "repository": "https://github.com/github/spec-kit-copilot",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven development",
+    "copilot",
+    "canvas",
+    "bug",
+    "triage",
+    "bug fix"
+  ],
+  "extensions": "extensions/"
+}

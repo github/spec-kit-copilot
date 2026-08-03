@@ -26,9 +26,10 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 | --- | --- | --- | --- |
 | `spec-kit-copilot` | 0.15.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
+| `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 
 The plugins are independently installable and versioned. Install the core skills,
-the assessment canvas, or both.
+the assessment canvas, the bug fix canvas, or any combination.
 
 ## Core skills plugin
 
@@ -64,6 +65,18 @@ The canvas has its own plugin manifest and release cadence; installing the core
 `spec-kit-copilot` skills does not enable it. The canvas SDK is currently experimental,
 so its wire protocol may change in future Copilot CLI releases.
 
+## Bug fix canvas plugin
+
+`spec-kit-copilot-bugfix` ships `bugfix-canvas`, a side-panel dashboard for the
+optional Spec Kit `bug` extension. It visualizes the assess → fix → test triage
+pipeline, previews artifacts, and invokes the generated bug skills. When the
+project is not initialized for Spec Kit or does not have `bug` installed, the
+canvas guides the agent through setup first.
+
+Like the assessment canvas, it has its own plugin manifest and release cadence,
+is not enabled by installing the core skills, and rides the same experimental
+canvas SDK.
+
 ## Requirements
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
@@ -95,6 +108,7 @@ marketplace, then install either or both plugins:
 copilot plugin marketplace add OWNER/spec-kit-copilot
 copilot plugin install spec-kit-copilot@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
+copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
 ```
 
 ### Local development loading
@@ -104,6 +118,7 @@ Load either plugin directly from a checkout while iterating:
 ```bash
 copilot --plugin-dir . plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-assess plugin list
+copilot --plugin-dir plugins/spec-kit-copilot-bugfix plugin list
 ```
 
 Verify it loaded:
@@ -122,6 +137,7 @@ Uninstall with the plugin's `name` (from `plugin.json`), not its path:
 ```bash
 copilot plugin uninstall spec-kit-copilot
 copilot plugin uninstall spec-kit-copilot-assess
+copilot plugin uninstall spec-kit-copilot-bugfix
 ```
 
 ## Usage
@@ -154,10 +170,14 @@ spec-kit-copilot/
 ├── .github/plugin/
 │   └── marketplace.json     # Marketplace manifest (for distribution)
 ├── plugins/
-│   └── spec-kit-copilot-assess/
-│       ├── plugin.json      # Assessment canvas plugin manifest
+│   ├── spec-kit-copilot-assess/
+│   │   ├── plugin.json      # Assessment canvas plugin manifest
+│   │   └── extensions/
+│   │       └── assess-canvas/
+│   └── spec-kit-copilot-bugfix/
+│       ├── plugin.json      # Bug fix canvas plugin manifest
 │       └── extensions/
-│           └── assess-canvas/
+│           └── bugfix-canvas/
 └── skills/
     ├── speckit-cli-setup/SKILL.md
     ├── speckit-init/SKILL.md

@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bug Fix Pipeline</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background-color-default, #ffffff);
+    color: var(--text-color-default, #1f2328);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: var(--text-body-medium, 14px);
+    line-height: var(--leading-body-medium, 20px);
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color-default, #d0d7de);
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+  }
+  h1 { margin: 0 0 4px; font-size: var(--text-title-large, 22px); font-weight: var(--font-weight-semibold, 600); }
+  .muted { color: var(--text-color-muted, #656d76); }
+  .layout { display: flex; }
+  main { flex: 1; padding: 16px 20px; min-width: 0; }
+  aside {
+    width: 46%; max-width: 620px; display: none;
+    border-left: 1px solid var(--border-color-default, #d0d7de); padding: 16px 20px;
+  }
+  aside.open { display: block; }
+  body.artifact-view header, body.artifact-view main { display: none; }
+  body.artifact-view aside {
+    display: block; width: 100%; max-width: none; min-height: 100vh;
+    border-left: 0; padding: 24px clamp(20px, 6vw, 80px);
+  }
+  body.artifact-view .art-head {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+    padding: 8px 0 12px; border-bottom: 1px solid var(--border-color-default, #d0d7de);
+  }
+  body.artifact-view .closex {
+    font-size: 13px; border: 1px solid var(--border-color-default, #d0d7de);
+    border-radius: 6px; padding: 5px 10px;
+  }
+  .funnel { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
+  .stage-chip {
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; display: flex; gap: 6px; align-items: center;
+  }
+  .count { font-weight: 600; }
+  .verdicts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { border-radius: 999px; padding: 2px 8px; font-size: 12px; border: 1px solid var(--border-color-default, #d0d7de); }
+  .badge.verified { color: var(--true-color-green, #1a7f37); border-color: var(--true-color-green-muted, #1a7f3766); }
+  .badge.failed { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #cf222e66); }
+  .badge.partial { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .badge.invalid { color: var(--text-color-muted, #656d76); }
+  .badge.sev-critical, .badge.sev-high { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #cf222e66); }
+  .badge.sev-medium { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .badge.sev-low { color: var(--text-color-muted, #656d76); }
+  .cards { display: grid; gap: 12px; margin-top: 12px; }
+  .card { border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 2px; font-size: 15px; }
+  .card-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .slug { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; }
+  .pills { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  .pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; color: inherit;
+    border: 1px solid var(--border-color-default, #d0d7de); background: transparent; cursor: pointer;
+  }
+  .pill.done { background: var(--true-color-green-muted, #1a7f3722); border-color: transparent; }
+  .pill.stale { border-color: var(--true-color-yellow, #9a6700); color: var(--true-color-yellow, #9a6700); }
+  .pill.available { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
+  .pill.next { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
+  .pill.pending { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  button.action {
+    cursor: pointer; border: 1px solid var(--color-focus-outline, #0969da);
+    background: var(--color-focus-outline, #0969da); color: var(--color-white, #ffffff);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px;
+  }
+  button.action.secondary { background: transparent; color: var(--color-focus-outline, #0969da); }
+  button:disabled { opacity: .5; cursor: default; }
+  .new { margin-top: 16px; border: 1px dashed var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  textarea, input[type=text] {
+    width: 100%; background: transparent; color: inherit; font-family: inherit; font-size: 13px;
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 6px; padding: 8px;
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  .field-label { display: block; margin: 8px 0 4px; font-size: 12px; font-weight: 600; }
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--text-color-default, #1f2328); color: var(--background-color-default, #ffffff);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .empty { padding: 28px; text-align: center; }
+  .md { overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 18px 0 8px; line-height: 1.25; }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 17px; border-bottom: 1px solid var(--border-color-default, #d0d7de); padding-bottom: 5px; }
+  .md h3 { font-size: 15px; }
+  .md h4 { font-size: 14px; }
+  .md p { margin: 8px 0; }
+  .md ul, .md ol { margin: 8px 0; padding-left: 24px; }
+  .md blockquote { margin: 10px 0; padding: 2px 12px; border-left: 3px solid var(--border-color-default, #d0d7de); color: var(--text-color-muted, #656d76); }
+  .md code { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; background: rgba(127,127,127,.1); border-radius: 4px; padding: 2px 4px; }
+  .md pre { white-space: pre-wrap; overflow: auto; background: rgba(127,127,127,.08); padding: 12px; border-radius: 8px; }
+  .md pre code { background: transparent; padding: 0; }
+  .md table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  .md th, .md td { border: 1px solid var(--border-color-default, #d0d7de); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .md th { background: rgba(127,127,127,.08); font-weight: var(--font-weight-semibold, 600); }
+  .clarify-action { margin-left: 8px; padding: 2px 8px !important; font-size: 11px !important; }
+  .clarification-question { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--color-focus-outline, #0969da); background: rgba(127,127,127,.08); }
+  .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
+  dialog {
+    width: min(520px, calc(100% - 32px)); color: inherit;
+    background: var(--background-color-default, #ffffff);
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .35); }
+  dialog h2 { margin: 0 0 6px; font-size: 17px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bug Fix Pipeline</h1>
+  <div class="muted" id="root">…</div>
+  <div class="funnel" id="funnel"></div>
+  <div class="verdicts" id="verdicts"></div>
+</header>
+<div class="layout">
+  <main>
+    <div id="cards" class="cards"></div>
+    <div class="new" id="setup" hidden>
+      <strong>Set up Bug Fix Pipeline</strong>
+      <p class="muted" id="setupText" style="margin: 6px 0 10px;"></p>
+      <button class="action" id="setupBtn">Set up Spec Kit bug extension</button>
+    </div>
+    <div class="new" id="newBug">
+      <strong>New bug → assess</strong>
+      <p class="muted" style="margin: 6px 0;">Paste a bug report (stack trace, error, or a URL). Optionally set a slug.</p>
+      <label class="field-label" for="report">Bug report or source</label>
+      <textarea id="report" placeholder="e.g. Login button does nothing on Safari; console shows a 500 from /api/session"></textarea>
+      <div class="row" style="margin-top: 8px;">
+        <label class="field-label" for="newslug">Slug (optional)</label>
+        <input type="text" id="newslug" placeholder="slug (optional, e.g. login-timeout)" style="max-width: 60%;" />
+        <button class="action" id="assessBtn">Run assess</button>
+      </div>
+    </div>
+  </main>
+  <aside id="aside">
+    <div class="art-head">
+      <strong id="artTitle">Artifact</strong>
+      <button class="closex" id="closeArt" title="Close">×</button>
+    </div>
+    <div class="md" id="artBody"></div>
+  </aside>
+</div>
+<dialog id="stageDialog">
+  <h2 id="stageDialogTitle">Run stage</h2>
+  <p class="muted" id="stageHelp" style="margin: 0 0 10px;"></p>
+  <label class="field-label" for="stageInstructions">Stage guidance</label>
+  <textarea id="stageInstructions" placeholder="Optional guidance for this stage"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="viewStage">View artifact</button>
+    <button class="action secondary" id="cancelStage">Cancel</button>
+    <button class="action" id="confirmStage">Run stage</button>
+  </div>
+</dialog>
+<dialog id="clarifyDialog">
+  <h2>Resolve clarification</h2>
+  <p class="muted" id="clarifyHelp" style="margin: 0 0 8px;"></p>
+  <div class="clarification-question" id="clarifyQuestion"></div>
+  <label class="field-label" for="clarifyAnswer">Clarification answer</label>
+  <textarea id="clarifyAnswer" placeholder="Required clarification answer"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="cancelClarify">Cancel</button>
+    <button class="action" id="confirmClarify">Submit and rerun assess</button>
+  </div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const STAGE_LABELS = { assess: "Assess", fix: "Fix", test: "Test" };
+const STAGE_CMD = {
+  assess: "speckit-bug-assess", fix: "speckit-bug-fix", test: "speckit-bug-test",
+};
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const CAP = PAGE_PARAMS.get("cap") || "";
+let STATE = null;
+let PENDING_STAGE = null;
+let PENDING_CLARIFICATION = null;
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+function endpoint(path, params) {
+  const query = new URLSearchParams(params || undefined);
+  query.set("cap", CAP);
+  return path + "?" + query.toString();
+}
+function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function render(state) {
+  STATE = state;
+  const prereq = state.prerequisites || {};
+  const setupRequired = Boolean(prereq.setupRequired);
+  document.getElementById("root").textContent = setupRequired
+    ? "Setup required before triaging a bug."
+    : (state.exists ? state.bugsDir : "No bugs yet — file your first bug below.");
+  document.getElementById("setup").hidden = !setupRequired;
+  document.getElementById("newBug").hidden = setupRequired;
+  document.getElementById("setupText").textContent = prereq.initialized
+    ? "Spec Kit is initialized, but the bug extension is not installed."
+    : "Initialize Spec Kit in this repository, then install its bug extension.";
+
+  const f = document.getElementById("funnel"); f.innerHTML = "";
+  state.stages.forEach((s) => {
+    const d = document.createElement("div"); d.className = "stage-chip";
+    d.innerHTML = "<span>" + esc(s.label) + "</span><span class=\"count\">" + (state.funnel[s.key] || 0) + "</span>";
+    f.appendChild(d);
+  });
+
+  const v = document.getElementById("verdicts"); v.innerHTML = "";
+  const rs = state.results || {};
+  const mk = (cls, label, n) => { const b = document.createElement("span"); b.className = "badge " + cls; b.textContent = label + ": " + (n || 0); return b; };
+  v.appendChild(mk("verified", "verified", rs.verified));
+  v.appendChild(mk("partial", "partial", rs.partial));
+  v.appendChild(mk("failed", "failed", rs.failed));
+
+  const c = document.getElementById("cards"); c.innerHTML = "";
+  if (!state.bugs.length) {
+    const e = document.createElement("div"); e.className = "empty muted";
+    e.textContent = "No bugs yet.";
+    c.appendChild(e);
+  }
+  state.bugs.forEach((b) => c.appendChild(card(b)));
+}
+
+function card(b) {
+  const el = document.createElement("div"); el.className = "card";
+  const head = document.createElement("div"); head.className = "row";
+  const left = document.createElement("div");
+  left.innerHTML = "<h3>" + esc(b.title) + "</h3><span class=\"slug muted\">" + esc(b.slug) + "</span>";
+  head.appendChild(left);
+  const badges = document.createElement("div"); badges.className = "card-badges";
+  if (b.severity) {
+    const s = document.createElement("span"); s.className = "badge sev-" + b.severity; s.textContent = b.severity;
+    badges.appendChild(s);
+  }
+  if (b.result) {
+    const r = document.createElement("span"); r.className = "badge " + b.result; r.textContent = b.result;
+    badges.appendChild(r);
+  } else if (b.invalid) {
+    const r = document.createElement("span"); r.className = "badge invalid"; r.textContent = "invalid";
+    badges.appendChild(r);
+  }
+  head.appendChild(badges);
+  el.appendChild(head);
+
+  const pills = document.createElement("div"); pills.className = "pills";
+  STATE.stages.forEach((s) => {
+    const st = b.stages[s.key];
+    const available = canRunStage(s.key, b);
+    const kind = st.done ? "done" : (st.stale ? "stale" : (b.nextStage === s.key ? "next" : (available ? "available" : "pending")));
+    const p = document.createElement("button");
+    p.className = "pill " + kind;
+    p.textContent = STAGE_LABELS[s.key] + (st.stale ? " (stale)" : "");
+    if (available) {
+      p.title = "Run " + s.command + (st.exists ? " again" : "");
+      p.onclick = () => openStageDialog(s.key, b.slug, st.exists, b.title);
+    } else {
+      p.disabled = true;
+    }
+    pills.appendChild(p);
+  });
+  el.appendChild(pills);
+
+  const foot = document.createElement("div"); foot.className = "row";
+  const hint = document.createElement("span"); hint.className = "muted"; hint.style.fontSize = "12px";
+  hint.textContent = b.nextStage
+    ? ("Next: " + STAGE_LABELS[b.nextStage])
+    : (b.invalid ? "Assessment: invalid — no fix needed" : (b.result ? "Verified" : "Complete"));
+  foot.appendChild(hint);
+  if (b.nextStage) {
+    const btn = document.createElement("button"); btn.className = "action";
+    const nextState = b.stages[b.nextStage];
+    btn.textContent = (nextState && nextState.stale ? "Rerun " : "Run ") + STAGE_LABELS[b.nextStage];
+    btn.onclick = () => openStageDialog(b.nextStage, b.slug, Boolean(nextState && nextState.exists), b.title);
+    btn.disabled = !canRunStage(b.nextStage, b);
+    foot.appendChild(btn);
+  }
+  el.appendChild(foot);
+  return el;
+}
+
+function canRunStage(stage, bug) {
+  if (stage === "assess") return true;
+  if (stage === "fix") return Boolean(bug.stages.assess.done);
+  if (stage === "test") return Boolean(bug.stages.assess.done && bug.stages.fix.done);
+  return false;
+}
+
+async function run(command, slug, report, instructions, overwrite) {
+  try {
+    const r = await fetch(endpoint("/api/run"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command, slug, report, instructions, overwrite }),
+    });
+    const j = await r.json();
+    if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
+    return Boolean(j.ok);
+  } catch (e) {
+    toast("Error: " + e.message);
+    return false;
+  }
+}
+
+function openStageDialog(stage, slug, redo, title) {
+  const bug = STATE.bugs.find((item) => item.slug === slug);
+  const config = stageDialogConfig(stage, bug);
+  PENDING_STAGE = { stage, slug, title, required: config.required, overwrite: redo };
+  document.getElementById("stageDialogTitle").textContent = (redo ? "Redo " : "Run ") + STAGE_LABELS[stage];
+  document.getElementById("stageHelp").textContent = redo
+    ? "Rerunning confirms overwrite of the existing artifact. Its still-valid content will be preserved while updated inputs are applied. " + config.help
+    : config.help;
+  document.getElementById("stageInstructions").value = "";
+  document.getElementById("stageInstructions").placeholder = config.placeholder;
+  document.getElementById("viewStage").hidden = !redo;
+  document.getElementById("confirmStage").textContent = redo ? "Run again" : "Run stage";
+  document.getElementById("stageDialog").showModal();
+}
+
+function stageDialogConfig(stage, bug) {
+  if (stage === "assess") {
+    return {
+      required: true,
+      help: "Provide the bug report — pasted text, a stack trace, or a URL to an issue. The slug is already selected.",
+      placeholder: "Required bug report or source",
+    };
+  }
+  if (stage === "fix") {
+    return {
+      required: false,
+      help: "Requires and uses assessment.md. Applies the proposed remediation and edits source code. Optionally add focus or constraints.",
+      placeholder: "Optional fix focus or constraints",
+    };
+  }
+  return {
+    required: false,
+    help: "Requires assessment.md and fix.md. Re-runs the reproduction and tests without modifying source. Optionally add which checks to prioritize.",
+    placeholder: "Optional verification focus",
+  };
+}
+
+document.getElementById("viewStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { stage, slug, title } = PENDING_STAGE;
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  openArtifactView(slug, stage, title + " — " + STAGE_LABELS[stage]);
+};
+document.getElementById("cancelStage").onclick = () => {
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+};
+document.getElementById("confirmStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { stage, slug, required, overwrite } = PENDING_STAGE;
+  const value = document.getElementById("stageInstructions").value.trim();
+  if (required && !value) { toast("Input is required for this stage"); return; }
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  run(STAGE_CMD[stage], slug, stage === "assess" ? value : null, stage === "assess" ? null : value, overwrite);
+};
+
+document.getElementById("setupBtn").onclick = async () => {
+  try {
+    const r = await fetch(endpoint("/api/setup"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const j = await r.json();
+    if (j.ok) toast("Setup sent to chat"); else toast("Error: " + (j.error || "failed"));
+  } catch (e) { toast("Error: " + e.message); }
+};
+
+document.getElementById("assessBtn").onclick = async () => {
+  const reportEl = document.getElementById("report");
+  const report = reportEl.value.trim();
+  const slug = document.getElementById("newslug").value.trim();
+  if (!report) { toast("Enter a bug report first"); return; }
+  if (report === reportEl.placeholder.trim()) { toast("That's the example text — describe the actual bug"); return; }
+  const sent = await run("speckit-bug-assess", slug || null, report, null, false);
+  if (sent) {
+    document.getElementById("report").value = "";
+    document.getElementById("newslug").value = "";
+  }
+};
+
+async function viewArtifact(slug, stage, title) {
+  const aside = document.getElementById("aside"); aside.classList.add("open");
+  document.getElementById("artTitle").textContent = title;
+  document.getElementById("artBody").textContent = "Loading…";
+  try {
+    const query = new URLSearchParams({ slug, stage });
+    const [artifactResponse, clarificationResponse] = await Promise.all([
+      fetch(endpoint("/api/artifact", query)),
+      fetch(endpoint("/api/clarifications", query)),
+    ]);
+    const j = await artifactResponse.json();
+    const clarificationResult = await clarificationResponse.json();
+    if (j.ok) {
+      renderMarkdown(document.getElementById("artBody"), j.content, {
+        slug,
+        stage,
+        clarifications: clarificationResult.ok ? clarificationResult.clarifications : [],
+      });
+    }
+    else document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
+  } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+}
+
+function openArtifactView(slug, stage, title) {
+  const params = new URLSearchParams({ artifact: slug, stage, title });
+  window.location.assign(endpoint("/", params));
+}
+
+function renderMarkdown(container, markdown, context) {
+  container.replaceChildren();
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+  let section = "";
+  let clarificationIndex = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (line.startsWith("```")) {
+      const code = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+      if (i < lines.length) i++;
+      const pre = document.createElement("pre");
+      const node = document.createElement("code");
+      node.textContent = code.join("\n");
+      pre.appendChild(node);
+      container.appendChild(pre);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement("h" + heading[1].length);
+      appendInline(node, heading[2]);
+      container.appendChild(node);
+      section = heading[2].trim().toLowerCase();
+      i++;
+      continue;
+    }
+
+    if (i + 1 < lines.length && isTableRow(line) && isTableDivider(lines[i + 1])) {
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      splitTableRow(line).forEach((cell) => {
+        const th = document.createElement("th");
+        appendInline(th, cell);
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      i += 2;
+      const tbody = document.createElement("tbody");
+      while (i < lines.length && isTableRow(lines[i]) && lines[i].trim()) {
+        const tr = document.createElement("tr");
+        splitTableRow(lines[i]).forEach((cell) => {
+          const td = document.createElement("td");
+          appendInline(td, cell);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+        i++;
+      }
+      table.appendChild(tbody);
+      container.appendChild(table);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      const list = document.createElement(unordered ? "ul" : "ol");
+      const pattern = unordered ? /^\s*[-*+]\s+(.+)$/ : /^\s*\d+\.\s+(.+)$/;
+      while (i < lines.length) {
+        const item = lines[i].match(pattern);
+        if (!item) break;
+        const li = document.createElement("li");
+        appendInline(li, item[1]);
+        if (isClarificationSection(section)) {
+          const matches = [...item[1].matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)];
+          matches.forEach(() => {
+            const clarification = context.clarifications[clarificationIndex++];
+            if (!clarification) return;
+            const button = document.createElement("button");
+            button.className = "action secondary clarify-action";
+            button.textContent = "Clarify";
+            button.onclick = () => openClarificationDialog(context.slug, context.stage, clarification);
+            li.appendChild(button);
+          });
+        }
+        list.appendChild(li);
+        i++;
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
+      const node = document.createElement("blockquote");
+      appendInline(node, quote.join(" "));
+      container.appendChild(node);
+      continue;
+    }
+
+    const paragraph = [];
+    while (i < lines.length && lines[i].trim() && !startsMarkdownBlock(lines, i)) paragraph.push(lines[i++].trim());
+    if (!paragraph.length) {
+      paragraph.push(lines[i++].trim());
+    }
+    const node = document.createElement("p");
+    appendInline(node, paragraph.join(" "));
+    container.appendChild(node);
+  }
+}
+
+function isClarificationSection(section) {
+  return [
+    "reproduction",
+    "open questions",
+    "gaps & open questions",
+  ].includes(section);
+}
+
+function openClarificationDialog(slug, stage, clarification) {
+  PENDING_CLARIFICATION = { slug, stage, index: clarification.index, question: clarification.question };
+  document.getElementById("clarifyHelp").textContent =
+    "Submitting this answer confirms rerunning Assess and overwriting its existing assessment.md.";
+  document.getElementById("clarifyQuestion").textContent = clarification.question;
+  document.getElementById("clarifyAnswer").value = "";
+  document.getElementById("clarifyDialog").showModal();
+}
+
+document.getElementById("cancelClarify").onclick = () => {
+  PENDING_CLARIFICATION = null;
+  document.getElementById("clarifyDialog").close();
+};
+document.getElementById("confirmClarify").onclick = async () => {
+  if (!PENDING_CLARIFICATION) return;
+  const answer = document.getElementById("clarifyAnswer").value.trim();
+  if (!answer) { toast("Enter a clarification answer"); return; }
+  const pending = PENDING_CLARIFICATION;
+  try {
+    const response = await fetch(endpoint("/api/clarify"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...pending, answer }),
+    });
+    const result = await response.json();
+    if (!result.ok) { toast("Error: " + (result.error || "failed")); return; }
+    PENDING_CLARIFICATION = null;
+    document.getElementById("clarifyDialog").close();
+    window.location.assign(endpoint("/"));
+  } catch (error) {
+    toast("Error: " + error.message);
+  }
+};
+
+function startsMarkdownBlock(lines, index) {
+  const line = lines[index];
+  return line.startsWith("```")
+    || /^(#{1,4})\s+/.test(line)
+    || /^\s*[-*+]\s+/.test(line)
+    || /^\s*\d+\.\s+/.test(line)
+    || /^\s*>\s?/.test(line)
+    || (index + 1 < lines.length && isTableRow(line) && isTableDivider(lines[index + 1]));
+}
+
+function isTableRow(line) {
+  return line.includes("|");
+}
+
+function isTableDivider(line) {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function appendInline(parent, text) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  for (const match of String(text).matchAll(pattern)) {
+    if (match.index > cursor) parent.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    const token = match[0];
+    const node = document.createElement(token.startsWith("`") ? "code" : (token.startsWith("**") ? "strong" : "em"));
+    node.textContent = token.startsWith("**") ? token.slice(2, -2) : token.slice(1, -1);
+    parent.appendChild(node);
+    cursor = match.index + token.length;
+  }
+  if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
+}
+document.getElementById("closeArt").onclick = () => {
+  if (document.body.classList.contains("artifact-view")) window.location.assign(endpoint("/"));
+  else document.getElementById("aside").classList.remove("open");
+};
+
+const artifactParams = PAGE_PARAMS;
+const artifactSlug = artifactParams.get("artifact");
+const artifactStage = artifactParams.get("stage");
+if (artifactSlug && STAGE_LABELS[artifactStage]) {
+  document.body.classList.add("artifact-view");
+  document.getElementById("closeArt").textContent = "← Dashboard";
+  document.getElementById("closeArt").title = "Back to dashboard";
+  viewArtifact(
+    artifactSlug,
+    artifactStage,
+    artifactParams.get("title") || (artifactSlug + " — " + STAGE_LABELS[artifactStage]),
+  );
+} else {
+  try {
+    const es = new EventSource(endpoint("/events"));
+    es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
+    es.onerror = () => {};
+  } catch (e) { /* fall back to one-shot fetch */ }
+  fetch(endpoint("/api/state")).then((r) => r.json()).then(render).catch(() => {});
+}
+</script>
+</body>
+</html>
