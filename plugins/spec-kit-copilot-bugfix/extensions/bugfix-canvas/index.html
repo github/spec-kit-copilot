@@ -59,6 +59,12 @@
   .badge.sev-critical, .badge.sev-high { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #cf222e66); }
   .badge.sev-medium { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
   .badge.sev-low { color: var(--text-color-muted, #656d76); }
+  .badge.verdict-valid { color: var(--true-color-green, #1a7f37); border-color: var(--true-color-green-muted, #1a7f3766); }
+  .badge.verdict-likely-valid { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .badge.verdict-invalid { color: var(--text-color-muted, #656d76); }
+  .badge.fix-applied { color: var(--true-color-green, #1a7f37); border-color: var(--true-color-green-muted, #1a7f3766); }
+  .badge.fix-partial { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .badge.fix-not-applied { color: var(--text-color-muted, #656d76); }
   .cards { display: grid; gap: 12px; margin-top: 12px; }
   .card { border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
   .card h3 { margin: 0 0 2px; font-size: 15px; }
@@ -144,7 +150,7 @@
       <strong>New bug → assess</strong>
       <p class="muted" style="margin: 6px 0;">Paste a bug report (stack trace, error, or a URL). Optionally set a slug.</p>
       <label class="field-label" for="report">Bug report or source</label>
-      <textarea id="report" placeholder="e.g. Login button does nothing on Safari; console shows a 500 from /api/session"></textarea>
+      <textarea id="report" maxlength="4000" placeholder="e.g. Login button does nothing on Safari; console shows a 500 from /api/session"></textarea>
       <div class="row" style="margin-top: 8px;">
         <label class="field-label" for="newslug">Slug (optional)</label>
         <input type="text" id="newslug" placeholder="slug (optional, e.g. login-timeout)" style="max-width: 60%;" />
@@ -164,7 +170,7 @@
   <h2 id="stageDialogTitle">Run stage</h2>
   <p class="muted" id="stageHelp" style="margin: 0 0 10px;"></p>
   <label class="field-label" for="stageInstructions">Stage guidance</label>
-  <textarea id="stageInstructions" placeholder="Optional guidance for this stage"></textarea>
+  <textarea id="stageInstructions" maxlength="4000" placeholder="Optional guidance for this stage"></textarea>
   <div class="dialog-actions">
     <button class="action secondary" id="viewStage">View artifact</button>
     <button class="action secondary" id="cancelStage">Cancel</button>
@@ -176,7 +182,7 @@
   <p class="muted" id="clarifyHelp" style="margin: 0 0 8px;"></p>
   <div class="clarification-question" id="clarifyQuestion"></div>
   <label class="field-label" for="clarifyAnswer">Clarification answer</label>
-  <textarea id="clarifyAnswer" placeholder="Required clarification answer"></textarea>
+  <textarea id="clarifyAnswer" maxlength="4000" placeholder="Required clarification answer"></textarea>
   <div class="dialog-actions">
     <button class="action secondary" id="cancelClarify">Cancel</button>
     <button class="action" id="confirmClarify">Submit and rerun assess</button>
@@ -250,17 +256,14 @@ function card(b) {
   left.innerHTML = "<h3>" + esc(b.title) + "</h3><span class=\"slug muted\">" + esc(b.slug) + "</span>";
   head.appendChild(left);
   const badges = document.createElement("div"); badges.className = "card-badges";
-  if (b.severity) {
-    const s = document.createElement("span"); s.className = "badge sev-" + b.severity; s.textContent = b.severity;
+  const addBadge = (cls, text) => {
+    const s = document.createElement("span"); s.className = "badge " + cls; s.textContent = text;
     badges.appendChild(s);
-  }
-  if (b.result) {
-    const r = document.createElement("span"); r.className = "badge " + b.result; r.textContent = b.result;
-    badges.appendChild(r);
-  } else if (b.invalid) {
-    const r = document.createElement("span"); r.className = "badge invalid"; r.textContent = "invalid";
-    badges.appendChild(r);
-  }
+  };
+  if (b.severity) addBadge("sev-" + b.severity, b.severity);
+  if (b.verdict) addBadge("verdict-" + b.verdict, b.verdict);
+  if (b.fixStatus) addBadge("fix-" + b.fixStatus, "fix: " + b.fixStatus);
+  if (b.result) addBadge(b.result, b.result);
   head.appendChild(badges);
   el.appendChild(head);
 
@@ -302,6 +305,7 @@ function card(b) {
 
 function canRunStage(stage, bug) {
   if (stage === "assess") return true;
+  if (bug.invalid) return false;
   if (stage === "fix") return Boolean(bug.stages.assess.done);
   if (stage === "test") return Boolean(bug.stages.assess.done && bug.stages.fix.done);
   return false;

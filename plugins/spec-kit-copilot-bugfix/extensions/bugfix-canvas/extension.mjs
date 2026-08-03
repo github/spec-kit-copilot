@@ -86,10 +86,20 @@ async function readBody(req) {
     }
 }
 
+// Reports and stage guidance are capped; oversize input is rejected (never
+// silently truncated) so a long stack trace can't lose its tail unnoticed.
+const MAX_FIELD = 4000;
+
 // Turn a stage skill + slug (+ report text for assess) into the skills-mode
 // prompt we hand to the agent. Rejects anything outside the allowlist.
 function buildPrompt(command, slug, report, instructions, overwrite = false) {
     if (!isAllowedCommand(command)) return { error: "command not allowed" };
+    if (typeof report === "string" && report.length > MAX_FIELD) {
+        return { error: `report exceeds ${MAX_FIELD} characters; shorten it or link to the full text` };
+    }
+    if (typeof instructions === "string" && instructions.length > MAX_FIELD) {
+        return { error: `stage guidance exceeds ${MAX_FIELD} characters; shorten it` };
+    }
     const stage = STAGES.find((item) => item.command === command);
     const bug = currentState().bugs.find((item) => item.slug === slug);
     const artifactExists = Boolean(stage && bug?.stages?.[stage.key]?.exists);
@@ -107,6 +117,9 @@ function buildPrompt(command, slug, report, instructions, overwrite = false) {
         return { prompt: `/skill:${command} ${parts.join(" ")}`.trim() };
     }
     if (!slug) return { error: "slug required" };
+    if ((command === "speckit-bug-fix" || command === "speckit-bug-test") && bug?.invalid) {
+        return { error: "assessment verdict is invalid — the bug pipeline is terminal, so there is nothing to fix or test" };
+    }
     const has = (key) => Boolean(bug?.stages?.[key]?.exists);
     if (command === "speckit-bug-fix" && !has("assess")) {
         return { error: "fix needs an assessment.md; run assess first" };
@@ -127,13 +140,15 @@ async function clarificationRun(slugInput, stageInput, indexInput, questionInput
     const slug = normalizeSlug(slugInput || "");
     const stage = stageByKey(stageInput);
     const index = Number(indexInput);
-    const expectedQuestion = typeof questionInput === "string" ? questionInput.trim().slice(0, 4000) : "";
-    const answer = typeof answerInput === "string" ? answerInput.trim().slice(0, 4000) : "";
+    const expectedQuestion = typeof questionInput === "string" ? questionInput.trim() : "";
+    const answer = typeof answerInput === "string" ? answerInput.trim() : "";
     if (!slug) return { error: "valid slug required" };
     if (!stage) return { error: "valid artifact stage required" };
     if (!Number.isInteger(index) || index < 0) return { error: "valid clarification index required" };
     if (!expectedQuestion) return { error: "clarification question required" };
     if (!answer) return { error: "clarification answer required" };
+    if (expectedQuestion.length > MAX_FIELD) return { error: `clarification question exceeds ${MAX_FIELD} characters` };
+    if (answer.length > MAX_FIELD) return { error: `clarification answer exceeds ${MAX_FIELD} characters` };
 
     const state = currentState();
     if (state.prerequisites.setupRequired) return { error: "Set up Spec Kit and the bug extension first" };
@@ -254,8 +269,8 @@ function makeHandler(entry) {
                 const body = await readBody(req);
                 const command = String(body.command || "");
                 const slug = normalizeSlug(body.slug || "");
-                const report = typeof body.report === "string" ? body.report.slice(0, 4000) : "";
-                const instructions = typeof body.instructions === "string" ? body.instructions.slice(0, 4000) : "";
+                const report = typeof body.report === "string" ? body.report : "";
+                const instructions = typeof body.instructions === "string" ? body.instructions : "";
                 const built = buildPrompt(command, slug, report, instructions, body.overwrite === true);
                 if (built.error) {
                     sendJson(res, 400, { ok: false, error: built.error });

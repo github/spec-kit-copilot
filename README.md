@@ -102,7 +102,7 @@ canvas SDK.
 
 This repository ships a marketplace manifest at
 [`.github/plugin/marketplace.json`](.github/plugin/marketplace.json). Register the
-marketplace, then install either or both plugins:
+marketplace, then install any combination of the plugins:
 
 ```bash
 copilot plugin marketplace add OWNER/spec-kit-copilot
@@ -113,7 +113,7 @@ copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
 
 ### Local development loading
 
-Load either plugin directly from a checkout while iterating:
+Load any of the plugins directly from a checkout while iterating:
 
 ```bash
 copilot --plugin-dir . plugin list
