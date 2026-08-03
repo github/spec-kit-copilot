@@ -27,9 +27,11 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 | `spec-kit-copilot` | 0.15.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
+| `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
 
 The plugins are independently installable and versioned. Install the core skills,
-the assessment canvas, the bug fix canvas, or any combination.
+the assessment canvas, the bug fix canvas, the spec-driven development canvas, or
+any combination.
 
 ## Core skills plugin
 
@@ -77,6 +79,22 @@ Like the assessment canvas, it has its own plugin manifest and release cadence,
 is not enabled by installing the core skills, and rides the same experimental
 canvas SDK.
 
+## Spec-driven development canvas plugin
+
+`spec-kit-copilot-sdd` ships `sdd-canvas`, a side-panel dashboard for the **core**
+Spec Kit workflow: constitution → specify → clarify → plan → tasks → analyze →
+checklist → implement. It lists every feature under `specs/<feature>/`, tracks the
+essential spine plus the optional quality gates, shows the project constitution
+status and per-feature task progress, previews artifacts, and invokes the
+generated core `speckit-*` skills. Unlike the assess and bug canvases, it wraps
+commands that ship with `specify init` itself rather than an optional extension,
+so when the project is not initialized in Copilot skills mode the canvas guides
+the agent through setup first.
+
+Like the other canvases, it has its own plugin manifest and release cadence, is
+not enabled by installing the core skills, and rides the same experimental canvas
+SDK.
+
 ## Requirements
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
@@ -109,6 +127,7 @@ copilot plugin marketplace add OWNER/spec-kit-copilot
 copilot plugin install spec-kit-copilot@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
+copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
 ```
 
 ### Local development loading
@@ -119,6 +138,7 @@ Load any of the plugins directly from a checkout while iterating:
 copilot --plugin-dir . plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-assess plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-bugfix plugin list
+copilot --plugin-dir plugins/spec-kit-copilot-sdd plugin list
 ```
 
 Verify it loaded:
@@ -138,6 +158,7 @@ Uninstall with the plugin's `name` (from `plugin.json`), not its path:
 copilot plugin uninstall spec-kit-copilot
 copilot plugin uninstall spec-kit-copilot-assess
 copilot plugin uninstall spec-kit-copilot-bugfix
+copilot plugin uninstall spec-kit-copilot-sdd
 ```
 
 ## Usage
@@ -154,11 +175,12 @@ right `specify` command. For example:
 
 ### Opening a canvas dashboard
 
-The **Assessment canvas** and **Bug fix canvas** plugins are *canvas extensions*:
-they render in the **GitHub Copilot app** side panel, not the terminal CLI.
-Installing one only registers its canvas — nothing opens automatically. To open a
-dashboard, ask Copilot, e.g. **"Open the Idea Assessment pipeline"** or **"Open
-the Bug Fix Pipeline"**. The agent opens the matching canvas in a side panel;
+The **Assessment canvas**, **Bug fix canvas**, and **Spec-driven development
+canvas** plugins are *canvas extensions*: they render in the **GitHub Copilot
+app** side panel, not the terminal CLI. Installing one only registers its canvas
+— nothing opens automatically. To open a dashboard, ask Copilot, e.g. **"Open the
+Idea Assessment pipeline"**, **"Open the Bug Fix Pipeline"**, or **"Open
+Spec-Driven Development"**. The agent opens the matching canvas in a side panel;
 from there you can click its buttons or ask the agent to drive the stages. There
 is no slash command or menu entry. See each plugin's README for details.
 
@@ -184,10 +206,14 @@ spec-kit-copilot/
 │   │   ├── plugin.json      # Assessment canvas plugin manifest
 │   │   └── extensions/
 │   │       └── assess-canvas/
-│   └── spec-kit-copilot-bugfix/
-│       ├── plugin.json      # Bug fix canvas plugin manifest
+│   ├── spec-kit-copilot-bugfix/
+│   │   ├── plugin.json      # Bug fix canvas plugin manifest
+│   │   └── extensions/
+│   │       └── bugfix-canvas/
+│   └── spec-kit-copilot-sdd/
+│       ├── plugin.json      # Spec-driven development canvas plugin manifest
 │       └── extensions/
-│           └── bugfix-canvas/
+│           └── sdd-canvas/
 └── skills/
     ├── speckit-cli-setup/SKILL.md
     ├── speckit-init/SKILL.md
