@@ -257,7 +257,7 @@ function render(state) {
     e.textContent = "No features yet — describe your first feature below.";
     c.appendChild(e);
   }
-  state.features.forEach((feature) => c.appendChild(card(feature)));
+  if (!setupRequired) state.features.forEach((feature) => c.appendChild(card(feature)));
 }
 
 function renderConstitution(constitution) {
@@ -342,6 +342,7 @@ function pill(key, feature) {
   if (key === "implement" && feature.implement.total > 0) text += " " + feature.implement.completed + "/" + feature.implement.total;
   if (st && st.stale) text += " (stale)";
   p.textContent = text;
+  p.setAttribute("aria-label", text + ": " + kind);
 
   const runnable = key === "specify" ? false : canRun(key, feature);
   const previewable = PREVIEWABLE.has(key) && st && st.exists;
@@ -359,6 +360,7 @@ function pill(key, feature) {
 
 // Client-side gating mirrors the server ordering guard.
 function canRun(key, feature) {
+  if (STATE?.prerequisites?.setupRequired) return false;
   const s = feature.stages;
   switch (key) {
     case "specify": return false;
@@ -517,7 +519,7 @@ function renderMarkdown(container, markdown, context) {
   container.replaceChildren();
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   let i = 0;
-  let clarificationIndex = 0;
+  const clarificationQueues = buildClarificationQueues(context);
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
@@ -551,6 +553,7 @@ function renderMarkdown(container, markdown, context) {
       splitTableRow(line).forEach((cell) => {
         const th = document.createElement("th");
         appendInline(th, cell);
+        appendClarificationActions(th, cell, context, clarificationQueues);
         headRow.appendChild(th);
       });
       thead.appendChild(headRow);
@@ -562,6 +565,7 @@ function renderMarkdown(container, markdown, context) {
         splitTableRow(lines[i]).forEach((cell) => {
           const td = document.createElement("td");
           appendInline(td, cell);
+          appendClarificationActions(td, cell, context, clarificationQueues);
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -582,18 +586,7 @@ function renderMarkdown(container, markdown, context) {
         if (!item) break;
         const li = document.createElement("li");
         appendInline(li, item[1]);
-        if (context.stage === "specify") {
-          const matches = [...item[1].matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)];
-          matches.forEach(() => {
-            const clarification = context.clarifications[clarificationIndex++];
-            if (!clarification) return;
-            const button = document.createElement("button");
-            button.className = "action secondary clarify-action";
-            button.textContent = "Clarify";
-            button.onclick = () => openClarificationDialog(context.feature, clarification);
-            li.appendChild(button);
-          });
-        }
+        appendClarificationActions(li, item[1], context, clarificationQueues);
         list.appendChild(li);
         i++;
       }
@@ -605,7 +598,9 @@ function renderMarkdown(container, markdown, context) {
       const quote = [];
       while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
       const node = document.createElement("blockquote");
-      appendInline(node, quote.join(" "));
+      const text = quote.join(" ");
+      appendInline(node, text);
+      appendClarificationActions(node, text, context, clarificationQueues);
       container.appendChild(node);
       continue;
     }
@@ -619,19 +614,38 @@ function renderMarkdown(container, markdown, context) {
     const text = paragraph.join(" ");
     const node = document.createElement("p");
     appendInline(node, text);
-    if (context.stage === "specify") {
-      const matches = [...text.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)];
-      matches.forEach(() => {
-        const clarification = context.clarifications[clarificationIndex++];
-        if (!clarification) return;
-        const button = document.createElement("button");
-        button.className = "action secondary clarify-action";
-        button.textContent = "Clarify";
-        button.onclick = () => openClarificationDialog(context.feature, clarification);
-        node.appendChild(button);
-      });
-    }
+    appendClarificationActions(node, text, context, clarificationQueues);
     container.appendChild(node);
+  }
+}
+
+function buildClarificationQueues(context) {
+  const queues = new Map();
+  if (context.stage !== "specify") return queues;
+  for (const clarification of context.clarifications || []) {
+    const key = clarification.question.trim().toLowerCase();
+    const queue = queues.get(key) || [];
+    queue.push(clarification);
+    queues.set(key, queue);
+  }
+  return queues;
+}
+
+function appendClarificationActions(node, text, context, queues) {
+  if (context.stage !== "specify") return;
+  for (const match of text.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+    const queue = queues.get(match[1].trim().toLowerCase());
+    const clarification = queue?.shift();
+    if (!clarification) continue;
+    const button = document.createElement("button");
+    button.className = "action secondary clarify-action";
+    button.textContent = "Clarify";
+    button.setAttribute("aria-label", "Clarify: " + clarification.question);
+    button.disabled = Boolean(STATE?.prerequisites?.setupRequired);
+    if (!button.disabled) {
+      button.onclick = () => openClarificationDialog(context.feature, clarification);
+    }
+    node.appendChild(button);
   }
 }
 
@@ -710,6 +724,18 @@ document.getElementById("closeArt").onclick = () => {
   else document.getElementById("aside").classList.remove("open");
 };
 
+async function initializeArtifactView(feature, stage, title) {
+  try {
+    const response = await fetch(endpoint("/api/state"));
+    if (!response.ok) throw new Error("state unavailable");
+    STATE = await response.json();
+  } catch {
+    // Fail closed: artifact previews remain readable, but clarification actions stay disabled.
+    STATE = { prerequisites: { setupRequired: true } };
+  }
+  await viewArtifact(feature, stage, title);
+}
+
 const artifactParam = PAGE_PARAMS.get("artifact");
 const artifactStage = PAGE_PARAMS.get("stage");
 if (artifactParam && PREVIEWABLE.has(artifactStage)) {
@@ -717,7 +743,7 @@ if (artifactParam && PREVIEWABLE.has(artifactStage)) {
   document.getElementById("closeArt").textContent = "← Dashboard";
   document.getElementById("closeArt").title = "Back to dashboard";
   const feature = artifactParam === "__constitution__" ? "" : artifactParam;
-  viewArtifact(feature, artifactStage, PAGE_PARAMS.get("title") || LABELS[artifactStage] || "Artifact");
+  initializeArtifactView(feature, artifactStage, PAGE_PARAMS.get("title") || LABELS[artifactStage] || "Artifact");
 } else {
   try {
     const es = new EventSource(endpoint("/events"));

@@ -413,8 +413,8 @@ export function scanFeatures(projectRoot) {
 
         let progress = { total: 0, completed: 0 };
         if (stages.tasks.done) {
-            const tasksText = readPrefixIfFile(join(dir, "tasks.md"), realSpecsDir);
-            if (tasksText) progress = taskProgress(tasksText);
+            const tasksArtifact = readArtifactFile(join(dir, "tasks.md"), realSpecsDir);
+            if (tasksArtifact.ok) progress = taskProgress(tasksArtifact.content);
         }
         const implementStarted = progress.completed > 0;
         const implementDone = stages.tasks.done && progress.total > 0 && progress.completed === progress.total;
