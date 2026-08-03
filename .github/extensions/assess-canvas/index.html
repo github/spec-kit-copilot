@@ -83,6 +83,7 @@
     border: 1px solid var(--border-color-default, #d0d7de); border-radius: 6px; padding: 8px;
   }
   textarea { min-height: 60px; resize: vertical; }
+  .field-label { display: block; margin: 8px 0 4px; font-size: 12px; font-weight: 600; }
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: var(--text-color-default, #1f2328); color: var(--background-color-default, #ffffff);
@@ -137,8 +138,10 @@
     <div class="new" id="newIdea">
       <strong>New idea → intake</strong>
       <p class="muted" style="margin: 6px 0;">Paste an idea (or a URL). Optionally set a slug.</p>
+      <label class="field-label" for="idea">Idea or source</label>
       <textarea id="idea" placeholder="Let users work offline and sync when they reconnect"></textarea>
       <div class="row" style="margin-top: 8px;">
+        <label class="field-label" for="newslug">Slug (optional)</label>
         <input type="text" id="newslug" placeholder="slug (optional, e.g. offline-mode)" style="max-width: 60%;" />
         <button class="action" id="intakeBtn">Run intake</button>
       </div>
@@ -155,6 +158,7 @@
 <dialog id="stageDialog">
   <h2 id="stageDialogTitle">Run stage</h2>
   <p class="muted" id="stageHelp" style="margin: 0 0 10px;"></p>
+  <label class="field-label" for="stageInstructions">Stage guidance</label>
   <textarea id="stageInstructions" placeholder="Optional guidance for this stage"></textarea>
   <div class="dialog-actions">
     <button class="action secondary" id="viewStage">View artifact</button>
@@ -166,6 +170,7 @@
   <h2>Resolve clarification</h2>
   <p class="muted" id="clarifyHelp" style="margin: 0 0 8px;"></p>
   <div class="clarification-question" id="clarifyQuestion"></div>
+  <label class="field-label" for="clarifyAnswer">Clarification answer</label>
   <textarea id="clarifyAnswer" placeholder="Required clarification answer"></textarea>
   <div class="dialog-actions">
     <button class="action secondary" id="cancelClarify">Cancel</button>
@@ -179,6 +184,8 @@ const STAGE_CMD = {
   intake: "speckit-assess-intake", research: "speckit-assess-research", define: "speckit-assess-define",
   shape: "speckit-assess-shape", decide: "speckit-assess-decide",
 };
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const CAP = PAGE_PARAMS.get("cap") || "";
 let STATE = null;
 let PENDING_STAGE = null;
 let PENDING_CLARIFICATION = null;
@@ -187,6 +194,12 @@ function toast(msg) {
   const t = document.getElementById("toast");
   t.textContent = msg; t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+function endpoint(path, params) {
+  const query = new URLSearchParams(params || undefined);
+  query.set("cap", CAP);
+  return path + "?" + query.toString();
 }
 function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
@@ -247,12 +260,9 @@ function card(a) {
     const p = document.createElement("button");
     p.className = "pill " + kind;
     p.textContent = STAGE_LABELS[s.key] + (st.stale ? " (stale)" : "");
-    if (st.exists) {
-      p.title = "Run " + s.command + " again";
-      p.onclick = () => openStageDialog(s.key, a.slug, true, a.title);
-    } else if (available) {
-      p.title = "Run " + s.command;
-      p.onclick = () => openStageDialog(s.key, a.slug, false, a.title);
+    if (available) {
+      p.title = "Run " + s.command + (st.exists ? " again" : "");
+      p.onclick = () => openStageDialog(s.key, a.slug, st.exists, a.title);
     } else {
       p.disabled = true;
     }
@@ -278,20 +288,24 @@ function card(a) {
 
 function canRunStage(stage, assessment) {
   if (stage === "intake" || stage === "research" || stage === "define") return true;
-  if (stage === "shape" || stage === "decide") return Boolean(assessment.stages.define.exists);
+  if (stage === "shape" || stage === "decide") return Boolean(assessment.stages.define.done);
   return false;
 }
 
 async function run(command, slug, idea, instructions, overwrite) {
   try {
-    const r = await fetch("/api/run", {
+    const r = await fetch(endpoint("/api/run"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command, slug, idea, instructions, overwrite }),
     });
     const j = await r.json();
     if (j.ok) toast("Sent " + j.prompt + " — watch the chat"); else toast("Error: " + (j.error || "failed"));
-  } catch (e) { toast("Error: " + e.message); }
+    return Boolean(j.ok);
+  } catch (e) {
+    toast("Error: " + e.message);
+    return false;
+  }
 }
 
 function openStageDialog(stage, slug, redo, title) {
@@ -377,19 +391,25 @@ document.getElementById("confirmStage").onclick = () => {
 
 document.getElementById("setupBtn").onclick = async () => {
   try {
-    const r = await fetch("/api/setup", { method: "POST" });
+    const r = await fetch(endpoint("/api/setup"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
     const j = await r.json();
     if (j.ok) toast("Setup sent to chat"); else toast("Error: " + (j.error || "failed"));
   } catch (e) { toast("Error: " + e.message); }
 };
 
-document.getElementById("intakeBtn").onclick = () => {
+document.getElementById("intakeBtn").onclick = async () => {
   const idea = document.getElementById("idea").value.trim();
   const slug = document.getElementById("newslug").value.trim();
   if (!idea) { toast("Enter an idea first"); return; }
-  run("speckit-assess-intake", slug || null, idea, null, false);
-  document.getElementById("idea").value = "";
-  document.getElementById("newslug").value = "";
+  const sent = await run("speckit-assess-intake", slug || null, idea, null, false);
+  if (sent) {
+    document.getElementById("idea").value = "";
+    document.getElementById("newslug").value = "";
+  }
 };
 
 async function viewArtifact(slug, stage, title) {
@@ -397,10 +417,10 @@ async function viewArtifact(slug, stage, title) {
   document.getElementById("artTitle").textContent = title;
   document.getElementById("artBody").textContent = "Loading…";
   try {
-    const query = "?slug=" + encodeURIComponent(slug) + "&stage=" + encodeURIComponent(stage);
+    const query = new URLSearchParams({ slug, stage });
     const [artifactResponse, clarificationResponse] = await Promise.all([
-      fetch("/api/artifact" + query),
-      fetch("/api/clarifications" + query),
+      fetch(endpoint("/api/artifact", query)),
+      fetch(endpoint("/api/clarifications", query)),
     ]);
     const j = await artifactResponse.json();
     const clarificationResult = await clarificationResponse.json();
@@ -417,7 +437,7 @@ async function viewArtifact(slug, stage, title) {
 
 function openArtifactView(slug, stage, title) {
   const params = new URLSearchParams({ artifact: slug, stage, title });
-  window.location.assign("/?" + params.toString());
+  window.location.assign(endpoint("/", params));
 }
 
 function renderMarkdown(container, markdown, context) {
@@ -559,7 +579,7 @@ document.getElementById("confirmClarify").onclick = async () => {
   if (!answer) { toast("Enter a clarification answer"); return; }
   const pending = PENDING_CLARIFICATION;
   try {
-    const response = await fetch("/api/clarify", {
+    const response = await fetch(endpoint("/api/clarify"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...pending, answer }),
@@ -568,7 +588,7 @@ document.getElementById("confirmClarify").onclick = async () => {
     if (!result.ok) { toast("Error: " + (result.error || "failed")); return; }
     PENDING_CLARIFICATION = null;
     document.getElementById("clarifyDialog").close();
-    window.location.assign("/");
+    window.location.assign(endpoint("/"));
   } catch (error) {
     toast("Error: " + error.message);
   }
@@ -611,11 +631,11 @@ function appendInline(parent, text) {
   if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
 document.getElementById("closeArt").onclick = () => {
-  if (document.body.classList.contains("artifact-view")) window.location.assign("/");
+  if (document.body.classList.contains("artifact-view")) window.location.assign(endpoint("/"));
   else document.getElementById("aside").classList.remove("open");
 };
 
-const artifactParams = new URLSearchParams(window.location.search);
+const artifactParams = PAGE_PARAMS;
 const artifactSlug = artifactParams.get("artifact");
 const artifactStage = artifactParams.get("stage");
 if (artifactSlug && STAGE_LABELS[artifactStage]) {
@@ -629,11 +649,11 @@ if (artifactSlug && STAGE_LABELS[artifactStage]) {
   );
 } else {
   try {
-    const es = new EventSource("/events");
+    const es = new EventSource(endpoint("/events"));
     es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
     es.onerror = () => {};
   } catch (e) { /* fall back to one-shot fetch */ }
-  fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+  fetch(endpoint("/api/state")).then((r) => r.json()).then(render).catch(() => {});
 }
 </script>
 </body>

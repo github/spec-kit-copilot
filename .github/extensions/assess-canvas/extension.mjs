@@ -9,6 +9,7 @@
 // only the assess commands do that.
 
 import { createServer } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
@@ -44,8 +45,23 @@ function sendJson(res, code, obj) {
     res.writeHead(code, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
     });
     res.end(JSON.stringify(obj));
+}
+
+function hasCapability(entry, candidate) {
+    if (typeof candidate !== "string") return false;
+    const expected = Buffer.from(entry.cap);
+    const actual = Buffer.from(candidate);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function stagePrerequisiteError(stageKey, assessment) {
+    if ((stageKey === "shape" || stageKey === "decide") && !assessment?.stages?.define?.done) {
+        return `${stageKey} requires a current problem.md; rerun define first`;
+    }
+    return null;
 }
 
 async function readBody(req) {
@@ -88,19 +104,14 @@ function buildPrompt(command, slug, idea, instructions, overwrite = false) {
     if (!slug) return { error: "slug required" };
     const direction = typeof instructions === "string" ? instructions.trim() : "";
     const has = (stage) => Boolean(assessment?.stages?.[stage]?.exists);
-    const current = (stage) => Boolean(assessment?.stages?.[stage]?.done);
     if (command === "speckit-assess-research" && !has("intake") && !direction) {
         return { error: "research needs substantive idea text when intake.md is missing" };
     }
     if (command === "speckit-assess-define" && !has("intake") && !has("research") && !direction) {
         return { error: "define needs substantive problem text when intake.md and research.md are missing" };
     }
-    if (command === "speckit-assess-shape" && !current("define")) {
-        return { error: "shape requires a current problem.md; rerun define first" };
-    }
-    if (command === "speckit-assess-decide" && !current("define")) {
-        return { error: "decide requires a current problem.md; rerun define first" };
-    }
+    const prerequisiteError = stagePrerequisiteError(stage.key, assessment);
+    if (prerequisiteError) return { error: prerequisiteError };
     const details = [rerunInstruction, direction].filter(Boolean).join(" ");
     return { prompt: `/skill:${command}${details ? ` ${details}` : ""} slug=${slug}` };
 }
@@ -115,6 +126,8 @@ function clarificationRun(slugInput, stageInput, indexInput, answerInput) {
     if (!Number.isInteger(index) || index < 0) return { error: "valid clarification index required" };
     if (!answer) return { error: "clarification answer required" };
 
+    const state = currentState();
+    if (state.prerequisites.setupRequired) return { error: "Set up Spec Kit and the assess extension first" };
     const artifact = readArtifact(PROJECT_ROOT, slug, stage.key);
     if (!artifact.ok) return { error: artifact.error };
     const clarification = extractClarifications(artifact.content)[index];
@@ -126,6 +139,9 @@ function clarificationRun(slugInput, stageInput, indexInput, answerInput) {
         if (!revisit) return { error: "decision clarification has no revisit stage" };
         target = stageByKey(revisit[1].toLowerCase());
     }
+    const assessment = state.assessments.find((item) => item.slug === slug);
+    const prerequisiteError = stagePrerequisiteError(target.key, assessment);
+    if (prerequisiteError) return { error: prerequisiteError };
 
     const prompt = [
         `/skill:${target.command}`,
@@ -163,15 +179,28 @@ function makeHandler(entry) {
     return async (req, res) => {
         let url;
         try {
-            url = new URL(req.url, "http://127.0.0.1");
+            url = new URL(req.url, entry.origin || "http://127.0.0.1");
         } catch {
             sendJson(res, 400, { ok: false, error: "bad url" });
             return;
         }
         const path = url.pathname;
+        const origin = req.headers.origin;
+        if (req.headers.host !== entry.host || (origin && origin !== entry.origin) || !hasCapability(entry, url.searchParams.get("cap"))) {
+            sendJson(res, 403, { ok: false, error: "forbidden" });
+            return;
+        }
+        if (req.method === "POST" && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
+            sendJson(res, 415, { ok: false, error: "application/json required" });
+            return;
+        }
         try {
             if (path === "/" || path === "/index.html") {
-                res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+                res.writeHead(200, {
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer",
+                });
                 res.end(INDEX_HTML);
                 return;
             }
@@ -242,12 +271,23 @@ function makeHandler(entry) {
 }
 
 async function startServer(instanceId) {
-    const entry = { clients: new Set(), lastSig: "", server: null, url: "", timer: null };
+    const entry = {
+        cap: randomBytes(32).toString("base64url"),
+        clients: new Set(),
+        host: "",
+        lastSig: "",
+        origin: "",
+        server: null,
+        url: "",
+        timer: null,
+    };
     const server = createServer(makeHandler(entry));
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = server.address().port;
     entry.server = server;
-    entry.url = `http://127.0.0.1:${port}/`;
+    entry.host = `127.0.0.1:${port}`;
+    entry.origin = `http://${entry.host}`;
+    entry.url = `${entry.origin}/?cap=${encodeURIComponent(entry.cap)}`;
     // Poll the filesystem and push SSE updates when the assessment state
     // changes (e.g. after an assess command writes a new artifact).
     entry.timer = setInterval(() => broadcast(entry), 1500);
@@ -277,6 +317,7 @@ const canvas = createCanvas({
                         total: a.total,
                         nextStage: a.nextStage,
                         verdict: a.verdict,
+                        stages: a.stages,
                     })),
                 };
             },

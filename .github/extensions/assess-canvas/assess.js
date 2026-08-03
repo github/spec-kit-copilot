@@ -68,6 +68,16 @@ function isRealDir(p) {
     }
 }
 
+function hasRealDirectoryChain(root, ...segments) {
+    let current = resolve(root);
+    if (!isRealDir(current)) return false;
+    for (const segment of segments) {
+        current = join(current, segment);
+        if (!isRealDir(current)) return false;
+    }
+    return true;
+}
+
 // Extract the recorded verdict (go / needs-clarification / kill) from a
 // decision.md, treating its contents strictly as data.
 function parseVerdict(text) {
@@ -94,8 +104,9 @@ function readIfFile(p) {
 // Build the full dashboard state for a project root.
 export function scanAssessments(projectRoot) {
     const assessDir = join(projectRoot, ".specify", "assessments");
-    const initialized = isRealDir(join(projectRoot, ".specify"));
-    const assessInstalled = isRealDir(join(projectRoot, ".specify", "extensions", "assess"));
+    const initialized = hasRealDirectoryChain(projectRoot, ".specify");
+    const assessmentsExist = initialized && hasRealDirectoryChain(projectRoot, ".specify", "assessments");
+    const assessInstalled = initialized && hasRealDirectoryChain(projectRoot, ".specify", "extensions", "assess");
     const result = {
         projectRoot,
         assessDir,
@@ -104,7 +115,7 @@ export function scanAssessments(projectRoot) {
             assessInstalled,
             setupRequired: !initialized || !assessInstalled,
         },
-        exists: isRealDir(assessDir),
+        exists: assessmentsExist,
         stages: STAGES.map(({ key, label, blurb, command }) => ({ key, label, blurb, command })),
         assessments: [],
         funnel: Object.fromEntries(STAGES.map((s) => [s.key, 0])),
@@ -126,6 +137,7 @@ export function scanAssessments(projectRoot) {
         const slug = entry.name;
         if (!SLUG_RE.test(slug)) continue;
         const dir = join(assessDir, slug);
+        if (!isRealDir(dir)) continue;
 
         const stages = {};
         let completed = 0;
@@ -158,7 +170,7 @@ export function scanAssessments(projectRoot) {
             const requiredCurrent = required[stage.key].every((key) => stages[key].done);
             const newerInput = STAGES.slice(0, index).some((input) => {
                 const inputState = stages[input.key];
-                return inputState.exists && inputState.mtime > state.mtime;
+                return inputState.exists && (inputState.stale || inputState.mtime > state.mtime);
             });
             const stale = state.exists && (!requiredCurrent || newerInput);
             const done = state.exists && !stale;

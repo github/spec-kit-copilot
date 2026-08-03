@@ -52,6 +52,9 @@ Buttons in the canvas POST to a loopback HTTP endpoint, which calls
 runs in your normal chat session — watch the transcript for the agent's work
 and any prompts (e.g. slug confirmation, URL-fetch approval).
 
+Each open canvas gets a random capability token. The loopback server requires
+that token and its canonical Host/Origin on UI, API, and event-stream requests.
+
 Commands are restricted to the five `speckit-assess-*` skills and slugs are
 normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 
