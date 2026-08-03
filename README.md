@@ -1,8 +1,7 @@
 # Spec Kit for GitHub Copilot
 
-The integration hub for making [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
-and the [GitHub Copilot App](https://docs.github.com/en/copilot/concepts/agents/github-copilot-app)
-work naturally with [Spec Kit](https://github.com/github/spec-kit).
+**Copilot-native integrations for Spec Kit across GitHub Copilot CLI, the Copilot
+App, and VS Code.**
 
 This repository hosts Copilot-specific integrations and Spec Kit components tailored
 for Copilot: CLI skills, App canvases, and future plugins, hooks, or workflow surfaces.
