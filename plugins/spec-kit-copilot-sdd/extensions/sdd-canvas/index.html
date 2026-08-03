@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spec-Driven Development</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--background-color-default, #ffffff);
+    color: var(--text-color-default, #1f2328);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: var(--text-body-medium, 14px);
+    line-height: var(--leading-body-medium, 20px);
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color-default, #d0d7de);
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+  }
+  h1 { margin: 0 0 4px; font-size: var(--text-title-large, 22px); font-weight: var(--font-weight-semibold, 600); }
+  .muted { color: var(--text-color-muted, #656d76); }
+  .layout { display: flex; }
+  main { flex: 1; padding: 16px 20px; min-width: 0; }
+  aside {
+    width: 46%; max-width: 620px; display: none;
+    border-left: 1px solid var(--border-color-default, #d0d7de); padding: 16px 20px;
+  }
+  aside.open { display: block; }
+  body.artifact-view header, body.artifact-view main { display: none; }
+  body.artifact-view aside {
+    display: block; width: 100%; max-width: none; min-height: 100vh;
+    border-left: 0; padding: 24px clamp(20px, 6vw, 80px);
+  }
+  body.artifact-view .art-head {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--background-color-default, #ffffff);
+    padding: 8px 0 12px; border-bottom: 1px solid var(--border-color-default, #d0d7de);
+  }
+  body.artifact-view .closex {
+    font-size: 13px; border: 1px solid var(--border-color-default, #d0d7de);
+    border-radius: 6px; padding: 5px 10px;
+  }
+  .funnel { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
+  .stage-chip {
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; display: flex; gap: 6px; align-items: center;
+  }
+  .count { font-weight: 600; }
+  .badge { border-radius: 999px; padding: 2px 8px; font-size: 12px; border: 1px solid var(--border-color-default, #d0d7de); }
+  .badge.ok { color: var(--true-color-green, #1a7f37); border-color: var(--true-color-green-muted, #1a7f3766); }
+  .badge.warn { color: var(--true-color-yellow, #9a6700); border-color: #9a670066; }
+  .badge.muted-badge { color: var(--text-color-muted, #656d76); }
+  .badge.active { color: var(--color-focus-outline, #0969da); border-color: var(--color-focus-outline, #0969da); }
+  .cards { display: grid; gap: 12px; margin-top: 12px; }
+  .card { border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  .card.active { border-color: var(--color-focus-outline, #0969da); }
+  .card h3 { margin: 0 0 2px; font-size: 15px; }
+  .card-badges { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .slug { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; }
+  .pills { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  .pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; color: inherit;
+    border: 1px solid var(--border-color-default, #d0d7de); background: transparent; cursor: pointer;
+  }
+  .pill.gate { border-style: dashed; }
+  .pill.done { background: var(--true-color-green-muted, #1a7f3722); border-color: transparent; border-style: solid; }
+  .pill.stale { border-color: var(--true-color-yellow, #9a6700); color: var(--true-color-yellow, #9a6700); }
+  .pill.available { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
+  .pill.next { border-color: var(--color-focus-outline, #0969da); color: var(--color-focus-outline, #0969da); }
+  .pill.pending { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  button.action {
+    cursor: pointer; border: 1px solid var(--color-focus-outline, #0969da);
+    background: var(--color-focus-outline, #0969da); color: var(--color-white, #ffffff);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px;
+  }
+  button.action.secondary { background: transparent; color: var(--color-focus-outline, #0969da); }
+  button:disabled { opacity: .5; cursor: default; }
+  .panel { margin-top: 16px; border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  .panel.dashed { border-style: dashed; }
+  .new { margin-top: 16px; border: 1px dashed var(--border-color-default, #d0d7de); border-radius: 10px; padding: 12px 14px; }
+  textarea, input[type=text] {
+    width: 100%; background: transparent; color: inherit; font-family: inherit; font-size: 13px;
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 6px; padding: 8px;
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  .field-label { display: block; margin: 8px 0 4px; font-size: 12px; font-weight: 600; }
+  .progress { height: 6px; border-radius: 999px; background: rgba(127,127,127,.2); overflow: hidden; margin: 8px 0 2px; }
+  .progress > span { display: block; height: 100%; background: var(--true-color-green, #1a7f37); }
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--text-color-default, #1f2328); color: var(--background-color-default, #ffffff);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .empty { padding: 28px; text-align: center; }
+  .md { overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 18px 0 8px; line-height: 1.25; }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 17px; border-bottom: 1px solid var(--border-color-default, #d0d7de); padding-bottom: 5px; }
+  .md h3 { font-size: 15px; }
+  .md h4 { font-size: 14px; }
+  .md p { margin: 8px 0; }
+  .md ul, .md ol { margin: 8px 0; padding-left: 24px; }
+  .md blockquote { margin: 10px 0; padding: 2px 12px; border-left: 3px solid var(--border-color-default, #d0d7de); color: var(--text-color-muted, #656d76); }
+  .md code { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; background: rgba(127,127,127,.1); border-radius: 4px; padding: 2px 4px; }
+  .md pre { white-space: pre-wrap; overflow: auto; background: rgba(127,127,127,.08); padding: 12px; border-radius: 8px; }
+  .md pre code { background: transparent; padding: 0; }
+  .md table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  .md th, .md td { border: 1px solid var(--border-color-default, #d0d7de); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .md th { background: rgba(127,127,127,.08); font-weight: var(--font-weight-semibold, 600); }
+  .clarify-action { margin-left: 8px; padding: 2px 8px !important; font-size: 11px !important; }
+  .clarification-question { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--color-focus-outline, #0969da); background: rgba(127,127,127,.08); }
+  .art-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .closex { cursor: pointer; border: none; background: transparent; color: inherit; font-size: 18px; }
+  dialog {
+    width: min(520px, calc(100% - 32px)); color: inherit;
+    background: var(--background-color-default, #ffffff);
+    border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .35); }
+  dialog h2 { margin: 0 0 6px; font-size: 17px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spec-Driven Development</h1>
+  <div class="muted" id="root">…</div>
+  <div class="funnel" id="funnel"></div>
+</header>
+<div class="layout">
+  <main>
+    <div class="panel" id="constitution" hidden>
+      <div class="row">
+        <div>
+          <strong>Constitution</strong>
+          <span class="badge" id="constBadge">…</span>
+          <div class="muted" id="constText" style="margin-top: 4px; font-size: 12px;"></div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="action secondary" id="constView">View</button>
+          <button class="action" id="constRun">Create / update</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="cards" class="cards"></div>
+
+    <div class="new" id="setup" hidden>
+      <strong>Set up Spec-Driven Development</strong>
+      <p class="muted" id="setupText" style="margin: 6px 0 10px;"></p>
+      <button class="action" id="setupBtn">Set up Spec Kit (Copilot skills mode)</button>
+    </div>
+
+    <div class="new" id="newFeature">
+      <strong>New feature → specify</strong>
+      <p class="muted" style="margin: 6px 0;">Describe what you want to build. Specify creates the feature spec under <code>specs/</code>.</p>
+      <label class="field-label" for="description">Feature description</label>
+      <textarea id="description" maxlength="4000" placeholder="e.g. Add user authentication with email/password login and session management"></textarea>
+      <div class="row" style="margin-top: 8px; justify-content: flex-end;">
+        <button class="action" id="specifyBtn">Run specify</button>
+      </div>
+    </div>
+  </main>
+  <aside id="aside">
+    <div class="art-head">
+      <strong id="artTitle">Artifact</strong>
+      <button class="closex" id="closeArt" title="Close">×</button>
+    </div>
+    <div class="md" id="artBody"></div>
+  </aside>
+</div>
+<dialog id="stageDialog">
+  <h2 id="stageDialogTitle">Run stage</h2>
+  <p class="muted" id="stageHelp" style="margin: 0 0 10px;"></p>
+  <label class="field-label" for="stageInstructions" id="stageInstructionsLabel">Guidance</label>
+  <textarea id="stageInstructions" maxlength="4000" placeholder="Optional guidance for this stage"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="viewStage">View artifact</button>
+    <button class="action secondary" id="cancelStage">Cancel</button>
+    <button class="action" id="confirmStage">Run</button>
+  </div>
+</dialog>
+<dialog id="clarifyDialog">
+  <h2>Resolve clarification</h2>
+  <p class="muted" id="clarifyHelp" style="margin: 0 0 8px;"></p>
+  <div class="clarification-question" id="clarifyQuestion"></div>
+  <label class="field-label" for="clarifyAnswer">Clarification answer</label>
+  <textarea id="clarifyAnswer" maxlength="4000" placeholder="Required clarification answer"></textarea>
+  <div class="dialog-actions">
+    <button class="action secondary" id="cancelClarify">Cancel</button>
+    <button class="action" id="confirmClarify">Submit and run clarify</button>
+  </div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+// Card pill order: the full core SDD flow for one feature.
+const PILL_ORDER = ["specify", "clarify", "plan", "tasks", "analyze", "checklist", "implement"];
+const LABELS = {
+  constitution: "Constitution", specify: "Specify", clarify: "Clarify", plan: "Plan",
+  tasks: "Tasks", analyze: "Analyze", checklist: "Checklist", implement: "Implement",
+};
+const GATE_KEYS = new Set(["clarify", "analyze", "checklist"]);
+const PREVIEWABLE = new Set(["specify", "plan", "tasks", "constitution"]);
+const OVERWRITE_KEYS = new Set(["plan", "tasks"]);
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const CAP = PAGE_PARAMS.get("cap") || "";
+let STATE = null;
+let PENDING_STAGE = null;
+let PENDING_CLARIFICATION = null;
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+function endpoint(path, params) {
+  const query = new URLSearchParams(params || undefined);
+  query.set("cap", CAP);
+  return path + "?" + query.toString();
+}
+function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function render(state) {
+  STATE = state;
+  const prereq = state.prerequisites || {};
+  const setupRequired = Boolean(prereq.setupRequired);
+  document.getElementById("root").textContent = setupRequired
+    ? "Setup required before spec-driven development."
+    : (state.exists ? state.specsDir : "No features yet — describe your first feature below.");
+  document.getElementById("setup").hidden = !setupRequired;
+  document.getElementById("newFeature").hidden = setupRequired;
+  document.getElementById("constitution").hidden = setupRequired;
+  document.getElementById("setupText").textContent = prereq.initialized
+    ? "Spec Kit is initialized, but the core spec-driven skills are not all installed."
+    : "Initialize Spec Kit in Copilot skills mode so the core spec-driven commands are available.";
+
+  renderConstitution(state.constitution || {});
+
+  const f = document.getElementById("funnel"); f.innerHTML = "";
+  const funnelStages = [...state.stages, state.implement];
+  funnelStages.forEach((s) => {
+    const d = document.createElement("div"); d.className = "stage-chip";
+    d.innerHTML = "<span>" + esc(s.label) + "</span><span class=\"count\">" + (state.funnel[s.key] || 0) + "</span>";
+    f.appendChild(d);
+  });
+
+  const c = document.getElementById("cards"); c.innerHTML = "";
+  if (!setupRequired && !state.features.length) {
+    const e = document.createElement("div"); e.className = "empty muted";
+    e.textContent = "No features yet — describe your first feature below.";
+    c.appendChild(e);
+  }
+  if (!setupRequired) state.features.forEach((feature) => c.appendChild(card(feature)));
+}
+
+function renderConstitution(constitution) {
+  const badge = document.getElementById("constBadge");
+  const text = document.getElementById("constText");
+  const view = document.getElementById("constView");
+  const status = constitution.status || "missing";
+  const map = {
+    ratified: { cls: "ok", label: "ratified", text: "Project principles are in place and guide every stage." },
+    template: { cls: "warn", label: "template", text: "Still has placeholder tokens — run constitution to fill it in." },
+    missing: { cls: "muted-badge", label: "not created", text: "No constitution yet — establish the project's governing principles first." },
+  };
+  const entry = map[status] || map.missing;
+  badge.textContent = entry.label;
+  badge.className = "badge " + entry.cls;
+  text.textContent = entry.text;
+  view.disabled = status === "missing";
+}
+
+function card(feature) {
+  const el = document.createElement("div"); el.className = "card" + (feature.active ? " active" : "");
+  const head = document.createElement("div"); head.className = "row";
+  const left = document.createElement("div");
+  left.innerHTML = "<h3>" + esc(feature.title) + "</h3><span class=\"slug muted\">" + esc(feature.slug) + "</span>";
+  head.appendChild(left);
+  const badges = document.createElement("div"); badges.className = "card-badges";
+  if (feature.active) { const s = document.createElement("span"); s.className = "badge active"; s.textContent = "active"; badges.appendChild(s); }
+  if (feature.clarified) { const s = document.createElement("span"); s.className = "badge ok"; s.textContent = "clarified"; badges.appendChild(s); }
+  if (feature.checklistCount) { const s = document.createElement("span"); s.className = "badge muted-badge"; s.textContent = feature.checklistCount + " checklist" + (feature.checklistCount > 1 ? "s" : ""); badges.appendChild(s); }
+  head.appendChild(badges);
+  el.appendChild(head);
+
+  const pills = document.createElement("div"); pills.className = "pills";
+  PILL_ORDER.forEach((key) => pills.appendChild(pill(key, feature)));
+  el.appendChild(pills);
+
+  if (feature.implement.total > 0) {
+    const bar = document.createElement("div"); bar.className = "progress";
+    const span = document.createElement("span");
+    span.style.width = Math.round((feature.implement.completed / feature.implement.total) * 100) + "%";
+    bar.appendChild(span);
+    el.appendChild(bar);
+    const label = document.createElement("div"); label.className = "muted"; label.style.fontSize = "12px";
+    label.textContent = "Tasks: " + feature.implement.completed + " / " + feature.implement.total + " complete";
+    el.appendChild(label);
+  }
+
+  const foot = document.createElement("div"); foot.className = "row"; foot.style.marginTop = "8px";
+  const hint = document.createElement("span"); hint.className = "muted"; hint.style.fontSize = "12px";
+  hint.textContent = feature.nextStage ? ("Next: " + LABELS[feature.nextStage]) : "Feature complete";
+  foot.appendChild(hint);
+  if (feature.nextStage) {
+    const btn = document.createElement("button"); btn.className = "action";
+    const st = feature.stages[feature.nextStage];
+    const stale = st && st.stale;
+    btn.textContent = (stale ? "Rerun " : "Run ") + LABELS[feature.nextStage];
+    btn.onclick = () => openStageDialog(feature.nextStage, feature.slug, Boolean(st && st.exists));
+    btn.disabled = !canRun(feature.nextStage, feature);
+    foot.appendChild(btn);
+  }
+  el.appendChild(foot);
+  return el;
+}
+
+function pill(key, feature) {
+  const st = feature.stages[key];
+  const p = document.createElement("button");
+  let kind = "pending";
+  if (key === "implement") {
+    kind = feature.implement.done ? "done" : (feature.implement.started ? "next" : (canRun(key, feature) ? "available" : "pending"));
+  } else if (key === "analyze") {
+    kind = canRun(key, feature) ? "available" : "pending";
+  } else if (key === "checklist") {
+    kind = feature.checklistCount > 0 ? "done" : (canRun(key, feature) ? "available" : "pending");
+  } else if (key === "clarify") {
+    kind = feature.clarified ? "done" : (canRun(key, feature) ? "available" : "pending");
+  } else if (st) {
+    kind = st.done ? "done" : (st.stale ? "stale" : (feature.nextStage === key ? "next" : (canRun(key, feature) ? "available" : "pending")));
+  }
+  p.className = "pill " + kind + (GATE_KEYS.has(key) ? " gate" : "");
+  let text = LABELS[key];
+  if (key === "implement" && feature.implement.total > 0) text += " " + feature.implement.completed + "/" + feature.implement.total;
+  if (st && st.stale) text += " (stale)";
+  p.textContent = text;
+  p.setAttribute("aria-label", text + ": " + kind);
+
+  const runnable = key === "specify" ? false : canRun(key, feature);
+  const previewable = PREVIEWABLE.has(key) && st && st.exists;
+  if (runnable) {
+    p.title = "Run " + (LABELS[key]);
+    p.onclick = () => openStageDialog(key, feature.slug, Boolean(st && st.exists));
+  } else if (previewable) {
+    p.title = "View " + st.file;
+    p.onclick = () => openArtifactView(feature.slug, key, feature.title + " — " + LABELS[key]);
+  } else {
+    p.disabled = true;
+  }
+  return p;
+}
+
+// Client-side gating mirrors the server ordering guard.
+function canRun(key, feature) {
+  if (STATE?.prerequisites?.setupRequired) return false;
+  const s = feature.stages;
+  switch (key) {
+    case "specify": return false;
+    case "clarify": return Boolean(s.specify.done);
+    case "checklist": return Boolean(s.specify.done);
+    case "plan": return Boolean(s.specify.done);
+    case "tasks": return Boolean(s.plan.done);
+    case "analyze": return Boolean(s.tasks.done);
+    case "implement": return Boolean(s.tasks.done);
+    default: return false;
+  }
+}
+
+async function run(payload) {
+  try {
+    const r = await fetch(endpoint("/api/run"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (j.ok) toast("Sent to chat — watch the transcript"); else toast("Error: " + (j.error || "failed"));
+    return Boolean(j.ok);
+  } catch (e) {
+    toast("Error: " + e.message);
+    return false;
+  }
+}
+
+function stageDialogConfig(key) {
+  switch (key) {
+    case "constitution":
+      return { help: "Create or update the project constitution — the principles that govern every feature.", placeholder: "Optional: principles to emphasize (e.g. testing, performance, UX)" };
+    case "clarify":
+      return { help: "Ask targeted questions to de-risk the spec, then record answers under a Clarifications session in spec.md. Recommended before plan.", placeholder: "Optional focus areas to clarify" };
+    case "plan":
+      return { help: "Requires and uses spec.md. Produces plan.md plus research, data model, contracts, and quickstart.", placeholder: "Optional tech stack, constraints, or architecture direction" };
+    case "tasks":
+      return { help: "Requires and uses plan.md. Generates a dependency-ordered tasks.md.", placeholder: "Optional prioritization or grouping guidance" };
+    case "analyze":
+      return { help: "Read-only cross-artifact consistency check across spec, plan, and tasks. Writes no files. Recommended before implement.", placeholder: "Optional areas to scrutinize" };
+    case "checklist":
+      return { help: "Generate a quality checklist (\"unit tests for English\") under the feature's checklists/ folder.", placeholder: "Optional checklist type or focus (e.g. security, UX, testing)" };
+    case "implement":
+      return { help: "Requires tasks.md. Executes the tasks and edits source code, checking off tasks as it goes.", placeholder: "Optional scope or constraints for this run" };
+    default:
+      return { help: "", placeholder: "Optional guidance" };
+  }
+}
+
+function openStageDialog(key, feature, redo) {
+  const config = stageDialogConfig(key);
+  const overwrite = OVERWRITE_KEYS.has(key) && redo;
+  PENDING_STAGE = { key, feature, overwrite };
+  document.getElementById("stageDialogTitle").textContent = (redo ? "Rerun " : "Run ") + LABELS[key];
+  document.getElementById("stageHelp").textContent = overwrite
+    ? "Rerunning confirms overwrite of the existing artifact. Its still-valid content is preserved while updated inputs are applied. " + config.help
+    : config.help;
+  document.getElementById("stageInstructions").value = "";
+  document.getElementById("stageInstructions").placeholder = config.placeholder;
+  document.getElementById("viewStage").hidden = !(PREVIEWABLE.has(key) && redo);
+  document.getElementById("confirmStage").textContent = redo ? "Run again" : "Run";
+  document.getElementById("stageDialog").showModal();
+}
+
+document.getElementById("viewStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { key, feature } = PENDING_STAGE;
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  openArtifactView(feature, key, LABELS[key]);
+};
+document.getElementById("cancelStage").onclick = () => {
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+};
+document.getElementById("confirmStage").onclick = () => {
+  if (!PENDING_STAGE) return;
+  const { key, feature, overwrite } = PENDING_STAGE;
+  const value = document.getElementById("stageInstructions").value.trim();
+  PENDING_STAGE = null;
+  document.getElementById("stageDialog").close();
+  run({ key, feature, instructions: value, overwrite });
+};
+
+document.getElementById("constRun").onclick = () => openConstitutionDialog();
+document.getElementById("constView").onclick = () => openArtifactView("", "constitution", "Constitution");
+function openConstitutionDialog() {
+  const config = stageDialogConfig("constitution");
+  PENDING_STAGE = { key: "constitution", feature: "", overwrite: false };
+  document.getElementById("stageDialogTitle").textContent = "Run Constitution";
+  document.getElementById("stageHelp").textContent = config.help;
+  document.getElementById("stageInstructions").value = "";
+  document.getElementById("stageInstructions").placeholder = config.placeholder;
+  document.getElementById("viewStage").hidden = true;
+  document.getElementById("confirmStage").textContent = "Run";
+  document.getElementById("stageDialog").showModal();
+}
+
+document.getElementById("setupBtn").onclick = async () => {
+  try {
+    const r = await fetch(endpoint("/api/setup"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const j = await r.json();
+    if (j.ok) toast("Setup sent to chat"); else toast("Error: " + (j.error || "failed"));
+  } catch (e) { toast("Error: " + e.message); }
+};
+
+document.getElementById("specifyBtn").onclick = async () => {
+  const descEl = document.getElementById("description");
+  const description = descEl.value.trim();
+  if (!description) { toast("Describe the feature first"); return; }
+  if (description === descEl.placeholder.trim()) { toast("That's the example text — describe the actual feature"); return; }
+  const sent = await run({ key: "specify", description });
+  if (sent) descEl.value = "";
+};
+
+async function viewArtifact(feature, stage, title) {
+  const aside = document.getElementById("aside"); aside.classList.add("open");
+  document.getElementById("artTitle").textContent = title;
+  document.getElementById("artBody").textContent = "Loading…";
+  try {
+    const query = new URLSearchParams({ stage });
+    if (feature) query.set("feature", feature);
+    const requests = [fetch(endpoint("/api/artifact", query))];
+    if (stage === "specify") {
+      const clarifyQuery = new URLSearchParams({ feature });
+      requests.push(fetch(endpoint("/api/clarifications", clarifyQuery)));
+    }
+    const responses = await Promise.all(requests);
+    const j = await responses[0].json();
+    let clarifications = [];
+    if (responses[1]) {
+      const cr = await responses[1].json();
+      if (cr.ok) clarifications = cr.clarifications;
+    }
+    if (j.ok) {
+      renderMarkdown(document.getElementById("artBody"), j.content, { feature, stage, clarifications });
+    } else {
+      document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
+    }
+  } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+}
+
+function openArtifactView(feature, stage, title) {
+  const params = new URLSearchParams({ stage, title });
+  if (feature) params.set("artifact", feature);
+  else params.set("artifact", "__constitution__");
+  window.location.assign(endpoint("/", params));
+}
+
+function renderMarkdown(container, markdown, context) {
+  container.replaceChildren();
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+  const clarificationQueues = buildClarificationQueues(context);
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    if (line.startsWith("```")) {
+      const code = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+      if (i < lines.length) i++;
+      const pre = document.createElement("pre");
+      const node = document.createElement("code");
+      node.textContent = code.join("\n");
+      pre.appendChild(node);
+      container.appendChild(pre);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement("h" + heading[1].length);
+      appendInline(node, heading[2]);
+      container.appendChild(node);
+      i++;
+      continue;
+    }
+
+    if (i + 1 < lines.length && isTableRow(line) && isTableDivider(lines[i + 1])) {
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      splitTableRow(line).forEach((cell) => {
+        const th = document.createElement("th");
+        appendInline(th, cell);
+        appendClarificationActions(th, cell, context, clarificationQueues);
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      i += 2;
+      const tbody = document.createElement("tbody");
+      while (i < lines.length && isTableRow(lines[i]) && lines[i].trim()) {
+        const tr = document.createElement("tr");
+        splitTableRow(lines[i]).forEach((cell) => {
+          const td = document.createElement("td");
+          appendInline(td, cell);
+          appendClarificationActions(td, cell, context, clarificationQueues);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+        i++;
+      }
+      table.appendChild(tbody);
+      container.appendChild(table);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      const list = document.createElement(unordered ? "ul" : "ol");
+      const pattern = unordered ? /^\s*[-*+]\s+(.+)$/ : /^\s*\d+\.\s+(.+)$/;
+      while (i < lines.length) {
+        const item = lines[i].match(pattern);
+        if (!item) break;
+        const li = document.createElement("li");
+        appendInline(li, item[1]);
+        appendClarificationActions(li, item[1], context, clarificationQueues);
+        list.appendChild(li);
+        i++;
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
+      const node = document.createElement("blockquote");
+      const text = quote.join(" ");
+      appendInline(node, text);
+      appendClarificationActions(node, text, context, clarificationQueues);
+      container.appendChild(node);
+      continue;
+    }
+
+    const paragraph = [];
+    while (i < lines.length && lines[i].trim() && !startsMarkdownBlock(lines, i)) paragraph.push(lines[i++].trim());
+    if (!paragraph.length) {
+      paragraph.push(lines[i++].trim());
+    }
+    // Non-list paragraphs may still carry inline NEEDS CLARIFICATION markers.
+    const text = paragraph.join(" ");
+    const node = document.createElement("p");
+    appendInline(node, text);
+    appendClarificationActions(node, text, context, clarificationQueues);
+    container.appendChild(node);
+  }
+}
+
+function buildClarificationQueues(context) {
+  const queues = new Map();
+  if (context.stage !== "specify") return queues;
+  for (const clarification of context.clarifications || []) {
+    const key = clarification.question.trim().toLowerCase();
+    const queue = queues.get(key) || [];
+    queue.push(clarification);
+    queues.set(key, queue);
+  }
+  return queues;
+}
+
+function appendClarificationActions(node, text, context, queues) {
+  if (context.stage !== "specify") return;
+  for (const match of text.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+    const queue = queues.get(match[1].trim().toLowerCase());
+    const clarification = queue?.shift();
+    if (!clarification) continue;
+    const button = document.createElement("button");
+    button.className = "action secondary clarify-action";
+    button.textContent = "Clarify";
+    button.setAttribute("aria-label", "Clarify: " + clarification.question);
+    button.disabled = Boolean(STATE?.prerequisites?.setupRequired);
+    if (!button.disabled) {
+      button.onclick = () => openClarificationDialog(context.feature, clarification);
+    }
+    node.appendChild(button);
+  }
+}
+
+function openClarificationDialog(feature, clarification) {
+  PENDING_CLARIFICATION = { feature, index: clarification.index, question: clarification.question };
+  document.getElementById("clarifyHelp").textContent =
+    "Submitting this answer runs clarify for this feature and records it under a Clarifications session in spec.md.";
+  document.getElementById("clarifyQuestion").textContent = clarification.question;
+  document.getElementById("clarifyAnswer").value = "";
+  document.getElementById("clarifyDialog").showModal();
+}
+
+document.getElementById("cancelClarify").onclick = () => {
+  PENDING_CLARIFICATION = null;
+  document.getElementById("clarifyDialog").close();
+};
+document.getElementById("confirmClarify").onclick = async () => {
+  if (!PENDING_CLARIFICATION) return;
+  const answer = document.getElementById("clarifyAnswer").value.trim();
+  if (!answer) { toast("Enter a clarification answer"); return; }
+  const pending = PENDING_CLARIFICATION;
+  try {
+    const response = await fetch(endpoint("/api/clarify"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...pending, answer }),
+    });
+    const result = await response.json();
+    if (!result.ok) { toast("Error: " + (result.error || "failed")); return; }
+    PENDING_CLARIFICATION = null;
+    document.getElementById("clarifyDialog").close();
+    window.location.assign(endpoint("/"));
+  } catch (error) {
+    toast("Error: " + error.message);
+  }
+};
+
+function startsMarkdownBlock(lines, index) {
+  const line = lines[index];
+  return line.startsWith("```")
+    || /^(#{1,4})\s+/.test(line)
+    || /^\s*[-*+]\s+/.test(line)
+    || /^\s*\d+\.\s+/.test(line)
+    || /^\s*>\s?/.test(line)
+    || (index + 1 < lines.length && isTableRow(line) && isTableDivider(lines[index + 1]));
+}
+
+function isTableRow(line) {
+  return line.includes("|");
+}
+
+function isTableDivider(line) {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function appendInline(parent, text) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  for (const match of String(text).matchAll(pattern)) {
+    if (match.index > cursor) parent.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    const token = match[0];
+    const node = document.createElement(token.startsWith("`") ? "code" : (token.startsWith("**") ? "strong" : "em"));
+    node.textContent = token.startsWith("**") ? token.slice(2, -2) : token.slice(1, -1);
+    parent.appendChild(node);
+    cursor = match.index + token.length;
+  }
+  if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
+}
+document.getElementById("closeArt").onclick = () => {
+  if (document.body.classList.contains("artifact-view")) window.location.assign(endpoint("/"));
+  else document.getElementById("aside").classList.remove("open");
+};
+
+async function initializeArtifactView(feature, stage, title) {
+  try {
+    const response = await fetch(endpoint("/api/state"));
+    if (!response.ok) throw new Error("state unavailable");
+    STATE = await response.json();
+  } catch {
+    // Fail closed: artifact previews remain readable, but clarification actions stay disabled.
+    STATE = { prerequisites: { setupRequired: true } };
+  }
+  await viewArtifact(feature, stage, title);
+}
+
+const artifactParam = PAGE_PARAMS.get("artifact");
+const artifactStage = PAGE_PARAMS.get("stage");
+if (artifactParam && PREVIEWABLE.has(artifactStage)) {
+  document.body.classList.add("artifact-view");
+  document.getElementById("closeArt").textContent = "← Dashboard";
+  document.getElementById("closeArt").title = "Back to dashboard";
+  const feature = artifactParam === "__constitution__" ? "" : artifactParam;
+  initializeArtifactView(feature, artifactStage, PAGE_PARAMS.get("title") || LABELS[artifactStage] || "Artifact");
+} else {
+  try {
+    const es = new EventSource(endpoint("/events"));
+    es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
+    es.onerror = () => {};
+  } catch (e) { /* fall back to one-shot fetch */ }
+  fetch(endpoint("/api/state")).then((r) => r.json()).then(render).catch(() => {});
+}
+</script>
+</body>
+</html>

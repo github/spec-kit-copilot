@@ -1,0 +1,22 @@
+{
+  "name": "spec-kit-copilot-sdd",
+  "description": "A GitHub Copilot App canvas for the Spec Kit core spec-driven development workflow (constitution → specify → clarify → plan → tasks → analyze → checklist → implement).",
+  "version": "0.1.0",
+  "author": {
+    "name": "GitHub",
+    "url": "https://github.com/github/spec-kit-copilot"
+  },
+  "homepage": "https://github.com/github/spec-kit-copilot",
+  "repository": "https://github.com/github/spec-kit-copilot",
+  "license": "MIT",
+  "keywords": [
+    "spec-driven development",
+    "copilot",
+    "canvas",
+    "specify",
+    "plan",
+    "tasks",
+    "implement"
+  ],
+  "extensions": "extensions/"
+}
