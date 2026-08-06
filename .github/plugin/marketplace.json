@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.15.1"
+    "version": "0.17.0"
   },
   "plugins": [
     {
@@ -19,6 +19,18 @@
       "description": "Adds an Idea Assessment canvas for the Spec Kit assess extension.",
       "version": "0.1.0",
       "source": "plugins/spec-kit-copilot-assess"
+    },
+    {
+      "name": "spec-kit-copilot-bugfix",
+      "description": "Adds a Bug Fix Pipeline canvas for the Spec Kit bug extension.",
+      "version": "0.1.0",
+      "source": "plugins/spec-kit-copilot-bugfix"
+    },
+    {
+      "name": "spec-kit-copilot-sdd",
+      "description": "Adds a Spec-Driven Development canvas for the core Spec Kit workflow.",
+      "version": "0.1.0",
+      "source": "plugins/spec-kit-copilot-sdd"
     }
   ]
 }
