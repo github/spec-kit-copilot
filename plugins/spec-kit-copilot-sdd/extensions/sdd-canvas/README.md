@@ -18,8 +18,12 @@ skills through the agent.
 > This is a **canvas extension** — it opens in the **GitHub Copilot app** side
 > panel, not the terminal CLI. There is no slash command or menu entry.
 
-1. Install it (see [Install](#install)):
-   `copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace`.
+1. Register the marketplace and install it (see [Install](#install)):
+
+   ```bash
+   copilot plugin marketplace add OWNER/spec-kit-copilot
+   copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
+   ```
 2. Ask Copilot in chat: **"Open Spec-Driven Development"**.
 
 The agent opens the dashboard in a side panel. See
