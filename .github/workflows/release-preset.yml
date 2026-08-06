@@ -1,64 +1,94 @@
-name: Release preset
+name: Release Preset
 
-# Publishes a Copilot-specific Spec Kit preset as a release asset when a tag of
-# the form `<preset-id>-v<version>` is pushed (e.g. `copilot-sub-agents-v1.0.0`).
-# The asset name and tag match the `download_url` entries in
-# spec-kit-presets/catalog.json, so installing via `specify preset add` resolves.
+# Mirrors the upstream mnriem/spec-kit-presets release workflow, adjusted for the
+# spec-kit-presets/ subtree. Pushing a `<preset-id>-vX.Y.Z` tag builds that preset's
+# zip inline and publishes it as a release asset — matching the `download_url`
+# entries in spec-kit-presets/catalog.json.
 
 on:
   push:
     tags:
-      - "*-v*"
-  workflow_dispatch:
-    inputs:
-      preset:
-        description: "Preset id to build (directory under spec-kit-presets/)"
-        required: true
-        type: string
-
-permissions:
-  contents: write
+      - '*-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Resolve preset id from tag or input
-        id: meta
+      - name: Parse tag
+        id: parse
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            preset="${{ inputs.preset }}"
-          else
-            # Strip the trailing `-v<version>` suffix from the tag name.
-            preset="${GITHUB_REF_NAME%-v*}"
-          fi
-          if [ ! -f "spec-kit-presets/$preset/preset.yml" ]; then
-            echo "::error::No preset '$preset' under spec-kit-presets/" >&2
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Extract preset id (everything before the last -vX.Y.Z)
+          PRESET_ID="${TAG%-v*}"
+          VERSION="${TAG#*-v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'" >&2
             exit 1
           fi
-          echo "preset=$preset" >> "$GITHUB_OUTPUT"
 
-      - name: Build preset zip
+          # Validate preset directory exists
+          if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
+            exit 1
+          fi
+
+          # Validate preset.yml exists
+          if [[ ! -f "spec-kit-presets/$PRESET_ID/preset.yml" ]]; then
+            echo "Error: spec-kit-presets/$PRESET_ID/preset.yml not found" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "preset_id=$PRESET_ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $PRESET_ID v$VERSION"
+
+      - name: Create preset zip
         run: |
-          bash spec-kit-presets/scripts/build-presets.sh "${{ steps.meta.outputs.preset }}"
+          cd "spec-kit-presets/${{ steps.parse.outputs.preset_id }}"
+          zip -r "$GITHUB_WORKSPACE/${{ steps.parse.outputs.preset_id }}.zip" . \
+            -x '.*' '__pycache__/*'
 
-      - name: Publish release asset
-        if: github.event_name == 'push'
+      - name: Generate release notes
+        id: notes
+        run: |
+          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
+          VERSION="${{ steps.parse.outputs.version }}"
+          CHANGELOG="spec-kit-presets/$PRESET_ID/CHANGELOG.md"
+
+          {
+            echo 'body<<EOF'
+            if [[ -f "$CHANGELOG" ]]; then
+              # Extract the section for this version from CHANGELOG.md
+              awk -v ver="$VERSION" '
+                /^## \[/ {
+                  if (found) exit
+                  if (index($0, ver)) found=1
+                }
+                found { print }
+              ' "$CHANGELOG"
+            else
+              echo "Release $PRESET_ID v$VERSION"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Spec Kit preset \`${{ steps.meta.outputs.preset }}\` — install with \`specify preset add ${{ steps.meta.outputs.preset }}\` (catalog) or \`specify preset add --from <this asset url>\`." \
-            || gh release upload "$GITHUB_REF_NAME" \
-                 "spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip" --clobber
+          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
+          TAG="${{ steps.parse.outputs.tag }}"
+          VERSION="${{ steps.parse.outputs.version }}"
 
-      - name: Upload workflow artifact (manual runs)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.meta.outputs.preset }}
-          path: spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip
+          gh release create "$TAG" \
+            "$PRESET_ID.zip" \
+            --title "$PRESET_ID v$VERSION" \
+            --notes "${{ steps.notes.outputs.body }}"

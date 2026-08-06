@@ -1,0 +1,76 @@
+name: Release Preset Trigger
+
+# Mirrors the upstream mnriem/spec-kit-presets trigger workflow, adjusted for the
+# spec-kit-presets/ subtree. Manually dispatch with a preset id + version; it
+# validates and pushes a `<preset-id>-vX.Y.Z` tag, which fires release-preset.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset_id:
+        description: 'Preset directory name under spec-kit-presets/ (e.g., copilot-sub-agents)'
+        required: true
+        type: string
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate inputs
+        env:
+          PRESET_ID: ${{ github.event.inputs.preset_id }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Strip optional v prefix
+          VERSION="${VERSION#v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'. Must be X.Y.Z" >&2
+            exit 1
+          fi
+
+          # Validate preset directory exists
+          if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
+            exit 1
+          fi
+
+          # Validate preset.yml exists
+          if [[ ! -f "spec-kit-presets/$PRESET_ID/preset.yml" ]]; then
+            echo "Error: spec-kit-presets/$PRESET_ID/preset.yml not found" >&2
+            exit 1
+          fi
+
+          TAG="${PRESET_ID}-v${VERSION}"
+
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: Tag '$TAG' already exists" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_ENV"
+          echo "Will create tag: $TAG"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag "$tag"
+          git push origin "$tag"
+          echo "Pushed tag $tag — release workflow will handle the rest"

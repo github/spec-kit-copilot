@@ -66,6 +66,20 @@ Presets are versioned and released **independently** of the Copilot plugins in t
 repo. Each preset carries its own `version` in `preset.yml` and its own
 `catalog.json` entry. `specify preset add <name>` (catalog install) resolves a
 release-asset zip via each entry's `download_url`, tagged
-`<preset>-v<version>` (e.g. `copilot-sub-agents-v1.0.0`). When revving a preset,
-bump its `preset.yml` version and the matching `catalog.json` entry together, then
-publish the release zip under the matching tag.
+`<preset>-v<version>` (e.g. `copilot-sub-agents-v1.0.0`).
+
+Releases are cut by CI — there is no local build script. The zip is built **inside**
+the release workflow (`.github/workflows/release-preset.yml`) from the preset
+directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
+
+- **Preferred:** run the **Release Preset Trigger** workflow
+  (`.github/workflows/release-preset-trigger.yml`) via *Actions → Run workflow* with
+  the preset id and version; it validates, then creates and pushes the
+  `<preset>-v<version>` tag.
+- **Or** push the tag yourself (`git tag copilot-sub-agents-v1.0.0 && git push origin
+  copilot-sub-agents-v1.0.0`).
+
+Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
+release with that asset. When revving a preset, bump its `preset.yml` version and the
+matching `catalog.json` entry together **before** tagging.
+

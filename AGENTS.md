@@ -98,9 +98,13 @@ repo. Guard the boundary so contributors never conflate the two toolchains:
   Agent-agnostic presets (`pirate`, `aide-in-place`) stay upstream and are **not**
   promoted. Do not import them when regenerating.
 - **Independent versioning & release.** Each preset carries its own `version` in
-  `preset.yml` and a matching `catalog.json` entry, released as a zip under a
-  `<preset>-v<version>` tag — separate from plugin versions. When revving a preset,
-  bump `preset.yml` + the `catalog.json` entry together and publish the tagged zip.
+  `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
+  Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
+  preset **inline** (no build script) on a pushed `<preset>-v<version>` tag; use the
+  **Release Preset Trigger** workflow to create that tag from a preset id + version.
+  This mirrors the upstream `mnriem/spec-kit-presets` release workflows, path-adjusted
+  for the subtree. When revving a preset, bump `preset.yml` + the `catalog.json` entry
+  together **before** tagging.
 
 ## When revving the core skills plugin
 
