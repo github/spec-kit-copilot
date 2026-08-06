@@ -41,7 +41,14 @@ specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
 ```
 
-From a local clone of this repo (development):
+From a specific GitHub release zip (`--from` requires an HTTPS URL):
+
+```bash
+specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip
+specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+```
+
+From a local clone of this repo (development only):
 
 ```bash
 specify preset add --dev ./spec-kit-presets/copilot-sub-agents

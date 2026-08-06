@@ -78,7 +78,13 @@ specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-cop
 specify preset add copilot-assess-ask-questions
 ```
 
-Or from a local clone:
+From a specific GitHub release zip (`--from` requires an HTTPS URL):
+
+```bash
+specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+```
+
+Or from a local clone (development only):
 
 ```bash
 specify preset add --dev ./copilot-assess-ask-questions
