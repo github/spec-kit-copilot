@@ -69,10 +69,12 @@ specify extension add assess
 
 ## Installation
 
-From the catalog:
+From the catalog (catalogs are discovery-only by default, so `--install-allowed` is
+required to install from them):
 
 ```bash
-specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
+specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+  --name spec-kit-copilot --install-allowed
 specify preset add copilot-assess-ask-questions
 ```
 

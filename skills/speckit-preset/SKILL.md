@@ -41,13 +41,19 @@ specify preset remove <id>
 
 # Catalogs (sources presets are resolved from)
 specify preset catalog list
-specify preset catalog add <url>
+specify preset catalog add <url> --name <name> [--install-allowed]
 specify preset catalog remove <name>
 ```
 
 ## Notes
 
 - Resolution priority: **lower number = higher precedence** (default `10`).
+- **Catalogs are added discovery-only by default.** `specify preset catalog add`
+  requires `--name` and defaults to `--no-install-allowed`; presets from a
+  discovery-only catalog can be browsed but not installed (install errors with a
+  "discovery-only" message). Pass `--install-allowed` to permit installs — only for
+  catalogs you trust. The `install_allowed` policy lives in the consumer's
+  `.specify/preset-catalogs.yml`, not in the catalog's own `catalog.json`.
 - A preset can also be installed at project creation:
   `specify init <name> --integration copilot --integration-options="--skills" --script sh --preset <id>`
   (use `--script ps` on Windows; see the speckit-init skill for the full OS-aware form and
