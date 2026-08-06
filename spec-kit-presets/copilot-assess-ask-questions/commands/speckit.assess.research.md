@@ -1,4 +1,4 @@
-> **assess-ask-questions preset — GitHub Copilot (App, CLI, VS Code).** Gate: **do not write `research.md` until you have completed the interactive Clarifying Questions round defined at the end of this command.** That round asks the user targeted multiple-choice questions through Copilot's `ask_user` tool — reproducing VS Code's `#askQuestions` — and its answers are required input for `research.md`. Read the full stage first, run the round, *then* write.
+> **copilot-assess-ask-questions preset — GitHub Copilot (App, CLI, VS Code).** Gate: **do not write `research.md` until you have completed the interactive Clarifying Questions round defined at the end of this command.** That round asks the user targeted multiple-choice questions through Copilot's `ask_user` tool — reproducing VS Code's `#askQuestions` — and its answers are required input for `research.md`. Read the full stage first, run the round, *then* write.
 
 ---
 
@@ -6,7 +6,7 @@
 
 ---
 
-## Clarifying Questions Protocol (assess-ask-questions preset)
+## Clarifying Questions Protocol (copilot-assess-ask-questions preset)
 
 Now execute the gate flagged at the top of this command. This round runs **before the Execution step above writes `research.md`** — resolve ambiguity **by asking the user through the `ask_user` tool**. Do not guess, and do not jump straight to `[NEEDS CLARIFICATION: …]` markers without asking first.
 

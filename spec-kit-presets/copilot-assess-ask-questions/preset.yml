@@ -1,8 +1,8 @@
 schema_version: "1.0"
 
 preset:
-  id: "assess-ask-questions"
-  name: "Assess Ask Questions"
+  id: "copilot-assess-ask-questions"
+  name: "Copilot Assess Clarifying Questions"
   version: "1.0.0"
   description: "Adds an interactive #askQuestions-style clarifying round to every stage of the assess extension. Before writing each artifact, the agent asks the user multiple-choice clarifying questions via GitHub Copilot's ask_user tool (App, CLI, and VS Code)."
   author: "mnriem"

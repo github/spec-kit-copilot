@@ -23,7 +23,7 @@ their canonical home.
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.2.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
-| [`assess-ask-questions`](assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
+| [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
 
 Only Copilot-specific presets belong here. Agent-agnostic presets (generic themes,
 extension-specific workflows that don't rely on Copilot's tools) do **not** belong in
@@ -36,14 +36,14 @@ From the published catalog:
 ```bash
 specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
 specify preset add copilot-sub-agents
-specify preset add assess-ask-questions   # also: specify extension add assess
+specify preset add copilot-assess-ask-questions   # also: specify extension add assess
 ```
 
 From a local clone of this repo (development):
 
 ```bash
 specify preset add --dev ./spec-kit-presets/copilot-sub-agents
-specify preset add --dev ./spec-kit-presets/assess-ask-questions
+specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
 ```
 
 ## Layout
@@ -55,7 +55,7 @@ spec-kit-presets/
 ├── copilot-sub-agents/
 │   ├── preset.yml
 │   └── commands/
-└── assess-ask-questions/
+└── copilot-assess-ask-questions/
     ├── preset.yml
     └── commands/
 ```

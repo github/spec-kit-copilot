@@ -91,9 +91,16 @@ toolchains:
   root, and do not mix it up with the Copilot marketplace manifest at
   `.github/plugin/marketplace.json`. Keep the boundary note in
   `spec-kit-presets/README.md`.
+- **Naming convention: `copilot-<scope>[-<behavior>]`.** Preset ids (directory,
+  `preset.yml` `id`, `catalog.json` key) carry a short **`copilot-`** prefix marking
+  them Copilot-specific (e.g. `copilot-sub-agents`, `copilot-assess-ask-questions`),
+  and display names lead with **"Copilot"** (e.g. "Copilot Sub-Agent Delegation").
+  Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
+  namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
+  the plumbing boundary and bloat `specify preset add`.
 - **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
   depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
-  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `assess-ask-questions`
+  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
   requires Copilot's interactive `ask_user` tool with no plain-text fallback).
   Agent-agnostic presets (generic themes, or workflows tied to an extension rather
   than to Copilot's tools) do **not** belong here. Do not import them.

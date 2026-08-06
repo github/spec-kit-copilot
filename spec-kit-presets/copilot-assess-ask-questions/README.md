@@ -1,4 +1,4 @@
-# Assess Ask Questions Preset
+# Copilot Assess Clarifying Questions Preset
 
 A [Spec Kit](https://github.com/github/spec-kit) preset that layers an interactive
 **`#askQuestions`-style clarifying round** onto every stage of the
@@ -73,13 +73,13 @@ From the catalog:
 
 ```bash
 specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
-specify preset add assess-ask-questions
+specify preset add copilot-assess-ask-questions
 ```
 
 Or from a local clone:
 
 ```bash
-specify preset add --dev ./assess-ask-questions
+specify preset add --dev ./copilot-assess-ask-questions
 ```
 
 ## Usage
