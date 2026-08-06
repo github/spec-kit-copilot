@@ -69,26 +69,31 @@ specify extension add assess
 
 ## Installation
 
-From the catalog (catalogs are discovery-only by default, so `--install-allowed` is
-required to install from them):
+**Recommended — register the catalog once, then install by id.** Catalogs are
+discovery-only by default, so `--install-allowed` (and `--name`) is required:
 
 ```bash
 specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json \
   --name spec-kit-copilot --install-allowed
+
+specify extension add assess              # this preset requires the assess extension
 specify preset add copilot-assess-ask-questions
 ```
 
-From a specific GitHub release zip (`--from` requires an HTTPS URL):
+The two methods below are escape hatches, not the primary path:
 
-```bash
-specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
-```
+- **One-off, without registering a catalog** — install straight from the release zip
+  (`--from` requires an HTTPS URL):
 
-Or from a local clone (development only):
+  ```bash
+  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+  ```
 
-```bash
-specify preset add --dev ./copilot-assess-ask-questions
-```
+- **Local development only** — install from a working clone:
+
+  ```bash
+  specify preset add --dev ./copilot-assess-ask-questions
+  ```
 
 ## Usage
 

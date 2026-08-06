@@ -31,29 +31,35 @@ this Copilot integration hub.
 
 ## Installing a preset
 
-From the published catalog (added installable — catalogs are discovery-only by
-default, so `--install-allowed` is required to install from them):
+**Recommended — register the catalog once, then install by id.** Catalogs are
+discovery-only by default, so `--install-allowed` is required to install from them
+(and `--name` is required):
 
 ```bash
 specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json \
   --name spec-kit-copilot --install-allowed
+
+# then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
 ```
 
-From a specific GitHub release zip (`--from` requires an HTTPS URL):
+The two methods below are escape hatches, not the primary path:
 
-```bash
-specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip
-specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
-```
+- **One-off, without registering a catalog** — install straight from a release zip
+  (`--from` requires an HTTPS URL):
 
-From a local clone of this repo (development only):
+  ```bash
+  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip
+  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+  ```
 
-```bash
-specify preset add --dev ./spec-kit-presets/copilot-sub-agents
-specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
-```
+- **Local development only** — install from a working clone of this repo:
+
+  ```bash
+  specify preset add --dev ./spec-kit-presets/copilot-sub-agents
+  specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
+  ```
 
 ## Layout
 
