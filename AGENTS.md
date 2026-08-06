@@ -76,6 +76,32 @@ runs the CLI.
    and automatically on the next session start. This is distinct from this plugin's own
    skills, which are refreshed with `copilot plugin install` / `/plugin`.
 
+## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
+
+`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** promoted from the
+experimental [`mnriem/spec-kit-presets`](https://github.com/mnriem/spec-kit-presets)
+repo. Guard the boundary so contributors never conflate the two toolchains:
+
+- **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
+  `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
+  Presets are consumed by the **`specify` CLI** (`specify preset add`). They are *not*
+  Copilot plugins, skills, canvases, or marketplace entries.
+- **Isolate, don't scatter.** All preset content — including its `catalog.json` — lives
+  **inside** `spec-kit-presets/`. Do **not** put a preset `catalog.json` at the repo
+  root, and do not mix it up with the Copilot marketplace manifest at
+  `.github/plugin/marketplace.json`. Keep the boundary note in
+  `spec-kit-presets/README.md`.
+- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
+  depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
+  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `assess-ask-questions`
+  requires Copilot's interactive `ask_user` tool with no plain-text fallback).
+  Agent-agnostic presets (`pirate`, `aide-in-place`) stay upstream and are **not**
+  promoted. Do not import them when regenerating.
+- **Independent versioning & release.** Each preset carries its own `version` in
+  `preset.yml` and a matching `catalog.json` entry, released as a zip under a
+  `<preset>-v<version>` tag — separate from plugin versions. When revving a preset,
+  bump `preset.yml` + the `catalog.json` entry together and publish the tagged zip.
+
 ## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release

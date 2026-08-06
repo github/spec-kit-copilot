@@ -1,0 +1,77 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-sub-agents"
+  name: "Copilot Sub-Agent Delegation"
+  version: "1.0.0"
+  description: "Adds sub-agent delegation instructions to all core Spec Kit commands, enabling parallel execution of independent steps via Copilot sub-agents (CLI and VS Code)."
+  author: "mnriem"
+  repository: "https://github.com/mnriem/spec-kit-presets"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.2.0"
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.specify"
+      file: "commands/speckit.specify.md"
+      description: "Prepend sub-agent delegation for spec quality validation"
+      replaces: "speckit.specify"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.plan"
+      file: "commands/speckit.plan.md"
+      description: "Prepend sub-agent delegation for parallel research and design artifact generation"
+      replaces: "speckit.plan"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.tasks"
+      file: "commands/speckit.tasks.md"
+      description: "Prepend sub-agent delegation for parallel document loading and per-user-story task generation"
+      replaces: "speckit.tasks"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.implement"
+      file: "commands/speckit.implement.md"
+      description: "Prepend sub-agent delegation for parallel [P] task execution"
+      replaces: "speckit.implement"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.analyze"
+      file: "commands/speckit.analyze.md"
+      description: "Prepend sub-agent delegation for parallel detection passes"
+      replaces: "speckit.analyze"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.checklist"
+      file: "commands/speckit.checklist.md"
+      description: "Prepend sub-agent delegation for parallel context loading"
+      replaces: "speckit.checklist"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.clarify"
+      file: "commands/speckit.clarify.md"
+      description: "Prepend sub-agent delegation for parallel ambiguity scan categories"
+      replaces: "speckit.clarify"
+      strategy: "prepend"
+
+    - type: "command"
+      name: "speckit.taskstoissues"
+      file: "commands/speckit.taskstoissues.md"
+      description: "Prepend sub-agent delegation for parallel GitHub issue creation"
+      replaces: "speckit.taskstoissues"
+      strategy: "prepend"
+
+tags:
+  - "copilot"
+  - "sub-agents"
+  - "parallelism"
+  - "performance"

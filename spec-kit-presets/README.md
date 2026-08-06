@@ -1,0 +1,71 @@
+# Spec Kit presets (Copilot-specific)
+
+> [!IMPORTANT]
+> **This directory is Spec Kit plumbing, not Copilot plumbing.** Everything here is
+> consumed by the **`specify` CLI** via `specify preset add` — it is *not* a Copilot
+> plugin, skill, extension, or marketplace entry. Do not confuse the `catalog.json`
+> in this directory with the Copilot marketplace manifest at
+> [`.github/plugin/marketplace.json`](../.github/plugin/marketplace.json), and do not
+> confuse a preset here with a Copilot plugin under [`plugins/`](../plugins) or a
+> skill under [`skills/`](../skills).
+
+| Plumbing | Consumed by | Lives in |
+| --- | --- | --- |
+| **Copilot** plugins / skills / canvases | `copilot plugin …` (Copilot CLI & App) | root `plugin.json`, `skills/`, `plugins/`, `.github/plugin/marketplace.json` |
+| **Spec Kit** presets (this folder) | `specify preset …` (Spec Kit `specify` CLI) | `spec-kit-presets/` |
+
+## What lives here
+
+These are the **Copilot-specific** Spec Kit presets promoted from the experimental
+[`mnriem/spec-kit-presets`](https://github.com/mnriem/spec-kit-presets) repository.
+A preset only belongs here if it depends on **Copilot's own agent mechanisms** rather
+than being agent-agnostic.
+
+| Preset | Requires | Why it is Copilot-specific |
+| --- | --- | --- |
+| [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.2.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
+| [`assess-ask-questions`](assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
+
+Agent-agnostic presets (e.g. `pirate`, `aide-in-place`) intentionally stay in the
+experimental upstream repository and are **not** promoted here.
+
+## Installing a preset
+
+From the published catalog:
+
+```bash
+specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
+specify preset add copilot-sub-agents
+specify preset add assess-ask-questions   # also: specify extension add assess
+```
+
+From a local clone of this repo (development):
+
+```bash
+specify preset add --dev ./spec-kit-presets/copilot-sub-agents
+specify preset add --dev ./spec-kit-presets/assess-ask-questions
+```
+
+## Layout
+
+```text
+spec-kit-presets/
+├── README.md              # this file (the plumbing boundary note)
+├── catalog.json           # Spec Kit preset catalog (NOT the Copilot marketplace)
+├── copilot-sub-agents/
+│   ├── preset.yml
+│   └── commands/
+└── assess-ask-questions/
+    ├── preset.yml
+    └── commands/
+```
+
+## Versioning & distribution
+
+Presets are versioned and released **independently** of the Copilot plugins in this
+repo. Each preset carries its own `version` in `preset.yml` and its own
+`catalog.json` entry. `specify preset add <name>` (catalog install) resolves a
+release-asset zip via each entry's `download_url`, tagged
+`<preset>-v<version>` (e.g. `copilot-sub-agents-v1.0.0`). When revving a preset,
+bump its `preset.yml` version and the matching `catalog.json` entry together, then
+publish the release zip under the matching tag.

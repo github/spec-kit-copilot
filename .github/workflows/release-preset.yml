@@ -1,0 +1,64 @@
+name: Release preset
+
+# Publishes a Copilot-specific Spec Kit preset as a release asset when a tag of
+# the form `<preset-id>-v<version>` is pushed (e.g. `copilot-sub-agents-v1.0.0`).
+# The asset name and tag match the `download_url` entries in
+# spec-kit-presets/catalog.json, so installing via `specify preset add` resolves.
+
+on:
+  push:
+    tags:
+      - "*-v*"
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Preset id to build (directory under spec-kit-presets/)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve preset id from tag or input
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            preset="${{ inputs.preset }}"
+          else
+            # Strip the trailing `-v<version>` suffix from the tag name.
+            preset="${GITHUB_REF_NAME%-v*}"
+          fi
+          if [ ! -f "spec-kit-presets/$preset/preset.yml" ]; then
+            echo "::error::No preset '$preset' under spec-kit-presets/" >&2
+            exit 1
+          fi
+          echo "preset=$preset" >> "$GITHUB_OUTPUT"
+
+      - name: Build preset zip
+        run: |
+          bash spec-kit-presets/scripts/build-presets.sh "${{ steps.meta.outputs.preset }}"
+
+      - name: Publish release asset
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Spec Kit preset \`${{ steps.meta.outputs.preset }}\` — install with \`specify preset add ${{ steps.meta.outputs.preset }}\` (catalog) or \`specify preset add --from <this asset url>\`." \
+            || gh release upload "$GITHUB_REF_NAME" \
+                 "spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip" --clobber
+
+      - name: Upload workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.preset }}
+          path: spec-kit-presets/dist/${{ steps.meta.outputs.preset }}.zip

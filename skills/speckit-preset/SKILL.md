@@ -48,6 +48,15 @@ specify preset catalog remove <name>
 ## Notes
 
 - Resolution priority: **lower number = higher precedence** (default `10`).
+- **Official Copilot preset catalog (this repo).** This repository publishes
+  Copilot-specific presets. Register the catalog, then install by id:
+  ```bash
+  specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
+  specify preset add copilot-sub-agents      # parallelize core commands via Copilot sub-agents
+  specify preset add assess-ask-questions    # ask_user clarifying round; needs the `assess` extension
+  ```
+  These are consumed by `specify preset`, not `copilot plugin` — they are not Copilot
+  plugins/skills. See `spec-kit-presets/README.md` in this repo for the boundary.
 - A preset can also be installed at project creation:
   `specify init <name> --integration copilot --integration-options="--skills" --script sh --preset <id>`
   (use `--script ps` on Windows; see the speckit-init skill for the full OS-aware form and

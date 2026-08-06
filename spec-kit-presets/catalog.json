@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-06T00:00:00Z",
+  "catalog_url": "https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json",
+  "presets": {
+    "copilot-sub-agents": {
+      "name": "Copilot Sub-Agent Delegation",
+      "id": "copilot-sub-agents",
+      "version": "1.0.0",
+      "description": "Adds sub-agent delegation instructions to all core Spec Kit commands, enabling parallel execution of independent steps via Copilot sub-agents (CLI and VS Code).",
+      "author": "mnriem",
+      "repository": "https://github.com/mnriem/spec-kit-copilot",
+      "download_url": "https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
+      "homepage": "https://github.com/mnriem/spec-kit-copilot",
+      "documentation": "https://github.com/mnriem/spec-kit-copilot/blob/main/spec-kit-presets/copilot-sub-agents/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=0.2.0"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 8
+      },
+      "tags": [
+        "copilot",
+        "sub-agents",
+        "parallelism",
+        "performance"
+      ]
+    },
+    "assess-ask-questions": {
+      "name": "Assess Ask Questions",
+      "id": "assess-ask-questions",
+      "version": "1.0.0",
+      "description": "Adds an interactive #askQuestions-style clarifying round to every stage of the assess extension. Before writing each artifact, the agent asks the user a focused batch of multiple-choice clarifying questions via GitHub Copilot's ask_user tool (App, CLI, and VS Code).",
+      "author": "mnriem",
+      "repository": "https://github.com/mnriem/spec-kit-copilot",
+      "download_url": "https://github.com/mnriem/spec-kit-copilot/releases/download/assess-ask-questions-v1.0.0/assess-ask-questions.zip",
+      "homepage": "https://github.com/mnriem/spec-kit-copilot",
+      "documentation": "https://github.com/mnriem/spec-kit-copilot/blob/main/spec-kit-presets/assess-ask-questions/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=0.9.0",
+        "extensions": ["assess"]
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 5
+      },
+      "tags": [
+        "assess",
+        "clarifying-questions",
+        "askquestions",
+        "discovery",
+        "interactive"
+      ]
+    }
+  }
+}

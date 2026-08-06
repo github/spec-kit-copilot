@@ -1,0 +1,59 @@
+schema_version: "1.0"
+
+preset:
+  id: "assess-ask-questions"
+  name: "Assess Ask Questions"
+  version: "1.0.0"
+  description: "Adds an interactive #askQuestions-style clarifying round to every stage of the assess extension. Before writing each artifact, the agent asks the user multiple-choice clarifying questions via GitHub Copilot's ask_user tool (App, CLI, and VS Code)."
+  author: "mnriem"
+  repository: "https://github.com/mnriem/spec-kit-presets"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.9.0"
+  extensions:
+    - assess
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.assess.intake"
+      file: "commands/speckit.assess.intake.md"
+      description: "Wrap the stage with an #askQuestions-style clarifying round (ask_user) about the idea's origin, type, slug, and boundary before writing intake.md"
+      replaces: "speckit.assess.intake"
+      strategy: "wrap"
+
+    - type: "command"
+      name: "speckit.assess.research"
+      file: "commands/speckit.assess.research.md"
+      description: "Wrap the stage with an #askQuestions-style clarifying round (ask_user) about evidence lenses, sources, and known counter-evidence before writing research.md"
+      replaces: "speckit.assess.research"
+      strategy: "wrap"
+
+    - type: "command"
+      name: "speckit.assess.define"
+      file: "commands/speckit.assess.define.md"
+      description: "Wrap the stage with an #askQuestions-style clarifying round (ask_user) about users, success metrics, non-goals, and cost of inaction before writing problem.md"
+      replaces: "speckit.assess.define"
+      strategy: "wrap"
+
+    - type: "command"
+      name: "speckit.assess.shape"
+      file: "commands/speckit.assess.shape.md"
+      description: "Wrap the stage with an #askQuestions-style clarifying round (ask_user) about appetite, constraints, and trade-offs before writing concept.md"
+      replaces: "speckit.assess.shape"
+      strategy: "wrap"
+
+    - type: "command"
+      name: "speckit.assess.decide"
+      file: "commands/speckit.assess.decide.md"
+      description: "Wrap the stage with an #askQuestions-style clarifying round (ask_user) about criteria weight, risk tolerance, and strategic context before writing decision.md"
+      replaces: "speckit.assess.decide"
+      strategy: "wrap"
+
+tags:
+  - "assess"
+  - "clarifying-questions"
+  - "askquestions"
+  - "discovery"
+  - "interactive"
