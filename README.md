@@ -55,45 +55,18 @@ field tells Copilot when to load the skill; the body documents the exact `specif
 sub-commands, options, and usage notes. The plugin is described by the
 [`plugin.json`](plugin.json) manifest at the repository root.
 
-## Assessment canvas plugin
+## Canvases
 
-`spec-kit-copilot-assess` ships `assess-canvas`, a side-panel dashboard for the
-optional Spec Kit `assess` extension. It visualizes the intake → research → define
-→ shape → decide funnel, previews artifacts, and invokes the generated assess skills.
-When the project is not initialized for Spec Kit or does not have `assess`
-installed, the canvas guides the agent through setup first.
+Optional Copilot **App** canvas plugins render a side-panel dashboard for a Spec Kit
+workflow. Each has its own plugin manifest and release cadence, is not enabled by
+installing the core skills, and rides the experimental canvas SDK. See each canvas's
+own README for full details.
 
-The canvas has its own plugin manifest and release cadence; installing the core
-`spec-kit-copilot` skills does not enable it. The canvas SDK is currently experimental,
-so its wire protocol may change in future Copilot CLI releases.
-
-## Bug fix canvas plugin
-
-`spec-kit-copilot-bugfix` ships `bugfix-canvas`, a side-panel dashboard for the
-optional Spec Kit `bug` extension. It visualizes the assess → fix → test triage
-pipeline, previews artifacts, and invokes the generated bug skills. When the
-project is not initialized for Spec Kit or does not have `bug` installed, the
-canvas guides the agent through setup first.
-
-Like the assessment canvas, it has its own plugin manifest and release cadence,
-is not enabled by installing the core skills, and rides the same experimental
-canvas SDK.
-
-## Spec-driven development canvas plugin
-
-`spec-kit-copilot-sdd` ships `sdd-canvas`, a side-panel dashboard for the **core**
-Spec Kit workflow: constitution → specify → clarify → plan → tasks → analyze →
-checklist → implement. It lists every feature under `specs/<feature>/`, tracks the
-essential spine plus the optional quality gates, shows the project constitution
-status and per-feature task progress, previews artifacts, and invokes the
-generated core `speckit-*` skills. Unlike the assess and bug canvases, it wraps
-commands that ship with `specify init` itself rather than an optional extension,
-so when the project is not initialized in Copilot skills mode the canvas guides
-the agent through setup first.
-
-Like the other canvases, it has its own plugin manifest and release cadence, is
-not enabled by installing the core skills, and rides the same experimental canvas
-SDK.
+| Canvas | Plugin | What it does |
+| --- | --- | --- |
+| [`assess-canvas`](plugins/spec-kit-copilot-assess/extensions/assess-canvas/README.md) | `spec-kit-copilot-assess` | Dashboard for the optional `assess` extension — the intake → research → define → shape → decide funnel. |
+| [`bugfix-canvas`](plugins/spec-kit-copilot-bugfix/extensions/bugfix-canvas/README.md) | `spec-kit-copilot-bugfix` | Dashboard for the optional `bug` extension — the assess → fix → test triage pipeline. |
+| [`sdd-canvas`](plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/README.md) | `spec-kit-copilot-sdd` | Dashboard for the core spec-driven workflow — constitution → specify → clarify → plan → tasks → analyze → checklist → implement. |
 
 ## Requirements
 
