@@ -36,7 +36,7 @@ discovery-only by default, so `--install-allowed` is required to install from th
 (and `--name` is required):
 
 ```bash
-specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
   --name spec-kit-copilot --install-allowed
 
 # then add by id — the normal way:
@@ -50,8 +50,8 @@ The two methods below are escape hatches, not the primary path:
   (`--from` requires an HTTPS URL):
 
   ```bash
-  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip
-  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+  specify preset add --from https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip
+  specify preset add --from https://github.com/github/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
   ```
 
 - **Local development only** — install from a working clone of this repo:

@@ -6,7 +6,7 @@ preset:
   version: "1.0.0"
   description: "Adds an interactive #askQuestions-style clarifying round to every stage of the assess extension. Before writing each artifact, the agent asks the user multiple-choice clarifying questions via GitHub Copilot's ask_user tool (App, CLI, and VS Code)."
   author: "mnriem"
-  repository: "https://github.com/mnriem/spec-kit-copilot"
+  repository: "https://github.com/github/spec-kit-copilot"
   license: "MIT"
 
 requires:

@@ -73,7 +73,7 @@ specify extension add assess
 discovery-only by default, so `--install-allowed` (and `--name`) is required:
 
 ```bash
-specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
   --name spec-kit-copilot --install-allowed
 
 specify extension add assess              # this preset requires the assess extension
@@ -86,7 +86,7 @@ The two methods below are escape hatches, not the primary path:
   (`--from` requires an HTTPS URL):
 
   ```bash
-  specify preset add --from https://github.com/mnriem/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
+  specify preset add --from https://github.com/github/spec-kit-copilot/releases/download/copilot-assess-ask-questions-v1.0.0/copilot-assess-ask-questions.zip
   ```
 
 - **Local development only** — install from a working clone:
