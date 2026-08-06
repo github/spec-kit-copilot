@@ -16,18 +16,18 @@
 
 ## What lives here
 
-These are the **Copilot-specific** Spec Kit presets promoted from the experimental
-[`mnriem/spec-kit-presets`](https://github.com/mnriem/spec-kit-presets) repository.
-A preset only belongs here if it depends on **Copilot's own agent mechanisms** rather
-than being agent-agnostic.
+These are the **Copilot-specific** Spec Kit presets — presets that depend on
+**Copilot's own agent mechanisms** rather than being agent-agnostic. This directory is
+their canonical home.
 
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.2.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`assess-ask-questions`](assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
 
-Agent-agnostic presets (e.g. `pirate`, `aide-in-place`) intentionally stay in the
-experimental upstream repository and are **not** promoted here.
+Only Copilot-specific presets belong here. Agent-agnostic presets (generic themes,
+extension-specific workflows that don't rely on Copilot's tools) do **not** belong in
+this Copilot integration hub.
 
 ## Installing a preset
 

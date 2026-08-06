@@ -69,8 +69,11 @@ specify extension add assess
 
 ## Installation
 
+From the catalog:
+
 ```bash
-specify preset add assess-ask-questions --from https://github.com/mnriem/spec-kit-presets/releases/download/assess-ask-questions-v1.0.0/assess-ask-questions.zip
+specify preset catalog add https://raw.githubusercontent.com/mnriem/spec-kit-copilot/main/spec-kit-presets/catalog.json
+specify preset add assess-ask-questions
 ```
 
 Or from a local clone:

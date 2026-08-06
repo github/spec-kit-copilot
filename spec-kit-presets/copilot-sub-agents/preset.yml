@@ -6,7 +6,7 @@ preset:
   version: "1.0.0"
   description: "Adds sub-agent delegation instructions to all core Spec Kit commands, enabling parallel execution of independent steps via Copilot sub-agents (CLI and VS Code)."
   author: "mnriem"
-  repository: "https://github.com/mnriem/spec-kit-presets"
+  repository: "https://github.com/mnriem/spec-kit-copilot"
   license: "MIT"
 
 requires:

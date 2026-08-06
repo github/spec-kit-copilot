@@ -1,9 +1,8 @@
 name: Release Preset
 
-# Mirrors the upstream mnriem/spec-kit-presets release workflow, adjusted for the
-# spec-kit-presets/ subtree. Pushing a `<preset-id>-vX.Y.Z` tag builds that preset's
-# zip inline and publishes it as a release asset — matching the `download_url`
-# entries in spec-kit-presets/catalog.json.
+# Pushing a `<preset-id>-vX.Y.Z` tag builds that preset's zip inline and publishes it
+# as a release asset — matching the `download_url` entries in
+# spec-kit-presets/catalog.json.
 
 on:
   push:

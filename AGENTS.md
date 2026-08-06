@@ -78,9 +78,9 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** promoted from the
-experimental [`mnriem/spec-kit-presets`](https://github.com/mnriem/spec-kit-presets)
-repo. Guard the boundary so contributors never conflate the two toolchains:
+`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** — this repo is their
+canonical, sole home. Guard the boundary so contributors never conflate the two
+toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
   `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
@@ -95,16 +95,15 @@ repo. Guard the boundary so contributors never conflate the two toolchains:
   depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
   `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `assess-ask-questions`
   requires Copilot's interactive `ask_user` tool with no plain-text fallback).
-  Agent-agnostic presets (`pirate`, `aide-in-place`) stay upstream and are **not**
-  promoted. Do not import them when regenerating.
+  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
+  than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
   preset **inline** (no build script) on a pushed `<preset>-v<version>` tag; use the
   **Release Preset Trigger** workflow to create that tag from a preset id + version.
-  This mirrors the upstream `mnriem/spec-kit-presets` release workflows, path-adjusted
-  for the subtree. When revving a preset, bump `preset.yml` + the `catalog.json` entry
-  together **before** tagging.
+  When revving a preset, bump `preset.yml` + the `catalog.json` entry together
+  **before** tagging.
 
 ## When revving the core skills plugin
 

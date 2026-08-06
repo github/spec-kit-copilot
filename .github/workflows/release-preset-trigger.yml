@@ -1,8 +1,7 @@
 name: Release Preset Trigger
 
-# Mirrors the upstream mnriem/spec-kit-presets trigger workflow, adjusted for the
-# spec-kit-presets/ subtree. Manually dispatch with a preset id + version; it
-# validates and pushes a `<preset-id>-vX.Y.Z` tag, which fires release-preset.yml.
+# Manually dispatch with a preset id + version; it validates and pushes a
+# `<preset-id>-vX.Y.Z` tag, which fires release-preset.yml.
 
 on:
   workflow_dispatch:
