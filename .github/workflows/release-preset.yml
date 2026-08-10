@@ -44,6 +44,20 @@ jobs:
             exit 1
           fi
 
+          # Ensure the tag version matches the manifest and the catalog entry,
+          # so a typo or direct tag push can't publish a mislabeled archive.
+          MANIFEST_VERSION=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('spec-kit-presets/$PRESET_ID/preset.yml'))['preset']['version'])")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c "import json,sys; print(json.load(open('spec-kit-presets/catalog.json'))['presets']['$PRESET_ID']['version'])")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
+            exit 1
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "preset_id=$PRESET_ID" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

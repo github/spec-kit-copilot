@@ -9,11 +9,16 @@ When executing this command, delegate independent work to parallel sub-agents to
 
 ### Parallel Issue Creation
 
-After parsing the tasks file and validating the GitHub remote, dispatch issue creation in parallel batches:
+Preserve the core command's deduplication pass. First fetch the existing issues in
+the target repository and determine which task IDs are already represented — do
+**not** skip this step, or reruns will create duplicate issues.
 
-- For each task in tasks.md:
+Then dispatch issue creation in parallel batches **only for the task IDs that do not
+yet have an issue**:
+
+- For each unmatched task in tasks.md:
   → Sub-agent: "Create a GitHub issue in {owner}/{repo} for task {TaskID}: '{description}'. Phase: {phase name}. Dependencies: {dependency list if any}. Parallel marker: {yes/no}. Use the GitHub MCP server (issue_write tool). Return: issue number and URL."
 
 **Batch size**: Dispatch up to 5 sub-agents at a time to avoid rate limiting. Wait for each batch to complete before dispatching the next.
 
-Collect all sub-agent results and report the created issues with their numbers and URLs.
+Collect all sub-agent results and report the created issues (and any that were skipped as already existing) with their numbers and URLs.

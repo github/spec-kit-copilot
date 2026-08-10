@@ -7,7 +7,7 @@
       "name": "Copilot Sub-Agent Delegation",
       "id": "copilot-sub-agents",
       "version": "1.0.0",
-      "description": "Adds sub-agent delegation instructions to all core Spec Kit commands, enabling parallel execution of independent steps via Copilot sub-agents (CLI and VS Code).",
+      "description": "Adds sub-agent delegation instructions to eight core Spec Kit workflow commands (specify, clarify, plan, tasks, analyze, checklist, implement, taskstoissues), enabling parallel execution of independent steps via Copilot sub-agents (CLI and VS Code).",
       "author": "mnriem",
       "repository": "https://github.com/github/spec-kit-copilot",
       "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
@@ -15,7 +15,7 @@
       "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-sub-agents/README.md",
       "license": "MIT",
       "requires": {
-        "speckit_version": ">=0.2.0"
+        "speckit_version": ">=0.8.0"
       },
       "provides": {
         "templates": 0,

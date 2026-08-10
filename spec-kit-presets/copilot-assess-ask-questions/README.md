@@ -92,7 +92,7 @@ The two methods below are escape hatches, not the primary path:
 - **Local development only** — install from a working clone:
 
   ```bash
-  specify preset add --dev ./copilot-assess-ask-questions
+  specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
   ```
 
 ## Usage

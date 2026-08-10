@@ -19,12 +19,20 @@ When generating research tasks for unknowns in Technical Context, dispatch each 
 
 Launch all research sub-agents in parallel, then consolidate their results into `research.md`.
 
-### Phase 1 — Design Artifacts in Parallel
+### Phase 1 — Design Artifacts
 
-After research.md is complete, generate these artifacts via parallel sub-agents:
+After research.md is complete, generate the design artifacts. Two of them are
+independent and one depends on their output, so dispatch them in two waves:
+
+**Wave 1 (parallel):**
 
 1. **Sub-agent: Data Model** — "Extract entities from the feature spec and research findings. Generate `data-model.md` with entity names, fields, relationships, validation rules, and state transitions."
 2. **Sub-agent: Interface Contracts** — "Define interface contracts for the project based on the spec and research. Generate files under `contracts/` documenting exposed interfaces."
-3. **Sub-agent: Quickstart** — "Create `quickstart.md` with integration scenarios and getting-started guidance based on the spec, data model, and contracts."
 
-Wait for all three to complete, then proceed to agent context update and constitution re-evaluation.
+Wait for both to complete.
+
+**Wave 2 (after Wave 1):**
+
+3. **Sub-agent: Quickstart** — "Create `quickstart.md` with integration scenarios and getting-started guidance based on the spec, data model, and contracts." (Requires `data-model.md` and `contracts/` from Wave 1.)
+
+Once all three artifacts exist, proceed to agent context update and constitution re-evaluation.
