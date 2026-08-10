@@ -33,6 +33,23 @@ The plugins are independently installable and versioned. Install the core skills
 the assessment canvas, the bug fix canvas, the spec-driven development canvas, or
 any combination.
 
+## Spec Kit presets
+
+This repo also hosts **Copilot-specific Spec Kit presets** under
+[`spec-kit-presets/`](spec-kit-presets). These are *not* Copilot plugins — they are
+consumed by the **`specify` CLI** (`specify preset add`), and are kept in their own
+isolated subtree (with their own `catalog.json`) so Spec Kit plumbing is never
+confused with Copilot plugin/marketplace plumbing.
+
+| Preset | Requires | Why it is Copilot-specific |
+| --- | --- | --- |
+| [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
+| [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
+
+See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
+boundary, install commands, and versioning. Only Copilot-specific presets are hosted
+here; agent-agnostic presets do not belong in this Copilot integration hub.
+
 ## Core skills plugin
 
 `spec-kit-copilot` gives Copilot focused skills—one per `specify` command group—so
@@ -170,10 +187,10 @@ See this plugin driving Spec-Driven Development end to end with this community-c
 
 ```javascript
 spec-kit-copilot/
-├── plugin.json              # Core skills plugin manifest
+├── plugin.json              # Core skills plugin manifest (Copilot plumbing)
 ├── README.md
 ├── .github/plugin/
-│   └── marketplace.json     # Marketplace manifest (for distribution)
+│   └── marketplace.json     # Copilot marketplace manifest (NOT the preset catalog)
 ├── plugins/
 │   ├── spec-kit-copilot-assess/
 │   │   ├── plugin.json      # Assessment canvas plugin manifest
@@ -187,6 +204,11 @@ spec-kit-copilot/
 │       ├── plugin.json      # Spec-driven development canvas plugin manifest
 │       └── extensions/
 │           └── sdd-canvas/
+├── spec-kit-presets/        # Spec Kit plumbing — consumed by `specify preset add`
+│   ├── README.md            # plumbing boundary note
+│   ├── catalog.json         # preset catalog (NOT the Copilot marketplace)
+│   ├── copilot-sub-agents/
+│   └── copilot-assess-ask-questions/
 └── skills/
     ├── speckit-cli-setup/SKILL.md
     ├── speckit-init/SKILL.md

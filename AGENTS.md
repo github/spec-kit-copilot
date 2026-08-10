@@ -76,6 +76,42 @@ runs the CLI.
    and automatically on the next session start. This is distinct from this plugin's own
    skills, which are refreshed with `copilot plugin install` / `/plugin`.
 
+## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
+
+`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** — this repo is their
+canonical, sole home. Guard the boundary so contributors never conflate the two
+toolchains:
+
+- **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
+  `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
+  Presets are consumed by the **`specify` CLI** (`specify preset add`). They are *not*
+  Copilot plugins, skills, canvases, or marketplace entries.
+- **Isolate, don't scatter.** All preset content — including its `catalog.json` — lives
+  **inside** `spec-kit-presets/`. Do **not** put a preset `catalog.json` at the repo
+  root, and do not mix it up with the Copilot marketplace manifest at
+  `.github/plugin/marketplace.json`. Keep the boundary note in
+  `spec-kit-presets/README.md`.
+- **Naming convention: `copilot-<scope>[-<behavior>]`.** Preset ids (directory,
+  `preset.yml` `id`, `catalog.json` key) carry a short **`copilot-`** prefix marking
+  them Copilot-specific (e.g. `copilot-sub-agents`, `copilot-assess-ask-questions`),
+  and display names lead with **"Copilot"** (e.g. "Copilot Sub-Agent Delegation").
+  Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
+  namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
+  the plumbing boundary and bloat `specify preset add`.
+- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
+  depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
+  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
+  requires Copilot's interactive `ask_user` tool with no plain-text fallback).
+  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
+  than to Copilot's tools) do **not** belong here. Do not import them.
+- **Independent versioning & release.** Each preset carries its own `version` in
+  `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
+  Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
+  preset **inline** (no build script) on a pushed `<preset>-v<version>` tag; use the
+  **Release Preset Trigger** workflow to create that tag from a preset id + version.
+  When revving a preset, bump `preset.yml` + the `catalog.json` entry together
+  **before** tagging.
+
 ## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release

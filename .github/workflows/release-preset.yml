@@ -1,0 +1,107 @@
+name: Release Preset
+
+# Pushing a `<preset-id>-vX.Y.Z` tag builds that preset's zip inline and publishes it
+# as a release asset — matching the `download_url` entries in
+# spec-kit-presets/catalog.json.
+
+on:
+  push:
+    tags:
+      - '*-v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Extract preset id (everything before the last -vX.Y.Z)
+          PRESET_ID="${TAG%-v*}"
+          VERSION="${TAG#*-v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'" >&2
+            exit 1
+          fi
+
+          # Validate preset directory exists
+          if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
+            exit 1
+          fi
+
+          # Validate preset.yml exists
+          if [[ ! -f "spec-kit-presets/$PRESET_ID/preset.yml" ]]; then
+            echo "Error: spec-kit-presets/$PRESET_ID/preset.yml not found" >&2
+            exit 1
+          fi
+
+          # Ensure the tag version matches the manifest and the catalog entry,
+          # so a typo or direct tag push can't publish a mislabeled archive.
+          MANIFEST_VERSION=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('spec-kit-presets/$PRESET_ID/preset.yml'))['preset']['version'])")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c "import json,sys; print(json.load(open('spec-kit-presets/catalog.json'))['presets']['$PRESET_ID']['version'])")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "preset_id=$PRESET_ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $PRESET_ID v$VERSION"
+
+      - name: Create preset zip
+        run: |
+          cd "spec-kit-presets/${{ steps.parse.outputs.preset_id }}"
+          zip -r "$GITHUB_WORKSPACE/${{ steps.parse.outputs.preset_id }}.zip" . \
+            -x '.*' '__pycache__/*'
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
+          VERSION="${{ steps.parse.outputs.version }}"
+          CHANGELOG="spec-kit-presets/$PRESET_ID/CHANGELOG.md"
+
+          {
+            echo 'body<<EOF'
+            if [[ -f "$CHANGELOG" ]]; then
+              # Extract the section for this version from CHANGELOG.md
+              awk -v ver="$VERSION" '
+                /^## \[/ {
+                  if (found) exit
+                  if (index($0, ver)) found=1
+                }
+                found { print }
+              ' "$CHANGELOG"
+            else
+              echo "Release $PRESET_ID v$VERSION"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
+          TAG="${{ steps.parse.outputs.tag }}"
+          VERSION="${{ steps.parse.outputs.version }}"
+
+          gh release create "$TAG" \
+            "$PRESET_ID.zip" \
+            --title "$PRESET_ID v$VERSION" \
+            --notes "${{ steps.notes.outputs.body }}"
