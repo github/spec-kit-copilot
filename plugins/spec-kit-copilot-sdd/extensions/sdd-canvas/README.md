@@ -13,6 +13,8 @@ The canvas gives that workflow a side-panel UI: it lists every feature under
 artifact, and drives the pipeline by invoking the generated core `speckit-*`
 skills through the agent.
 
+![The spec-driven development canvas showing a ratified constitution and three features across specify → clarify → plan → tasks → analyze → checklist → implement, with an active feature and implementation progress](../../../../docs/images/sdd-canvas.png)
+
 ## Quickstart
 
 > This is a **canvas extension** — it opens in the **GitHub Copilot app** side

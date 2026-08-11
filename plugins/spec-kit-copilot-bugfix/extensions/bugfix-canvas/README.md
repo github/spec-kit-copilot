@@ -10,6 +10,8 @@ The canvas gives that pipeline a side-panel UI: it lists every bug under
 artifact, and drives the pipeline by invoking the generated `speckit-bug-*`
 skills through the agent.
 
+![The bug fix canvas showing four bugs across the assess → fix → test pipeline, with severity, verdict, and verified/partial results](../../../../docs/images/bugfix-canvas.png)
+
 ## What it does
 
 - **Pipeline overview** — a live count of how many bugs have reached each stage,
