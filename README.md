@@ -85,6 +85,13 @@ own README for full details.
 | [`bugfix-canvas`](plugins/spec-kit-copilot-bugfix/extensions/bugfix-canvas/README.md) | `spec-kit-copilot-bugfix` | Dashboard for the optional `bug` extension — the assess → fix → test triage pipeline. |
 | [`sdd-canvas`](plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/README.md) | `spec-kit-copilot-sdd` | Dashboard for the core spec-driven workflow — constitution → specify → clarify → plan → tasks → analyze → checklist → implement. |
 
+### Previews
+
+| Spec-Driven Development | Idea Assessment | Bug Fix |
+| --- | --- | --- |
+| [![sdd-canvas](docs/images/sdd-canvas.png)](docs/images/sdd-canvas.png) | [![assess-canvas](docs/images/assess-canvas.png)](docs/images/assess-canvas.png) | [![bugfix-canvas](docs/images/bugfix-canvas.png)](docs/images/bugfix-canvas.png) |
+
+
 ## Requirements
 
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)

@@ -11,6 +11,8 @@ The canvas gives that pipeline a side-panel UI: it lists every assessment under
 Markdown artifact, and drives the pipeline by invoking the generated
 `speckit-assess-*` skills through the agent.
 
+![The assess canvas showing four ideas across the intake → research → define → shape → decide funnel, with go and needs-clarification verdicts](../../../../docs/images/assess-canvas.png)
+
 ## What it does
 
 - **Funnel overview** — a live count of how many ideas have reached each stage,
