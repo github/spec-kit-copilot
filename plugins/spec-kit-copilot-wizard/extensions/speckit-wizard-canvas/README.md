@@ -183,6 +183,49 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 `specs/<slug>/{spec,plan,tasks,analysis}.md` plus
 `specs/<slug>/checklists/`.
 
+## Troubleshooting
+
+**First open shows "Spec Kit Wizard cannot start" or an npm error like
+`ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE`, `ECONNREFUSED`, `ETIMEDOUT`,
+or `403 Forbidden` against `registry.npmjs.org`.**
+
+The first time the canvas opens in a fresh clone or worktree it runs
+`npm install js-yaml` in the extension folder. If your machine can't
+reach the public npm registry — typically due to a corporate proxy,
+egress firewall, or TLS-inspecting appliance — that install fails and
+the wizard refuses to start. This is an npm reachability problem on the
+host, not a wizard bug. `package-lock.json` doesn't help here: it only
+pins versions, npm still has to fetch packages from a registry.
+
+Pick whichever applies:
+
+1. **Configure npm to use a registry you *can* reach.** If your org
+   provides an approved npm mirror (Azure Artifacts, JFrog Artifactory,
+   Nexus, Verdaccio, GitHub Packages, etc.), point npm at it:
+   ```
+   npm config set registry https://<your-approved-mirror>/npm/registry/
+   ```
+   Verify with `npm install --dry-run js-yaml` in any empty folder, then
+   close and reopen the wizard canvas.
+2. **Trust your corporate root CA.** If your network intercepts TLS,
+   npm needs the corporate CA:
+   ```
+   npm config set cafile "/path/to/corp-root-ca.pem"
+   ```
+   Your IT/security team can point you at the cert.
+3. **Install the dep manually, once**, then reopen the canvas:
+   ```
+   cd <path-to>/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas
+   npm install js-yaml
+   ```
+   After this succeeds the wizard skips the auto-install on every
+   subsequent open in the same folder.
+
+If none of the above are available in your environment, `js-yaml` is
+only used by the **Catalogs** and **Composition** pages; the rest of
+the wizard doesn't need it. Manual install (option 3) is the smallest
+change and doesn't require any org-wide npm reconfiguration.
+
 ## Files
 
 | File | Purpose |
