@@ -95,7 +95,7 @@ own README for full details.
 
 | Bug Fix | Spec Kit Wizard |
 | --- | --- |
-| [![bugfix-canvas](docs/images/bugfix-canvas.png)](docs/images/bugfix-canvas.png) | [![wizard-canvas](docs/images/wizard-canvas.png)](docs/images/wizard-canvas.png) |
+| [![bugfix-canvas](docs/images/bugfix-canvas.png)](docs/images/bugfix-canvas.png) | [![wizard-canvas](docs/images/wizard-phases.png)](docs/images/wizard-phases.png) |
 
 
 ## Requirements
