@@ -19,6 +19,7 @@ import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { readState } from "./state/store.mjs";
 import { startServer } from "./server.mjs";
 import { checkDeps, getExtensionDir, installDeps } from "./env/deps-check.mjs";
+import { createBootTracker } from "./canvas-runtime/boot-progress.mjs";
 // Composition retrieval is entirely LLM-driven via the `speckit-preset` +
 // `speckit-extension` skills — see the `composition.refresh` case in
 // prompts.mjs and the `applyComposition` helper in canvas-runtime/composition-apply.mjs.
@@ -39,8 +40,9 @@ import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
 import { wizardShellActions } from "./canvas-runtime/actions/wizard-shell.mjs";
+import { depsRecoveryActions } from "./canvas-runtime/actions/deps-recovery.mjs";
 
-const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...wizardShellActions];
+const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...wizardShellActions, ...depsRecoveryActions];
 
 // --------------------------- per-instance registry --------------------------
 // (record shape + `instances` Map now live in instances.mjs)
@@ -74,29 +76,11 @@ async function onOpen(ctx) {
     }
     inst.workspacePath = resolveWorkspace(inst, ctx, sessionState.repoPath);
 
-    // First-boot / new-worktree bootstrap: the wizard canvas has a small npm
-    // dependency (js-yaml) that isn't checked in. If it's missing, run
-    // `npm install` in the canvas folder automatically before starting
-    // the server. This adds a one-time ~10-30s delay on first open of a
-    // fresh worktree but avoids surfacing a raw error that the user then
-    // has to resolve manually.
-    let deps = await checkDeps();
-    if (!deps.ready) {
-        const installResult = await installDeps(deps.missing);
-        deps = await checkDeps();
-        if (!deps.ready) {
-            const extDir = getExtensionDir();
-            const pkgs = deps.missing.join(" ");
-            const detail = installResult.stderr?.trim() || installResult.stdout?.trim() || "npm install failed";
-            throw new Error(
-                `Spec Kit Wizard cannot start: automatic install of npm dependencies (${pkgs}) failed. ` +
-                `Run: npm install ${pkgs}  (in ${extDir}), then reopen the canvas.\n\n${detail}`,
-            );
-        }
-    }
-
-    await hydrateOnce(inst);
-
+    // Start the HTTP server FIRST so we can return the URL immediately.
+    // The iframe loads the boot overlay (ui/boot.js) which subscribes to
+    // SSE and animates step-by-step progress while npm install and
+    // hydration run in the background. This is what turns the historical
+    // 10-45s "blank iframe" first-open into a live experience.
     if (!inst.server) {
         const adapter = sessionAdapter();
         await startServer(inst.instanceId, {
@@ -106,6 +90,14 @@ async function onOpen(ctx) {
             getInstance: () => inst,
         });
     }
+
+    // Kick off boot work asynchronously — the promise is retained on the
+    // instance so a UI-initiated retry can await/replace it, but we do
+    // NOT await it here so the URL can return within ~1s.
+    inst.bootPromise = bootAsync(inst).catch((err) => {
+        try { sessionAdapter().log?.(`boot failed: ${err?.message ?? err}`, "error"); } catch {}
+    });
+
     // Start watching .speckit-wizard/state.json so external edits push
     // fresh state to the UI immediately.
     startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }).catch(() => { /* best-effort */ });
@@ -116,40 +108,131 @@ async function onOpen(ctx) {
     };
 }
 
-// First-boot hydration: state.json → env probe → catalog bootstrap →
-// initial snapshot. Extracted so onOpen stays a thin orchestrator.
-async function hydrateOnce(inst) {
-    // Load initial state.json (if present) and merge with a fresh scan.
+// Full boot sequence, broadcast step-by-step via the boot tracker so the
+// UI overlay can animate progress. Called fire-and-forget from onOpen
+// (with the promise retained on inst.bootPromise for retries).
+export async function bootAsync(inst) {
+    const adapter = sessionAdapter();
+    const tracker = createBootTracker({ broadcast: inst.broadcast, inst });
+
+    // Step 1: workspace resolution — this actually happened in onOpen
+    // before startServer, so just record it as ok/failed.
+    tracker.start("workspace");
     if (inst.workspacePath) {
-        const r = await readState(inst.workspacePath, fsDeps).catch(() => null);
-        if (r?.state) {
-            inst.state = r.state;
-            // Hydrate the in-memory composition cache from disk so the
-            // Composition tab renders instantly after an extension reload
-            // without re-running ~20 CLI calls.
-            if (r.state.composition) {
-                inst.cachedComposition = normalizeHookArtifactsInComposition(r.state.composition);
-            }
-            // `setup.skillsReloaded` is a durable, one-way-sticky milestone:
-            // once the project has ever completed a skills reload we keep the
-            // persisted flag `true` across process restarts, so the wizard
-            // doesn't relock the Phases tab every new Copilot session. If a
-            // consumer needs to know whether *this* process has reloaded, it
-            // should read `inst.skillsReload` (in-memory) — not the persisted
-            // flag. Do not reset the persisted value here.
+        tracker.ok("workspace", { path: inst.workspacePath });
+    } else {
+        tracker.fail("workspace", {
+            title: "Could not resolve a workspace path",
+            hint: "The canvas will still open, but phase pages need a workspace to save artifacts.",
+            canRetry: false,
+        });
+    }
+
+    // Step 2: deps-check
+    tracker.start("deps-check");
+    let deps;
+    try {
+        deps = await checkDeps();
+    } catch (err) {
+        tracker.fail("deps-check", { title: `checkDeps error: ${err?.message ?? err}` });
+        return;
+    }
+    if (deps.ready) {
+        tracker.ok("deps-check", { alreadyInstalled: true });
+        tracker.skip("deps-install", "already-installed");
+    } else {
+        tracker.ok("deps-check", { missing: deps.missing });
+
+        // Step 3: deps-install with live progress ticks.
+        tracker.start("deps-install");
+        const installResult = await installDeps(deps.missing, {
+            onProgress: (line) => tracker.tick("deps-install", line),
+        });
+        const recheck = await checkDeps();
+        if (recheck.ready) {
+            tracker.ok("deps-install", { installed: deps.missing });
+            inst.depsError = null;
+        } else {
+            const classified = installResult.classified ?? {
+                code: "UNKNOWN",
+                title: "npm install failed",
+                hint: "The Copilot agent can help diagnose the failure.",
+                canRetry: true,
+            };
+            const stderrTail = String(installResult.stderr ?? "").split(/\r?\n/).filter(Boolean).slice(-8).join("\n");
+            inst.depsError = {
+                ...classified,
+                extDir: getExtensionDir(),
+                packages: deps.missing,
+                stderrTail,
+                timestamp: new Date().toISOString(),
+            };
+            try {
+                adapter.log?.(
+                    `npm install failed [${classified.code}]: ${classified.title}. See wizard boot overlay for retry.`,
+                    "warn",
+                );
+            } catch { /* best-effort */ }
+            tracker.fail("deps-install", { ...classified, stderrTail });
+            // Don't return — the canvas still opens; catalog/composition
+            // pages that need js-yaml will surface their own error state.
         }
     }
-    // Kick off an env probe in the background — non-blocking.
-    // When it finishes, push a fresh snapshot so the Setup page shows the
-    // detected CLI / plugin versions without requiring a page refresh.
-    ensureEnvProbe(inst)
-        .then(async () => {
-            try {
-                const snap = await snapshot(inst);
-                inst.broadcast({ type: "state", data: snap });
-            } catch { /* best-effort */ }
-        })
-        .catch(() => {});
+
+    // Step 4: env-probe — split out of the old hydrateOnce so users see it.
+    tracker.start("env-probe");
+    try {
+        await hydrateReadState(inst);
+        // Fire the env probe and await it here (unlike the old code) so the
+        // step transitions ok when versions land.
+        await ensureEnvProbe(inst);
+        tracker.ok("env-probe");
+        try {
+            const snap = await snapshot(inst);
+            inst.broadcast?.({ type: "state", data: snap });
+        } catch { /* best-effort */ }
+    } catch (err) {
+        tracker.fail("env-probe", { title: `env probe failed: ${err?.message ?? err}` });
+    }
+
+    // Step 5: catalog bootstrap + fast composition.
+    tracker.start("catalog");
+    try {
+        await hydrateCatalogs(inst);
+        await runFastComposition(inst, { reason: "boot" });
+        await snapshot(inst);
+        tracker.ok("catalog");
+    } catch (err) {
+        tracker.fail("catalog", { title: `catalog hydrate failed: ${err?.message ?? err}` });
+    }
+
+    // Step 6: ready
+    tracker.ready();
+    try {
+        const snap = await snapshot(inst);
+        inst.broadcast?.({ type: "state", data: snap });
+    } catch { /* best-effort */ }
+}
+
+// Load state.json into inst.state (was the top of the old hydrateOnce).
+async function hydrateReadState(inst) {
+    if (!inst.workspacePath) return;
+    const r = await readState(inst.workspacePath, fsDeps).catch(() => null);
+    if (r?.state) {
+        inst.state = r.state;
+        // Hydrate the in-memory composition cache from disk so the
+        // Composition tab renders instantly after an extension reload
+        // without re-running ~20 CLI calls.
+        if (r.state.composition) {
+            inst.cachedComposition = normalizeHookArtifactsInComposition(r.state.composition);
+        }
+    }
+}
+
+// Catalog bootstrap: presets → extensions → bundles. Same content as the
+// old hydrateOnce, just factored out so bootAsync can time it as its own
+// step and the retry endpoint can re-run just this phase.
+async function hydrateCatalogs(inst) {
     // On a fresh instance (extension reload etc.) we auto-hydrate from the
     // hardcoded plugin catalog URLs so the Catalogs tab is populated without
     // requiring the user to re-run the skill.
@@ -188,8 +271,6 @@ async function hydrateOnce(inst) {
         inst.cachedCatalogSources = bootstrap;
         await hydratePresetsForSources(inst, bootstrap).catch(() => {});
     }
-    // Extension catalog bootstrap — same pattern as presets, using the
-    // extensions/ URLs. See catalog/sources.mjs.
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
             {
@@ -212,10 +293,6 @@ async function hydrateOnce(inst) {
         inst.cachedExtensionCatalogSources = extBootstrap;
         await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
     }
-    // Bundle catalog bootstrap — same pattern as extensions. The built-in
-    // `bundles/catalog.json` may 404 upstream; hydrateBundlesForSources
-    // logs the failure and continues so the community bundle catalog
-    // still populates the grid.
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
             {
@@ -238,13 +315,11 @@ async function hydrateOnce(inst) {
         inst.cachedBundleCatalogSources = bundleBootstrap;
         await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
     }
-    // Boot-time fast composition refresh so an existing worktree with
-    // presets/extensions already installed opens straight into the
-    // Composition tab with a hydrated composition slice. Silent on failure.
-    // TEMPORARY — remove with runFastComposition.
-    await runFastComposition(inst, { reason: "boot" });
-    await snapshot(inst);
 }
+
+// Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
+// individual phases (hydrateReadState, hydrateCatalogs) are exported
+// internally for the retry/HTTP path.
 
 async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);

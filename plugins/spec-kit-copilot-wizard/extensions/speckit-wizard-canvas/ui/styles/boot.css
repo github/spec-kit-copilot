@@ -1,0 +1,353 @@
+/* Boot overlay — full-viewport panel shown while the wizard's per-instance
+   backend runs its startup checklist (workspace → deps-check → deps-install
+   → env-probe → catalog → ready). Self-contained; no dependency on any
+   other stylesheet. */
+
+/* Theme variables — default (light). Foundation.css sets data-theme on <html>
+   from OS preference or the theme toggle; we redefine our local vars there. */
+.boot-overlay {
+    --boot-surface-base: #f7f8fb;
+    --boot-surface-panel: #ffffff;
+    --boot-border: #d5d9e0;
+    --boot-text: #171a2c;
+    --boot-text-muted: #5a5f76;
+    --boot-accent: #0b6e99;
+    --boot-success: #178c4e;
+    --boot-danger: #c7362e;
+    --boot-danger-tint: rgba(199, 54, 46, 0.08);
+    --boot-running-tint: rgba(11, 110, 153, 0.08);
+    --boot-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.10);
+    --boot-stderr-bg: #f3f1ea;
+}
+
+[data-theme="dark"] .boot-overlay,
+:root:not([data-theme]) .boot-overlay {
+    /* fallback dark values used when the toggle explicitly says dark, or when
+       nothing is set yet — the @media below overrides the second case for OS
+       light-mode users. */
+    --boot-surface-base: #0f1420;
+    --boot-surface-panel: #171d2c;
+    --boot-border: #2a3348;
+    --boot-text: #e8ecf3;
+    --boot-text-muted: #98a2b8;
+    --boot-accent: #60a5fa;
+    --boot-success: #4cd08b;
+    --boot-danger: #ef4444;
+    --boot-danger-tint: rgba(239, 68, 68, 0.08);
+    --boot-running-tint: rgba(96, 165, 250, 0.08);
+    --boot-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    --boot-stderr-bg: rgba(0, 0, 0, 0.35);
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) .boot-overlay {
+        --boot-surface-base: #f7f8fb;
+        --boot-surface-panel: #ffffff;
+        --boot-border: #d5d9e0;
+        --boot-text: #171a2c;
+        --boot-text-muted: #5a5f76;
+        --boot-accent: #0b6e99;
+        --boot-success: #178c4e;
+        --boot-danger: #c7362e;
+        --boot-danger-tint: rgba(199, 54, 46, 0.08);
+        --boot-running-tint: rgba(11, 110, 153, 0.08);
+        --boot-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.10);
+        --boot-stderr-bg: #f3f1ea;
+    }
+}
+
+.boot-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--boot-surface-base);
+    color: var(--boot-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    transition: opacity 300ms ease-out;
+}
+
+.boot-overlay.is-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.boot-panel {
+    width: 100%;
+    max-width: 520px;
+    background: var(--boot-surface-panel);
+    border: 1px solid var(--boot-border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    box-shadow: var(--boot-panel-shadow);
+}
+
+.boot-title {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.boot-title-mark {
+    font-size: 20px;
+    color: var(--boot-accent);
+}
+
+.boot-subtitle {
+    margin: 0 0 20px 0;
+    font-size: 13px;
+    color: var(--boot-text-muted);
+}
+
+.boot-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.boot-step {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.boot-step-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.boot-step-label {
+    color: var(--boot-text);
+    font-weight: 500;
+}
+
+.boot-step-detail {
+    color: var(--boot-text-muted);
+    font-size: 11px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+    display: block;
+    margin-top: 2px;
+}
+
+.boot-step[data-status="pending"] .boot-step-icon { color: var(--boot-text-muted); }
+.boot-step[data-status="pending"] .boot-step-icon::before { content: "○"; }
+.boot-step[data-status="pending"] .boot-step-label { color: var(--boot-text-muted); }
+
+.boot-step[data-status="running"] { background: var(--boot-running-tint); }
+.boot-step[data-status="running"] .boot-step-icon::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--boot-accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: boot-spin 900ms linear infinite;
+}
+
+.boot-step[data-status="ok"] .boot-step-icon { color: var(--boot-success); }
+.boot-step[data-status="ok"] .boot-step-icon::before { content: "✓"; font-weight: 700; }
+
+.boot-step[data-status="skipped"] .boot-step-icon { color: var(--boot-text-muted); }
+.boot-step[data-status="skipped"] .boot-step-icon::before { content: "–"; }
+
+.boot-step[data-status="failed"] .boot-step-icon { color: var(--boot-danger); }
+.boot-step[data-status="failed"] .boot-step-icon::before { content: "✕"; font-weight: 700; }
+.boot-step[data-status="failed"] { background: var(--boot-danger-tint); }
+
+.boot-error-card {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--boot-danger);
+    background: var(--boot-danger-tint);
+    border-radius: 8px;
+}
+
+.boot-error-title {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--boot-danger);
+}
+
+.boot-error-hint {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: var(--boot-text);
+    line-height: 1.5;
+}
+
+.boot-error-stderr {
+    margin: 8px 0 12px 0;
+    padding: 8px 10px;
+    background: var(--boot-stderr-bg);
+    border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--boot-text-muted);
+    max-height: 100px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.boot-error-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.boot-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    font-family: inherit;
+}
+
+.boot-btn-primary {
+    background: var(--boot-accent);
+    color: var(--boot-surface-panel);
+    border-color: var(--boot-accent);
+}
+
+.boot-btn-primary:hover { filter: brightness(1.08); }
+
+.boot-btn-secondary {
+    background: transparent;
+    color: var(--boot-text);
+    border-color: var(--boot-border);
+}
+
+.boot-btn-secondary:hover { background: var(--boot-running-tint); }
+
+.boot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@keyframes boot-spin {
+    to { transform: rotate(360deg); }
+}
+
+
+/* Prominent dismissible alert shown at the top of the wizard body after
+ * the user opts to Continue anyway from the boot dialog (or a fresh
+ * failure surfaces post-boot). Multi-line layout with an actionable
+ * manual-install command + extension path. */
+.deps-error-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--boot-danger-tint);
+    border-bottom: 2px solid var(--boot-danger);
+    color: var(--boot-text);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.deps-error-banner-icon {
+    color: var(--boot-danger);
+    font-size: 18px;
+    line-height: 1.2;
+    flex: 0 0 auto;
+}
+.deps-error-banner-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.deps-error-banner-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--boot-text);
+    margin-bottom: 4px;
+}
+.deps-error-banner-msg {
+    color: var(--boot-text);
+    margin-bottom: 8px;
+}
+.deps-error-banner-steps {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--boot-text);
+}
+.deps-error-banner-steps li {
+    margin: 4px 0;
+}
+.deps-error-banner-path,
+.deps-error-banner-cmd {
+    display: inline-block;
+    background: var(--boot-surface-panel);
+    border: 1px solid var(--boot-border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--boot-text);
+    white-space: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    vertical-align: middle;
+}
+.deps-error-banner-path {
+    margin-top: 2px;
+}
+.deps-error-banner-dismiss {
+    background: transparent;
+    border: 0;
+    color: var(--boot-text-muted);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    flex: 0 0 auto;
+    align-self: flex-start;
+}
+.deps-error-banner-dismiss:hover { color: var(--boot-text); }
+
+/* Tertiary "Continue anyway" action on the boot overlay error card —
+ * lower-emphasis than Diagnose (primary) or Retry (secondary). */
+.boot-btn-tertiary {
+    background: transparent;
+    color: var(--boot-text-muted);
+    border: 1px solid var(--boot-border);
+}
+.boot-btn-tertiary:hover:not(:disabled) {
+    color: var(--boot-text);
+    border-color: var(--boot-text-muted);
+}
+.boot-error-proceed-note {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--boot-text-muted);
+    background: var(--boot-surface-panel);
+    border: 1px dashed var(--boot-border);
+    border-radius: 4px;
+}
+.boot-error-proceed-note code {
+    font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+}

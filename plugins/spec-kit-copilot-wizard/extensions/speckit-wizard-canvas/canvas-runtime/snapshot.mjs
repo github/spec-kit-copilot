@@ -75,6 +75,10 @@ export async function snapshot(inst) {
     if (inst.cachedProbes?.summary) {
         scan.environment = inst.cachedProbes.summary;
     }
+    // Overlay boot progress + deps error so the UI's initial fetch
+    // reflects live state without waiting for the next SSE event.
+    if (inst.boot) scan.boot = inst.boot;
+    if (inst.depsError) scan.depsError = inst.depsError;
     // Setup step "done" state is derived live from `scan.environment` (plugin
     // and CLI probes) and `scan.projectInitialized` (fs check on .specify/),
     // NOT from persisted setup.* flags — those drift when things are

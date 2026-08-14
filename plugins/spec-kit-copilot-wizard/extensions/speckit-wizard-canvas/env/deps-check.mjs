@@ -55,6 +55,8 @@ import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { classifyNpmError } from "./deps-error-classifier.mjs";
+
 const EXT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // A single package.json under node_modules is a cheap-and-reliable
@@ -87,20 +89,31 @@ export async function checkDeps() {
 
 /**
  * Run `npm install <packages>` inside the extension directory to install any
- * missing runtime deps. Resolves with { ok, stdout, stderr, code }. Never
- * throws — callers inspect `ok` and surface a friendly message if false.
+ * missing runtime deps. Resolves with { ok, stdout, stderr, code, classified? }.
+ * Never throws — callers inspect `ok` and surface a friendly message if false.
+ *
+ * `onProgress(line)` is invoked with each stdout/stderr line as it arrives
+ * so the boot UI can show a live "npm is doing something" status. The
+ * caller is expected to throttle broadcasts of these lines.
  *
  * @param {string[]} packages
- * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code: number | null }>}
+ * @param {{ onProgress?: (line: string) => void }} [opts]
+ * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code: number | null, classified?: object }>}
  */
-export function installDeps(packages) {
+export function installDeps(packages, opts = {}) {
+    const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
     return new Promise((resolve) => {
         if (!packages || packages.length === 0) {
             resolve({ ok: true, stdout: "", stderr: "", code: 0 });
             return;
         }
         const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-        const args = ["install", "--no-audit", "--no-fund", "--silent", ...packages];
+        // Drop --silent when streaming progress so the UI sees fetch/reify
+        // lines. --loglevel=info gives useful progress without dumping the
+        // full trace.
+        const args = onProgress
+            ? ["install", "--no-audit", "--no-fund", "--loglevel=info", ...packages]
+            : ["install", "--no-audit", "--no-fund", "--silent", ...packages];
         let child;
         try {
             child = spawn(npmCmd, args, {
@@ -116,18 +129,50 @@ export function installDeps(packages) {
                 stdio: ["ignore", "pipe", "pipe"],
             });
         } catch (err) {
-            resolve({ ok: false, stdout: "", stderr: String(err?.message || err), code: null });
+            const missingBinary = err?.code === "ENOENT";
+            const stderr = String(err?.message || err);
+            resolve({
+                ok: false,
+                stdout: "",
+                stderr,
+                code: null,
+                classified: classifyNpmError({ stderr, missingBinary }),
+            });
             return;
         }
         let stdout = "";
         let stderr = "";
-        child.stdout?.on("data", (d) => { stdout += d.toString(); });
-        child.stderr?.on("data", (d) => { stderr += d.toString(); });
+        // Line-buffer so onProgress sees meaningful units. npm prints
+        // progress bar frames a lot; we keep the last non-blank line.
+        const feed = (buf, sinkKey) => {
+            const s = buf.toString();
+            if (sinkKey === "stdout") stdout += s; else stderr += s;
+            if (!onProgress) return;
+            for (const raw of s.split(/\r?\n/)) {
+                const line = raw.trim();
+                if (line) {
+                    try { onProgress(line); } catch { /* best-effort */ }
+                }
+            }
+        };
+        child.stdout?.on("data", (d) => feed(d, "stdout"));
+        child.stderr?.on("data", (d) => feed(d, "stderr"));
         child.on("error", (err) => {
-            resolve({ ok: false, stdout, stderr: stderr + String(err?.message || err), code: null });
+            const missingBinary = err?.code === "ENOENT";
+            const merged = stderr + String(err?.message || err);
+            resolve({
+                ok: false,
+                stdout,
+                stderr: merged,
+                code: null,
+                classified: classifyNpmError({ stderr: merged, stdout, missingBinary }),
+            });
         });
         child.on("close", (code) => {
-            resolve({ ok: code === 0, stdout, stderr, code });
+            const ok = code === 0;
+            const result = { ok, stdout, stderr, code };
+            if (!ok) result.classified = classifyNpmError({ stderr, stdout, code });
+            resolve(result);
         });
     });
 }
