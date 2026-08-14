@@ -45,7 +45,9 @@ import {
     handleArtifactTargets,
     handleSkipDefaults,
     handleSkillsReload,
+    handleProbeEnv,
 } from "./server/handlers-ops.mjs";
+import { ensureEnvProbe } from "./env/probe-cache.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_UI_DIR = join(__dirname, "ui");
@@ -314,6 +316,7 @@ export function createHandler(deps) {
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),
                     "/api/setup/skip-defaults": () => handleSkipDefaults(res, body, { broadcast, getInstance }),
+                    "/api/env/probe": () => handleProbeEnv(res, { getState, broadcast, getInstance, ensureEnvProbe }),
                 };
                 const route = postRoutes[url.pathname];
                 if (route) return route();

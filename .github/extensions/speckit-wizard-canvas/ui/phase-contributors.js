@@ -573,8 +573,19 @@ export function buildChainRowsFor({
 
 // -------- Section: render/phase-customizations/execution-report.js --------
 
-export function buildExecutionReport(state, cmdName) {
+export function buildExecutionReport(state, cmdName, phaseStatus) {
     const execReport = state.snapshot?.composition?.executionReports?.[`commands/${cmdName}`] || null;
+    // Best-effort fallback: when the phase is `done` (or `skipped`) but no
+    // witness report was recorded (e.g. the phase ran before witness
+    // tracking existed, or the agent forgot to call reportExecution), we
+    // infer each declared artifact's state from the phase status so the
+    // Template/Script/Hook rows don't show blank — they mirror what the
+    // Command row already does. Never overrides a real witness verdict.
+    const inferredFallbackState = !execReport
+        ? (phaseStatus === "done" ? "executed"
+          : phaseStatus === "skipped" ? "omitted"
+          : null)
+        : null;
     const asBareSet = (arr) => new Set((Array.isArray(arr) ? arr : []).map(String));
     const expectedByKind = {
         template: asBareSet(execReport?.expected?.templates),
@@ -715,7 +726,18 @@ export function buildExecutionReport(state, cmdName) {
     // unexpected, hookOptional }`. All fields are optional — falls
     // back to a generic sentence when omitted.
     const runtimePillFor = (kind, bareId, ctx = {}) => {
-        if (!artifactsKnown) return "";
+        if (!artifactsKnown) {
+            // No witness at all — fall back to the phase-status inference
+            // so declared artifact rows mirror the Command row instead of
+            // rendering silent. Unexpected/bonus rows still get nothing
+            // (silence is a claim only about DECLARED artifacts).
+            if (!inferredFallbackState || ctx.unexpected) return "";
+            const reason = reasonFor(kind, inferredFallbackState, { parentCommand: cmdName, ...ctx });
+            const genericInferred = inferredFallbackState === "executed"
+                ? "Inferred as executed from phase status — no witness data was recorded."
+                : "Inferred as omitted from phase status — no witness data was recorded.";
+            return pillForState({ state: inferredFallbackState }, reason || genericInferred);
+        }
         const entry = artifactsByKind[kind]?.[bareId];
         if (entry?.state !== "executed" && entry?.state !== "omitted") return "";
         const reason = reasonFor(kind, entry.state, { parentCommand: cmdName, ...ctx });
@@ -776,7 +798,7 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
 
     // Per-phase EXECUTION report machinery. See execution-report.js.
     const { pillForState, runtimePillFor, unexpectedFor } =
-        buildExecutionReport(state, cmdName);
+        buildExecutionReport(state, cmdName, p.status);
 
     // Command artifact + canonical templates + phase hooks.
     const commandArt = compArtifacts.find((a) => a.id === `commands/${cmdName}` && a.kind === "command");

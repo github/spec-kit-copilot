@@ -194,6 +194,28 @@ export async function performReload() {
     }
 }
 
+// Force a fresh env probe on demand. Called from the row 1 & 2 "↻ Recheck"
+// links so a user who just manually installed the plugin or CLI can see the
+// wizard reflect the new state without reloading the extension. The
+// server-side handler runs `ensureEnvProbe(inst, { force: true })` (which
+// re-verifies BOTH plugin AND CLI in one pass — they share a probe run) and
+// broadcasts a fresh snapshot; we track WHICH row triggered the click on
+// `state.envProbeRunning` so only that row's button shows the spinner,
+// matching the user's mental model of a per-row action.
+export async function performEnvProbe(sourceKey) {
+    if (state.envProbeRunning) return;
+    state.envProbeRunning = sourceKey || true;
+    __render();
+    try {
+        await __postJson("/api/env/probe", {});
+    } catch (err) {
+        console.error(`env probe dispatch failed: ${err?.message ?? err}`);
+    } finally {
+        state.envProbeRunning = null;
+        __render();
+    }
+}
+
 // Shared preset-install helper — used by both the Presets catalog "Add"
 // button (line ~4534) and the Setup row 4 "Install / Re-install" button.
 // Same code path, same broadcast handling, same 90s safety timeout.
@@ -345,37 +367,60 @@ export function renderSetupBody(_p) {
         }
     };
 
-    // Per-row action button (rendered next to the chip). Rows 1 & 2 have
-    // no button — their status flips automatically as soon as the env probe
-    // (renderer.mjs → deriveSetupPhaseStatus(setup, env)) sees the tool
-    // on disk. Only rows that trigger real work (init, install, reload)
-    // expose a button.
-    //   • Row 3 (init): "Initialize" when pending, "↻ Re-initialize" when done.
+    // Per-row action button (rendered next to the chip).
+    //   • Rows 1 & 2 (plugin, CLI): "↻ Recheck" — force a fresh env probe.
+    //     Useful when the tool was just installed manually and the wizard
+    //     hasn't observed it yet. Rendered on BOTH the pending and done
+    //     states so users always have a way to re-verify presence/version.
+    //   • Row 3 (init): "Initialize" when pending, "↻ Initialize" when done.
     //   • Row 4 (defaults): auto-runs on init; when done, "↻ Re-install".
     //   • Row 5 (skills reload): "↻ Reload skills".
     const rowActionsHtml = (key, done) => {
+        if (key === "pluginInstalled" || key === "cliInstalled") {
+            // `state.envProbeRunning` is either falsy, `"pluginInstalled"`,
+            // or `"cliInstalled"` — track the source row so only the clicked
+            // button spins even though a single probe re-verifies both.
+            // The other button stays enabled: clicking it during an in-flight
+            // probe is a harmless no-op (`performEnvProbe` guards on
+            // `state.envProbeRunning`), and users read a disabled sibling as
+            // "something is broken" more than as "wait for the other one".
+            const isRunning = state.envProbeRunning === key;
+            // Second row's Recheck stays disabled until the plugin row is
+            // green — checking for the CLI before confirming the plugin is
+            // installed doesn't make sense in this checklist's flow.
+            const blockedByPrereq = key === "cliInstalled" && !env.pluginInstalled;
+            const label = isRunning
+                ? `<span class="btn-spinner" aria-hidden="true"></span> Rechecking…`
+                : "↻ Recheck";
+            let title;
+            if (blockedByPrereq) title = "Install the plugin first.";
+            else if (key === "pluginInstalled") title = "Re-run the environment probe to detect a newly installed plugin.";
+            else title = "Re-run the environment probe to detect a newly installed Specify CLI.";
+            const disabled = isRunning || blockedByPrereq;
+            return `<button type="button" class="setup-link-btn" data-setup-action="probe-env" data-probe-source="${key}" ${disabled ? "disabled" : ""} title="${escapeHtml(title)}">${label}</button>`;
+        }
         if (key === "projectInitialized") {
+            // Always render the text link (setup-link-btn) — never the oval
+            // pill — so this row matches the Recheck / Reload skills /
+            // Re-install affordances. Prereq gating is handled purely by
+            // `disabled` + tooltip.
             const isRunning = running === "init";
-            const disabled = isRunning || !prereqsOk;
-            if (done) {
-                // Re-run the full init chain (init → install defaults →
-                // reload skills). Useful after a Specify CLI upgrade or
-                // if the user wants to re-scaffold on top of edits.
-                const label = isRunning
-                    ? `<span class="btn-spinner" aria-hidden="true"></span> Initializing…`
-                    : "↻ Initialize";
-                const title = !prereqsOk
-                    ? "Install the plugin and Specify CLI first."
-                    : "Run speckit-init to scaffold .specify/ and .github/skills/.";
-                return `<button type="button" class="setup-link-btn" data-setup-action="init" ${disabled ? "disabled" : ""} title="${escapeHtml(title)}">${label}</button>`;
-            }
+            const prereqBlocked = !prereqsOk;
+            // Stay disabled through the entire post-init chain (running ===
+            // "installDefaults", "reload", etc.) — matching the Install
+            // Default Presets button's `!!running` guard below — so
+            // Initialize doesn't re-enable itself mid-flow.
+            const disabled = isRunning || prereqBlocked || !!running;
             const label = isRunning
                 ? `<span class="btn-spinner" aria-hidden="true"></span> Initializing…`
-                : "Initialize";
-            const title = !prereqsOk
-                ? "Install the plugin and Specify CLI first."
-                : "Scaffolds .specify/ and .github/skills/ via speckit-init, then reloads skills.";
-            return `<button type="button" class="setup-inline-btn primary" data-setup-action="init" ${disabled ? "disabled" : ""} title="${escapeHtml(title)}">${label}</button>`;
+                : done
+                    ? "↻ Initialize"
+                    : "↻ Initialize";
+            let title;
+            if (prereqBlocked) title = "Install the plugin and Specify CLI first.";
+            else if (done) title = "Run speckit-init to scaffold .specify/ and .github/skills/.";
+            else title = "Scaffolds .specify/ and .github/skills/ via speckit-init, then reloads skills.";
+            return `<button type="button" class="setup-link-btn" data-setup-action="init" ${disabled ? "disabled" : ""} title="${escapeHtml(title)}">${label}</button>`;
         }
         if (key === "skillsReloaded") {
             // Reload is the escape hatch, not the primary path — render it as
@@ -437,9 +482,16 @@ export function renderSetupBody(_p) {
         const noteHtml = key === "skillsReloaded" && reloadUnavailable
             ? `<div class="setup-row-note">Automatic reload unavailable — run <code>/skills reload</code> in chat, or restart the session.</div>`
             : "";
-        // Rows 3–5 stack chip above button so the chip stays the visual
-        // anchor and the text-link action reads as secondary.
-        const stackedKeys = new Set(["projectInitialized", "skillsReloaded", "defaultPresetsInstalled"]);
+        // Every actionable row stacks chip above button so the chip stays
+        // the visual anchor and the text-link action reads as secondary.
+        // (pluginInstalled/cliInstalled now expose a ↻ Recheck link.)
+        const stackedKeys = new Set([
+            "pluginInstalled",
+            "cliInstalled",
+            "projectInitialized",
+            "skillsReloaded",
+            "defaultPresetsInstalled",
+        ]);
         const statusInner = stackedKeys.has(key)
             ? `<div class="setup-chip-stack">${chipHtml(key)}${actions}</div>`
             : `${chipHtml(key)}${actions}`;
@@ -462,7 +514,7 @@ export function renderSetupBody(_p) {
             key: "pluginInstalled",
             title: "Install Spec Kit Copilot plugin",
             sub: "This step only verifies the plugin is present and reports its version. Manual install required: install the spec-kit-marketplace and spec-kit-copilot skills plugin. See installation instructions ↗.",
-            subHtml: `<p>This step only verifies the plugin is present and reports its version.</p><p><strong>Manual install required:</strong> install the <strong>spec-kit-marketplace</strong> and <strong>spec-kit-copilot</strong> skills plugin. <a href="https://github.com/github/spec-kit-copilot#installation" target="_blank" rel="noopener noreferrer">See installation instructions ↗</a>.</p>`,
+            subHtml: `<p>This step only verifies the plugin is present and reports its version.</p><p><strong>Manual install required:</strong> install the <strong>spec-kit-marketplace</strong> and <strong>spec-kit-copilot</strong> skills plugin, then <strong>restart the GitHub Copilot app</strong>. <a href="https://github.com/github/spec-kit-copilot#installation" target="_blank" rel="noopener noreferrer">See installation instructions ↗</a>.</p>`,
         },
         {
             key: "cliInstalled",

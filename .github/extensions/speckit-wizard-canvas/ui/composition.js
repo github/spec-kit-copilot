@@ -1,6 +1,6 @@
 // Consolidated Composition tab (Copilot plugins/extensions/bundles/presets stack).
 
-import { escapeHtml } from "./client.js";
+import { escapeHtml, dispatchKind } from "./client.js";
 import { CORE_INVENTORY } from "../pipeline/canonical.mjs";
 import {
     state,
@@ -159,6 +159,13 @@ export function computeProviderContributions(artifacts) {
     for (const a of artifacts ?? []) {
         const kind = ARTIFACT_KIND_ORDER.includes(a.kind) ? a.kind : "command";
         const isCore = artifactOrigin(a) === "core";
+        // Hook artifacts merge multiple bindings (e.g. same hook command
+        // fired from both `after_specify` AND `after_plan`) into a single
+        // artifact. Count each binding as its own contribution so the
+        // per-extension totals match the Hooks subtab.
+        const weight = kind === "hook"
+            ? Math.max(1, Array.isArray(a.hookBindings) ? a.hookBindings.length : 0)
+            : 1;
         const seen = new Set();
         for (const layer of a.stack ?? []) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
@@ -174,7 +181,7 @@ export function computeProviderContributions(artifacts) {
                 out.set(id, bucket);
             }
             const target = isCore ? bucket.customized : bucket.added;
-            target[kind] = (target[kind] ?? 0) + 1;
+            target[kind] = (target[kind] ?? 0) + weight;
         }
     }
     return out;
@@ -212,12 +219,19 @@ export function computeCompositionKindCounts(artifacts) {
         const kind = ARTIFACT_KIND_ORDER.includes(a.kind) ? a.kind : "command";
         const origin = artifactOrigin(a);
         const pill = artifactPillOrigin(a);
-        out[kind].total += 1;
+        // Hook artifacts merge multiple bindings (e.g. same hook command
+        // fired from both `after_specify` AND `after_plan`) into a single
+        // artifact. Count each binding as its own row so the header
+        // summary matches the per-binding rows the Hooks subtab renders.
+        const weight = kind === "hook"
+            ? Math.max(1, Array.isArray(a.hookBindings) ? a.hookBindings.length : 0)
+            : 1;
+        out[kind].total += weight;
         if (origin === "core") {
-            if (pill === "core") out[kind].core += 1;
-            else out[kind].overridden += 1;
+            if (pill === "core") out[kind].core += weight;
+            else out[kind].overridden += weight;
         } else {
-            out[kind].added += 1;
+            out[kind].added += weight;
         }
     }
     return out;

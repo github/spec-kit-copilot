@@ -32,7 +32,7 @@ import {
     clearClarifications,
     markPhaseRunning,
 } from "./phase-runtime.js";
-import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset } from "./setup.js";
+import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
 import { renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
@@ -66,6 +66,8 @@ function wireEnvironmentCard(el) {
                 await runInit(values);
             } else if (action === "reload") {
                 await runReload();
+            } else if (action === "probe-env") {
+                await performEnvProbe(btn.dataset.probeSource);
             } else if (action === "reinstall-defaults") {
                 installCatalogPreset({
                     presetId: "copilot-sub-agents",
@@ -295,7 +297,9 @@ export function renderStepper() {
             const label = p.name || id;
             const ok = await popoverConfirm(removeBtn, `Remove "${label}"?`, { confirmLabel: "Remove" });
             if (!ok) return;
-            await dispatchPipeline("remove", { id });
+            // Pass the render-time index so the server removes the exact
+            // instance clicked when duplicates of the same command id exist.
+            await dispatchPipeline("remove", { id, index: idx });
         });
         el.appendChild(li);
         for (const h of afterHooks) appendHookStep(h);
@@ -807,7 +811,7 @@ export function wireGraphPhaseCard(el, p) {
         // (or the previous one if this was the tail) so the user isn't left
         // staring at an empty card.
         const successor = pip[idx + 1]?.id ?? pip[idx - 1]?.id;
-        await dispatchPipeline("remove", { id: p.id });
+        await dispatchPipeline("remove", { id: p.id, index: idx });
         if (successor) {
             state.currentPhase = successor;
             __renderPhaseCard();

@@ -3,10 +3,6 @@
 // See the sibling files (presets.mjs, extensions.mjs, bundles.mjs) for the
 // per-kind hydrators and the CLI-shelled "installed" list queries.
 
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname as pathDirname } from "node:path";
-
 // PRESET_CATALOG_URL: the fixed set of preset catalogs the wizard shows —
 // `default` and `community` (the upstream spec-kit built-ins) plus `copilot`
 // (this plugin's own catalog).
@@ -45,26 +41,12 @@ export const EXTENSION_CATALOG_URL = {
 // above. The built-in `bundles/catalog.json` may not exist yet upstream
 // (404); the community catalog carries the sole known bundle today. Fetch
 // failures on either URL are non-fatal — see hydrateBundlesForSources.
-// The `test` entry is TEMP: it points at a wizard-shipped catalog.test.json
-// that mirrors github/spec-kit/examples/bundles/*. Remove once an upstream
-// default catalog exists. TODO: temp only.
-const EXTENSION_DIR = pathDirname(fileURLToPath(import.meta.url));
-const TEST_BUNDLE_CATALOG_PATH = `${EXTENSION_DIR}/../catalog.test.json`;
 export const BUNDLE_CATALOG_URL = {
     default: "https://raw.githubusercontent.com/github/spec-kit/main/bundles/catalog.json",
     community: "https://raw.githubusercontent.com/github/spec-kit/main/bundles/catalog.community.json",
-    test: `file://${TEST_BUNDLE_CATALOG_PATH.replace(/\\/g, "/")}`,
 };
 
 export async function fetchCatalogJson(url) {
-    // Support file: URLs so the wizard can ship a local test catalog (see
-    // catalog.test.json). Node's global fetch does NOT handle file: — read
-    // from disk directly instead.
-    if (typeof url === "string" && url.startsWith("file://")) {
-        const path = fileURLToPath(url);
-        const text = await readFile(path, "utf8");
-        return JSON.parse(text);
-    }
     const res = await fetch(url, { redirect: "follow" });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return res.json();

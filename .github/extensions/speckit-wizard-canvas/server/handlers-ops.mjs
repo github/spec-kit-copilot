@@ -5,7 +5,7 @@
 import { join } from "node:path";
 
 import { applyPatch, writeState } from "../state/store.mjs";
-import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
 // Pipeline mutation — user-authored spine override.
 //
@@ -34,8 +34,14 @@ export async function handlePipelineMutation(res, body, { getState, broadcast, g
     } else if (action === "clear") {
         next = [];
     } else if (action === "add") {
-        const id = body?.id;
-        if (typeof id !== "string" || !id.length) return jsonError(res, 400, "missing id");
+        const rawId = body?.id;
+        if (typeof rawId !== "string" || !rawId.length) return jsonError(res, 400, "missing id");
+        // Normalize to bare canonical/namespaced form so we match the seed —
+        // the UI's "+ Add" chips send `commands/speckit.<name>` for artifact
+        // ids, but effectivePipelinePhases already strips that prefix. Storing
+        // the raw prefixed id resulted in the pipeline holding both `plan` and
+        // `commands/speckit.plan`, which rendered as two "Plan" chips.
+        const id = stripCommandsPrefix(rawId);
         // Materialize from the SAME seed the UI renders pre-edit — the
         // shared derivation in ui/pipeline-items.mjs. Historically the
         // server used CANONICAL_PHASES (9 items) while the UI showed the
@@ -44,15 +50,25 @@ export async function handlePipelineMutation(res, body, { getState, broadcast, g
         const seed = current ?? effectivePipelinePhases(snapshot);
         next = [...seed, { id }];
     } else {
-        // remove — id-based, so the UI ordering can never disagree with the
-        // server's materialized seed. (Previously this took an index, which
-        // was computed against the UI list but resolved against the server's
-        // CANONICAL_PHASES seed — removing "implement" hit a different entry
-        // and the pipeline visibly grew from 5 to 8.)
-        const id = body?.id;
-        if (typeof id !== "string" || !id.length) return jsonError(res, 400, "missing id");
+        // remove — prefer the explicit render-time index when provided by the
+        // UI (accurate when the pipeline contains duplicate ids, e.g. two Plan
+        // phases). Fall back to first-match-by-id for older clients or when
+        // the index doesn't line up with the seed (stale UI).
+        const rawId = body?.id;
+        if (typeof rawId !== "string" || !rawId.length) return jsonError(res, 400, "missing id");
+        const id = stripCommandsPrefix(rawId);
         const seed = current ?? effectivePipelinePhases(snapshot);
-        const idx = seed.findIndex((entry) => entry?.id === id);
+        const explicitIndex = Number.isInteger(body?.index) ? body.index : -1;
+        let idx = -1;
+        if (
+            explicitIndex >= 0 &&
+            explicitIndex < seed.length &&
+            stripCommandsPrefix(seed[explicitIndex]?.id) === id
+        ) {
+            idx = explicitIndex;
+        } else {
+            idx = seed.findIndex((entry) => stripCommandsPrefix(entry?.id) === id);
+        }
         if (idx < 0) return jsonError(res, 400, "id not in pipeline");
         next = seed.filter((_, i) => i !== idx);
     }
@@ -276,4 +292,36 @@ export async function handleSkillsReload(res, deps) {
         return jsonRes(res, result.ok ? 200 : 200, result);
     }
     return jsonError(res, 500, `skills reload failed: ${result.error ?? "unknown"}`);
+}
+
+// Force-refresh the env probe (plugin / CLI presence, versions). Used by the
+// Setup rows 1 & 2 "↻ Recheck" links so a user who has just installed the
+// missing tool doesn't have to reload the extension to see the new status.
+//
+// `ensureEnvProbe` already handles cache invalidation via the `force` flag
+// and writes `setup.pluginInstalled` / `setup.cliInstalled` into state.json;
+// we just need to broadcast a fresh snapshot afterwards so every listening
+// canvas UI re-renders with the new values.
+export async function handleProbeEnv(res, { getState, broadcast, getInstance, ensureEnvProbe }) {
+    const inst = getInstance?.();
+    if (!inst) return jsonError(res, 400, "instance unavailable");
+    try {
+        await ensureEnvProbe(inst, { force: true });
+    } catch (err) {
+        return jsonError(res, 500, `env probe failed: ${err?.message ?? err}`);
+    }
+    try {
+        const fresh = await getState();
+        broadcast({ type: "state", data: fresh });
+    } catch {
+        broadcast({ type: "state", data: inst.state });
+    }
+    const summary = inst.cachedProbes?.summary ?? {};
+    return jsonRes(res, 200, {
+        ok: true,
+        pluginInstalled: !!summary.pluginInstalled,
+        pluginVersion: summary.pluginVersion ?? null,
+        cliInstalled: !!summary.cliInstalled,
+        cliVersion: summary.cliVersion ?? null,
+    });
 }

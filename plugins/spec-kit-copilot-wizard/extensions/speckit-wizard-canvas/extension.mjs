@@ -234,19 +234,6 @@ async function hydrateOnce(inst) {
                 builtin: true,
                 priority: 2,
             },
-            {
-                // TODO: temp only — remove once an upstream default bundle
-                // catalog exists. Sourced from a wizard-shipped
-                // catalog.test.json. Marked install-allowed because each
-                // entry embeds an inline `bundle_yml` payload that the
-                // install prompt materializes locally before installing.
-                name: "test",
-                url: BUNDLE_CATALOG_URL.test,
-                description: "TODO (temp): wizard test bundles (install-allowed via inline bundle.yml)",
-                installAllowed: true,
-                builtin: true,
-                priority: 3,
-            },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
         await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});

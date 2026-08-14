@@ -1,10 +1,12 @@
 # speckit-wizard
 
-A **visual, guided wizard** for the [`spec-kit-copilot`](https://github.com/github/spec-kit-copilot)
-plugin that brings Spec-Driven Development into an interactive canvas.
+A **visual, guided wizard** that brings Spec-Driven Development into an
+interactive canvas — a showcase of both the [Spec Kit `specify`
+CLI](https://github.com/github/spec-kit) and the
+[`spec-kit-copilot`](https://github.com/github/spec-kit-copilot) plugin.
 Ships as a GitHub Copilot **canvas extension** that sits on top of the
-plugin's `speckit-*` skills and gives you three complementary ways to
-work with them:
+plugin's `speckit-*` skills (which in turn shell out to the `specify`
+CLI) and gives you three complementary ways to work with them:
 
 1. **Discover.** Browse the full catalog of presets, extensions,
    and bundles that customize the SDD lifecycle — with
@@ -14,9 +16,9 @@ work with them:
    artifact, where the hooks come from, and the resulting pipeline your
    project will actually run:
 
-```
+   ```
    setup → constitution → specify → clarify → plan → tasks → analyze → checklist → implement
-```
+   ```
 3. **Execute the lifecycle.** Drive every phase from the **Phases** tab —
    click a phase in the pipeline, fill its form, watch the agent produce
    the artifact via the matching `speckit-*` skill.
@@ -25,7 +27,28 @@ Everything under the hood routes through the `spec-kit-copilot` plugin's
 skills, so the same guardrails and behaviors apply whether you drive
 Spec Kit from the wizard, from chat, or from the `specify` CLI.
 
-![The Spec Kit Wizard canvas showing the Catalogs tab with the active preset, available presets, extensions, and bundles](../../../../docs/images/wizard-canvas.png)
+### The four main pages
+
+**Setup → Environment** — verifies prerequisites (plugin, CLI, project init,
+default presets, skills reload) and lights up each step as it completes.
+
+![Setup → Environment page](../../../../docs/images/wizard-environment.png)
+
+**Setup → Catalogs** — browse Built-in, Copilot, and Community catalogs of
+presets, extensions, and bundles, and add the ones you want to your project.
+
+![Setup → Catalogs page](../../../../docs/images/wizard-catalogs.png)
+
+**Setup → Composition** — the layered view of what your project actually runs:
+per-artifact stacks (commands, templates, scripts, hooks) resolved across
+Core, presets, and extensions, plus a Layers sidebar in precedence order.
+
+![Setup → Composition page](../../../../docs/images/wizard-composition.png)
+
+**Phases** — the executable pipeline. Click any phase to see its active
+artifacts, provide input, and run the matching `speckit-*` skill.
+
+![Phases page](../../../../docs/images/wizard-phases.png)
 
 ## Quickstart
 
@@ -36,7 +59,7 @@ Spec Kit from the wizard, from chat, or from the `specify` CLI.
 1. Register the marketplace and install it (see [Install](#install)):
 
 ```bash
- copilot plugin marketplace add OWNER/spec-kit-copilot
+  copilot plugin marketplace add OWNER/spec-kit-copilot
    copilot plugin install spec-kit-copilot-wizard@spec-kit-marketplace
 ```
 2. Ask Copilot in chat: **"Open the Spec Kit Wizard"**.
@@ -61,8 +84,8 @@ The agent opens the wizard in a side panel. See
 
 ## Opening the dashboard
 
-This is a **canvas extension**, so it renders in the **GitHub Copilot
-app** side panel — not in the plain terminal CLI. Installing the plugin
+This is a **canvas extension**, so it renders in the **GitHub Copilot app**
+side panel — not in the plain terminal CLI. Installing the plugin
 only *registers* the canvas; nothing opens automatically.
 
 To open it, ask Copilot in chat, e.g. **"Open the Spec Kit Wizard"** (or
@@ -112,7 +135,7 @@ accordingly. The extension registers **11 actions** across four groups:
 **LLM-driven inference:**
 - `showInferredPipeline` — target of the `composition.inferPipeline`
   prompt; the agent pushes an inferred `{ shape, pipeline, unplaced,
-  rationale }`ordering derived from`state.composition.artifacts\` +
+  rationale }` ordering derived from `state.composition.artifacts` +
   fetched READMEs. Partial-merge preserves the assembler-owned
   composition slice.
 
@@ -122,6 +145,7 @@ accordingly. The extension registers **11 actions** across four groups:
 - `reportExecution` — report which of the phase's expected templates /
   scripts / hooks the agent actually invoked, per the tracking
   preamble's closed list. Called once after `setPhaseStatus(status:'done')`.
+
 ## Install
 
 **Via marketplace (recommended):**
@@ -164,21 +188,17 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 | File | Purpose |
 | --- | --- |
 | `extension.mjs` | Sole importer of `@github/copilot-sdk/extension`; SDK wiring, canvas actions, `session.send` driving. |
-| `pipeline/phases.mjs` | Phase list, form schemas, default text, `SKILL_BY_KIND`, and the file-contract preamble. |
+| `server.mjs` | `createHandler(deps)` + `startServer(instanceId, deps)` — loopback HTTP surface the canvas iframe posts to. |
+| `server/` | HTTP request handlers (`handlers-ops.mjs`, `handlers-phase.mjs`) and shared HTTP utilities incl. sandbox helpers (`http-utils.mjs`). |
 | `project-scanner.mjs` | Workspace scan, defensive normalization, size-bounded artifact reads. |
-| `prompts.mjs` | Pure `(kind, payload, context) → string`. |
-| `canvas-runtime/snapshot-builder.mjs` | Pure `buildStateSnapshot` and HTML fragment helpers. |
-| `server.mjs` | `createHandler(deps)`, `startServer(instanceId, deps)`. |
-| `env/probe.mjs` | Pure `decideChecks`, impure `runChecks`, `summarizeResults`. |
-| `state/store.mjs` | `.speckit-wizard/state.json` read / write / normalize. |
-| `graph.mjs` | Phase graph derivation. |
-| `preset/loader.mjs` | Loads presets from disk (YAML manifests + command files). |
-| `preset/order.mjs` | Deterministic preset ordering rules. |
-| `composition-assembler.mjs` | Assembles the effective composition (presets/extensions + hooks + artifact stacks) from preset / extension / bundle / workflow inputs. |
-| `env/deps-check.mjs` | Detects whether `js-yaml` is installed under `node_modules/`. |
-| `workspace.mjs` | Workspace path and session-metadata helpers. |
-| `ui/` | Dashboard UI (served to the canvas iframe): `index.html`, `app.js`, `styles.css`, and the small pure helpers it imports. |
-| `composition/collect.mjs` | Companion CLI that assembles a composition report from a project. |
-| `test/*.test.mjs` | `node --test`-runnable unit tests (zero SDK, zero network, zero real subprocess spawns). |
+| `prompts.mjs` | Pure `(kind, payload, context) → string` slash-command builder. |
+| `canvas-runtime/` | Long-lived per-instance state: `instances.mjs`, `snapshot-builder.mjs` (pure state → snapshot), `snapshot.mjs` (broadcast), `watchers.mjs` (fs), `dispatch.mjs` (SDK action router), `wizard-phases.mjs` (phase list + `SKILL_BY_KIND`), `composition-apply.mjs`. |
+| `pipeline/` | Pipeline math: `canonical.mjs` (canonical phase vocabulary), `effective-phases.mjs`, `active-artifacts.mjs` (per-phase resolved artifacts), `validate.mjs`. |
+| `composition/` | Composition graph: `assembler.mjs` (composes preset/extension/bundle layers), `preset-loader.mjs`, `preset-order.mjs`, `collect.mjs` (companion CLI). |
+| `catalog/` | Catalog hydration for the Setup → Catalogs page: `sources.mjs` (hardcoded catalog URL table + `fetchCatalogJson`), `presets.mjs`, `extensions.mjs`, `bundles.mjs`, `shared.mjs`. |
+| `env/` | Environment probe + PATH resolution: `probe.mjs`, `probe-cache.mjs`, `resolve-path.mjs` (locates `copilot`/`specify` binaries when the SDK dir isn't on `PATH`), `deps-check.mjs`, `workspace.mjs`. |
+| `state/` | `.speckit-wizard/state.json` read / write / normalize: `store.mjs`, `normalize.mjs`, `execution-reports.mjs`. |
+| `ui/` | Dashboard UI served to the canvas iframe: `index.html`, `app.js`, `client.js`, plus per-page modules (`setup.js`, `catalog.js`, `composition.js`, `composition-artifacts.js`, `phase-card.js`, `phase-contributors.js`, `phase-runtime.js`, `state.js`, `modals.js`). |
+| `test/` | 5 consolidated `node --test` files (`composition`, `catalog`, `env`, `state-and-scanner`, `server-integration`) — zero SDK, zero network, zero real subprocess spawns. |
 | `copilot-extension.json` | Manifest for gist share/install. |
 | `package.json`, `package-lock.json` | `js-yaml` runtime dependency. |

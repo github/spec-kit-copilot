@@ -380,6 +380,16 @@
     border: 1px solid var(--border-color-default);
     background: var(--background-color-secondary);
 }
+.setup-row.setup-row-stagger {
+    animation: setup-row-slide-in 0.32s ease-out both;
+}
+@keyframes setup-row-slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .setup-row.setup-row-stagger { animation: none; }
+}
 .setup-row .setup-row-main { min-width: 0; }
 .setup-row .setup-row-status {
     display: inline-flex;

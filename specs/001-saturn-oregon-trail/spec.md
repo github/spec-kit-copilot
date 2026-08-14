@@ -18,6 +18,12 @@
 - Q: Is the route between Titan and the Ring Habitation Station fixed linear, or does it branch? → A: Fixed spine of 5–6 required waystations in the same order every run, plus 1–2 optional side stops per run drawn from a detour pool (extra reward for extra fuel/time cost). The spine is not procedurally reordered; only which detours surface varies by seed.
 - Q: Tone and target audience for death and grim events? → A: Deadpan / educational, all ages (E-rating equivalent). Death is frank, named, and matter-of-fact ("Chen died. Cause: hypoxia. Buried in the Ring."). No graphic imagery, profanity, or body horror. Family- and school-safe.
 
+### Session 2026-08-14
+
+- Q: Which browsers count as the "top two supported browsers" referenced in SC-006? → A: The latest two stable releases of Google Chrome (desktop) and Apple Safari (desktop + iPadOS). Firefox and Edge are best-effort but not a shipping gate for v1.
+- Q: Which local-storage backend backs the save/resume + captain's log features (FR-008, FR-010)? → A: IndexedDB. Rationale: save state + event history + last-N run recaps exceed the 5 MB `localStorage` quota risk in longer expeditions, and IndexedDB is available on every browser listed above.
+- Q: What is the accessibility floor beyond keyboard-only play (FR-012)? → A: WCAG 2.1 AA color contrast on all text, focus rings on every actionable element, and no interaction that depends solely on colour. Full screen-reader narration and reduced-motion animations are v2 scope and MUST be listed as a known gap in the Almanac / About screen.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Complete a full expedition from Titan to the Ring Station (Priority: P1)
@@ -105,11 +111,11 @@ The player can save their run and resume later on the same device. At the end of
 - **FR-006**: System MUST track and display for the player: current resource levels, crew roster and per-crew health/morale, ship condition, credits, in-game date/elapsed time, and distance remaining.
 - **FR-006a**: System MUST enforce crew-size bounds: every new expedition starts with exactly 4 crew (captain + 3 specialists); the run auto-ends when the roster falls to 0 (all lost) or when the captain specifically dies; hiring at waystations is blocked once the roster reaches 6.
 - **FR-007**: System MUST end the run under any of these conditions and show a run-summary screen: player-captain death, entire crew lost, arrival at the Ring Habitation Station, or player-initiated abandonment.
-- **FR-008**: System MUST persist an in-progress run locally so the player can quit and resume without loss of state; saving MUST be automatic at every waystation and manually available on demand. Only one active run is supported at a time; starting a new expedition while a save exists MUST show a confirmation modal that names the overwrite consequence before proceeding. The title screen MUST show "Continue" when a save exists and "New Expedition" otherwise.
+- **FR-008**: System MUST persist an in-progress run locally so the player can quit and resume without loss of state; saving MUST be automatic at every waystation and manually available on demand. The persistence backend MUST be IndexedDB (not `localStorage`) to accommodate expedition + event-history + captain's-log payloads that can exceed 5 MB in long runs. Only one active run is supported at a time; starting a new expedition while a save exists MUST show a confirmation modal that names the overwrite consequence before proceeding. The title screen MUST show "Continue" when a save exists and "New Expedition" otherwise.
 - **FR-009**: System MUST provide a copy-to-clipboard "run recap" at end-of-run with expedition name, outcome, key stats, and a memorable one-line epitaph or headline.
 - **FR-010**: System MUST record a local high-score / captain's log list showing the last N completed runs (win or loss) sorted by score, viewable from the title screen.
 - **FR-011**: System MUST prevent transactions and choices that would result in negative resource levels, showing a plain-language reason instead of silently clamping.
-- **FR-012**: System MUST support keyboard-only play for all in-game decisions (accessibility baseline); every actionable element MUST be reachable and confirmable without a mouse.
+- **FR-012**: System MUST support keyboard-only play for all in-game decisions (accessibility baseline); every actionable element MUST be reachable and confirmable without a mouse. All text MUST meet WCAG 2.1 AA colour-contrast thresholds, every actionable element MUST render a visible focus ring, and no state or choice MUST be communicated by colour alone (pair colour with icon or text). Full screen-reader narration and reduced-motion animations are v2 scope and MUST be listed as a known gap in the About / Almanac screen.
 - **FR-013**: System MUST render legibly at common desktop and tablet viewport sizes; the specific tested resolutions MUST include at least one 1080p desktop and one tablet portrait size.
 - **FR-014**: System MUST use a Saturn-authentic setting — waystations map to real Saturnian moons and features (Titan, Enceladus, Mimas, Iapetus, Rhea, Hyperion, the rings) — with hazards themed to each body's real characteristics (methane weather on Titan, cryovolcanism on Enceladus, radiation belts near the rings, etc.). Deviations from real astronomy are allowed for gameplay but MUST be listed in an in-game "Almanac" for educational value.
 - **FR-015**: System MUST provide a first-run tutorial or interactive tooltip pass on the first travel leg that covers movement, resource meters, the event modal, and the waystation panel; the tutorial MUST be skippable and re-openable from a menu.
@@ -134,7 +140,7 @@ The player can save their run and resume later on the same device. At the end of
 - **SC-003**: At least 60% of playtesters describe the experience as "distinctly Oregon Trail–like" and at least 60% describe the setting as "recognizably Saturn" in a post-play short survey.
 - **SC-004**: Fewer than 5% of completed runs end due to a bug, softlock, or unclear game state, measured across at least 100 telemetry-free playtest runs (self-reported).
 - **SC-005**: The game remains fully playable offline after the initial load; a device with connectivity disabled can complete a full run start-to-finish.
-- **SC-006**: End-of-run recap is copied to the clipboard successfully on the first attempt for 95% of runs in the top two supported browsers.
+- **SC-006**: End-of-run recap is copied to the clipboard successfully on the first attempt for 95% of runs in the top two supported browsers — namely the latest two stable releases of Google Chrome (desktop) and Apple Safari (desktop + iPadOS).
 - **SC-007**: Median first-travel-leg decision time in playtesting is under 30 seconds, indicating the resource meters and event modal are legible without training.
 - **SC-008**: The Almanac (astronomy notes for each Saturnian body used as a waystation) is opened at least once by 40% of playtesters, indicating the educational hook works.
 
@@ -147,7 +153,7 @@ The player can save their run and resume later on the same device. At the end of
 - The visual style is **2D with illustrated or pixel-style art**, in the spirit of Oregon Trail's low-fidelity look. Full 3D is out of scope.
 - The route is a **fixed spine with optional detours**: the spine of required waystations is the same order every run; a small pool of side-stops surfaces 1–2 optional detours per run, chosen by seed.
 - "Saturn" is interpreted as the **Saturnian system** (moons + rings + orbital constructs), not surface travel on Saturn itself, which is physically implausible.
-- Existing browser APIs (Local Storage / IndexedDB, Clipboard API) are available in the target browsers and sufficient for save and recap-copy features; no additional platform capabilities are required.
+- Existing browser APIs (**IndexedDB** for save/resume + captain's log, **Clipboard API** for the run-recap copy) are available in the target browsers — the latest two stable releases of **Google Chrome** (desktop) and **Apple Safari** (desktop + iPadOS) — and sufficient for save and recap-copy features; no additional platform capabilities are required. Firefox and Edge are best-effort but not a shipping gate for v1.
 - A short list of the last N completed runs is sufficient for the "captain's log" high-score board; a global leaderboard is out of scope.
 - All astronomy/scientific liberties taken for gameplay purposes are documented in the in-game Almanac; scientific accuracy is a **flavor goal**, not a correctness requirement.
 - **Content tone is deadpan and all-ages** (E-rating equivalent); the game targets a family and classroom audience alongside general players.

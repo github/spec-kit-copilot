@@ -14,8 +14,18 @@
 
 import { fetchCatalogJson } from "./sources.mjs";
 import { spawn } from "node:child_process";
+import { buildAugmentedPath } from "../env/resolve-path.mjs";
 
 const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] });
+
+// Memoize the augmented PATH lookup. This runs on every `specify` invocation
+// (list installed, etc.), so scanning SDK/uv/pipx dirs once per process is
+// worth it. Matches the pattern in env/probe-cache.mjs.
+let augmentedPathPromise = null;
+function getAugmentedPath() {
+    if (!augmentedPathPromise) augmentedPathPromise = buildAugmentedPath();
+    return augmentedPathPromise;
+}
 
 /**
  * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule
@@ -26,13 +36,18 @@ const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName
  * On Windows `specify` is a `.cmd` shim that Node's spawn can only launch
  * through cmd.exe; on macOS/Linux it's a real binary that spawn runs
  * directly. `shell: true` on Windows only.
+ *
+ * PATH is augmented with known SDK / uv / pipx install locations so
+ * `specify` resolves even when the user's shell PATH doesn't include them.
  */
-export function specifyRun(args, cwd) {
+export async function specifyRun(args, cwd) {
+    const augmentedPath = await getAugmentedPath();
     return new Promise((resolve) => {
         const child = spawn("specify", args, {
             cwd,
             shell: process.platform === "win32",
             windowsHide: true,
+            env: { ...process.env, PATH: augmentedPath },
         });
         let stdout = "";
         child.stdout?.on("data", (d) => { stdout += String(d); });

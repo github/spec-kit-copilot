@@ -8,11 +8,22 @@
 import { spawn } from "node:child_process";
 import { pathExists, joinIfPossible } from "./workspace.mjs";
 import { runChecks, summarizeResults } from "./probe.mjs";
+import { buildAugmentedPath } from "./resolve-path.mjs";
 import { applyPatch, writeState } from "../state/store.mjs";
 import { fsDeps } from "../canvas-runtime/instances.mjs";
 
+// Cache the augmented PATH per-process. Directory scanning for SDK / uv /
+// pipx install locations is cheap but not free; probe runs every
+// heartbeat, so we memoize.
+let augmentedPathPromise = null;
+function getAugmentedPath() {
+    if (!augmentedPathPromise) augmentedPathPromise = buildAugmentedPath();
+    return augmentedPathPromise;
+}
+
 export async function ensureEnvProbe(inst, { force = false } = {}) {
     const projectInitialized = !!(await pathExists(joinIfPossible(inst.workspacePath, ".specify")));
+    const augmentedPath = await getAugmentedPath();
     const { results, skipped } = await runChecks(
         {
             spawn: (cmd, args, opts) =>
@@ -24,6 +35,11 @@ export async function ensureEnvProbe(inst, { force = false } = {}) {
                         // real binary that spawn runs directly. `shell: true` on
                         // Windows only.
                         shell: process.platform === "win32",
+                        // Extend PATH with known SDK / uv / pipx install
+                        // locations so `copilot` and `specify` resolve even
+                        // when the user's shell PATH doesn't include them
+                        // (e.g. github-copilot-sdk\cli\<ver> on Windows).
+                        env: { ...process.env, PATH: augmentedPath },
                     });
                     let stdout = ""; let stderr = "";
                     const timer = setTimeout(() => {

@@ -810,7 +810,19 @@ export function renderMoreCommandsPanel() {
             for (const b of bindings) list.push(b);
             hookBindingsByCommandId.set(a.id, list);
         }
-        const items = rawItems.filter((a) => a.kind === "command");
+        const items = rawItems.filter((a) => {
+            if (a.kind === "command") return true;
+            // Include hook artifacts too, so extensions whose only
+            // user-visible entry point is a hook target (e.g.
+            // `agent-context.update`, which the assembler excludes from
+            // the command kind because it's declared under `hooks:`) still
+            // get a card — rendered as a passive hook tile with an
+            // "Auto-runs" indicator and no + Add affordance. Skip any
+            // hook whose id is already covered by a command in rawItems
+            // (defensive; the assembler prevents this collision today).
+            if (a.kind !== "hook") return false;
+            return !rawItems.some((c) => c.kind === "command" && c.id === a.id);
+        });
         items.sort((a, b) => collator.compare(a.id, b.id));
         const cards = items.map((art) => renderExtensionCommandCard(art, ext, hookBindingsByCommandId.get(art.id) || null)).join("");
         const openAttr = isSectionOpen(`extension:${ext.id}`) ? " open" : "";

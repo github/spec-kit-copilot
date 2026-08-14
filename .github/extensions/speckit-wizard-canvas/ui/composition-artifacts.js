@@ -80,7 +80,24 @@ export function renderCompositionArtifacts() {
     for (const kind of ARTIFACT_KIND_ORDER) groups.set(kind, []);
     for (const a of visible) {
         const kind = ARTIFACT_KIND_ORDER.includes(a.kind) ? a.kind : "command";
-        groups.get(kind).push(a);
+        // Expand multi-binding hook artifacts (e.g. one hook command that
+        // fires from BOTH `after_specify` AND `after_plan`) into one row
+        // per binding on the Hooks tab so the count and rendering reflect
+        // every phase the extension actually attaches to. Other tabs are
+        // unaffected — the commands tab looks hooks up by target id
+        // through `hookByTargetId`, which is built from the original
+        // artifact list below.
+        if (kind === "hook" && Array.isArray(a.hookBindings) && a.hookBindings.length > 1) {
+            for (const binding of a.hookBindings) {
+                groups.get(kind).push({
+                    ...a,
+                    hookBindings: [binding],
+                    hookBinding: binding,
+                });
+            }
+        } else {
+            groups.get(kind).push(a);
+        }
     }
 
     // Sort each group:
