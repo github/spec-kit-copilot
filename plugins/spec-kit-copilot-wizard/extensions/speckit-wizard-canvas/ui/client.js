@@ -206,19 +206,37 @@ export function resolveSnapshotWaiters() {
 
 let __render = () => {};
 let __refreshState = async () => {};
+let __onBoot = () => {};
 
-export function setMessagesDeps({ render, refreshState } = {}) {
+export function setMessagesDeps({ render, refreshState, onBoot } = {}) {
     if (typeof render === "function") __render = render;
     if (typeof refreshState === "function") __refreshState = refreshState;
+    if (typeof onBoot === "function") __onBoot = onBoot;
 }
 export function handleServerMessage(msg) {
     switch (msg.type) {
+        case "boot.update":
+            __onBoot(msg);
+            // Boot updates also carry live snapshot fragments; forward
+            // depsError so the state snapshot stays in sync when the
+            // main UI eventually renders.
+            if (state.snapshot) {
+                if (msg.boot !== undefined) state.snapshot.boot = msg.boot;
+                if (msg.depsError !== undefined) state.snapshot.depsError = msg.depsError;
+            }
+            break;
         case "state":
             // A reconnect or legacy broadcaster can emit a state envelope
             // without a usable snapshot. Never replace a valid UI state with
             // undefined; the next valid broadcast or refresh will repair it.
             if (!msg.data || typeof msg.data !== "object") break;
             state.snapshot = msg.data;
+            // Forward boot progress to the overlay whenever a state
+            // broadcast arrives — SSE state envelopes include boot +
+            // depsError as inline fields (snapshot builder overlay).
+            if (msg.data.boot !== undefined || msg.data.depsError !== undefined) {
+                __onBoot({ type: "boot.update", boot: msg.data.boot ?? null, depsError: msg.data.depsError ?? null });
+            }
             // Preserve local navigation. The user's active phase is a UI
             // concern; a state broadcast triggered by an artifact write
             // (or any background refresh) must not yank them back to

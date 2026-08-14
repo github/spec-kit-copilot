@@ -31,6 +31,8 @@ export function buildStateSnapshot(scan) {
             composition: { presets: [], extensions: [] },
             catalog: { presets: [{ id: "core", name: "core", source: "builtin", active: true }] },
             environment: null,
+            boot: null,
+            depsError: null,
             warnings: [],
         };
     }
@@ -142,6 +144,8 @@ export function buildStateSnapshot(scan) {
         composition: scan.composition ?? { presets: [], extensions: [] },
         catalog: scan.catalog ?? { presets: [] },
         environment: scan.environment ?? null,
+        boot: scan.boot ?? null,
+        depsError: scan.depsError ?? null,
         scaffoldedSkills: Array.isArray(scan.scaffoldedSkills) ? scan.scaffoldedSkills : [],
         warnings: Array.isArray(scan.warnings) ? scan.warnings.slice(0, 20) : [],
     };

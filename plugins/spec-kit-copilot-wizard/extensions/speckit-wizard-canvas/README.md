@@ -124,6 +124,12 @@ accordingly. The extension registers **11 actions** across four groups:
   the Install button).
 - `reloadSessionSkills` — reload Copilot's in-memory skill registry for
   the session (equivalent to `/skills reload`).
+- `runNpmDiagnostics` — dispatch a scripted npm-diagnostic prompt to the
+  parent session so the Copilot agent walks a checklist (inspect
+  `~/.npmrc`, ask about the org's approved feed / CA / proxy, propose a
+  minimal config change, retry the install, call `refreshEnvironment`
+  when done). Wired to the "Diagnose and fix with the agent" button on
+  the boot overlay's deps-error card. See [First-open boot](#first-open-boot).
 
 **UI navigation (push state to a tab):**
 - `showPresetCatalog` — push the preset catalog to the Catalogs tab.
@@ -176,6 +182,38 @@ flow recognize it.
   (`js-yaml`) is used for reading preset / bundle YAML.
   The wizard installs it automatically on first open of a fresh clone
   or worktree — no manual `npm install` needed.
+
+<a id="first-open-boot"></a>
+
+### First-open boot
+
+On first open of a fresh worktree, the wizard shows a live boot overlay
+while the backend runs its startup checklist: **workspace → deps-check
+→ deps-install → env-probe → catalog → ready**. The HTTP server is
+started *first*, before any long-running work, so the canvas iframe
+loads within ~1 second and each step animates in place with an elapsed
+timer. The `deps-install` row streams npm's live output as the last
+line under the row title, so users see progress instead of a blank
+"installing…" spinner.
+
+If `npm install` fails (e.g. a corporate TLS-inspecting proxy blocks
+`registry.npmjs.org`), the deps-install row is replaced in-place with
+an error card classifying the failure and offering two buttons:
+
+- **Diagnose and fix with the agent** — dispatches a scripted prompt
+  to the Copilot agent (via the `runNpmDiagnostics` canvas action).
+  The agent inspects `~/.npmrc`, asks about the user's approved
+  internal feed / CA / proxy, proposes a minimal config change, and
+  retries the install. When it succeeds the agent calls
+  `refreshEnvironment`; the boot overlay picks up the new state and
+  animates through the remaining steps.
+- **Retry install** — re-runs `installDeps` on the same backend, so
+  the same overlay progress + error classification pipeline covers the
+  retry too.
+
+The wizard never hard-fails on install failure — the canvas stays
+open with the actionable boot overlay so users can self-serve the
+repair without closing the panel.
 
 The wizard writes its own control-plane state to
 `.speckit-wizard/state.json` in the target project. Artifact files

@@ -17,6 +17,7 @@ import {
     handleServerMessage,
     renderCwd,
 } from "./client.js";
+import { installBootOverlay } from "./boot.js";
 import {
     setViewersDeps,
     openArtifactViewer,
@@ -96,7 +97,8 @@ setPhaseCardDeps({ renderGraphPhaseCard });
 setGraphPhaseCardDeps({ postJson, openArtifactViewer, openCommandViewer, renderPhaseCard, renderStepper });
 setEnvDeps({ postJson });
 setViewersDeps({ postJson, HEADERS });
-setMessagesDeps({ render, refreshState });
+const boot = installBootOverlay({ token: TOKEN });
+setMessagesDeps({ render, refreshState, onBoot: boot.handleBootMessage });
 
 // -------- Boot --------
 // init() runs at the bottom of the module to avoid TDZ errors when init
@@ -136,12 +138,33 @@ function selectTab(name) {
 }
 
 // -------- Theme --------
+const THEME_STORAGE_KEY = "speckit-wizard.theme";
+
+function currentTheme() {
+    const explicit = document.documentElement.getAttribute("data-theme");
+    if (explicit === "dark" || explicit === "light") return explicit;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+        btn.textContent = theme === "dark" ? "☾" : "☀";
+        btn.setAttribute("aria-label", theme === "dark" ? "Switch to light theme" : "Switch to dark theme");
+        btn.setAttribute("title", theme === "dark" ? "Switch to light theme" : "Switch to dark theme");
+    }
+}
+
 function wireThemeToggle() {
+    let stored = null;
+    try { stored = localStorage.getItem(THEME_STORAGE_KEY); } catch { /* ignore */ }
+    applyTheme(stored === "dark" || stored === "light" ? stored : currentTheme());
     const btn = document.getElementById("theme-toggle");
     btn?.addEventListener("click", () => {
-        const cur = document.documentElement.getAttribute("data-theme");
-        const next = cur === "dark" ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", next);
+        const next = currentTheme() === "dark" ? "light" : "dark";
+        applyTheme(next);
+        try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch { /* ignore */ }
     });
 }
 
@@ -216,6 +239,10 @@ async function refreshState() {
         if (!res.ok) throw new Error(`state ${res.status}`);
         const snap = await res.json();
         state.snapshot = snap;
+        // Seed boot overlay from initial snapshot so the panel reflects
+        // any progress the backend has made between server-start and
+        // this first REST fetch (avoids a blank frame before SSE ticks).
+        boot.setInitialSnapshot(snap);
         const cp = snap.currentPhase || "constitution";
         state.currentPhase = SETUP_TAB_PHASE_KEYS.has(cp) ? "constitution" : cp;
         render();

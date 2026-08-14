@@ -47,6 +47,7 @@ import {
     handleSkillsReload,
     handleProbeEnv,
 } from "./server/handlers-ops.mjs";
+import { handleNpmDiagnose, handleNpmRetry } from "./server/handlers-deps.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -317,6 +318,8 @@ export function createHandler(deps) {
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),
                     "/api/setup/skip-defaults": () => handleSkipDefaults(res, body, { broadcast, getInstance }),
                     "/api/env/probe": () => handleProbeEnv(res, { getState, broadcast, getInstance, ensureEnvProbe }),
+                    "/api/deps/diagnose": () => handleNpmDiagnose(res, body, { broadcast, getInstance }),
+                    "/api/deps/retry": () => handleNpmRetry(res, body, { broadcast, getInstance }),
                 };
                 const route = postRoutes[url.pathname];
                 if (route) return route();
