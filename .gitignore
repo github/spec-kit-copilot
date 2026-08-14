@@ -1,5 +1,11 @@
 .DS_Store
 node_modules/
+# Exception: the Spec Kit Wizard canvas ships a trimmed vendored copy of
+# js-yaml + argparse so the extension works without an on-first-open
+# `npm install` (Copilot CLI doesn't run npm; users on corporate networks
+# often can't reach registry.npmjs.org over TLS).
+!plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/node_modules/
+!plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/node_modules/**
 .playwright-mcp/
 
 # Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)

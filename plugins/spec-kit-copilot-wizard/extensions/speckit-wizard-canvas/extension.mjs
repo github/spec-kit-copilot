@@ -75,11 +75,15 @@ async function onOpen(ctx) {
     inst.workspacePath = resolveWorkspace(inst, ctx, sessionState.repoPath);
 
     // First-boot / new-worktree bootstrap: the wizard canvas has a small npm
-    // dependency (js-yaml) that isn't checked in. If it's missing, run
-    // `npm install` in the canvas folder automatically before starting
-    // the server. This adds a one-time ~10-30s delay on first open of a
-    // fresh worktree but avoids surfacing a raw error that the user then
-    // has to resolve manually.
+    // dependency (js-yaml) that is now vendored under node_modules/ in the
+    // shipped plugin (see .gitignore exception). checkDeps() is kept as a
+    // belt-and-suspenders probe: if the vendored copy has somehow been
+    // stripped (e.g. an over-aggressive gitignore in a downstream fork, or
+    // a manual `rm -rf node_modules/`), we still attempt to run
+    // `npm install` and, if THAT also fails (offline machine, corporate
+    // TLS block, etc.), we open the canvas in a degraded mode rather than
+    // refusing to start. Only the Catalogs/Composition pages need
+    // js-yaml — everything else works without it.
     let deps = await checkDeps();
     if (!deps.ready) {
         const installResult = await installDeps(deps.missing);
@@ -88,9 +92,13 @@ async function onOpen(ctx) {
             const extDir = getExtensionDir();
             const pkgs = deps.missing.join(" ");
             const detail = installResult.stderr?.trim() || installResult.stdout?.trim() || "npm install failed";
-            throw new Error(
-                `Spec Kit Wizard cannot start: automatic install of npm dependencies (${pkgs}) failed. ` +
-                `Run: npm install ${pkgs}  (in ${extDir}), then reopen the canvas.\n\n${detail}`,
+            // Downgrade from a hard start error to a runtime warning: log
+            // for diagnostics and let the UI surface a banner instead.
+            const adapter = sessionAdapter();
+            adapter.log?.(
+                `[speckit-wizard] npm dependency (${pkgs}) missing and auto-install failed; ` +
+                `Catalogs/Composition YAML parsing will be disabled. ` +
+                `To restore full function, run: npm install ${pkgs} (in ${extDir}). Details: ${detail}`,
             );
         }
     }
