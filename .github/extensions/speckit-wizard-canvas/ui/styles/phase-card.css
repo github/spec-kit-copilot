@@ -1,0 +1,613 @@
+/* ---------- Phase card ---------- */
+.phase-card {
+    background: var(--background-color-elevated);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column; gap: 1rem;
+    min-height: 640px;
+}
+/* Form sits right after the customizations block; the input label grows to
+   fill remaining space so the textarea is as tall as it needs to be, and
+   the Continue nav row stays pinned to the bottom of the card. */
+.phase-card .graph-phase-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.phase-card .graph-phase-form > label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.phase-card .graph-phase-form > label > .phase-input-wrap,
+.phase-card .graph-phase-form > label > textarea {
+    flex: 1 1 auto;
+    min-height: 120px;
+}
+.phase-card .graph-phase-form .phase-actions-nav {
+    margin-top: auto;
+}
+.phase-card header h2 { display: flex; align-items: center; gap: 0.5rem; }
+.phase-card .tagline { color: var(--text-color-muted); margin-top: 0.25rem; }
+
+/* Header spacer pushes the Remove button all the way right of the h2. */
+.phase-header-spacer { flex: 1; }
+
+/* Remove-from-pipeline button in the card header. Clearly labeled and
+   tinted with the danger color so its destructive purpose is obvious,
+   but styled as a ghost/outline so it doesn't outrank the primary
+   action row at the bottom. */
+.phase-remove-btn {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    color: var(--text-color-muted);
+    background: transparent;
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md, 6px);
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 100ms ease-out, color 100ms ease-out, border-color 100ms ease-out;
+}
+.phase-remove-btn:hover {
+    background: color-mix(in oklab, var(--danger-color, #cf222e) 8%, transparent);
+    color: var(--danger-color, #cf222e);
+    border-color: color-mix(in oklab, var(--danger-color, #cf222e) 40%, var(--border-color-default));
+}
+.phase-remove-btn:focus-visible {
+    outline: 2px solid var(--danger-color, #cf222e);
+    outline-offset: 2px;
+}
+.badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+    border: 1px solid var(--border-color-default);
+    text-transform: uppercase; letter-spacing: 0.03em;
+}
+.badge.optional { color: var(--warn-color); border-color: var(--warn-color); }
+.badge.locked { color: var(--danger-color); border-color: var(--danger-color); }
+.badge.active { color: var(--success-color); border-color: var(--success-color); }
+.badge.gated { color: var(--warn-color); border-color: var(--warn-color); }
+
+.phase-facts {
+    display: grid; grid-template-columns: 100px 1fr; gap: 0.25rem 1rem;
+    background: var(--background-color-secondary);
+    padding: 0.75rem 1rem; border-radius: var(--radius-md);
+    margin: 0;
+}
+.phase-facts dt { color: var(--text-color-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.phase-facts dd { margin: 0; }
+
+/* Bill-of-materials variant: shows what customizations (command,
+   template, scripts, hooks) are applied to this phase. Overrides the
+   dl grid with its own row grid — kind | contributor | strategy | target. */
+.phase-facts.phase-customizations {
+    display: block;
+    padding: 0.75rem 1rem;
+}
+.phase-cust-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-color-default);
+    font-weight: 700;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid color-mix(in oklab, var(--border-color-default) 80%, transparent);
+}
+.phase-cust-title .comp-info-btn {
+    text-transform: none;
+    letter-spacing: 0;
+}
+.phase-cust-grid { display: block; }
+.phase-cust-row {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 0.25rem 0.75rem;
+    align-items: baseline;
+    padding: 0.35rem 0;
+    border-top: 1px dashed color-mix(in oklab, var(--border-color-default) 60%, transparent);
+    font-size: 13px;
+}
+.phase-cust-row:first-child { border-top: none; }
+.phase-cust-kind {
+    color: var(--text-color-default);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+.phase-cust-detail {
+    min-width: 0;
+    display: inline;
+    word-break: break-word;
+}
+.phase-cust-detail a { color: var(--accent-color); text-decoration: none; }
+.phase-cust-detail a:hover { text-decoration: underline; }
+.phase-cust-part-label {
+    color: var(--text-color-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-right: 0.15rem;
+}
+.phase-cust-sep { color: var(--text-color-muted); }
+.phase-cust-detail code {
+    font-size: inherit;
+    color: var(--text-color-muted);
+}
+.phase-cust-unchanged { color: var(--text-color-muted); }
+
+/* Chain-disclosure toggle chip — sits at the end of the winner row when
+   an artifact has multiple contributing layers. Reuses the runtime-pill
+   size but stays a button so keyboard access + aria-expanded work. */
+.phase-cust-chain-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    margin-left: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color-default);
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+    cursor: pointer;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.phase-cust-chain-toggle:hover {
+    color: var(--text-color-default);
+    border-color: color-mix(in oklab, var(--accent-color, #4c8bf5) 55%, var(--border-color-default));
+    background: color-mix(in oklab, var(--accent-color, #4c8bf5) 8%, var(--background-color-secondary));
+}
+.phase-cust-chain-toggle:focus-visible {
+    outline: 2px solid var(--accent-color, #4c8bf5);
+    outline-offset: 1px;
+}
+
+/* Sub-rows in the expanded chain view. Indented under the winner and
+   marked with a left rule so the group reads as "layers of the row
+   above". The base row gets a subtle background so users see where the
+   chain terminates (replace-winning layer or core fallback). */
+.phase-cust-row.phase-cust-row-chain-sub {
+    border-top: 1px dotted color-mix(in oklab, var(--border-color-default) 45%, transparent);
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    padding-left: 0.75rem;
+    margin-left: 0.4rem;
+    border-left: 2px solid color-mix(in oklab, var(--accent-color, #4c8bf5) 30%, transparent);
+    font-size: 12px;
+    color: var(--text-color-muted);
+}
+.phase-cust-row.phase-cust-row-chain-sub .phase-cust-kind {
+    /* Sub-rows never repeat the kind label — keep the cell to preserve
+       the 2-col grid but visually blank. */
+    color: transparent;
+}
+.phase-cust-row.phase-cust-row-chain-base {
+    background: color-mix(in oklab, var(--background-color-secondary) 60%, transparent);
+    border-radius: 0 0 4px 4px;
+}
+.phase-cust-row-group { display: contents; }
+
+/* Per-phase execution report badges (populated by `phase.viewExecution`).
+   The badges sit at the start of a row detail, next to the composition
+   info, marking whether the run actually observed each expected item.
+   Colors follow the theme's semantic tokens so dark mode inherits
+   automatically.
+     ✓ ok         → observed exactly as expected
+     ✗ missing    → expected by the command body but not observed
+     + name       → observed but not declared (extension/workflow drift)
+     ? unknown    → analysis ran but no run detected — user should re-run
+   The stale-dot on the "View execution" button also uses the warn token. */
+.phase-cust-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    margin-right: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    vertical-align: baseline;
+}
+.phase-cust-badge-unexpected {
+    color: var(--accent-color, #2563eb);
+    border-color: color-mix(in oklab, var(--accent-color, #2563eb) 45%, transparent);
+    background: color-mix(in oklab, var(--accent-color, #2563eb) 10%, transparent);
+    padding: 0 8px;
+    font-weight: 500;
+    font-family: var(--font-mono, monospace);
+    margin-left: 6px;
+    margin-right: 0;
+}
+/* Runtime pill — shown inline in the Detail cell of an artifact row after
+   the phase has been run. Signals whether the artifact was actually
+   loaded/executed/dispatched at runtime. Intentionally NOT ✓/✗ colored
+   (that reads like an error). "Used in last run" is a muted accent;
+   "Skipped in last run" is neutral border-only; "Run pending" is a
+   dashed muted state used when a report exists but observed is null. */
+.phase-runtime-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    vertical-align: baseline;
+    cursor: help;
+}
+.phase-runtime-pill-used {
+    color: var(--accent-color, #2563eb);
+    border-color: color-mix(in oklab, var(--accent-color, #2563eb) 40%, transparent);
+    background: color-mix(in oklab, var(--accent-color, #2563eb) 8%, transparent);
+}
+.phase-runtime-pill-omitted {
+    /* Neutral border-only — the agent factually observed no execution.
+       Distinct from "Unknown" (dashed) because it IS a claim. */
+    color: var(--text-color-muted, #71717a);
+    border-color: var(--border-color-default);
+    background: transparent;
+    font-style: italic;
+}
+.phase-runtime-pill-notused {
+    /* Use the theme's warn/amber token at a low mix so the pill catches
+       the eye without reading as an error. Kept for the Mixed summary
+       row on the Script(s) block. */
+    color: var(--warn-color, #b45309);
+    border-color: color-mix(in oklab, var(--warn-color, #b45309) 45%, transparent);
+    background: color-mix(in oklab, var(--warn-color, #b45309) 10%, transparent);
+    font-weight: 600;
+}
+.phase-runtime-pill-unknown {
+    /* Muted dashed — the agent didn't say anything, or explicitly
+       declined to report. Silence is not a claim, so the visual weight
+       is deliberately low. */
+    color: var(--text-color-muted, #71717a);
+    border-color: var(--border-color-default);
+    background: transparent;
+    border-style: dashed;
+    opacity: 0.75;
+}
+.status-done { color: var(--success-color); }
+.status-in_progress { color: var(--warn-color); }
+.status-skipped { color: var(--text-color-muted); }
+.status-empty { color: var(--text-color-muted); }
+
+.phase-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+/* Wizard-style footer: Back on the left, primary action(s) in the middle,
+   Continue on the right. Three equal-flex slots so the primary action is
+   truly centered even when Back/Continue widths differ. */
+.phase-actions-nav {
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.25rem;
+}
+.phase-actions-nav .phase-actions-left,
+.phase-actions-nav .phase-actions-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 0;
+}
+.phase-actions-nav .phase-actions-right { justify-content: flex-end; }
+.phase-actions-nav .phase-actions-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex: 1 1 0;
+}
+.phase-actions-nav .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Setup sub-steps */
+.setup-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.setup-running-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    margin-bottom: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--accent-color);
+    background: color-mix(in srgb, var(--accent-color) 10%, var(--background-color-elevated));
+    color: var(--text-color-default);
+    font-size: 13px;
+}
+.setup-running-banner .setup-running-text { font-weight: 500; }
+.setup-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.setup-actions-hint { font-size: 12px; }
+.setup-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color-default);
+}
+.setup-footer-hint {
+    flex: 1;
+    font-size: 12px;
+}
+.btn-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+    opacity: 0.85;
+}
+.setup-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color-default);
+    background: var(--background-color-secondary);
+}
+.setup-row .setup-row-main { min-width: 0; }
+.setup-row .setup-row-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 200px;
+    max-width: 320px;
+}
+.setup-row .status-indicator {
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+    color: white;
+    background: var(--text-color-muted);
+    line-height: 1;
+}
+.setup-row.done .status-indicator { background: var(--success-color); }
+.setup-row.pending .status-indicator { background: var(--warn-color); }
+.setup-row .row-title { font-weight: 500; }
+.setup-row .row-sub { font-size: 12px; color: var(--text-color-muted); }
+.setup-row .row-sub code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-color-default) 8%, transparent);
+    color: var(--text-color-default);
+    white-space: nowrap;
+}
+.setup-row .row-sub strong {
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+.setup-row .setup-row-note {
+    font-size: 12px;
+    color: var(--warn-color);
+    margin-top: 0.35rem;
+}
+.setup-row .setup-row-note code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: color-mix(in srgb, var(--warn-color) 12%, transparent);
+    padding: 0 0.3rem;
+    border-radius: 4px;
+}
+
+/* Subtle text-link action button. Used for secondary/escape-hatch actions
+   (row 4 Reload skills) so they don't compete visually with status pills. */
+.setup-link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    background: transparent;
+    border: 0;
+    color: var(--accent-color);
+    cursor: pointer;
+    text-decoration: none;
+}
+.setup-link-btn:hover:not(:disabled) {
+    color: var(--accent-color-hover);
+    text-decoration: underline;
+}
+.setup-link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Wraps a text-link action with an adjacent info button so the button
+   label stays terse while the popover on the ⓘ carries the long-form
+   explanation. The icon uses the shared `.comp-info-btn` style and the
+   popover opens on click via wireInfoPopover(). */
+.setup-link-with-info {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.setup-info-popover {
+    right: 0;
+    top: 100%;
+    left: auto;
+    width: 340px;
+    max-width: 340px;
+    text-align: left;
+    white-space: normal;
+}
+
+/* Small in-row action button. Two variants:
+   • .primary — filled accent (used for row 3 Initialize).
+   • default  — ghost outline (row 4 Reload skills, header Recheck). */
+.setup-inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    height: 24px;
+    min-width: 130px;
+    padding: 0 0.75rem;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: 999px;
+    border: 1px solid var(--border-color-strong);
+    background: transparent;
+    color: var(--text-color-default);
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.setup-inline-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+    border-color: var(--accent-color);
+}
+.setup-inline-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.setup-inline-btn.primary {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+}
+.setup-inline-btn.primary:hover:not(:disabled) {
+    background: var(--accent-color-hover);
+    border-color: var(--accent-color-hover);
+}
+.setup-inline-btn.ghost {
+    border-color: var(--border-color-default);
+    color: var(--text-color-muted);
+}
+.setup-inline-btn.ghost:hover:not(:disabled) {
+    color: var(--text-color-default);
+    border-color: var(--border-color-strong);
+    background: transparent;
+}
+
+/* Per-row status chip (version, path, skill count). */
+.setup-chip-stack {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+}
+.setup-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    height: 24px;
+    min-width: 130px;
+    padding: 0 0.75rem;
+    border-radius: 999px;
+    font-size: 12px;
+    font-family: inherit;
+    background: var(--background-color-tertiary, rgba(0,0,0,0.06));
+    color: var(--text-color-default);
+    border: 1px solid var(--border-color-default);
+    line-height: 1;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+code.setup-chip {
+    font-family: var(--font-family-mono, monospace);
+    font-size: 11px;
+}
+.setup-chip.missing {
+    background: transparent;
+    border-color: var(--danger-color, #d1242f);
+    color: var(--danger-color, #d1242f);
+    font-style: italic;
+}
+.setup-chip.badge {
+    background: var(--background-color-warning-emphasis, #fff8c5);
+    border-color: var(--border-color-warning, #eac54f);
+    color: var(--text-color-warning, #6f4a00);
+}
+a.setup-chip.setup-path {
+    cursor: pointer;
+    max-width: 260px;
+    text-decoration: none;
+    color: inherit;
+    gap: 4px;
+}
+a.setup-chip.setup-path:hover { background: var(--background-color-subtle, rgba(0,0,0,0.1)); text-decoration: underline; }
+a.setup-chip.setup-path.warn {
+    border-color: var(--warn-color, #eac54f);
+    color: var(--text-color-warning, #6f4a00);
+}
+.setup-path-open {
+    font-size: 11px;
+    opacity: 0.6;
+}
+a.setup-chip.setup-path:hover .setup-path-open { opacity: 1; }
+.setup-path-icon { font-size: 12px; line-height: 1; }
+.setup-path-text {
+    font-family: var(--font-family-mono, monospace);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+/* Env / check report */
+.env-report {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--background-color-secondary);
+}
+.env-report .env-line { display: flex; align-items: center; gap: 0.5rem; }
+.env-report .env-line strong { font-weight: 500; }
+.env-report .env-line.ok code { color: var(--success-color); }
+.env-report .env-line.missing .env-missing {
+    color: var(--danger-color);
+    font-style: italic;
+    font-size: 13px;
+}
+.env-report .env-line.env-project { align-items: baseline; }
+.env-report .env-project-path {
+    font-size: 12px;
+    color: var(--text-color-muted);
+    word-break: break-all;
+    max-width: 100%;
+}
+

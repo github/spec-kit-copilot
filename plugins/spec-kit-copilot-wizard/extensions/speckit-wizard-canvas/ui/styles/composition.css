@@ -1,0 +1,1350 @@
+/* ---------- Composition ---------- */
+.composition-grid {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: auto 1fr;
+    column-gap: 1.5rem;
+    row-gap: 0;
+}
+.comp-main {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+}
+.comp-band-header {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    column-gap: 1.5rem;
+    align-items: end;
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.6rem;
+    border-bottom: 1px dashed var(--border-color-default);
+}
+.comp-band-header-left {
+    min-height: 1.2em;
+    display: flex;
+    align-items: end;
+}
+.comp-band-heading {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    font-weight: 600;
+    margin: 0;
+}
+.comp-subtabs-host {
+    margin-bottom: 0;
+}
+.comp-subtabs-header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+.comp-subtabs-header > .comp-subtabs-host {
+    order: -1;
+    align-self: flex-start;
+}
+/* Shared H3 look for catalog + composition kind headings */
+.catalog-section-h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+/* Header summary + legend */
+.comp-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.comp-subhead {
+    margin: 0.25rem 0 0.5rem;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.comp-subhead-list {
+    margin: 0.25rem 0 0.5rem;
+    padding-left: 1.25rem;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.comp-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color-default);
+    background: var(--background-color-elevated);
+    color: var(--text-color-muted);
+    font-size: 11px;
+    font-family: var(--font-family-serif, Georgia, serif);
+    font-style: italic;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+}
+.comp-info-btn:hover {
+    color: var(--text-color-default);
+    border-color: var(--text-color-default);
+}
+.comp-info-popover {
+    position: absolute;
+    z-index: 20;
+    max-width: 480px;
+    margin-top: 0.4rem;
+    padding: 0.9rem 1rem;
+    background: var(--background-color-elevated);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.comp-info-popover[hidden] { display: none; }
+.comp-info-popover p { margin: 0 0 0.5rem; }
+.comp-info-popover ul { margin: 0 0 0 1.1rem; padding: 0; }
+.comp-info-popover li { margin: 0.1rem 0; }
+.comp-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+}
+.comp-meta {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: right;
+    max-width: 260px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem;
+}
+.comp-refresh-icon {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    opacity: 0.65;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.comp-refresh-icon:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--background-color-subtle, rgba(0, 0, 0, 0.06));
+}
+.comp-refresh-icon:disabled { cursor: default; opacity: 0.4; }
+.comp-refresh-icon[aria-busy="true"] { animation: comp-refresh-spin 0.9s linear infinite; }
+@keyframes comp-refresh-spin { to { transform: rotate(360deg); } }
+.comp-reload-skills-btn {
+    width: auto;
+    height: auto;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    animation: none !important;
+    margin-right: 0.25rem;
+}
+.comp-cwd-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0 0 0.5rem;
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+.comp-cwd-label {
+    font-weight: 500;
+    color: var(--text-color-muted);
+}
+.comp-cwd {
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    word-break: break-all;
+    max-width: 100%;
+}
+.comp-summary {
+    margin: 0.35rem 0 0.5rem;
+    font-size: 13px;
+}
+.comp-summary strong { color: var(--text-color-default); font-weight: 600; }
+.comp-summary-heading {
+    font-weight: 600;
+    color: var(--text-color-default);
+    margin-bottom: 0.25rem;
+}
+.comp-summary-list {
+    list-style: disc;
+    margin: 0 0 0.35rem 1.25rem;
+    padding: 0;
+}
+.comp-summary-list li {
+    margin: 0.1rem 0;
+    line-height: 1.4;
+}
+.comp-summary-kind {
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+.comp-summary-totals {
+    font-size: 12px;
+    margin-top: 0.15rem;
+    margin-bottom: 0.35rem;
+    color: var(--text-color-muted, var(--text-color-default));
+}
+.comp-legend-wrap {
+    margin-top: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.comp-legend-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    font-weight: 600;
+}
+.comp-legend {
+    display: flex; flex-wrap: wrap; gap: 0.35rem;
+    align-items: center;
+}
+.comp-legend-sep {
+    color: var(--text-color-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    user-select: none;
+}
+.comp-legend-hint {
+    margin: 0.15rem 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.comp-legend-hint strong { color: var(--text-color-default); font-weight: 600; }
+.comp-legend-hint code {
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--background-color-secondary);
+}
+.comp-chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    border: 1px solid var(--border-color-default);
+    background: var(--background-color-secondary);
+    color: var(--text-color-default);
+    line-height: 1.6;
+    white-space: nowrap;
+}
+.comp-chip.is-disabled { opacity: 0.5; }
+
+/* Layer color coding — subtle background, contrasting border */
+.layer-preset   { background: #e6f1ff; border-color: #4c8bf5; color: #1f4a99; }
+.layer-extension { background: #efe9fb; border-color: #8a63d2; color: #4a2f8a; }
+.layer-core     { background: #eef1f4; border-color: #b1b8c3; color: #333a45; }
+[data-theme="dark"] .layer-preset   { background: #17253f; border-color: #4c8bf5; color: #a9c9ff; }
+[data-theme="dark"] .layer-extension { background: #241a3a; border-color: #8a63d2; color: #cdb8ff; }
+[data-theme="dark"] .layer-core     { background: #21252b; border-color: #4a525f; color: #c9cfd8; }
+
+/* Artifact groups & rows */
+.comp-artifact-group {
+    margin-bottom: 1.5rem;
+}
+.comp-artifact-group > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    user-select: none;
+}
+.comp-artifact-group > summary::-webkit-details-marker { display: none; }
+.comp-artifact-group > summary::before {
+    content: "▸";
+    font-size: 18px;
+    line-height: 1;
+    color: var(--kind-color, var(--text-color-muted));
+    transition: transform 0.15s ease;
+    display: inline-block;
+    width: 1.1em;
+    text-align: center;
+    flex-shrink: 0;
+}
+.comp-artifact-group[open] > summary::before { transform: rotate(90deg); }
+.comp-artifact-group > summary h3 {
+    display: inline;
+}
+.comp-artifact-group h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+}
+.comp-artifact-group[open] > summary h3 { margin-bottom: 0.5rem; }
+.comp-artifact-group:not([open]) > summary h3 { margin-bottom: 0; }
+
+.comp-artifact-row {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    background: var(--background-color-elevated);
+    margin-bottom: 0.6rem;
+}
+
+.comp-artifact-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+.comp-artifact-head-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+/* Description as a subtitle under the id — indented to align with the id
+   chip (past the kind icon) so it reads as a caption for the artifact
+   rather than a free-floating paragraph at the bottom of the row. */
+.comp-artifact-head-desc {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-color-muted);
+    padding-left: calc(1.1em + 0.5rem);
+}
+.comp-artifact-id {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+/* Artifact id chip rendered as a link to the underlying file. Reuses the
+   same dotted-underline + ↗ affordance as .phase-artifact-link, but scoped
+   here because the id chip is nested inside a <code>. */
+.comp-artifact-id-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+}
+.comp-artifact-id-link .comp-artifact-id {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    opacity: 0.9;
+}
+.comp-artifact-id-link::after {
+    content: "↗";
+    font-size: 0.8em;
+    opacity: 0.55;
+    line-height: 1;
+}
+.comp-artifact-id-link:hover .comp-artifact-id,
+.comp-artifact-id-link:focus-visible .comp-artifact-id {
+    text-decoration-style: solid;
+    opacity: 1;
+}
+.comp-artifact-id-link:hover::after,
+.comp-artifact-id-link:focus-visible::after {
+    opacity: 1;
+}
+.comp-artifact-id-link:focus-visible {
+    outline: 2px solid var(--focus-outline-color, #58a6ff);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+.comp-artifact-kind {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+}
+/* Neutral pill: canonical artifact not customized by any preset. */
+.comp-artifact-neutral-badge {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+    border: 1px dashed var(--border-color-default);
+}
+/* Composition strategy chip (wrap / prepend / append) on the row summary. */
+.comp-artifact-strategy-chip {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e6f2ff;
+    color: #005a9e;
+    border: 1px solid #7ab8e6;
+    text-transform: none;
+}
+[data-theme="dark"] .comp-artifact-strategy-chip {
+    background: #15253a; color: #7dc0f5; border-color: #275a8a;
+}
+
+/* Hook attribution row — extension augments (before_/after_) attached to
+   a core command artifact. Rendered as compact chips under the head. */
+.comp-artifact-hooks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+.comp-hook-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in oklab, #14B8A6 12%, transparent);
+    color: #0f766e;
+    border: 1px solid color-mix(in oklab, #14B8A6 45%, transparent);
+}
+.comp-hook-chip .comp-hook-icon {
+    font-size: 10px;
+    line-height: 1;
+}
+[data-theme="dark"] .comp-hook-chip {
+    background: color-mix(in oklab, #14B8A6 22%, transparent);
+    color: #5EEAD4;
+    border-color: color-mix(in oklab, #5EEAD4 45%, transparent);
+}
+/* Inner parts of the hook attribution chip: extension name is bold,
+   "Extension"/"hook" are lowercased muted labels, phase sits in a
+   monospace code chip. Reads as: "Extension <Name> · <phase> hook". */
+.comp-hook-chip-label {
+    font-weight: 400;
+    opacity: 0.75;
+    text-transform: none;
+    font-size: 10.5px;
+}
+.comp-hook-chip-ext strong {
+    font-weight: 600;
+}
+.comp-hook-chip-sep {
+    opacity: 0.55;
+    margin: 0 1px;
+}
+.comp-hook-chip-phase code {
+    font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 10.5px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.06);
+}
+[data-theme="dark"] .comp-hook-chip-phase code {
+    background: rgba(255, 255, 255, 0.08);
+}
+/* Target-command chip segment — the "→ /speckit.companion.capture-tasks"
+   part that follows the phase, showing WHICH command the hook actually
+   dispatches. Uses the same monospace code treatment as .phase. */
+.comp-hook-chip-target code {
+    font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 10.5px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.06);
+}
+[data-theme="dark"] .comp-hook-chip-target code {
+    background: rgba(255, 255, 255, 0.08);
+}
+/* Clickable jump link on the parent-row hook chip. Renders as the target
+   command chip but underlines on hover to advertise clickability. */
+a.comp-hook-chip-target {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+a.comp-hook-chip-target:hover code,
+a.comp-hook-chip-target:focus-visible code {
+    background: rgba(20, 184, 166, 0.18);
+    outline: 1px solid rgba(20, 184, 166, 0.55);
+}
+/* Brief flash to confirm the jump landed on the right row. */
+.comp-artifact-row.is-jump-flash {
+    animation: comp-jump-flash 1.6s ease-out;
+}
+@keyframes comp-jump-flash {
+    0% { box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.55); }
+    100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+}
+/* Mandatory/optional inline flag on the hook attribution chip. Reuses
+   the pill color language from the row-level Mandatory/Optional chip so
+   scanning across the composition tab reads consistently. */
+.comp-hook-chip-flag {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+.comp-hook-chip-flag.is-mandatory {
+    color: #7a3d00;
+    background: #ffe9c9;
+    border: 1px solid #e0b06a;
+}
+.comp-hook-chip-flag.is-optional {
+    color: color-mix(in oklab, #14B8A6 45%, var(--text-color-default));
+    background: color-mix(in oklab, #14B8A6 10%, transparent);
+    border: 1px solid color-mix(in oklab, #14B8A6 40%, transparent);
+}
+[data-theme="dark"] .comp-hook-chip-flag.is-mandatory {
+    color: #f0c060;
+    background: #3b2b14;
+    border-color: #6e5220;
+}
+[data-theme="dark"] .comp-hook-chip-flag.is-optional {
+    color: #5EEAD4;
+    background: color-mix(in oklab, #5EEAD4 12%, transparent);
+    border-color: color-mix(in oklab, #5EEAD4 40%, transparent);
+}
+/* Auto-run pill on a command row that is the TARGET of a hook binding.
+   Sits next to the origin badge on the head row. Reuses the dashed teal
+   language from the More-Commands `.mc-auto-run` pill so users see the
+   same visual across surfaces. */
+.comp-artifact-auto-run {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.03em;
+    border-radius: 999px;
+    background: color-mix(in oklab, #10B981 14%, transparent);
+    color: color-mix(in oklab, #059669 65%, var(--text-color-default));
+    border: 1px solid color-mix(in oklab, #10B981 35%, transparent);
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+}
+[data-theme="dark"] .comp-artifact-auto-run {
+    background: color-mix(in oklab, #34D399 18%, transparent);
+    color: #A7F3D0;
+    border-color: color-mix(in oklab, #34D399 35%, transparent);
+}
+
+/* Hook-artifact meta block — two-tier:
+   line 1: "Dispatched after /speckit.tasks" (operational — real slash cmd)
+   line 2: "via hooks.after_tasks — declared in extension.yml" (source — YAML key + manifest link)
+   No hook icon here; the row already has one on the left rail. */
+.comp-artifact-hook-meta {
+    margin-top: 6px;
+    /* Match .comp-artifact-head-desc indent so the hook meta aligns
+       under the id/description text (past the left-rail kind icon). */
+    padding-left: calc(1.1em + 0.5rem);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+}
+.comp-hook-sentence {
+    color: var(--text-color-default);
+    line-height: 1.5;
+    display: block;
+}
+.comp-hook-sentence .comp-hook-manifest-link {
+    color: var(--text-color-muted);
+}
+.comp-hook-sentence .comp-hook-manifest-link:hover {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+.comp-hook-parent-cmd {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--accent-color);
+    font-size: 11px;
+}
+/* "Used by /speckit.plan /speckit.tasks" sub-line on core-script rows in
+   the Composition Scripts tab. Mirrors the hook-meta indent so it lines
+   up under the script id, and reuses the parent-cmd chip styling for
+   command references. */
+.comp-artifact-usedby {
+    margin-top: 6px;
+    padding-left: calc(1.1em + 0.5rem);
+    font-size: 12px;
+    color: var(--text-color-muted);
+    line-height: 1.5;
+}
+.comp-artifact-usedby-cmd {
+    padding: 1px 5px;
+    margin-right: 4px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--accent-color);
+    font-size: 11px;
+}
+.comp-artifact-usedby-shared {
+    font-style: italic;
+}
+.comp-hook-event-key {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+    font-size: 10.5px;
+    font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+/* Mandatory/Optional as strategy-chip color variants — same
+   rectangular format + font, just retinted for hook semantics. */
+.comp-artifact-strategy-chip.comp-hook-mandatory-chip.is-mandatory {
+    background: color-mix(in oklab, #F59E0B 14%, transparent);
+    color: color-mix(in oklab, #B45309 65%, var(--text-color-default));
+    border-color: color-mix(in oklab, #F59E0B 45%, transparent);
+}
+.comp-artifact-strategy-chip.comp-hook-mandatory-chip.is-optional {
+    color: color-mix(in oklab, #14B8A6 45%, var(--text-color-default));
+    background: color-mix(in oklab, #14B8A6 12%, transparent);
+    border-color: color-mix(in oklab, #14B8A6 45%, transparent);
+}
+[data-theme="dark"] .comp-artifact-strategy-chip.comp-hook-mandatory-chip.is-optional {
+    color: #5EEAD4;
+    background: color-mix(in oklab, #5EEAD4 14%, transparent);
+    border-color: color-mix(in oklab, #5EEAD4 45%, transparent);
+}
+[data-theme="dark"] .comp-artifact-strategy-chip.comp-hook-mandatory-chip.is-mandatory {
+    color: #FCD34D;
+    background: color-mix(in oklab, #F59E0B 22%, transparent);
+    border-color: color-mix(in oklab, #FBBF24 45%, transparent);
+}
+.comp-hook-manifest-link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text-color-muted);
+    font-size: 11px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.comp-hook-manifest-link:hover {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+.comp-hook-manifest-link code {
+    font-size: 10px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--background-color-secondary);
+}
+
+/* Phase card hooks row — surfaces extension hook bindings above the
+   input form so the user can see "this phase triggers an extension"
+   before running. Reuses the .comp-hook-chip styling. */
+.phase-hooks-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0.5rem 0 0.75rem;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--warn-color) 6%, transparent);
+    border: 1px solid color-mix(in oklab, var(--warn-color) 25%, transparent);
+}
+.phase-hooks-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: color-mix(in oklab, var(--warn-color) 40%, var(--text-color-muted));
+    margin-right: 4px;
+}
+
+/* Extension command card in More Commands — same static card shell,
+   omits the +Add affordance, gains the origin chip inline. */
+.more-cmd-card.extension-cmd-card .mc-head {
+    gap: 6px;
+}
+/* Small metadata indicators in the extension group title row. */
+.mc-group-version {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-color-muted);
+    margin-left: 0.25rem;
+}
+.mc-group-hooks {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-color-muted);
+    margin-left: 0.35rem;
+    cursor: help;
+}
+
+/* Stack box */
+.comp-stack {
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--background-color-default);
+}
+.comp-stack-layer {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 0.6rem;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border-color-default);
+}
+.comp-stack-layer:last-child { border-bottom: none; }
+.comp-stack-layer.is-shadowed { opacity: 0.55; }
+.comp-stack-layer.is-active {
+    background: linear-gradient(90deg, rgba(76, 139, 245, 0.06), transparent);
+}
+
+.comp-stack-layer .layer-label {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-weight: 600;
+    color: var(--text-color-default);
+    min-width: 8em;
+}
+.comp-stack-layer .layer-dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color-default);
+}
+.comp-stack-layer .layer-strategy {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+}
+/* Inline strategy pill sits at the left of column 2, immediately to the
+   right of the preset name in the layer label — makes clear which
+   layer applies the "Replaces / Wraps / …" strategy. */
+.comp-stack-layer .comp-stack-layer-strategy {
+    justify-self: start;
+}
+.comp-stack-layer .layer-version {
+    font-size: 11px;
+    color: var(--text-color-muted);
+}
+.comp-stack-layer .layer-marker {
+    font-size: 11px;
+    color: var(--text-color-muted);
+    font-style: italic;
+}
+.comp-stack-layer.is-active .layer-marker {
+    color: #1f4a99;
+    font-weight: 600;
+    font-style: normal;
+}
+[data-theme="dark"] .comp-stack-layer.is-active .layer-marker { color: #a9c9ff; }
+
+.comp-artifact-desc {
+    margin: 0.5rem 0 0;
+    font-size: 12px;
+    color: var(--text-color-muted);
+}
+
+/* Per-kind visual grouping — accent rail on rows, colored icon in head,
+   sticky section headers, and a count badge in the section summary. */
+.comp-artifact-group.kind-command,
+.comp-kind-panel.kind-command   { --kind-color: var(--accent-color); }
+.comp-artifact-group.kind-template,
+.comp-kind-panel.kind-template  { --kind-color: #8B5CF6; }
+.comp-artifact-group.kind-script,
+.comp-kind-panel.kind-script    { --kind-color: var(--warn-color); }
+.comp-artifact-group.kind-hook,
+.comp-kind-panel.kind-hook      { --kind-color: #14B8A6; }
+[data-theme="dark"] .comp-artifact-group.kind-template,
+[data-theme="dark"] .comp-kind-panel.kind-template { --kind-color: #B49CFF; }
+[data-theme="dark"] .comp-artifact-group.kind-hook,
+[data-theme="dark"] .comp-kind-panel.kind-hook { --kind-color: #5EEAD4; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .comp-artifact-group.kind-template,
+    :root:not([data-theme]) .comp-kind-panel.kind-template { --kind-color: #B49CFF; }
+    :root:not([data-theme]) .comp-artifact-group.kind-hook,
+    :root:not([data-theme]) .comp-kind-panel.kind-hook { --kind-color: #5EEAD4; }
+}
+
+/* Composition artifact subtabs (Commands / Templates / Scripts / Hooks). */
+.comp-subtabs {
+    margin: 0;
+}
+/* When the composition subtabs live inside the .comp-artifacts-head
+   section-head row (title on the left, tabs right-aligned — same
+   pattern as the catalogs page), drop the vertical margin so the pill
+   sits flush on the row without pushing the title. */
+.comp-artifacts-head .comp-subtabs {
+    margin: 0;
+}
+.comp-artifacts-head {
+    margin-top: 0.25rem;
+    margin-bottom: 0.75rem;
+}
+.comp-artifacts-title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+}
+.comp-artifacts-count {
+    font-weight: 400;
+    font-size: 13px;
+}
+/* Empty-kind tab: kept fully legible — the panel body explains that the
+   kind has no artifacts installed. */
+.comp-subtabs .subtab.is-empty {}
+/* Empty-panel body — friendly explanation of why a tab is empty. */
+.comp-kind-empty {
+    padding: 1rem 1.25rem;
+    border: 1px dashed var(--border-color-default);
+    border-radius: 6px;
+    background: var(--background-color-secondary);
+    color: var(--text-color-muted);
+}
+.comp-kind-empty-title {
+    font-weight: 600;
+    color: var(--text-color-default);
+    margin-bottom: 0.25rem;
+}
+.comp-kind-empty-hint {
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+/* Sticky section headers so scrolling never loses the current kind.
+   Each section header now reads as a distinct kind-tinted band: a
+   large color-mixed background swatch, a big kind icon on the left,
+   and an uppercase title colored in the kind hue. This makes
+   Commands / Templates / Scripts unmistakable at a glance. */
+.comp-artifact-group > summary {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: color-mix(in oklab, var(--kind-color, var(--border-color-default)) 10%, var(--background-color-default));
+    padding: 0.5rem 0.7rem;
+    border: 1px solid color-mix(in oklab, var(--kind-color, var(--border-color-default)) 30%, var(--border-color-default));
+    border-left: 4px solid var(--kind-color, var(--border-color-default));
+    border-radius: 6px;
+}
+.comp-artifact-group[open] > summary {
+    margin-bottom: 0.7rem;
+}
+.comp-artifact-group > summary h3 {
+    color: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 80%, var(--text-color-default));
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 12px;
+    font-weight: 700;
+    margin: 0;
+}
+.comp-artifact-group-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--kind-color, var(--text-color-muted));
+    width: 1.4em;
+    flex-shrink: 0;
+}
+.comp-artifact-group-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 14%, transparent);
+    color: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 85%, var(--text-color-default));
+    letter-spacing: 0.02em;
+}
+/* Labeled Core/Added count chips shown in the section header when the
+   group has both a canonical band and an added band. */
+.comp-artifact-group-counts {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.comp-artifact-group-counts .comp-artifact-group-count {
+    margin-left: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+}
+.comp-artifact-group-counts .comp-artifact-group-count b {
+    font-weight: 700;
+    margin-left: 4px;
+}
+.group-count-core {
+    background: color-mix(in oklab, var(--text-color-muted) 12%, transparent);
+    color: color-mix(in oklab, var(--text-color-muted) 85%, var(--text-color-default));
+}
+.group-count-added {
+    background: color-mix(in oklab, var(--warn-color) 18%, transparent);
+    color: color-mix(in oklab, var(--warn-color) 85%, var(--text-color-default));
+}
+
+/* Left rail on every row, tinted per kind. Overrides the flat border.
+   Hook rows use a dashed left border to signal "auto-run wiring, not
+   user-invokable command" at a glance. */
+.comp-artifact-row.kind-command,
+.comp-artifact-row.kind-template,
+.comp-artifact-row.kind-script {
+    border-left: 3px solid var(--kind-color, var(--border-color-default));
+}
+.comp-artifact-row.kind-hook {
+    border-left: 3px dashed var(--kind-color, var(--border-color-default));
+}
+.comp-artifact-row.kind-command   { --kind-color: var(--accent-color); }
+.comp-artifact-row.kind-template  { --kind-color: #8B5CF6; }
+.comp-artifact-row.kind-script    { --kind-color: var(--warn-color); }
+.comp-artifact-row.kind-hook      { --kind-color: #A855F7; }
+[data-theme="dark"] .comp-artifact-row.kind-template { --kind-color: #B49CFF; }
+[data-theme="dark"] .comp-artifact-row.kind-hook { --kind-color: #C084FC; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .comp-artifact-row.kind-template { --kind-color: #B49CFF; }
+    :root:not([data-theme]) .comp-artifact-row.kind-hook { --kind-color: #C084FC; }
+}
+
+.comp-artifact-kind-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1em;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--kind-color, var(--text-color-muted));
+    opacity: 0.9;
+    flex-shrink: 0;
+}
+
+/* Core / Added sub-bands inside a kind group. The `Core` band carries the
+   canonical menu; `Added` groups everything introduced by an extension or
+   a preset-only artifact. Sub-band header is a compact label + count on a
+   subtle divider so it never competes with the main kind heading. */
+.comp-artifact-subband { margin-bottom: 0.4rem; }
+.comp-artifact-subband + .comp-artifact-subband { margin-top: 0.9rem; }
+/* The very first subband (Core) inside each subtab has its inline head
+   suppressed — the shared "Core / Layers" band-header row above the grid
+   provides the label and dashed splitter. Non-first subbands (Added,
+   Custom) still render their own head normally. */
+#comp-artifacts .comp-artifact-subband:first-of-type > .comp-artifact-subband-head {
+    display: none;
+}
+.comp-artifact-subband-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.15rem 0 0.35rem 0.1rem;
+    border-bottom: 1px dashed color-mix(in oklab, var(--kind-color, var(--border-color-default)) 30%, var(--border-color-default));
+    margin-bottom: 0.5rem;
+}
+.comp-artifact-subband-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    color: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 55%, var(--text-color-muted));
+}
+.comp-artifact-subband-count {
+    font-size: 10px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 12%, transparent);
+    color: color-mix(in oklab, var(--kind-color, var(--text-color-muted)) 85%, var(--text-color-default));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.comp-artifact-group-count-sep {
+    color: var(--text-color-muted);
+    font-weight: 400;
+    opacity: 0.65;
+}
+
+/* Origin badge (Core / Extension / Preset) — a small always-visible
+   pill next to the id chip showing which layer is currently providing
+   the artifact. Core-inventory rows overridden by a preset read as
+   "Preset" here; the band split still uses core-inventory membership. */
+.comp-artifact-origin {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    line-height: 1.6;
+    flex-shrink: 0;
+}
+.comp-artifact-origin.origin-core {
+    background: #eef1f4;
+    border-color: #b1b8c3;
+    color: #333a45;
+}
+.comp-artifact-origin.origin-extension {
+    background: #efe9fb;
+    border-color: #8a63d2;
+    color: #4a2f8a;
+}
+.comp-artifact-origin.origin-preset {
+    background: #e6f1ff;
+    border-color: #4c8bf5;
+    color: #1f4a99;
+}
+/* Left cluster in mc-head — command label + inline origin pill sit
+   together at the start of the row so the pill reads as a suffix on
+   the name rather than a separate row below it. */
+.mc-head-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+.mc-head-left .mc-label {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Origin pill on its own row below the title — keeps the title
+   line free for the full command name. Pill itself keeps the
+   original gray palette from comp-artifact-origin.origin-core
+   with compact typography so it reads as subtle metadata. */
+.mc-origin-row {
+    display: flex;
+    margin: 2px 0 4px;
+}
+.mc-origin-row .mc-origin-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.03em;
+    text-transform: none;
+    border-radius: 999px;
+    background: #eef1f4;
+    color: #333a45;
+    border: 1px solid #b1b8c3;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    cursor: default;
+}
+.mc-head-left .mc-origin-pill {
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+[data-theme="dark"] .comp-artifact-origin.origin-core {
+    background: #21252b;
+    border-color: #4a525f;
+    color: #c9cfd8;
+}
+[data-theme="dark"] .comp-artifact-origin.origin-extension {
+    background: #241a3a;
+    border-color: #8a63d2;
+    color: #cdb8ff;
+}
+[data-theme="dark"] .comp-artifact-origin.origin-preset {
+    background: #17253f;
+    border-color: #4c8bf5;
+    color: #a9c9ff;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .comp-artifact-origin.origin-core {
+        background: #21252b;
+        border-color: #4a525f;
+        color: #c9cfd8;
+    }
+    :root:not([data-theme]) .comp-artifact-origin.origin-extension {
+        background: #241a3a;
+        border-color: #8a63d2;
+        color: #cdb8ff;
+    }
+    :root:not([data-theme]) .comp-artifact-origin.origin-preset {
+        background: #17253f;
+        border-color: #4c8bf5;
+        color: #a9c9ff;
+    }
+}
+
+/* Sidebar preset list */
+.comp-sidebar-column {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+}
+.comp-side-heading {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    font-weight: 600;
+    margin: 0;
+}
+.comp-sidebar {
+    padding: 0.9rem;
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    background: var(--background-color-elevated);
+    position: sticky;
+    top: 1rem;
+}
+.comp-sidebar-title { margin: 0; font-size: 13px; font-weight: 600; }
+.comp-sidebar-sub { margin: 0.15rem 0 0.75rem; font-size: 11px; }
+.comp-preset-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.comp-layer-group { display: flex; flex-direction: column; gap: 0.4rem; }
+.comp-layer-group + .comp-layer-group { margin-top: 0.75rem; }
+.comp-layer-group-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    padding: 0.15rem 0.1rem 0.25rem;
+    border-bottom: 1px solid var(--border-color-default);
+}
+.comp-layer-group-count {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--text-color-muted);
+}
+.comp-layer-hint {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-color-muted);
+    text-align: center;
+    font-weight: 600;
+}
+.comp-layer-hint-top { margin-bottom: 0.5rem; }
+.comp-layer-hint-bottom { margin-top: 0.35rem; }
+.comp-layer-core {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px dashed var(--border-color-default);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-color-muted);
+    font-size: 12px;
+    text-align: center;
+    font-style: italic;
+}
+.comp-preset-card {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-sm);
+    background: var(--background-color-default);
+}
+.comp-sidebar-empty {
+    padding: 0.7rem 0.75rem;
+    border: 1px dashed var(--border-color-default);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--text-color-muted) 5%, transparent);
+    color: var(--text-color-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+.comp-sidebar-empty-title {
+    font-weight: 600;
+    color: var(--text-color-default);
+    margin-bottom: 0.25rem;
+}
+.comp-sidebar-empty-hint code {
+    font-size: 11px;
+    padding: 1px 4px;
+    background: color-mix(in oklab, var(--text-color-muted) 12%, transparent);
+    border-radius: 3px;
+}
+.comp-preset-card.is-core { opacity: 0.85; }
+.comp-preset-card.is-disabled { opacity: 0.6; }
+.comp-preset-card-head {
+    display: flex; align-items: flex-start; gap: 0.4rem;
+    margin-bottom: 0.2rem;
+}
+.comp-preset-card-chips {
+    display: flex; flex-direction: column; gap: 0.2rem;
+    align-items: stretch;
+}
+.comp-preset-card-chips > .comp-chip,
+.comp-preset-card-chips > .badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    line-height: 1.6;
+    text-align: center;
+    box-sizing: border-box;
+    width: 68px;
+}
+.comp-preset-card-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-color-default);
+}
+.comp-preset-card-meta {
+    font-size: 11px;
+    color: var(--text-color-muted);
+    margin-bottom: 0.35rem;
+}
+.comp-preset-card-actions {
+    display: flex; gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+/* Fallback table (used when only `layers` present) */
+.comp-fallback {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border: 1px dashed var(--border-color-default);
+    border-radius: var(--radius-sm);
+    background: var(--background-color-elevated);
+}
+.comp-fallback h4 {
+    margin: 0 0 0.5rem; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-color-muted);
+}
+.comp-fallback table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.comp-fallback th, .comp-fallback td {
+    text-align: left; padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border-color-default);
+}
+.comp-fallback th {
+    color: var(--text-color-muted); font-weight: 500;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+/* Empty states */
+.empty {
+    padding: 2rem 1rem; text-align: center;
+    color: var(--text-color-muted);
+    border: 1px dashed var(--border-color-default);
+    border-radius: var(--radius-md);
+    background: var(--background-color-elevated);
+}
+.empty-inline {
+    padding: 1.25rem 1rem;
+    text-align: center;
+    font-size: 13px;
+}
+.empty-cta {
+    display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+    padding: 2rem 1rem;
+}
+.empty-cta .empty-title { font-weight: 600; color: var(--text-color-default); }
+.empty-cta .empty-body { max-width: 32ch; font-size: 13px; }
+.empty-cta .btn { margin-top: 0.5rem; }
+
+/* pending preset action */
+.catalog-card.pending { opacity: 0.85; }
+.spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: -1px;
+    margin-right: 4px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+
+.cc-links {
+    margin: 6px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+}
+.cc-link {
+    color: var(--fgMuted, #6a737d);
+    text-decoration: none;
+    padding: 1px 6px;
+    border: 1px solid var(--border, #d0d7de);
+    border-radius: 10px;
+    line-height: 1.6;
+}
+.cc-link:hover { color: var(--link, #0969da); border-color: var(--link, #0969da); }
+.cc-author { color: var(--fgMuted, #6a737d); font-size: 12px; margin-left: 6px; }
+
+
+.cc-title-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dotted var(--fgMuted, #6a737d);
+}
+.cc-title-link:hover { color: var(--link, #0969da); border-bottom-color: var(--link, #0969da); }
+
+
+.row-sub a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dotted var(--fgMuted, #6a737d);
+}
+.row-sub a:hover { border-bottom-style: solid; }
+
+

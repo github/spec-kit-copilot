@@ -1,1 +1,11 @@
 .DS_Store
+node_modules/
+.playwright-mcp/
+
+# Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)
+.speckit-wizard/
+.specify/
+.github/skills/
+css-baseline-*.png
+css-c*.png
+

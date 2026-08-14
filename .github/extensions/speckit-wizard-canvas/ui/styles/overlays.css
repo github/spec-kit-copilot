@@ -1,0 +1,399 @@
+/* ==========================================================================
+   Wizard modal (Redo confirm + Resolve clarification)
+   ========================================================================== */
+.wizard-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 24px;
+    font-family: var(--font-sans);
+}
+.wizard-modal {
+    background: var(--background-color-elevated);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    width: min(560px, 100%);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.wizard-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border-color-default);
+}
+.wizard-modal-head h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+.wizard-modal-close {
+    background: transparent;
+    border: 0;
+    color: var(--text-color-muted);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+}
+.wizard-modal-close:hover {
+    background: var(--background-color-secondary);
+    color: var(--text-color-default);
+}
+.wizard-modal-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.wizard-modal-desc {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-color-muted);
+    line-height: 1.5;
+}
+.wizard-modal-question {
+    background: var(--background-color-secondary);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text-color-default);
+    white-space: pre-wrap;
+}
+.wizard-modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.wizard-modal-field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+.wizard-modal-textarea {
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+    padding: 10px 12px;
+    background: var(--background-color-default);
+    color: var(--text-color-default);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.wizard-modal-textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+}
+.wizard-modal-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border-color-default);
+    background: var(--background-color-default);
+}
+.wizard-modal-extras {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+}
+.wizard-modal-foot .wizard-modal-confirm { margin-left: 0; }
+.wizard-modal-foot .wizard-modal-cancel { margin-right: auto; }
+.wizard-modal-error {
+    color: var(--danger-color, #f85149);
+    font-size: 13px;
+}
+
+/* ==========================================================================
+   Artifact viewer overlay
+   ========================================================================== */
+.artifact-viewer {
+    position: fixed;
+    inset: 0;
+    background: var(--background-color-default);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-sans);
+    overflow: hidden;
+}
+.artifact-viewer[hidden] { display: none; }
+.artifact-viewer-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border-color-default);
+    background: var(--background-color-elevated);
+}
+.artifact-viewer-title h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-color-default);
+}
+.artifact-viewer-title code {
+    font-size: 12px;
+    color: var(--text-color-muted);
+}
+.artifact-viewer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 32px 40px;
+}
+.artifact-viewer-md {
+    max-width: 900px;
+    color: var(--text-color-default);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+}
+.artifact-viewer-md h1,
+.artifact-viewer-md h2,
+.artifact-viewer-md h3,
+.artifact-viewer-md h4,
+.artifact-viewer-md h5,
+.artifact-viewer-md h6 {
+    margin: 24px 0 8px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-color-default);
+}
+.artifact-viewer-md h1 { font-size: 24px; border-bottom: 1px solid var(--border-color-default); padding-bottom: 6px; }
+.artifact-viewer-md h2 { font-size: 20px; border-bottom: 1px solid var(--border-color-default); padding-bottom: 4px; }
+.artifact-viewer-md h3 { font-size: 17px; }
+.artifact-viewer-md h4 { font-size: 15px; }
+.artifact-viewer-md h5,
+.artifact-viewer-md h6 { font-size: 14px; color: var(--text-color-muted); }
+.artifact-viewer-md p { margin: 8px 0; }
+.artifact-viewer-md ul,
+.artifact-viewer-md ol { margin: 8px 0; padding-left: 24px; }
+.artifact-viewer-md li { margin: 3px 0; }
+.artifact-viewer-md code {
+    background: var(--background-color-secondary);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.artifact-viewer-md pre {
+    background: var(--background-color-secondary);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 12px 0;
+}
+.artifact-viewer-md pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+.artifact-viewer-md blockquote {
+    margin: 12px 0;
+    padding: 4px 14px;
+    border-left: 3px solid var(--border-color-default);
+    color: var(--text-color-muted);
+}
+.artifact-viewer-md a {
+    color: var(--accent-color, #58a6ff);
+    text-decoration: none;
+}
+.artifact-viewer-md a:hover { text-decoration: underline; }
+.artifact-viewer-md hr {
+    border: 0;
+    border-top: 1px solid var(--border-color-default);
+    margin: 20px 0;
+}
+.artifact-viewer-md table {
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+}
+.artifact-viewer-md th,
+.artifact-viewer-md td {
+    border: 1px solid var(--border-color-default);
+    padding: 6px 10px;
+    text-align: left;
+}
+.artifact-viewer-md th {
+    background: var(--background-color-secondary);
+    font-weight: 600;
+}
+.artifact-viewer-md strong { font-weight: 600; }
+.clarify-marker {
+    background: rgba(240, 136, 62, 0.18);
+    color: var(--text-color-default);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-weight: 500;
+}
+.clarify-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    margin-left: 4px;
+    background: var(--accent-color, #58a6ff);
+    color: #fff;
+    border: 0;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    vertical-align: middle;
+    line-height: 1.4;
+}
+.clarify-pill:hover {
+    background: var(--accent-color-hover, #4493f8);
+}
+.clarify-pill-answered {
+    background: var(--success-color, #2da44e);
+    cursor: default;
+}
+.clarify-pill-answered:hover {
+    background: var(--success-color, #2da44e);
+}
+.artifact-viewer-clarify-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    background: #fff8e1;
+    border: 1px solid #f5c754;
+    border-radius: 6px;
+    font-size: 13px;
+}
+.artifact-viewer-clarify-banner[hidden] { display: none; }
+
+
+/* Phase card source/strategy chip (detail panel <dd>Source</dd>). */
+.phase-strategy-chip {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e6f2ff;
+    color: #005a9e;
+    border: 1px solid #7ab8e6;
+    text-transform: none;
+    margin-left: 0.4rem;
+}
+[data-theme="dark"] .phase-strategy-chip {
+    background: #15253a; color: #7dc0f5; border-color: #275a8a;
+}
+
+/* CORE re-add group in Commands panel. */
+.mc-group-core .mc-group-title {
+    color: var(--text-color-muted);
+}
+
+
+
+/* Commands-panel hints strip: Requires / Produces / Suggested next */
+.mc-hints {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-subtle, rgba(120, 130, 145, 0.25));
+    font-size: 11px;
+}
+.mc-hint-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    line-height: 1.4;
+}
+.mc-hint-label {
+    color: var(--fg-muted, #6a7280);
+    font-weight: 500;
+    min-width: 78px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.mc-hint-chip {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--surface, rgba(120, 130, 145, 0.1));
+    border: 1px solid var(--border-subtle, rgba(120, 130, 145, 0.25));
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    color: var(--fg-default, inherit);
+    white-space: nowrap;
+}
+.mc-hint-chip.mc-hint-suggested {
+    background: rgba(56, 139, 253, 0.12);
+    border-color: rgba(56, 139, 253, 0.35);
+    color: rgb(9, 105, 218);
+    font-family: inherit;
+}
+@media (prefers-color-scheme: dark) {
+    .mc-hint-chip.mc-hint-suggested { color: rgb(88, 166, 255); }
+}
+
+
+/* Command tile title link */
+.mc-label-link {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+.mc-label-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    color: rgb(9, 105, 218);
+}
+@media (prefers-color-scheme: dark) {
+    .mc-label-link:hover { color: rgb(88, 166, 255); }
+}
+
+
+/* Catalog source name link */
+.src-name-link {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+.src-name-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    color: rgb(9, 105, 218);
+}
+@media (prefers-color-scheme: dark) {
+    .src-name-link:hover { color: rgb(88, 166, 255); }
+}
+
+/* JSON in the artifact viewer */
+.artifact-viewer-json {
+    background: var(--surface-subtle, rgba(120, 130, 145, 0.06));
+    border: 1px solid var(--border-subtle, rgba(120, 130, 145, 0.25));
+    border-radius: 4px;
+    padding: 12px;
+    overflow: auto;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+    margin: 0;
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-11T00:00:00Z",
+  "catalog_url": "wizard://test",
+  "bundles": {
+    "lean-agent-context-test": {
+      "id": "lean-agent-context-test",
+      "name": "Lean + Agent Context (Test Bundle)",
+      "version": "0.1.0",
+      "role": "developer",
+      "description": "Test bundle exercising the bundle authoring/install path. Composes the Lean Workflow preset with the Agent Context extension so a fresh project gets a minimal command surface plus automatic agent-context refresh after /speckit.specify and /speckit.plan.",
+      "author": "speckit-wizard",
+      "license": "MIT",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "requires": {
+        "speckit_version": ">=0.9.0"
+      },
+      "provides": {
+        "extensions": 1,
+        "presets": 1,
+        "steps": 0,
+        "workflows": 0
+      },
+      "tags": ["test", "lean", "agent-context"],
+      "verified": false,
+      "bundle_yml": "schema_version: \"1.0\"\n\nbundle:\n  id: lean-agent-context-test\n  name: Lean + Agent Context (Test Bundle)\n  version: 0.1.0\n  role: developer\n  description: >-\n    Test bundle exercising the bundle authoring/install path. Composes the\n    Lean Workflow preset with the Agent Context extension so a fresh project\n    gets a minimal command surface plus automatic agent-context refresh\n    after /speckit.specify and /speckit.plan.\n  author: speckit-wizard\n  license: MIT\n\nrequires:\n  speckit_version: \">=0.9.0\"\n\nintegration:\n  id: copilot\n\nprovides:\n  presets:\n    - id: lean\n      version: 1.0.0\n      priority: 10\n      strategy: replace\n  extensions:\n    - id: agent-context\n      version: 1.0.0\n\ntags:\n  - test\n  - lean\n  - agent-context\n"
+    }
+  }
+}
