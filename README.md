@@ -28,10 +28,11 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 | `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
+| `spec-kit-copilot-wizard` | 0.1.0 | Copilot App canvas | Optional guided wizard canvas for the full Spec Kit lifecycle |
 
 The plugins are independently installable and versioned. Install the core skills,
-the assessment canvas, the bug fix canvas, the spec-driven development canvas, or
-any combination.
+the assessment canvas, the bug fix canvas, the spec-driven development canvas, the
+wizard canvas, or any combination.
 
 ## Spec Kit presets
 
@@ -84,12 +85,17 @@ own README for full details.
 | [`assess-canvas`](plugins/spec-kit-copilot-assess/extensions/assess-canvas/README.md) | `spec-kit-copilot-assess` | Dashboard for the optional `assess` extension — the intake → research → define → shape → decide funnel. |
 | [`bugfix-canvas`](plugins/spec-kit-copilot-bugfix/extensions/bugfix-canvas/README.md) | `spec-kit-copilot-bugfix` | Dashboard for the optional `bug` extension — the assess → fix → test triage pipeline. |
 | [`sdd-canvas`](plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/README.md) | `spec-kit-copilot-sdd` | Dashboard for the core spec-driven workflow — constitution → specify → clarify → plan → tasks → analyze → checklist → implement. |
+| [`speckit-wizard-canvas`](plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/README.md) | `spec-kit-copilot-wizard` | Guided wizard for the full Spec Kit lifecycle — setup → constitution → specify → clarify → plan → tasks → analyze → checklist → implement, with preset / extension / composition inspectors. |
 
 ### Previews
 
-| Spec-Driven Development | Idea Assessment | Bug Fix |
-| --- | --- | --- |
-| [![sdd-canvas](docs/images/sdd-canvas.png)](docs/images/sdd-canvas.png) | [![assess-canvas](docs/images/assess-canvas.png)](docs/images/assess-canvas.png) | [![bugfix-canvas](docs/images/bugfix-canvas.png)](docs/images/bugfix-canvas.png) |
+| Spec-Driven Development | Idea Assessment |
+| --- | --- |
+| [![sdd-canvas](docs/images/sdd-canvas.png)](docs/images/sdd-canvas.png) | [![assess-canvas](docs/images/assess-canvas.png)](docs/images/assess-canvas.png) |
+
+| Bug Fix | Spec Kit Wizard |
+| --- | --- |
+| [![bugfix-canvas](docs/images/bugfix-canvas.png)](docs/images/bugfix-canvas.png) | [![wizard-canvas](docs/images/wizard-canvas.png)](docs/images/wizard-canvas.png) |
 
 
 ## Requirements
@@ -125,6 +131,7 @@ copilot plugin install spec-kit-copilot@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
 copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
+copilot plugin install spec-kit-copilot-wizard@spec-kit-marketplace
 ```
 
 ### Local development loading
@@ -136,6 +143,7 @@ copilot --plugin-dir . plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-assess plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-bugfix plugin list
 copilot --plugin-dir plugins/spec-kit-copilot-sdd plugin list
+copilot --plugin-dir plugins/spec-kit-copilot-wizard plugin list
 ```
 
 Verify it loaded:
@@ -156,6 +164,7 @@ copilot plugin uninstall spec-kit-copilot
 copilot plugin uninstall spec-kit-copilot-assess
 copilot plugin uninstall spec-kit-copilot-bugfix
 copilot plugin uninstall spec-kit-copilot-sdd
+copilot plugin uninstall spec-kit-copilot-wizard
 ```
 
 ## Usage
@@ -172,14 +181,16 @@ right `specify` command. For example:
 
 ### Opening a canvas dashboard
 
-The **Assessment canvas**, **Bug fix canvas**, and **Spec-driven development
-canvas** plugins are *canvas extensions*: they render in the **GitHub Copilot
-app** side panel, not the terminal CLI. Installing one only registers its canvas
-— nothing opens automatically. To open a dashboard, ask Copilot, e.g. **"Open the
-Idea Assessment pipeline"**, **"Open the Bug Fix Pipeline"**, or **"Open
-Spec-Driven Development"**. The agent opens the matching canvas in a side panel;
-from there you can click its buttons or ask the agent to drive the stages. There
-is no slash command or menu entry. See each plugin's README for details.
+The **Assessment canvas**, **Bug fix canvas**, **Spec-driven development
+canvas**, and **Spec Kit Wizard** plugins are *canvas extensions*: they
+render in the **GitHub Copilot app** side panel, not the terminal CLI.
+Installing one only registers its canvas — nothing opens automatically.
+To open a dashboard, ask Copilot, e.g. **"Open the Idea Assessment
+pipeline"**, **"Open the Bug Fix Pipeline"**, **"Open Spec-Driven
+Development"**, or **"Open the Spec Kit Wizard"**. The agent opens the
+matching canvas in a side panel; from there you can click its buttons
+or ask the agent to drive the stages. There is no slash command or menu
+entry. See each plugin's README for details.
 
 ## Walkthroughs
 
@@ -207,10 +218,14 @@ spec-kit-copilot/
 │   │   ├── plugin.json      # Bug fix canvas plugin manifest
 │   │   └── extensions/
 │   │       └── bugfix-canvas/
-│   └── spec-kit-copilot-sdd/
-│       ├── plugin.json      # Spec-driven development canvas plugin manifest
+│   ├── spec-kit-copilot-sdd/
+│   │   ├── plugin.json      # Spec-driven development canvas plugin manifest
+│   │   └── extensions/
+│   │       └── sdd-canvas/
+│   └── spec-kit-copilot-wizard/
+│       ├── plugin.json      # Spec Kit Wizard canvas plugin manifest
 │       └── extensions/
-│           └── sdd-canvas/
+│           └── speckit-wizard/
 ├── spec-kit-presets/        # Spec Kit plumbing — consumed by `specify preset add`
 │   ├── README.md            # plumbing boundary note
 │   ├── catalog.json         # preset catalog (NOT the Copilot marketplace)

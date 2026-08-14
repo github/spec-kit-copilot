@@ -1,0 +1,353 @@
+/* -------- Setup sub-panels (Environment / Catalogs / Composition) -------- */
+.setup-substep-panel { display: none; }
+.setup-substep-panel.active { display: block; }
+.setup-substep-panel + .setup-substep-panel { margin-top: 0; }
+
+/* Sub-stepper: slightly lighter footprint than the main workflow stepper. */
+.stepper.stepper-sub {
+    padding: 0.5rem 0.75rem;
+    box-shadow: none;
+    background: var(--background-color-secondary);
+}
+.stepper.stepper-sub .step { font-size: 12.5px; padding: 0.25rem 0.55rem; }
+.stepper.stepper-sub .step-index { width: 22px; height: 22px; font-size: 12px; }
+
+/* -------- Graph-driven phase card (v2) -------- */
+.graph-phase-form textarea {
+    width: 100%;
+    min-height: 8rem;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 0.95rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border-color-default, #d0d7de);
+    border-radius: 6px;
+    background: var(--background-color-inset, transparent);
+    color: inherit;
+}
+.graph-phase-form textarea::placeholder {
+    font-style: italic;
+    color: var(--foreground-color-muted, #8b949e);
+    opacity: 1;
+}
+.graph-phase-form .phase-input-hint {
+    display: block;
+    margin-top: 0.4rem;
+    color: var(--foreground-color-muted, #8b949e);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+/* Faux-placeholder overlay: rich HTML shadow text sitting inside the textarea.
+   Needed because CSS ::placeholder can't mix roman + italic in one string. */
+.graph-phase-form .phase-input-wrap {
+    position: relative;
+}
+.graph-phase-form .phase-input-wrap textarea {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+}
+.graph-phase-form .phase-input-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+    padding: 0.6rem 0.75rem;
+    color: var(--foreground-color-muted, #8b949e);
+    opacity: 0.55;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: inherit;
+    pointer-events: auto;
+    cursor: text;
+    overflow: hidden;
+    white-space: normal;
+    transition: opacity 90ms ease;
+}
+.graph-phase-form .phase-input-overlay.is-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+.graph-phase-form .phase-input-overlay-primary {
+    font-style: normal;
+}
+.graph-phase-form .phase-input-overlay-hint {
+    font-style: italic;
+}
+/* Command name in phase-facts row renders as a link to the skill file. */
+.phase-command-link,
+.phase-artifact-link,
+.phase-cust-target-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    text-align: left;
+}
+.phase-command-link code,
+.phase-artifact-link code,
+.phase-cust-target-link code {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    opacity: 0.85;
+}
+.phase-command-link::after,
+.phase-artifact-link::after,
+.phase-cust-target-link::after {
+    content: "↗";
+    font-size: 0.8em;
+    color: inherit;
+    opacity: 0.55;
+    line-height: 1;
+}
+.phase-command-link:hover code,
+.phase-command-link:focus-visible code,
+.phase-artifact-link:hover code,
+.phase-artifact-link:focus-visible code,
+.phase-cust-target-link:hover code,
+.phase-cust-target-link:focus-visible code {
+    text-decoration-style: solid;
+    opacity: 1;
+}
+.phase-command-link:hover::after,
+.phase-command-link:focus-visible::after,
+.phase-artifact-link:hover::after,
+.phase-artifact-link:focus-visible::after,
+.phase-cust-target-link:hover::after,
+.phase-cust-target-link:focus-visible::after {
+    opacity: 1;
+}
+.phase-command-link:focus-visible,
+.phase-artifact-link:focus-visible,
+.phase-cust-target-link:focus-visible {
+    outline: 2px solid var(--focus-outline-color, #58a6ff);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+.phase-help {
+    margin: 0.5rem 0 1rem;
+    border-left: 3px solid var(--border-color-muted, #d0d7de);
+    padding: 0.25rem 0.75rem;
+    font-size: 0.9rem;
+}
+.phase-help > summary {
+    cursor: pointer;
+    color: var(--text-color-muted, #57606a);
+    font-weight: 500;
+    padding: 0.25rem 0;
+}
+.phase-help ul {
+    margin: 0.5rem 0 0.25rem 1rem;
+    padding: 0;
+    list-style: disc;
+}
+.phase-help li { margin: 0.15rem 0; }
+.handoff-row {
+    margin-top: 1.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed var(--border-color-muted, #d0d7de);
+}
+.handoff-heading {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-color-muted, #57606a);
+    margin: 0 0 0.5rem;
+}
+.handoff-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.loop-back-row {
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.loop-back-btn {
+    font-style: italic;
+}
+.phase-card .badge.status-empty { background: var(--background-color-muted, #eaeef2); color: var(--text-color-muted, #57606a); }
+.phase-card .badge.status-in_progress { background: #fff8c5; color: #7d4e00; }
+.phase-card .badge.status-done { background: #dafbe1; color: #1a7f37; }
+.phase-card .badge.status-skipped { background: var(--background-color-muted, #eaeef2); color: var(--text-color-muted, #57606a); }
+
+/* More commands panel — off-happy-path commands (branches, utilities, validators). */
+.more-commands-panel {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color-muted, #d1d9e0);
+}
+.more-commands-panel[hidden] { display: none; }
+.more-commands-head h3 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color-default, #1f2328);
+}
+.more-commands-head p {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    line-height: 1.4;
+}
+.more-commands-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+}
+.more-cmd-card {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--background-color-elevated);
+    border: 1px solid var(--border-color-default);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.1s, background 0.1s;
+    font-family: inherit;
+    color: inherit;
+}
+.more-cmd-card:hover:not(:disabled) {
+    border-color: var(--link, #0969da);
+    background: var(--background-color-default);
+}
+.more-cmd-card.active {
+    border-color: var(--link, #0969da);
+    background: var(--background-color-default);
+    box-shadow: 0 0 0 1px var(--link, #0969da);
+}
+.more-cmd-card.locked, .more-cmd-card:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.mc-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+    min-width: 0;
+}
+.mc-label {
+    font-weight: 600;
+    font-size: 13px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.mc-origin-pill {
+    flex-shrink: 0;
+}
+.mc-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--background-color-default);
+    border: 1px solid var(--border-color-default);
+}
+.mc-cmd code {
+    font-size: 11px;
+    color: var(--text-color-muted, #656d76);
+}
+.mc-desc {
+    margin: 4px 0 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-color-muted, #656d76);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Commands panel (header + per-section collapsibles) */
+.more-commands-panel { border-top: 1px solid var(--border, #e5e7eb); margin-top: 1.5rem; padding-top: 0.75rem; padding-bottom: 1rem; }
+.more-commands-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.25rem;
+    user-select: none;
+}
+.mc-summary-title { font-weight: 600; font-size: 1rem; }
+.mc-summary-count {
+    background: var(--muted-bg, #e5e7eb);
+    color: var(--fg, #111827);
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.mc-summary-hint { font-size: 0.85rem; }
+
+.mc-after {
+    margin: 0.4rem 0 0;
+    font-size: 0.72rem;
+    color: var(--muted, #6b7280);
+    letter-spacing: 0.01em;
+}
+.mc-after-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.65rem;
+    color: var(--muted, #6b7280);
+    margin-right: 0.35rem;
+}
+
+/* More commands: bucketed groups (now each a <details>) */
+.mc-group { margin-top: 18px; }
+.mc-group:first-of-type { margin-top: 8px; }
+.mc-group > summary.mc-group-title { list-style: none; cursor: pointer; user-select: none; }
+.mc-group > summary.mc-group-title::-webkit-details-marker { display: none; }
+.mc-group > summary.mc-group-title::before {
+    content: "▶";
+    font-size: 0.7em;
+    color: var(--muted, #8b8b8b);
+    transition: transform 0.15s ease;
+    display: inline-block;
+    width: 1em;
+}
+.mc-group[open] > summary.mc-group-title::before { transform: rotate(90deg); }
+.mc-group-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0 0 2px;
+    color: var(--muted, #8b8b8b);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.mc-group > .more-commands-grid { margin-top: 0.5rem; }
+.mc-group-count {
+    font-weight: 500;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--surface-2, rgba(128,128,128,0.15));
+    color: var(--muted, #8b8b8b);
+}
+.mc-group-hint {
+    font-size: 11px;
+    margin: 0 0 8px;
+}
+

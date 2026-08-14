@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.17.0"
+    "version": "0.18.0"
   },
   "plugins": [
     {
@@ -31,6 +31,13 @@
       "description": "Adds a Spec-Driven Development canvas for the core Spec Kit workflow.",
       "version": "0.1.0",
       "source": "plugins/spec-kit-copilot-sdd"
+    },
+    {
+      "name": "spec-kit-copilot-wizard",
+      "description": "Adds a guided Spec Kit Wizard canvas that drives the full spec-driven development lifecycle via the spec-kit-copilot skills plugin.",
+      "version": "0.1.0",
+      "source": "plugins/spec-kit-copilot-wizard"
     }
   ]
 }
+
