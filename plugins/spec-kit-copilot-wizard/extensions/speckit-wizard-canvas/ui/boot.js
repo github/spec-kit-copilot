@@ -39,6 +39,18 @@ let __bannerDismissedFor = null;
 // want to try the wizard anyway). Keyed by timestamp so a fresh failure
 // re-freezes the boot dialog instead of silently reusing this decision.
 let __continueAnywayFor = null;
+// Timestamp (performance.now) at which the overlay first painted. Used to
+// enforce a minimum visible time so a very-fast boot doesn't skip the
+// overlay entirely — on a warm cache the `/api/state` fetch returns
+// `boot.phase === "ready"` within a single paint frame, and without this
+// guard the browser composites overlay-populated + overlay-hidden into
+// one frame and the user sees a blank body flip straight to the app.
+let __overlayShownAt = 0;
+let __minVisibleTimer = null;
+// Minimum time the overlay stays visible once first rendered. Long enough
+// for the user to register that boot is happening; short enough not to
+// feel like padding.
+const MIN_OVERLAY_MS = 450;
 
 // Runtime dependencies the extension needs to fully function. Surfaced in
 // the in-wizard banner as a copy/paste-friendly install command. Keep in
@@ -51,6 +63,7 @@ export function installBootOverlay({ token }) {
     if (!__root) return { handleBootMessage: () => {}, setInitialSnapshot: () => {} };
     __appRootEl = document.querySelector("main.app-body");
     if (__appRootEl) __appRootEl.style.visibility = "hidden";
+    __overlayShownAt = performance.now();
     render();
     return {
         handleBootMessage,
@@ -98,6 +111,21 @@ function render() {
     const shouldHideOverlay = bypassed || (__state?.phase === "ready" && !__depsError);
 
     if (shouldHideOverlay) {
+        // Enforce a minimum visible time. Without this, a warm-cache boot
+        // completes before the browser has a chance to paint the overlay
+        // content at all — the user sees a blank body flip straight to the
+        // loaded app with no boot indicator. See comment on
+        // MIN_OVERLAY_MS.
+        const elapsed = performance.now() - __overlayShownAt;
+        if (elapsed < MIN_OVERLAY_MS) {
+            if (!__minVisibleTimer) {
+                __minVisibleTimer = setTimeout(() => {
+                    __minVisibleTimer = null;
+                    render();
+                }, MIN_OVERLAY_MS - elapsed);
+            }
+            return;
+        }
         if (!__root.classList.contains("is-hidden")) {
             __root.classList.add("is-hidden");
             setTimeout(() => {
@@ -108,7 +136,7 @@ function render() {
                 const stillReady = __state?.phase === "ready" && !__depsError;
                 if (__root && (stillBypassed || stillReady)) {
                     __root.style.display = "none";
-                    if (__appRootEl) __appRootEl.style.visibility = "";
+                    if (__appRootEl) __appRootEl.style.visibility = "visible";
                 }
             }, 320);
         }
@@ -128,7 +156,7 @@ function render() {
 
     const title = document.createElement("h1");
     title.className = "boot-title";
-    title.innerHTML = '<span class="boot-title-mark" aria-hidden="true">◈</span>Starting Spec Kit Wizard';
+    title.innerHTML = '<span class="boot-title-mark" aria-hidden="true">◈</span>Starting Spec Kit Wizard - Dev';
     panel.appendChild(title);
 
     const subtitle = document.createElement("p");
