@@ -103,7 +103,7 @@ async function onOpen(ctx) {
     startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }).catch(() => { /* best-effort */ });
     startArtifactWatcher(inst, { snapshot }).catch(() => { /* best-effort */ });
     return {
-        title: "Spec Kit Wizard - Dev",
+        title: "Spec Kit Wizard",
         url: inst.url,
     };
 }
@@ -241,11 +241,6 @@ async function hydrateCatalogs(inst) {
     // catalogs (and does NOT register them via `specify preset catalog add`).
     // Third-party catalogs a user has added via the CLI will NOT appear here
     // — that is intentional in the current scope.
-    // Kick off preset / extension / bundle hydration in parallel — they
-    // touch disjoint state (each writes its own cachedCatalogSources +
-    // cachedItems slice) and each fires several sequential remote GETs.
-    // Running them serially was the dominant boot-time catalog cost.
-    const jobs = [];
     if (!inst.cachedCatalogSources?.length) {
         const bootstrap = [
             {
@@ -274,7 +269,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedCatalogSources = bootstrap;
-        jobs.push(hydratePresetsForSources(inst, bootstrap).catch(() => {}));
+        await hydratePresetsForSources(inst, bootstrap).catch(() => {});
     }
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
@@ -296,7 +291,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
-        jobs.push(hydrateExtensionsForSources(inst, extBootstrap).catch(() => {}));
+        await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
     }
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
@@ -318,9 +313,8 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
-        jobs.push(hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {}));
+        await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
     }
-    await Promise.all(jobs);
 }
 
 // Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
@@ -349,7 +343,7 @@ setSession(await joinSession({
     canvases: [
         createCanvas({
             id: "speckit-wizard",
-            displayName: "Spec Kit Wizard - Dev",
+            displayName: "Spec Kit Wizard",
             description:
                 "Wizard UX driving the Spec-Driven Development lifecycle (setup → constitution → specify → clarify → plan → tasks → implement) via the spec-kit-copilot skills plugin.",
             inputSchema: {

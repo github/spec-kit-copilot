@@ -85,27 +85,14 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
         return;
     }
     const installed = inst.workspacePath ? await listInstalled(inst.workspacePath) : EMPTY_INSTALLED;
-    // Fetch all catalog JSONs in parallel — each one is an independent
-    // remote GET and sources are typically 2–3 per kind. Serial iteration
-    // was the dominant per-hydrator latency on cold caches.
-    const fetched = await Promise.all(
-        sources.map(async (src) => {
-            if (!src?.url) return { src: null, data: null };
-            try {
-                const data = await fetchCatalogJson(src.url);
-                return { src, data };
-            } catch {
-                // best-effort catalog hydrate; a failing source is skipped
-                return { src, data: null };
-            }
-        }),
-    );
     const items = [];
-    for (const { src, data } of fetched) {
-        if (!src) continue;
-        const entries = data?.[dataKey];
-        if (!entries || typeof entries !== "object") continue;
-        for (const [id, raw] of Object.entries(entries)) {
+    for (const src of sources) {
+        if (!src?.url) continue;
+        try {
+            const data = await fetchCatalogJson(src.url);
+            const entries = data?.[dataKey];
+            if (!entries || typeof entries !== "object") continue;
+            for (const [id, raw] of Object.entries(entries)) {
                 const itemId = raw?.id ?? id;
                 const itemName = raw?.name ?? itemId;
                 const nameKey = String(itemName).toLowerCase();
@@ -136,6 +123,9 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
                 };
                 const extras = extraFields ? extraFields(raw, { installedId, installed }) : null;
                 items.push(extras ? { ...base, ...extras } : base);
+            }
+        } catch {
+            // best-effort catalog hydrate; a failing source is skipped
         }
     }
     inst[outputField] = items;
