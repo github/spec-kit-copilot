@@ -40,7 +40,7 @@ function getAugmentedPath() {
  * PATH is augmented with known SDK / uv / pipx install locations so
  * `specify` resolves even when the user's shell PATH doesn't include them.
  */
-export async function specifyRun(args, cwd) {
+export async function specifyRun(args, cwd, { timeoutMs = 20_000 } = {}) {
     const augmentedPath = await getAugmentedPath();
     return new Promise((resolve) => {
         const child = spawn("specify", args, {
@@ -50,9 +50,18 @@ export async function specifyRun(args, cwd) {
             env: { ...process.env, PATH: augmentedPath },
         });
         let stdout = "";
+        let settled = false;
+        const done = (val) => { if (!settled) { settled = true; resolve(val); } };
+        // Hard cap so a wedged CLI (network hang, uv resolver stuck, etc.)
+        // can't freeze catalog hydration forever. On timeout we return the
+        // partial stdout — callers already tolerate empty/malformed output.
+        const timer = setTimeout(() => {
+            try { child.kill(); } catch { /* best-effort */ }
+            done(stdout || null);
+        }, timeoutMs);
         child.stdout?.on("data", (d) => { stdout += String(d); });
-        child.on("error", () => resolve(null));
-        child.on("close", () => resolve(stdout));
+        child.on("error", () => { clearTimeout(timer); done(null); });
+        child.on("close", () => { clearTimeout(timer); done(stdout); });
     });
 }
 
@@ -85,47 +94,59 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
         return;
     }
     const installed = inst.workspacePath ? await listInstalled(inst.workspacePath) : EMPTY_INSTALLED;
-    const items = [];
-    for (const src of sources) {
-        if (!src?.url) continue;
-        try {
-            const data = await fetchCatalogJson(src.url);
-            const entries = data?.[dataKey];
-            if (!entries || typeof entries !== "object") continue;
-            for (const [id, raw] of Object.entries(entries)) {
-                const itemId = raw?.id ?? id;
-                const itemName = raw?.name ?? itemId;
-                const nameKey = String(itemName).toLowerCase();
-                // Match by id first; fall back to display-name so catalog
-                // entries whose declared id differs from the installed
-                // manifest's id still show as installed (e.g. catalog `foo`
-                // vs installed `foo-full-preset`).
-                let installedId = null;
-                if (installed.ids.has(itemId)) installedId = itemId;
-                else if (installed.byName.has(nameKey)) installedId = installed.byName.get(nameKey);
-                const base = {
-                    id: itemId,
-                    // Real installed id — used by Remove to call
-                    // `specify <group> remove <installedId>` correctly.
-                    installedId: installedId ?? itemId,
-                    name: itemName,
-                    source: src.name,
-                    version: raw?.version ?? null,
-                    description: raw?.description ?? "",
-                    active: !!installedId,
-                    downloadUrl: raw?.download_url ?? null,
-                    installAllowed: src.installAllowed !== false,
-                    author: raw?.author ?? null,
-                    repository: raw?.repository ?? null,
-                    homepage: raw?.homepage ?? null,
-                    documentation: raw?.documentation ?? null,
-                    license: raw?.license ?? null,
-                };
-                const extras = extraFields ? extraFields(raw, { installedId, installed }) : null;
-                items.push(extras ? { ...base, ...extras } : base);
+
+    // Fetch every source in parallel. Sources are independent, and prior
+    // serial iteration meant a slow source dragged the whole hydrate step.
+    // With fetchCatalogJson now timeout-bounded, worst case is one source
+    // times out at 15s instead of blocking every subsequent fetch behind it.
+    const fetched = await Promise.all(
+        sources.map(async (src) => {
+            if (!src?.url) return { src: null, data: null };
+            try {
+                return { src, data: await fetchCatalogJson(src.url) };
+            } catch {
+                // best-effort catalog hydrate; a failing source is skipped
+                return { src, data: null };
             }
-        } catch {
-            // best-effort catalog hydrate; a failing source is skipped
+        }),
+    );
+
+    const items = [];
+    for (const { src, data } of fetched) {
+        if (!src || !data) continue;
+        const entries = data?.[dataKey];
+        if (!entries || typeof entries !== "object") continue;
+        for (const [id, raw] of Object.entries(entries)) {
+            const itemId = raw?.id ?? id;
+            const itemName = raw?.name ?? itemId;
+            const nameKey = String(itemName).toLowerCase();
+            // Match by id first; fall back to display-name so catalog
+            // entries whose declared id differs from the installed
+            // manifest's id still show as installed (e.g. catalog `foo`
+            // vs installed `foo-full-preset`).
+            let installedId = null;
+            if (installed.ids.has(itemId)) installedId = itemId;
+            else if (installed.byName.has(nameKey)) installedId = installed.byName.get(nameKey);
+            const base = {
+                id: itemId,
+                // Real installed id — used by Remove to call
+                // `specify <group> remove <installedId>` correctly.
+                installedId: installedId ?? itemId,
+                name: itemName,
+                source: src.name,
+                version: raw?.version ?? null,
+                description: raw?.description ?? "",
+                active: !!installedId,
+                downloadUrl: raw?.download_url ?? null,
+                installAllowed: src.installAllowed !== false,
+                author: raw?.author ?? null,
+                repository: raw?.repository ?? null,
+                homepage: raw?.homepage ?? null,
+                documentation: raw?.documentation ?? null,
+                license: raw?.license ?? null,
+            };
+            const extras = extraFields ? extraFields(raw, { installedId, installed }) : null;
+            items.push(extras ? { ...base, ...extras } : base);
         }
     }
     inst[outputField] = items;

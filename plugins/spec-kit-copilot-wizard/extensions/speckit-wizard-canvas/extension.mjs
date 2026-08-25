@@ -241,6 +241,14 @@ async function hydrateCatalogs(inst) {
     // catalogs (and does NOT register them via `specify preset catalog add`).
     // Third-party catalogs a user has added via the CLI will NOT appear here
     // — that is intentional in the current scope.
+    //
+    // The three groups (presets / extensions / bundles) are independent —
+    // each does its own `specify <kind> list` shell-out + remote fetches.
+    // Run them in parallel so the boot "catalog" step finishes in the time
+    // of the slowest group rather than the sum. Errors are swallowed inside
+    // each hydrator so one failing group can't kill the others.
+    const jobs = [];
+
     if (!inst.cachedCatalogSources?.length) {
         const bootstrap = [
             {
@@ -269,7 +277,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedCatalogSources = bootstrap;
-        await hydratePresetsForSources(inst, bootstrap).catch(() => {});
+        jobs.push(hydratePresetsForSources(inst, bootstrap).catch(() => {}));
     }
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
@@ -291,7 +299,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
-        await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
+        jobs.push(hydrateExtensionsForSources(inst, extBootstrap).catch(() => {}));
     }
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
@@ -313,8 +321,10 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
-        await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
+        jobs.push(hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {}));
     }
+
+    await Promise.all(jobs);
 }
 
 // Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
