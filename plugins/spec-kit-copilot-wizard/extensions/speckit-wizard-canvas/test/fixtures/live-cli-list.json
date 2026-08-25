@@ -1,0 +1,410 @@
+[
+  {
+    "description": "Refresh the managed Spec Kit section in the coding agent context file",
+    "id": "command:speckit.agent-context.update",
+    "kind": "command",
+    "name": "speckit.agent-context.update"
+  },
+  {
+    "description": "Analyze command — inspect the fleet fer consistency in pirate speak",
+    "id": "command:speckit.analyze",
+    "kind": "command",
+    "name": "speckit.analyze"
+  },
+  {
+    "description": "Generate a professional writer bio from author information in the story bible (§ VIII Author Information). Two modes — short (50 words, query/pitch use) and long (150 words, press kit / website use). Writes bio to agent-file.md § VIII.",
+    "id": "command:speckit.bio",
+    "kind": "command",
+    "name": "speckit.bio"
+  },
+  {
+    "description": "Interactive brainstorming session for any screenplay topic — spec, plan, characters, themes, world-building, locations, research, series, or timeline. Loads existing topic files and prior brainstorm notes as context, asks probing questions in a loop, and produces a brainstorm notes file, a patch to the topic file, or nothing if cancelled.",
+    "id": "command:speckit.brainstorm",
+    "kind": "command",
+    "name": "speckit.brainstorm"
+  },
+  {
+    "description": "Checklist command — run a ship's inspection in pirate speak",
+    "id": "command:speckit.checklist",
+    "kind": "command",
+    "name": "speckit.checklist"
+  },
+  {
+    "description": "Clarify command — interrogate the voyage manifest in pirate speak",
+    "id": "command:speckit.clarify",
+    "kind": "command",
+    "name": "speckit.clarify"
+  },
+  {
+    "description": "Lean constitution - create or update project constitution",
+    "id": "command:speckit.constitution",
+    "kind": "command",
+    "name": "speckit.constitution"
+  },
+  {
+    "description": "Post-draft continuity audit — story bible compliance in scenes, character state tracking, timeline coherence, location consistency, and world rule violations across all drafted Fountain files.",
+    "id": "command:speckit.continuity",
+    "kind": "command",
+    "name": "speckit.continuity"
+  },
+  {
+    "description": "Assess the current codebase against the feature's spec, plan, and tasks, then append any remaining unbuilt work as new tasks to tasks.md so implement can complete it.",
+    "id": "command:speckit.converge",
+    "kind": "command",
+    "name": "speckit.converge"
+  },
+  {
+    "description": "Generate self-coverage in industry format — logline, premise, structure, character, dialogue, and a Recommend/Consider/Pass verdict with rationale.",
+    "id": "command:speckit.coverage",
+    "kind": "command",
+    "name": "speckit.coverage"
+  },
+  {
+    "description": "Export the screenplay to Fountain (assembled), Final Draft XML (.fdx), or PDF. Assembles all drafted scenes into a single file in scene order, generates a title page, and validates Fountain syntax before export.",
+    "id": "command:speckit.export",
+    "kind": "command",
+    "name": "speckit.export"
+  },
+  {
+    "description": "Ingest script notes from any source — table read, development exec, coverage, or sensitivity reader — categorize by issue type, map to scene IDs, generate prioritized revision tasks in tasks.md. Closes the notes round as a proper workflow step.",
+    "id": "command:speckit.feedback",
+    "kind": "command",
+    "name": "speckit.feedback"
+  },
+  {
+    "description": "Screenplay format compliance audit — slug line syntax, action line length, camera direction detection, parenthetical policy, transitions, title page, and Fountain export readiness.",
+    "id": "command:speckit.format",
+    "kind": "command",
+    "name": "speckit.format"
+  },
+  {
+    "description": "Glossary management — add terms, resolve inconsistencies, update slug-line canonical forms, and audit all drafted scenes for terminology violations.",
+    "id": "command:speckit.glossary",
+    "kind": "command",
+    "name": "speckit.glossary"
+  },
+  {
+    "description": "Workflow advisor — scans all project files to detect the current state of the screenplay and gives prioritized, opinionated recommendations for what to do next and why. Distinct from speckit.status (which reports numbers); this command reasons about the project and acts as a senior script editor guiding the session.",
+    "id": "command:speckit.help",
+    "kind": "command",
+    "name": "speckit.help"
+  },
+  {
+    "description": "Lean implement - execute tasks from tasks.md",
+    "id": "command:speckit.implement",
+    "kind": "command",
+    "name": "speckit.implement"
+  },
+  {
+    "description": "Interactive one-on-one conversation with an existing character, voiced by AI from their profile and known scene presence. Surfaces character psychology, subtext, and arc state through dialogue. Session can be exported as a summary note.",
+    "id": "command:speckit.interview",
+    "kind": "command",
+    "name": "speckit.interview"
+  },
+  {
+    "description": "Generate or update editable scene outlines for author review before drafting — dramatic purpose, beat sequence, dialogue requirements, visual anchors, and story bible compliance.",
+    "id": "command:speckit.outline",
+    "kind": "command",
+    "name": "speckit.outline"
+  },
+  {
+    "description": "Screenplay pacing analysis — emotional tension arc scoring, page count by act, scene length distribution, dialogue-to-action ratio, dead scenes, midpoint position, and act turn timing. Outputs a tension arc chart (Mermaid xychart) and a remediation task list.",
+    "id": "command:speckit.pacing",
+    "kind": "command",
+    "name": "speckit.pacing"
+  },
+  {
+    "description": "Generate a pitch document from the screenplay brief and synopsis — logline, premise, tone/comps, character overview, story overview, writer's statement, and submission tracker.",
+    "id": "command:speckit.pitch",
+    "kind": "command",
+    "name": "speckit.pitch"
+  },
+  {
+    "description": "Lean plan - create plan.md from the spec",
+    "id": "command:speckit.plan",
+    "kind": "command",
+    "name": "speckit.plan"
+  },
+  {
+    "description": "Final line-pass on drafted scenes — action line compression, unfilmable removal, parenthetical audit, on-the-nose dialogue, voice consistency, and anti-pattern sweep.",
+    "id": "command:speckit.polish",
+    "kind": "command",
+    "name": "speckit.polish"
+  },
+  {
+    "description": "Research tracking command for screenplay projects. Four modes — add (log a new research item), resolve (mark an item answered and capture the finding), check (scan drafted scenes for unsupported claims), and status (research dashboard showing open items ranked by story risk). Tracks authenticity flags for expert-visible errors.",
+    "id": "command:speckit.research",
+    "kind": "command",
+    "name": "speckit.research"
+  },
+  {
+    "description": "Revise drafted scenes based on notes, checklist failures, continuity violations, or coverage feedback — structural rewrite, scene restructuring, and targeted fixes. Produces a versioned draft file with a diff summary.",
+    "id": "command:speckit.revise",
+    "kind": "command",
+    "name": "speckit.revise"
+  },
+  {
+    "description": "Character voice testing and multi-role scene play-through. Modes — single character roleplay, two-character improv, voice-test (5 registers), play (multi-role beat-by-beat scene reading), and dialog (Dialog Workshop with Subtext Tracker). Captures insights and revised dialogue drafts as Fountain block comment revision notes.",
+    "id": "command:speckit.roleplay",
+    "kind": "command",
+    "name": "speckit.roleplay"
+  },
+  {
+    "description": "Sensitivity and representation review — flags cultural misrepresentation, harmful tropes, and identity portrayal issues across drafted scenes. Also checks for broadcast and streaming platform content standard concerns. Read-only analysis with severity tiers (CRITICAL / WARNING / NOTE) and per-issue remediation guidance.",
+    "id": "command:speckit.sensitivity",
+    "kind": "command",
+    "name": "speckit.sensitivity"
+  },
+  {
+    "description": "Series bible management — init the TV series bible before Episode 1, audit cross-episode continuity across all drafted episodes/seasons, sync the series bible after an episode is completed, and display a series-wide status dashboard. Operates on series/series-bible.md as the single authority for cross-episode canon.",
+    "id": "command:speckit.series",
+    "kind": "command",
+    "name": "speckit.series"
+  },
+  {
+    "description": "Lean specify - create spec.md from a feature description",
+    "id": "command:speckit.specify",
+    "kind": "command",
+    "name": "speckit.specify"
+  },
+  {
+    "description": "Script statistics — page count breakdown by act/scene/character; dialogue line counts; estimated screen time; action line voice signals (passive constructions, adverbs, filter language, weak verbs); dialogue/action balance with genre target bands; and export-ready metadata. Read-only.",
+    "id": "command:speckit.statistics",
+    "kind": "command",
+    "name": "speckit.statistics"
+  },
+  {
+    "description": "Project dashboard — scan all drafted scenes, tasks, and checklists to produce a page-count table, status breakdown, and phase completion summary. Run at any time during the draft.",
+    "id": "command:speckit.status",
+    "kind": "command",
+    "name": "speckit.status"
+  },
+  {
+    "description": "B-story and C-story management — add (register a new SP-NNN arc mid-draft), check (audit all subplot arcs for beat gaps, absence streaks, and unresolved dramatic questions), status (dashboard of arc health, draft coverage, and convergence load), and intersect (rebuild the Convergence Map from current plan.md and draft state). Works with subplots.md as the subplot authority; speckit.analyze and speckit.continuity both reference it.",
+    "id": "command:speckit.subplot",
+    "kind": "command",
+    "name": "speckit.subplot"
+  },
+  {
+    "description": "Generate a submission-ready synopsis from the screenplay — one-page and full act-by-act for features; pilot synopsis and season arc overview for TV.",
+    "id": "command:speckit.synopsis",
+    "kind": "command",
+    "name": "speckit.synopsis"
+  },
+  {
+    "description": "Lean tasks - create tasks.md from plan and spec",
+    "id": "command:speckit.tasks",
+    "kind": "command",
+    "name": "speckit.tasks"
+  },
+  {
+    "description": "Tasks-to-issues command — file crew assignments at the GitHub port in pirate speak",
+    "id": "command:speckit.taskstoissues",
+    "kind": "command",
+    "name": "speckit.taskstoissues"
+  },
+  {
+    "description": "Version management for screenplay drafts — list versions, compare two versions side by side (dialogue and action lines), restore a previous version, and tag the current version as a milestone.",
+    "id": "command:speckit.versions",
+    "kind": "command",
+    "name": "speckit.versions"
+  },
+  {
+    "description": "",
+    "id": "template:CHANGELOG",
+    "kind": "template",
+    "name": "CHANGELOG"
+  },
+  {
+    "description": "Agent file template written in pirate speak",
+    "id": "template:agent-file-template",
+    "kind": "template",
+    "name": "agent-file-template"
+  },
+  {
+    "description": "15-point Save the Cat beat sheet with page targets and emotional-state notes, plus an 8-point Hauge alternative. Records the structural skeleton and emotional journey of the screenplay.",
+    "id": "template:beat-sheet-template",
+    "kind": "template",
+    "name": "beat-sheet-template"
+  },
+  {
+    "description": "Character index: master roster with role, A/B/C-story function, first appearance, episode count (TV), and link to full character profile.",
+    "id": "template:characters-index-template",
+    "kind": "template",
+    "name": "characters-index-template"
+  },
+  {
+    "description": "Screen character profile: psychological core, dialogue style with sample lines, on-screen physicality, casting note, scene entry behavior, B/C-story function, relationship dynamics, and writer summary.",
+    "id": "template:characters-template",
+    "kind": "template",
+    "name": "characters-template"
+  },
+  {
+    "description": "Checklist template written in pirate speak",
+    "id": "template:checklist-template",
+    "kind": "template",
+    "name": "checklist-template"
+  },
+  {
+    "description": "The Pirate Code — project constitution in pirate speak",
+    "id": "template:constitution-template",
+    "kind": "template",
+    "name": "constitution-template"
+  },
+  {
+    "description": "Source template for .specify/memory/craft-rules.md, generated by speckit.constitution. Contains the universal screenwriting craft ruleset (format, scene, dialogue, structure) plus selectable style blocks.",
+    "id": "template:craft-rules-template",
+    "kind": "template",
+    "name": "craft-rules-template"
+  },
+  {
+    "description": "TV episode outline: cold open, teaser, per-act breakdown with turning points, A/B/C-story beats per act, tag, and page-count targets. Standard writers' room document.",
+    "id": "template:episode-outline-template",
+    "kind": "template",
+    "name": "episode-outline-template"
+  },
+  {
+    "description": "Script notes log: raw notes from table reads, development executives, or script readers. Categorized issues (Structure/Character/Pacing/Dialogue/Format) with severity, revision tasks, and resolution log.",
+    "id": "template:feedback-template",
+    "kind": "template",
+    "name": "feedback-template"
+  },
+  {
+    "description": "Consistency reference: invented terms, proper nouns, world-specific capitalization rules, and a consistency log populated by speckit.polish and speckit.continuity.",
+    "id": "template:glossary-template",
+    "kind": "template",
+    "name": "glossary-template"
+  },
+  {
+    "description": "Canonical location reference: per-location visual/atmospheric identity, time-of-day variations, character behavioral tells, production notes, and state log.",
+    "id": "template:locations-template",
+    "kind": "template",
+    "name": "locations-template"
+  },
+  {
+    "description": "Screenplay pitch document: logline, series or film premise, tone and comp titles, character roster, pilot synopsis (TV) or act summary (feature), season arc (TV), sample episode titles, writer's statement, and submission tracker.",
+    "id": "template:pitch-deck-template",
+    "kind": "template",
+    "name": "pitch-deck-template"
+  },
+  {
+    "description": "Implementation plan template written in pirate speak",
+    "id": "template:plan-template",
+    "kind": "template",
+    "name": "plan-template"
+  },
+  {
+    "description": "Character relationship arcs: power balance tracker, communication pattern, arc beat sheet (establishing → rupture → midpoint → crisis → resolution), and A-story convergence map.",
+    "id": "template:relationships-template",
+    "kind": "template",
+    "name": "relationships-template"
+  },
+  {
+    "description": "Research document: open questions, source notes, historical/technical findings, and resolved items that drive task generation.",
+    "id": "template:research-template",
+    "kind": "template",
+    "name": "research-template"
+  },
+  {
+    "description": "Index-card-style scene breakdown: slug line, dramatic purpose, characters present, A/B/C-story function, props/locations needed, emotional shift, page range, and draft status.",
+    "id": "template:scene-card-template",
+    "kind": "template",
+    "name": "scene-card-template"
+  },
+  {
+    "description": "Per-scene outline file: opening beat, causal beat sequence, character wants/gets, dialogue requirements (what must be deflected), visual/sensory anchors, thematic work, and story bible compliance notes. Status field (DRAFT/APPROVED/SKIP) gates AI drafting in speckit.implement.",
+    "id": "template:scene-outline-template",
+    "kind": "template",
+    "name": "scene-outline-template"
+  },
+  {
+    "description": "TV series bible: series premise and engine, tone and format, character roster with arc by season, season arc map, episode format, world rules, network/platform target, and continuity constraint log.",
+    "id": "template:series-bible-template",
+    "kind": "template",
+    "name": "series-bible-template"
+  },
+  {
+    "description": "Feature specification template written in pirate speak",
+    "id": "template:spec-template",
+    "kind": "template",
+    "name": "spec-template"
+  },
+  {
+    "description": "B-story and C-story beat sheets: inciting incident through resolution, A-story intersection map, convergence map for multi-thread acts, and resolution checklist.",
+    "id": "template:subplots-template",
+    "kind": "template",
+    "name": "subplots-template"
+  },
+  {
+    "description": "One-page pitch synopsis (250–350 words) and full synopsis (600–1000 words) in present tense. Feature: act-by-act summary, ending revealed. TV: pilot summary plus season arc overview.",
+    "id": "template:synopsis-template",
+    "kind": "template",
+    "name": "synopsis-template"
+  },
+  {
+    "description": "Task list template written in pirate speak",
+    "id": "template:tasks-template",
+    "kind": "template",
+    "name": "tasks-template"
+  },
+  {
+    "description": "Thematic contract: motif registry with planned visual occurrences and transformation arc, symbol tracker, act-by-act thematic work map, and drift log.",
+    "id": "template:themes-template",
+    "kind": "template",
+    "name": "themes-template"
+  },
+  {
+    "description": "Story timeline: scene-by-scene chronology, elapsed time, flashback/flash-forward map, and continuity cross-references.",
+    "id": "template:timeline-template",
+    "kind": "template",
+    "name": "timeline-template"
+  },
+  {
+    "description": "",
+    "id": "template:tutorial-script-template",
+    "kind": "template",
+    "name": "tutorial-script-template"
+  },
+  {
+    "description": "World-building reference: setting rules, geography, culture, history, and in-world systems used during drafting.",
+    "id": "template:world-building-template",
+    "kind": "template",
+    "name": "world-building-template"
+  },
+  {
+    "description": "Consolidated prerequisite checking script",
+    "id": "script:check-prerequisites",
+    "kind": "script",
+    "name": "check-prerequisites"
+  },
+  {
+    "description": "Common functions and variables for all scripts",
+    "id": "script:common",
+    "kind": "script",
+    "name": "common"
+  },
+  {
+    "description": "",
+    "id": "script:create-new-feature",
+    "kind": "script",
+    "name": "create-new-feature"
+  },
+  {
+    "description": "",
+    "id": "script:resolve-template",
+    "kind": "script",
+    "name": "resolve-template"
+  },
+  {
+    "description": "",
+    "id": "script:setup-plan",
+    "kind": "script",
+    "name": "setup-plan"
+  },
+  {
+    "description": "",
+    "id": "script:setup-tasks",
+    "kind": "script",
+    "name": "setup-tasks"
+  }
+]
