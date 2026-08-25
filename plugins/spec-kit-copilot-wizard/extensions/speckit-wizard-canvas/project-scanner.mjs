@@ -25,15 +25,10 @@ import { readMarkdownArtifact, extractMarker } from "./project-scanner/markdown.
 
 export { readMarkdownArtifact };
 
-// Composition inventory used to be scanned from `.specify/presets.json` and
-// `.specify/extensions.json`, which no released `specify` CLI ever writes.
-// PR #4305 makes the CLI the authoritative source of composition data, so
-// the wizard now reads composition exclusively from
-// `specify artifact list --json` (see composition/artifact-cli.mjs) and
-// overlays it via `overlayCachedComposition`. There is intentionally no
-// direct fs read here for presets or extensions — see AGENTS.md governing
-// principles: "CLI is the source of truth for composition. No direct fs
-// reads. Ever."
+// Composition is read exclusively from `specify artifact list --json` (see
+// composition/artifact-cli.mjs) and overlaid via `overlayCachedComposition`.
+// No direct fs read here for presets or extensions — see AGENTS.md:
+// "CLI is the source of truth for composition. No direct fs reads. Ever."
 
 // deps shape:
 //   readFile(path, enc)     → Promise<string>

@@ -58,14 +58,6 @@ export async function specifyArtifactList(root, { runner = defaultAsyncRunner } 
     return JSON.parse(String(stdout));
 }
 
-// specifyArtifactInfo removed intentionally. Prior to spec-kit PR #4305 the
-// wizard called `specify artifact info <id>` once per artifact to obtain the
-// composition stack, which cost ~1s (Python cold-start) × N artifacts on
-// every boot. PR #4305 makes `list --json` return the same rich shape per
-// row, so the wizard no longer needs an info fetch. If a future feature
-// needs single-artifact detail beyond what `list` returns, add it back — but
-// do NOT reintroduce a per-artifact fan-out on the boot critical path.
-
 // ---------------------------------------------------------------------------
 // Shape mapping helpers
 // ---------------------------------------------------------------------------
@@ -384,19 +376,13 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
  *
  * ## Upstream contract
  *
- * This function assumes `specify artifact list --json` now returns one row
- * per artifact carrying the FULL composition stack — i.e. list rows have
- * the same shape as `info --json` output (with `stack: [...]`). That
- * change ships in spec-kit PR #4305. Prior to that PR the CLI required a
- * separate `info` call per artifact to obtain the stack, which forced the
- * wizard to fan out N shell-outs on boot (~60s regression on stacks of
- * 60+ artifacts). See AGENTS.md: "CLI is the source of truth for
- * composition."
+ * `specify artifact list --json` returns one row per artifact carrying the
+ * FULL composition stack (i.e. list rows include `stack: [...]`). See
+ * AGENTS.md: "CLI is the source of truth for composition."
  *
- * If a rollback ever ships a CLI where `list --json` omits `stack`, this
- * function still returns a well-formed payload — artifacts get empty
- * stacks and the composition summary folds to `[]`. Not desirable, but not
- * a crash.
+ * If a CLI ships where `list --json` omits `stack`, this function still
+ * returns a well-formed payload — artifacts get empty stacks and the
+ * composition summary folds to `[]`. Not desirable, but not a crash.
  *
  * @param {object} opts
  * @param {string} opts.workspaceRoot   Absolute path to the workspace root.
@@ -411,13 +397,10 @@ export async function buildCompositionFromCli({
     extensionItems,
     runner = defaultAsyncRunner,
 } = {}) {
-    // 1. Single list call — each row now carries `stack` (PR #4305).
+    // 1. Single list call — each row carries `stack`.
     const list = await specifyArtifactList(workspaceRoot, { runner });
 
-    // 2. Shape each row directly. shapeArtifact already reads `stack` off
-    //    its input, so no code change needed there — the swap from
-    //    per-artifact `info` payloads to per-row list payloads is
-    //    transparent as long as the fields match.
+    // 2. Shape each row directly. shapeArtifact reads `stack` off its input.
     const artifactsRaw = [];
     for (const row of list) {
         const shaped = shapeArtifact(row);

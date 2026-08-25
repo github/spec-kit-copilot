@@ -11,8 +11,8 @@ import { join } from "node:path";
 // ---------------------------------------------------------------------------
 // Fake runner — mimics the specify CLI for `artifact list --json`.
 //
-// Post PR #4305 the list payload IS the composition data: each row carries
-// its own `stack`. Fixtures are a flat array of rows.
+// The list payload IS the composition data: each row carries its own
+// `stack`. Fixtures are a flat array of rows.
 // ---------------------------------------------------------------------------
 
 function fakeRunner(rows) {

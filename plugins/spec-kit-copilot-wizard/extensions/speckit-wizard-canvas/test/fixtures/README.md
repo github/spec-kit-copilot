@@ -10,8 +10,8 @@ shape regressions if the CLI's JSON contract changes.
 It is **not** consumed by the fixture-based unit tests in
 `test/artifact-cli.test.mjs` — those tests use synthetic fixtures inline.
 
-Post spec-kit PR #4305, `list --json` returns the full composition stack per
-row, so a separate `info` snapshot is no longer needed.
+`list --json` returns the full composition stack per row, so no separate
+`info` snapshot is needed.
 
 ### Regenerating
 

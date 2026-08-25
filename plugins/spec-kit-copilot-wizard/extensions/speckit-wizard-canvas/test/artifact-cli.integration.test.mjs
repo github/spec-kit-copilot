@@ -33,10 +33,8 @@ function hasSpecifyCli() {
 }
 
 // Detect whether the installed `specify` CLI emits per-row `stack` on
-// `artifact list --json` (PR github/spec-kit#4305). Pre-#4305 CLIs return
-// bare rows and the live test would fail the "exactly one active layer"
-// invariant. Skip in that case — the fixture-drift test above covers the
-// same shape once the fixture is regenerated post-#4305.
+// `artifact list --json`. Without `stack` the live test would fail the
+// "exactly one active layer" invariant — skip in that case.
 function specifyListEmitsStack() {
     try {
         const out = execFileSync("specify", ["artifact", "list", "--json"], {
@@ -98,32 +96,28 @@ describe("artifact-cli — live CLI", { skip: skipLive }, () => {
 // Regenerate the snapshot with:
 //   specify artifact list --json > test/fixtures/live-cli-list.json
 //
-// Post PR #4305, `list --json` returns rows with the full composition stack
-// embedded, so a separate `info` fixture is no longer needed. If you're on
-// a pre-#4305 CLI the snapshot will lack `stack` and the test will fail —
-// that's the intended drift signal.
+// `list --json` returns rows with the full composition stack embedded, so
+// no separate `info` fixture is needed.
 describe("artifact-cli — fixture drift", () => {
     const listPath = join(FIXTURES_DIR, "live-cli-list.json");
     const snapshotAvailable = existsSync(listPath);
 
-    // Detect pre-#4305 snapshots: list rows without `stack`. In that case
-    // skip the drift assertion (rather than fail CI) — the test's purpose
-    // is to catch NEW drift once we're on the target contract, not to
-    // block on a stale capture. Regenerate the fixture once the CLI
-    // upgrade is in and the test will start guarding again.
-    let snapshotIsPre4305 = false;
+    // If a snapshot lacks `stack`, skip the drift assertion rather than
+    // fail CI — the test's purpose is to catch NEW drift against the
+    // current contract, not to block on a stale capture.
+    let snapshotMissingStack = false;
     if (snapshotAvailable) {
         try {
             const parsed = JSON.parse(readFileSync(listPath, "utf8"));
             if (Array.isArray(parsed) && parsed.length > 0 && !Object.hasOwn(parsed[0], "stack")) {
-                snapshotIsPre4305 = true;
+                snapshotMissingStack = true;
             }
         } catch {
             // fall through — snapshotAvailable stays true; the JSON.parse
             // in the test will surface the real error
         }
     }
-    const skipDrift = !snapshotAvailable || snapshotIsPre4305;
+    const skipDrift = !snapshotAvailable || snapshotMissingStack;
 
     test("captured list rows carry the fields the wizard reads (id/name/kind/description/stack[])", { skip: skipDrift }, () => {
         const rows = JSON.parse(readFileSync(listPath, "utf8"));
