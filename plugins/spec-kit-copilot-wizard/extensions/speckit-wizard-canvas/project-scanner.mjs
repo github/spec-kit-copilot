@@ -14,7 +14,6 @@ import {
     emptyPhases,
     looksLikeUnfilledTemplate,
     pickNewestSubdir,
-    readBoundedJson,
 } from "./project-scanner/fs-helpers.mjs";
 import {
     scanScaffoldedSkills,
@@ -26,54 +25,15 @@ import { readMarkdownArtifact, extractMarker } from "./project-scanner/markdown.
 
 export { readMarkdownArtifact };
 
-// -------- Section: shallow composition inventory (was composition/scan.mjs) --------
-// Reads the two summary manifests the `specify` CLI writes when presets or
-// extensions are installed:
-//   • `.specify/presets.json`    — one line per installed preset
-//   • `.specify/extensions.json` — one line per installed extension
-// and folds them into the `{ presets, extensions }` shape the composition
-// state slice stores. Each entry is just `{ id, name, source, version,
-// description }` — no commands, no templates, no phase graph.
-//
-// This is the **fast-path inventory** — "what's installed and by what
-// name" — used to populate the composition slice's tiles (Composition tab,
-// stepper badges, Ops panel dropdowns). It touches only the two summary
-// JSONs, so it's cheap enough to run on every boot / refresh.
-//
-// `composition/preset-loader.mjs` is the **deep-detail loader** — it walks
-// `.specify/presets/.registry`, every `<id>/preset.yml`, and every
-// `<id>/commands/<file>.md` to produce a resolved phase graph with
-// hooks, user-input hints, and per-command bodies. That output drives the
-// phase card and the pipeline graph — not just the inventory listing.
-async function scanComposition(workspacePath, deps) {
-    const specifyDir = join(workspacePath, ".specify");
-    if (!(await deps.pathExists(specifyDir))) return { presets: [], extensions: [] };
-
-    const tryJson = async (relPath) => {
-        const p = join(workspacePath, relPath);
-        if (!(await deps.pathExists(p))) return [];
-        const raw = await readBoundedJson(p, deps);
-        if (!raw) return [];
-        const items = Array.isArray(raw) ? raw : [raw];
-        const out = [];
-        for (const item of items) {
-            if (!item || typeof item !== "object") continue;
-            const name = typeof item.name === "string" ? item.name : null;
-            if (!name) continue;
-            out.push({
-                id: typeof item.id === "string" ? item.id : name,
-                name,
-                source: typeof item.source === "string" ? item.source : "catalog",
-                version: typeof item.version === "string" ? item.version : null,
-                description: typeof item.description === "string" ? item.description : "",
-            });
-        }
-        return out;
-    };
-    const presets = await tryJson(".specify/presets.json");
-    const extensions = await tryJson(".specify/extensions.json");
-    return { presets, extensions };
-}
+// Composition inventory used to be scanned from `.specify/presets.json` and
+// `.specify/extensions.json`, which no released `specify` CLI ever writes.
+// PR #4305 makes the CLI the authoritative source of composition data, so
+// the wizard now reads composition exclusively from
+// `specify artifact list --json` (see composition/artifact-cli.mjs) and
+// overlays it via `overlayCachedComposition`. There is intentionally no
+// direct fs read here for presets or extensions — see AGENTS.md governing
+// principles: "CLI is the source of truth for composition. No direct fs
+// reads. Ever."
 
 // deps shape:
 //   readFile(path, enc)     → Promise<string>
@@ -172,13 +132,13 @@ export async function scanWorkspace(workspacePath, deps) {
         warnings.push(`hydrateExtensionArtifactsFromCache failed: ${err?.message ?? err}`);
     });
 
-    // Composition — read layered manifests. LLM-produced JSON here is
-    // defensively normalized: accept alias values, coerce string → array,
-    // drop invalid entries.
-    const composition = await scanComposition(workspacePath, deps).catch((err) => {
-        warnings.push(`scanComposition failed: ${err?.message ?? err}`);
-        return { presets: [], extensions: [] };
-    });
+    // Composition — no direct fs read. `scanComposition` used to look at
+    // `.specify/{presets,extensions}.json` which no `specify` CLI version
+    // ever wrote (dead code). The wizard's real composition data comes from
+    // `runFastComposition` (CLI-driven, see composition/artifact-cli.mjs)
+    // and is applied via `overlayCachedComposition` after this scan runs.
+    // Start empty so the overlay step has a clean base.
+    const composition = { presets: [], extensions: [] };
 
     // Preset catalog — from CLI-authored catalog.json inside .specify/.
     const catalog = await scanPresetCatalog(workspacePath, deps).catch((err) => {

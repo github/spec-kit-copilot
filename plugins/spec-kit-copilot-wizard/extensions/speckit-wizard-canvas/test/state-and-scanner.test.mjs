@@ -912,23 +912,6 @@ test("scanWorkspace ignores alias status strings gracefully", async () => {
     assert.equal(scan.currentPhase, "plan");
 });
 
-test("scanWorkspace drops malformed composition entries defensively", async () => {
-    const fs = makeFs({
-        "/proj/.specify": "__DIR__",
-        "/proj/.specify/presets.json": JSON.stringify([
-            { name: "lean" },
-            { source: "no name" }, // dropped (no name)
-            null, // dropped
-            "string", // dropped
-        ]),
-    });
-    const scan = await scanWorkspace("/proj", fs);
-    const names = scan.composition.presets.map((p) => p.name);
-    assert.ok(names.includes("lean"));
-    // 3 malformed entries should not appear
-    assert.equal(scan.composition.presets.length, 1);
-});
-
 test("readMarkdownArtifact: detects provenance marker and returns null for missing paths", async () => {
     const fs = makeFs({
         "/proj/.specify/memory/constitution.md": "<!-- speckit:constitution v1 -->\nbody",
