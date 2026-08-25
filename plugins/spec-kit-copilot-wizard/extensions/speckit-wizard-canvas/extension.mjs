@@ -195,15 +195,23 @@ export async function bootAsync(inst) {
         tracker.fail("env-probe", { title: `env probe failed: ${err?.message ?? err}` });
     }
 
-    // Step 5: catalog bootstrap + fast composition.
+    // Step 5: catalog bootstrap (remote JSON fetches + `specify <group> list`).
     tracker.start("catalog");
     try {
         await hydrateCatalogs(inst);
-        await runFastComposition(inst, { reason: "boot" });
-        await snapshot(inst);
         tracker.ok("catalog");
     } catch (err) {
         tracker.fail("catalog", { title: `catalog hydrate failed: ${err?.message ?? err}` });
+    }
+
+    // Step 6: composition build (single `specify artifact list --json` call).
+    tracker.start("composition");
+    try {
+        await runFastComposition(inst, { reason: "boot" });
+        await snapshot(inst);
+        tracker.ok("composition");
+    } catch (err) {
+        tracker.fail("composition", { title: `composition build failed: ${err?.message ?? err}` });
     }
 
     // Step 6: ready

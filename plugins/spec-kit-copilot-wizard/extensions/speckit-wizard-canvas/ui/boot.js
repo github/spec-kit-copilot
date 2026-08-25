@@ -16,6 +16,7 @@ const STEP_LABELS = {
     "deps-install": "Installing dependencies",
     "env-probe": "Probing environment",
     catalog: "Loading catalogs",
+    composition: "Building composition",
     ready: "Ready",
 };
 
