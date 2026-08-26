@@ -207,14 +207,16 @@ export async function bootAsync(inst) {
     // Step 6: composition build (single `specify artifact list --json` call).
     tracker.start("composition");
     try {
-        await runFastComposition(inst, { reason: "boot" });
+        const result = await runFastComposition(inst, { reason: "boot" });
+        if (!result?.ok) throw new Error(result?.reason ?? "composition build failed");
         await snapshot(inst);
         tracker.ok("composition");
     } catch (err) {
         tracker.fail("composition", { title: `composition build failed: ${err?.message ?? err}` });
+        return;
     }
 
-    // Step 6: ready
+    // Step 7: ready
     tracker.ready();
     try {
         const snap = await snapshot(inst);
