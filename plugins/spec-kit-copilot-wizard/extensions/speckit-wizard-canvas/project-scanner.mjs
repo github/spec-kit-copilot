@@ -27,8 +27,7 @@ export { readMarkdownArtifact };
 
 // Composition is read exclusively from `specify artifact list --json` (see
 // composition/artifact-cli.mjs) and overlaid via `overlayCachedComposition`.
-// No direct fs read here for presets or extensions — see AGENTS.md:
-// "CLI is the source of truth for composition. No direct fs reads. Ever."
+// No direct fs read here for presets or extensions.
 
 // deps shape:
 //   readFile(path, enc)     → Promise<string>
@@ -127,12 +126,9 @@ export async function scanWorkspace(workspacePath, deps) {
         warnings.push(`hydrateExtensionArtifactsFromCache failed: ${err?.message ?? err}`);
     });
 
-    // Composition — no direct fs read. `scanComposition` used to look at
-    // `.specify/{presets,extensions}.json` which no `specify` CLI version
-    // ever wrote (dead code). The wizard's real composition data comes from
-    // `runFastComposition` (CLI-driven, see composition/artifact-cli.mjs)
-    // and is applied via `overlayCachedComposition` after this scan runs.
-    // Start empty so the overlay step has a clean base.
+    // Composition data comes from `runFastComposition` (CLI-driven, see
+    // composition/artifact-cli.mjs) and is applied via `overlayCachedComposition`
+    // after this scan runs. Start empty so the overlay step has a clean base.
     const composition = { presets: [], extensions: [] };
 
     // Preset catalog — from CLI-authored catalog.json inside .specify/.

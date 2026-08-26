@@ -4,14 +4,14 @@
 // still need a **pipeline order** for the wizard's Composition tab. Two
 // ways to produce one:
 //
-//   • **Fast path (this file, deterministic, no LLM).** When the active
-//     command set is the canonical spine with only `replace` overrides and
-//     no new commands, we synthesize the pipeline from the canonical spine
+//   • **Deterministic path (this file, no LLM).** When the active command
+//     set is the canonical spine with only `replace` overrides and no new
+//     commands, we synthesize the pipeline from the canonical spine
 //     directly.
-//   • **LLM Stage 2** (`prompts/composition.mjs::inferPipeline`). Needed
-//     when an extension adds a non-canonical command or uses `wrap` /
-//     `prepend` / `append`, because ordering then depends on prose in the
-//     extension's README that only an LLM can interpret.
+//   • **LLM path** (`prompts/composition.mjs::inferPipeline`). Needed when
+//     an extension adds a non-canonical command or uses `wrap` / `prepend`
+//     / `append`, because ordering then depends on prose in the extension's
+//     README that only an LLM can interpret.
 //
 // This module decides which of the two applies.
 

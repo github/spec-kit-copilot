@@ -377,8 +377,7 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
  * ## Upstream contract
  *
  * `specify artifact list --json` returns one row per artifact carrying the
- * FULL composition stack (i.e. list rows include `stack: [...]`). See
- * AGENTS.md: "CLI is the source of truth for composition."
+ * FULL composition stack (i.e. list rows include `stack: [...]`).
  *
  * If a CLI ships where `list --json` omits `stack`, this function still
  * returns a well-formed payload — artifacts get empty stacks and the

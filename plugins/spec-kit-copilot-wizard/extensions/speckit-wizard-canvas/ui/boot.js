@@ -157,7 +157,7 @@ function render() {
 
     const title = document.createElement("h1");
     title.className = "boot-title";
-    title.innerHTML = '<span class="boot-title-mark" aria-hidden="true">◈</span>Starting Spec Kit Wizard - Dev';
+    title.innerHTML = '<span class="boot-title-mark" aria-hidden="true">◈</span>Starting Spec Kit Wizard';
     panel.appendChild(title);
 
     const subtitle = document.createElement("p");
