@@ -213,7 +213,6 @@ export async function bootAsync(inst) {
         tracker.ok("composition");
     } catch (err) {
         tracker.fail("composition", { title: `composition build failed: ${err?.message ?? err}` });
-        return;
     }
 
     // Step 7: ready
