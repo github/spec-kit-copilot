@@ -277,8 +277,8 @@ export async function applyComposition(inst, input) {
 // Purpose: after any catalog change (preset/extension install, remove,
 // swap, priority change) the composition needs to be rebuilt. This
 // helper rebuilds `{ presets, extensions, artifacts }` locally in
-// milliseconds by reading manifests directly — the LLM Stage 1 turn is
-// retired entirely.
+// milliseconds by reading manifests directly — LLM composition extraction
+// is retired entirely.
 //
 // Pipeline fast path: `computePipelineFastPath` inspects the freshly
 // assembled composition and decides whether it can synthesize

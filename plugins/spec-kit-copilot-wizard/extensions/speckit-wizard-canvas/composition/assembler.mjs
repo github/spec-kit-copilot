@@ -13,7 +13,7 @@
 // install (or any other catalog change) without waiting for the slow
 // two-stage refresh.
 //
-// What this covers (Stage 1 — extract):
+// What this covers (deterministic composition extraction):
 //   • presets[] with per-kind provides counts
 //   • extensions[] with per-kind provides + hook counts
 //   • artifacts[] — union of core inventory + every preset/extension entry,
