@@ -22,7 +22,7 @@ import {
 import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
-import { findLayerByLookupId } from "./lookup-id.mjs";
+import { findLayerByLookupId, parseLookupId } from "./lookup-id.mjs";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -895,17 +895,22 @@ export function renderMoreCommandsPanel() {
 // Resolve the on-disk markdown path for a command tile, when known.
 // Priority:
 //   1. composition activeLayer.sourcePath (accurate — includes preset overrides).
-//   2. derived preset path from `p.source` + `p.commandName`.
+//   2. derived preset path from the `lookupId` provider id + `p.commandName`.
 // Returns null when the file isn't on disk (e.g. synthesized core-only commands).
 export function commandSourcePath(p) {
     if (!p) return null;
     const activeLayer = lookupActiveLayerForCommand(p);
     if (activeLayer?.sourcePath) return activeLayer.sourcePath;
-    // Derive from `source: "preset:<presetId>"` for preset-only commands
-    // that don't have composition entries (game-narrative extras).
-    if (typeof p.source === "string" && p.source.startsWith("preset:") && p.commandName) {
-        const presetId = p.source.slice("preset:".length).split(":")[0];
-        return `.specify/presets/${presetId}/commands/${p.commandName}.md`;
+    // Derive from the preset provider id for preset-only commands that
+    // don't have composition entries (game-narrative extras). Prefer the
+    // active composition layer's lookupId, falling back to the phase's own.
+    const parsedActive = parseLookupId(activeLayer?.lookupId);
+    const parsedPhase = parseLookupId(p.lookupId);
+    const parsed = parsedActive?.providerKind === "preset" ? parsedActive
+        : parsedPhase?.providerKind === "preset" ? parsedPhase
+        : null;
+    if (parsed && p.commandName) {
+        return `.specify/presets/${parsed.providerId}/commands/${p.commandName}.md`;
     }
     return null;
 }
