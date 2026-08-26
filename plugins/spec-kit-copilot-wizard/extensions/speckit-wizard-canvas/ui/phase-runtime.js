@@ -199,7 +199,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
-        const active = lookupActiveLayerForCommand({ id, commandName: `speckit.${id}` });
+        const active = lookupActiveLayerForCommand({ id, commandName: `speckit.${id}` }, snapshot);
         return {
             kind: "core",
             id,
@@ -237,7 +237,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
         const scanned = snapshot?.phases?.[id] ?? null;
-        const active = lookupActiveLayerForCommand({ id, commandName: extResolved.commandName });
+        const active = lookupActiveLayerForCommand({ id, commandName: extResolved.commandName }, snapshot);
         return {
             kind: "extension",
             id,
@@ -929,10 +929,13 @@ export function commandSourcePath(p) {
 // Look up the winning composition layer for a phase, using phase-discovery
 // semantics: prefer the "commands/<commandName>" artifact, falling back to
 // the phase `id` (either "commands/<name>" or a bare phase id).
-export function lookupActiveLayerForCommand(p) {
+// `snapshot` defaults to the global state snapshot for UI-only callers;
+// snapshot-pure callers (e.g. resolvePipelineEntry) must pass their own so
+// the resolved layer comes from the same snapshot as the rest of the data.
+export function lookupActiveLayerForCommand(p, snapshot = state.snapshot) {
     const id = p?.id;
     const commandName = p?.commandName;
-    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
+    const compArtifacts = snapshot?.composition?.artifacts ?? [];
     const cmdLookupId = commandName ? `commands/${commandName}` : null;
     const compArtifact =
         (cmdLookupId && compArtifacts.find((a) => a.id === cmdLookupId)) ||
