@@ -18,6 +18,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildAugmentedPath } from "../env/resolve-path.mjs";
 import { readExtensionManifest, readHooksMap } from "./hooks.mjs";
 
 const execFileP = promisify(execFile);
@@ -26,7 +27,8 @@ const execFileP = promisify(execFile);
 // synchronous runner that returns a Buffer/string — we `await` its
 // return, which unwraps both sync and Promise values transparently.
 const defaultAsyncRunner = async (cmd, args, opts) => {
-    const { stdout } = await execFileP(cmd, args, opts);
+    const augmentedPath = await buildAugmentedPath();
+    const { stdout } = await execFileP(cmd, args, { ...opts, env: { ...process.env, PATH: augmentedPath } });
     return stdout;
 };
 
