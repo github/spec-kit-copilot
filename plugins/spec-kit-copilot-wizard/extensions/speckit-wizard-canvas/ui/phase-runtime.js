@@ -199,6 +199,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const active = lookupActiveLayerForCommand({ id, commandName: `speckit.${id}` });
         return {
             kind: "core",
             id,
@@ -218,6 +219,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 commandName: `speckit.${id}`,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
+                lookupId: active?.lookupId ?? null,
                 ...(scanned?.folderPath ? { folderPath: scanned.folderPath } : {}),
             },
         };
@@ -235,6 +237,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const active = lookupActiveLayerForCommand({ id, commandName: extResolved.commandName });
         return {
             kind: "extension",
             id,
@@ -251,6 +254,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 source: `extension:${extResolved.ext.id}`,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
+                lookupId: active?.lookupId ?? null,
                 // LLM-inferred metadata from artifact-targets.json cache
                 // (via extension.inferArtifactTargets prompt). The phase
                 // card reads these to render the tagline under the header

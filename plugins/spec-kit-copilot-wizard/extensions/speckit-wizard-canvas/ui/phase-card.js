@@ -329,6 +329,7 @@ export function synthesizeCanonicalPhase(id) {
         optional: isCanonicalOptional(id),
         locked: false,
         source: "core",
+        lookupId: null,
         artifact: null,
         artifactPath: null,
     };
