@@ -125,6 +125,32 @@ const PRESET_OVERRIDE_FIXTURE = [
     },
 ];
 
+const EXTENSION_SOURCE_PATH_FIXTURE = [
+    ["command", "speckit.quality", "commands/speckit.quality.md"],
+    ["template", "quality-checklist", "templates/quality-checklist.md"],
+    ["script", "quality-check", "scripts/quality-check.sh"],
+].map(([kind, name, file]) => ({
+    id: `${kind}:${name}`,
+    name,
+    kind,
+    description: "",
+    stack: [
+        {
+            id: `${kind}:${name}`,
+            layer: "extension",
+            sourceId: "quality",
+            presetId: null,
+            presetName: null,
+            strategy: "replace",
+            active: true,
+            hidden: false,
+            manifestPath: ".specify/extensions/quality/extension.yml",
+            lookupId: `extension:quality:${kind}:${name}`,
+            sourcePath: `.specify/extensions/quality/${file}`,
+        },
+    ],
+}));
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -210,6 +236,29 @@ describe("buildCompositionFromCli", () => {
             assert.equal(presetSummary.provides.commands, 1);
             assert.equal(presetSummary.provides.templates, 0);
             assert.equal(presetSummary.provides.scripts, 0);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("preserves authoritative CLI source paths for every artifact kind", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [],
+                runner: fakeRunner(EXTENSION_SOURCE_PATH_FIXTURE),
+            });
+
+            assert.deepEqual(
+                comp.artifacts.map((artifact) => artifact.stack[0].sourcePath),
+                [
+                    ".specify/extensions/quality/commands/speckit.quality.md",
+                    ".specify/extensions/quality/templates/quality-checklist.md",
+                    ".specify/extensions/quality/scripts/quality-check.sh",
+                ],
+            );
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
