@@ -1,5 +1,5 @@
 // Pure helpers for the deterministic `lookupId` field carried on composition
-// stack layers (spec-kit CLI issue #4210 / PR #4305).
+// stack layers.
 //
 // Format: `preset:<presetId>:<kind>:<name>` or `extension:<extId>:<kind>:<name>`,
 // `null` for core (built-in) layers. Stable across reinstalls; NOT a CLI
