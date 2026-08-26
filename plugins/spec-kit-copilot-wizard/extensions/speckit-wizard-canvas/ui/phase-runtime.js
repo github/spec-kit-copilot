@@ -896,6 +896,11 @@ export function renderMoreCommandsPanel() {
 // Priority:
 //   1. composition activeLayer.sourcePath (accurate — includes preset overrides).
 //   2. derived preset path from the `lookupId` provider id + `p.commandName`.
+//   3. derived preset path from the legacy `p.source` string ("preset:<id>") —
+//      still the ONLY provenance snapshot-builder.mjs::buildCommands attaches
+//      to preset-only command objects (it forwards `cmd.source` but not a
+//      `lookupId`; the composition-artifact lookupId pipeline is a separate
+//      producer). Keep this until that producer starts propagating lookupId.
 // Returns null when the file isn't on disk (e.g. synthesized core-only commands).
 export function commandSourcePath(p) {
     if (!p) return null;
@@ -911,6 +916,12 @@ export function commandSourcePath(p) {
         : null;
     if (parsed && p.commandName) {
         return `.specify/presets/${parsed.providerId}/commands/${p.commandName}.md`;
+    }
+    // Legacy fallback: derive from `source: "preset:<presetId>"` for
+    // preset-only commands that don't yet carry a `lookupId` at all.
+    if (typeof p.source === "string" && p.source.startsWith("preset:") && p.commandName) {
+        const presetId = p.source.slice("preset:".length).split(":")[0];
+        return `.specify/presets/${presetId}/commands/${p.commandName}.md`;
     }
     return null;
 }

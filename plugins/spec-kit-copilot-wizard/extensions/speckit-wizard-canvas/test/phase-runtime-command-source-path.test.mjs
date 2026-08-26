@@ -5,7 +5,11 @@ import { state } from "../ui/state.js";
 
 // commandSourcePath resolves the on-disk markdown path for a command tile.
 // Priority: (1) composition activeLayer.sourcePath, (2) derived preset path
-// from the winning layer's `lookupId` provider id + `p.commandName`.
+// from the winning layer's `lookupId` provider id + `p.commandName`,
+// (3) legacy `p.source: "preset:<id>"` string fallback — this is the ONLY
+// provenance the real snapshot-builder.mjs::buildCommands producer attaches
+// to preset-only command objects today (no `lookupId` yet), so this
+// fallback must stay reachable until that producer is migrated.
 
 describe("commandSourcePath", () => {
     beforeEach(() => {
@@ -70,7 +74,16 @@ describe("commandSourcePath", () => {
         assert.equal(commandSourcePath(p), null);
     });
 
-    test("returns null when there is no lookupId and no composition entry", () => {
+    test("falls back to legacy p.source string when there is no lookupId at all (real preset-only command shape)", () => {
+        // Mirrors what snapshot-builder.mjs::buildCommands actually emits for
+        // a preset-only command: `source: "preset:<presetId>"`, no
+        // `lookupId`, and no composition artifact entry.
+        state.snapshot = { composition: { artifacts: [] } };
+        const p = { id: "plan", commandName: "speckit.plan", source: "preset:compliance" };
+        assert.equal(commandSourcePath(p), ".specify/presets/compliance/commands/speckit.plan.md");
+    });
+
+    test("returns null when there is no lookupId, no legacy source, and no composition entry", () => {
         state.snapshot = { composition: { artifacts: [] } };
         const p = { id: "specify", commandName: "speckit.specify", lookupId: null };
         assert.equal(commandSourcePath(p), null);
