@@ -22,6 +22,7 @@ import {
 import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { findLayerByLookupId } from "./lookup-id.mjs";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -894,7 +895,7 @@ export function renderMoreCommandsPanel() {
 // Returns null when the file isn't on disk (e.g. synthesized core-only commands).
 export function commandSourcePath(p) {
     if (!p) return null;
-    const activeLayer = lookupActiveLayer(p.id, p.commandName);
+    const activeLayer = lookupActiveLayerForCommand(p);
     if (activeLayer?.sourcePath) return activeLayer.sourcePath;
     // Derive from `source: "preset:<presetId>"` for preset-only commands
     // that don't have composition entries (game-narrative extras).
@@ -905,13 +906,35 @@ export function commandSourcePath(p) {
     return null;
 }
 
-// Look up the winning composition layer for a command id (either "commands/<name>" or a phase id).
-export function lookupActiveLayer(id, commandName) {
+// Look up the winning composition layer for a phase, using phase-discovery
+// semantics: prefer the "commands/<commandName>" artifact, falling back to
+// the phase `id` (either "commands/<name>" or a bare phase id).
+export function lookupActiveLayerForCommand(p) {
+    const id = p?.id;
+    const commandName = p?.commandName;
     const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
     const cmdLookupId = commandName ? `commands/${commandName}` : null;
     const compArtifact =
         (cmdLookupId && compArtifacts.find((a) => a.id === cmdLookupId)) ||
         compArtifacts.find((a) => a.id === id);
     return (compArtifact?.stack ?? []).find((l) => l.active) || null;
+}
+
+// Look up a composition stack layer by its deterministic `lookupId`
+// (see ui/lookup-id.mjs). Returns `null` when no artifact/layer matches.
+export function lookupLayerByLookupId(lookupId) {
+    if (!lookupId) return null;
+    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
+    for (const compArtifact of compArtifacts) {
+        const layer = findLayerByLookupId(compArtifact, lookupId);
+        if (layer) return layer;
+    }
+    return null;
+}
+
+// Deprecated: use `lookupActiveLayerForCommand({ id, commandName })` instead.
+// Kept as a thin wrapper for one commit while callers migrate.
+export function lookupActiveLayer(id, commandName) {
+    return lookupActiveLayerForCommand({ id, commandName });
 }
 
