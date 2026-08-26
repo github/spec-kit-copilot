@@ -941,9 +941,4 @@ export function lookupLayerByLookupId(lookupId) {
     return null;
 }
 
-// Deprecated: use `lookupActiveLayerForCommand({ id, commandName })` instead.
-// Kept as a thin wrapper for one commit while callers migrate.
-export function lookupActiveLayer(id, commandName) {
-    return lookupActiveLayerForCommand({ id, commandName });
-}
 
