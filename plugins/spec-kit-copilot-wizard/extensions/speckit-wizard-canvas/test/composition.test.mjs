@@ -8,7 +8,7 @@ import {
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { assembleComposition, computePipelineFastPath } from "../composition/assembler.mjs";
 import {
     IS_CASE_INSENSITIVE_FS,
     parseHookDeclarations,
@@ -42,7 +42,7 @@ test("canonicalSpine returns a fresh mutable copy each call", () => {
 
 test("isCanonical rejects non-canonical, empty, and non-string values", () => {
     // Positive predicate (every canonical is accepted) is exercised via the
-    // S1×catalog and S2 integration tests. This test guards only the
+    // catalog and pipeline integration tests. This test guards only the
     // branches those don't cover: type/case rejection.
     assert.equal(isCanonical("outline"), false);
     assert.equal(isCanonical("Specify"), false, "must be case-sensitive");
@@ -325,7 +325,7 @@ test("parseProvidesEntries: explicit `strategy:` field beats the `replaces:` sho
     // Real-world case: `copilot-sub-agents` uses `replaces: X` + `strategy: prepend`
     // to mean "prepend before X". Without the explicit-field override, the
     // shorthand-based inferStrategy would silently coerce this to "replace" and
-    // computeStage2Necessity would miss the stack directive.
+    // computePipelineFastPath would miss the stack directive.
     const parsed = parseProvidesEntries({
         templates: [
             { type: "command", name: "speckit.specify", replaces: "speckit.specify", strategy: "prepend" },
@@ -443,7 +443,7 @@ describe("composition-assembler", () => {
 // `assembleComposition({ workspaceRoot, presetItems, extensionItems })` and
 // asserts against small snapshot objects (not full JSON dumps) — verify only
 // the fields that matter for the case, so unrelated churn doesn't cascade
-// into test edits. `computeStage2Necessity` is exercised at the same time.
+// into test edits. `computePipelineFastPath` is exercised at the same time.
 //
 // Delete alongside composition-assembler.mjs when the speckit CLI exposes
 // the composition model natively.
@@ -588,16 +588,16 @@ test("core-only workspace: no presets/extensions, synthesized canonical pipeline
         assert.ok(findArtifact(comp, "commands/speckit.constitution"));
         assert.ok(findArtifact(comp, "commands/speckit.specify"));
 
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
-        assert.equal(s2.needed, false, "core-only should not need Stage 2");
-        assert.deepEqual(s2.newCommands, []);
-        assert.equal(s2.hasStackDirectives, false);
-        assert.ok(s2.syntheticPipeline, "synthesized pipeline should be produced");
-        assert.equal(s2.syntheticPipeline.shape, "augmented-canonical");
-        assert.equal(s2.syntheticPipeline.synthetic, true);
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
+        assert.equal(fastPath.pipelineFastPath, true, "core-only should use the pipeline fast path");
+        assert.deepEqual(fastPath.newCommands, []);
+        assert.equal(fastPath.hasStackDirectives, false);
+        assert.ok(fastPath.syntheticPipeline, "synthesized pipeline should be produced");
+        assert.equal(fastPath.syntheticPipeline.shape, "augmented-canonical");
+        assert.equal(fastPath.syntheticPipeline.synthetic, true);
         // Canonical anchors present in synthesized order.
-        assert.ok(s2.syntheticPipeline.pipeline.includes("commands/speckit.constitution"));
-        assert.ok(s2.syntheticPipeline.pipeline.includes("commands/speckit.implement"));
+        assert.ok(fastPath.syntheticPipeline.pipeline.includes("commands/speckit.constitution"));
+        assert.ok(fastPath.syntheticPipeline.pipeline.includes("commands/speckit.implement"));
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -639,16 +639,16 @@ test("preset that replaces a template: stack has preset (active, replace) above 
         assert.equal(spec.stack.length, 1);
         assert.equal(spec.stack[0].layer, "core");
 
-        // No new commands, no stack directives → no Stage 2 needed.
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
-        assert.equal(s2.needed, false);
-        assert.ok(s2.syntheticPipeline);
+        // No new commands or stack directives → deterministic synthesis.
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
+        assert.equal(fastPath.pipelineFastPath, true);
+        assert.ok(fastPath.syntheticPipeline);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
 });
 
-test("preset adding a novel command: Stage 2 becomes required", async () => {
+test("preset adding a novel command falls back to LLM pipeline inference", async () => {
     const root = makeWorkspace();
     try {
         writePreset(root, "with-review", {
@@ -668,10 +668,10 @@ test("preset adding a novel command: Stage 2 becomes required", async () => {
         assert.equal(review.stack[0].presetId, "with-review");
         assert.equal(review.stack[0].active, true);
 
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
-        assert.equal(s2.needed, true, "novel command requires Stage 2");
-        assert.deepEqual(s2.newCommands, ["commands/speckit.review"]);
-        assert.equal(s2.syntheticPipeline, null);
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
+        assert.equal(fastPath.pipelineFastPath, false, "novel command requires LLM inference");
+        assert.deepEqual(fastPath.newCommands, ["commands/speckit.review"]);
+        assert.equal(fastPath.syntheticPipeline, null);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -725,7 +725,7 @@ test("extension adds command + hook binding: standalone hook artifact + inline a
     }
 });
 
-test("preset with a wraps: directive on a canonical command forces Stage 2", async () => {
+test("preset with a wraps: directive falls back to LLM pipeline inference", async () => {
     const root = makeWorkspace();
     try {
         writePreset(root, "wrapper", {
@@ -740,19 +740,19 @@ test("preset with a wraps: directive on a canonical command forces Stage 2", asy
             presetItems: [presetItem("wrapper")],
             extensionItems: [],
         });
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
-        assert.equal(s2.hasStackDirectives, true, "wraps: directive detected");
-        assert.equal(s2.needed, true);
-        assert.equal(s2.syntheticPipeline, null);
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
+        assert.equal(fastPath.hasStackDirectives, true, "wraps: directive detected");
+        assert.equal(fastPath.pipelineFastPath, false);
+        assert.equal(fastPath.syntheticPipeline, null);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
 });
 
-test("preset using `replaces: X` + explicit `strategy: prepend` — Stage 2 sees the prepend", async () => {
+test("preset using `replaces: X` + explicit `strategy: prepend` disables the pipeline fast path", async () => {
     // Regression test for the `copilot-sub-agents` shape: shorthand
     // `replaces:` combined with an explicit `strategy: prepend` field means
-    // "prepend before X", NOT "replace X". `computeStage2Necessity` must
+    // "prepend before X", NOT "replace X". `computePipelineFastPath` must
     // honor the explicit strategy so `hasStackDirectives` is true.
     const root = makeWorkspace();
     try {
@@ -779,9 +779,9 @@ test("preset using `replaces: X` + explicit `strategy: prepend` — Stage 2 sees
         const presetLayer = spec.stack.find((l) => l.layer === "preset");
         assert.equal(presetLayer.strategy, "prepend");
 
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
-        assert.equal(s2.hasStackDirectives, true, "explicit strategy: prepend detected");
-        assert.equal(s2.needed, true);
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
+        assert.equal(fastPath.hasStackDirectives, true, "explicit strategy: prepend detected");
+        assert.equal(fastPath.pipelineFastPath, false);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -802,15 +802,15 @@ test("hook artifact IDs are excluded from synthesized pipeline", async () => {
             presetItems: [],
             extensionItems: [extensionItem("audit")],
         });
-        const s2 = computeStage2Necessity(comp, comp._presetManifests);
+        const fastPath = computePipelineFastPath(comp, comp._presetManifests);
         // audit.check is a hook target — should be excluded from newCommands
         // for pipeline placement purposes. But because it appears as an
         // extension-provided command entry, it also lives in `artifacts` as a
         // command kind. The important thing is the synthesized pipeline (if
         // any) doesn't include it.
-        if (s2.syntheticPipeline) {
+        if (fastPath.syntheticPipeline) {
             assert.ok(
-                !s2.syntheticPipeline.pipeline.includes("commands/audit.check"),
+                !fastPath.syntheticPipeline.pipeline.includes("commands/audit.check"),
                 "hook target excluded from synthesized pipeline",
             );
         }

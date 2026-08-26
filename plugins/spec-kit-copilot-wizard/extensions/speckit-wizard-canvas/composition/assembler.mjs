@@ -22,16 +22,16 @@
 //   • Standalone hook artifacts (one per extension hook binding) + inline
 //     hook attributions on the target phase command.
 //
-// What this ALSO covers (trivial Stage 2 shortcut):
-//   • When `computeStage2Necessity(...)` returns `needed: false`, the fast
-//     path can synthesize `inferredPipeline` directly from the canonical
+// What this ALSO covers (pipeline fast path):
+//   • When `computePipelineFastPath(...)` returns `pipelineFastPath: true`,
+//     the assembler can synthesize `inferredPipeline` directly from the canonical
 //     spine intersected with the active command set. This is emitted with
 //     `synthetic: true` so consumers can distinguish it from an LLM-inferred
 //     pipeline. Skipping the LLM turn is safe when no active command lies
 //     outside the canonical spine AND no preset uses `wraps:`/`prepends:`/
 //     `appends:` on a canonical.
 //
-// What this does NOT cover (LLM Stage 2 — inferPipeline):
+// What this does NOT cover (LLM pipeline inference):
 //   • Pipelines that require README-driven ordering — new commands whose
 //     placement can only be inferred from prose, mermaid flowcharts, or
 //     stack directives. `runFastComposition` leaves `inferredPipeline`
@@ -227,8 +227,8 @@ export async function assembleComposition({ workspaceRoot, presetItems, extensio
     //    both a `kind: "command"` artifact AND a `kind: "hook"` artifact for
     //    the same id would create two entries in comp.artifacts sharing an
     //    id, which downstream `find()`-by-id lookups can't disambiguate, and
-    //    would cause computeStage2Necessity to treat the hook as a novel
-    //    command (forcing an unnecessary LLM Stage 2 turn).
+    //    would cause computePipelineFastPath to treat the hook as a novel
+    //    command (forcing unnecessary LLM pipeline inference).
     for (const manifest of extensionManifests) {
         const hookCommandNames = new Set(
             (manifest.hooks ?? [])
@@ -388,7 +388,7 @@ export async function assembleComposition({ workspaceRoot, presetItems, extensio
         presets: presetsOut,
         extensions: extensionsOut,
         artifacts: [...artifacts.values()],
-        // Side channel for downstream `computeStage2Necessity`. NOT part of
+        // Side channel for downstream `computePipelineFastPath`. NOT part of
         // the persisted composition — callers must strip before writing.
         _presetManifests: presetManifests,
     };
@@ -397,7 +397,7 @@ export async function assembleComposition({ workspaceRoot, presetItems, extensio
 // Canonical spine — the ordered list of command IDs (with `commands/` prefix)
 // the wizard treats as the augmented-canonical default pipeline. Mirrors
 // `ui/pipeline-items.mjs canonicalSpine()` but scoped to seeded phases only
-// (the pipeline order Stage 2 would emit).
+// (the pipeline order LLM inference would emit).
 // Fully-qualified command artifact ids for the canonical spine (nine
 // seeded phases) — sourced from `ui/canonical.mjs` so this file never
 // drifts from the wizard's authoritative phase list.
@@ -411,15 +411,15 @@ const CANONICAL_COMMAND_ID_SET = new Set(
 // `augmented-canonical` pipeline (mirrors `REQUIRED_CANONICAL_PHASES`
 // consumed by `state/store.mjs validateInferredPipeline`). If any of
 // these is absent from the active command set, the synthesized pipeline
-// would fail validation — in that case we defer to LLM Stage 2 instead.
+// would fail validation — in that case we defer to LLM inference instead.
 const REQUIRED_CANONICAL_PIPELINE_IDS = Object.freeze(requiredCanonicalPipelineIds());
 
 /**
- * Decide whether LLM Stage 2 (`composition.inferPipeline`) is needed to
- * derive a correct pipeline for the given composition, or whether the fast
- * path can synthesize one from the canonical spine.
+ * Decide whether the pipeline fast path can synthesize a correct pipeline
+ * from the canonical spine, or whether `composition.inferPipeline` must use
+ * the non-fast LLM approach.
  *
- * Stage 2 is needed when either condition holds:
+ * The fast path cannot synthesize when either condition holds:
  *   1. `newCommands` is non-empty — some active command has no canonical
  *      placement, so ordering it requires README/prose reasoning.
  *   2. `hasStackDirectives` is true — at least one preset entry uses
@@ -436,9 +436,9 @@ const REQUIRED_CANONICAL_PIPELINE_IDS = Object.freeze(requiredCanonicalPipelineI
  *   Optional array of preset manifests (from `readPresetManifest`) — needed
  *   to detect stack directives at the entry level. `assembleComposition`
  *   doesn't expose these, so `runFastComposition` passes them separately.
- * @returns {{ needed: boolean, newCommands: string[], hasStackDirectives: boolean, syntheticPipeline: object | null }}
+ * @returns {{ pipelineFastPath: boolean, newCommands: string[], hasStackDirectives: boolean, syntheticPipeline: object | null }}
  */
-export function computeStage2Necessity(composition, presetManifests = []) {
+export function computePipelineFastPath(composition, presetManifests = []) {
     const artifacts = Array.isArray(composition?.artifacts) ? composition.artifacts : [];
     // Active command IDs (commands only, hooks excluded).
     const activeCommands = new Set(
@@ -480,17 +480,17 @@ export function computeStage2Necessity(composition, presetManifests = []) {
         if (hasStackDirectives) break;
     }
 
-    const needed = newCommands.length > 0 || hasStackDirectives;
+    const requiresLlmInference = newCommands.length > 0 || hasStackDirectives;
 
     // Extra safety: augmented-canonical pipelines must contain every
     // REQUIRED_CANONICAL. If the active command set is missing one (e.g.
     // a preset dropped `implement` entirely), the synthesized pipeline
     // would be rejected by validateInferredPipeline. Defer to LLM
-    // Stage 2 in that case — it can emit a `standalone` shape instead.
+    // inference in that case — it can emit a `standalone` shape instead.
     const missingRequiredCanonicals = REQUIRED_CANONICAL_PIPELINE_IDS.filter(
         (id) => !activeCommands.has(id),
     );
-    const canSynthesize = !needed && missingRequiredCanonicals.length === 0;
+    const canSynthesize = !requiresLlmInference && missingRequiredCanonicals.length === 0;
 
     let syntheticPipeline = null;
     if (canSynthesize) {
@@ -511,7 +511,7 @@ export function computeStage2Necessity(composition, presetManifests = []) {
     }
 
     return {
-        needed: needed || missingRequiredCanonicals.length > 0,
+        pipelineFastPath: canSynthesize,
         newCommands,
         hasStackDirectives,
         syntheticPipeline,

@@ -85,22 +85,23 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 
     // Special path for the "Refresh Now" button on the Composition tab.
     // Historically this dispatched an LLM prompt that only completed on the
-    // next agent turn — if the agent was busy (or Stage 2 wasn't actually
-    // needed), the button's aria-busy spinner never cleared because the
+    // next agent turn — if the agent was busy (or the pipeline fast path
+    // applied), the button's aria-busy spinner never cleared because the
     // "composition" SSE broadcast that clears it never arrived.
     //
     // The fast composition assembler broadcasts `type: "composition"`
     // synchronously via applyComposition, which is exactly what the UI
     // listens for. So we run it eagerly here — the button clears within
     // milliseconds regardless of agent state — and only fall through to
-    // the LLM Stage 2 prompt when the assembler reports Stage 2 is needed
+    // LLM pipeline inference when the assembler cannot use the fast path
     // (novel commands, wraps/prepends/appends directives, etc.).
     if (kind === "composition.refresh") {
         const fast = await runFastComposition(inst, { reason: "refresh-button" });
-        if (fast?.ok && !fast.stage2Needed) {
+        if (fast?.ok && fast.pipelineFastPath) {
             return { kind, fastComposition: true };
         }
-        // Stage 2 needed — fall through and dispatch the LLM prompt below.
+        // The pipeline fast path could not synthesize — fall through and
+        // dispatch the non-fast LLM inference prompt below.
         // The fast path still broadcast the presets/extensions/artifacts
         // slice, so the button already cleared; the LLM turn will restamp
         // `inferredPipeline` when it responds.

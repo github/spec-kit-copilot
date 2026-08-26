@@ -320,8 +320,8 @@ const CANONICAL_SET = new Set(CANONICAL_KEYS);
  * Single source of truth. Consumed by:
  *   • `state/store.mjs validateInferredPipeline` — rejects a pipeline
  *     missing any of these.
- *   • `composition-assembler.mjs computeStage2Necessity` — falls back to
- *     LLM Stage 2 when any of these are absent from the active command set,
+ *   • `composition-assembler.mjs computePipelineFastPath` — falls back to
+ *     LLM inference when any of these are absent from the active command set,
  *     since the fast path can't synthesize a valid pipeline without them.
  */
 export const REQUIRED_CANONICAL_PHASES = Object.freeze(CANONICAL_KEYS.filter((k) => CANONICAL[k].required));
@@ -343,7 +343,7 @@ export function canonicalSpine() {
  * Return the canonical spine as fully-qualified command artifact ids —
  * `commands/speckit.<name>` — in seeded-pipeline order. Fresh array on each
  * call. Used by the fast-path pipeline synthesizer and any other consumer
- * that needs the artifact-id form (Stage 2 prompt, validators, etc.).
+ * that needs the artifact-id form (LLM inference prompt, validators, etc.).
  */
 export function canonicalPipelineIds() {
     return CANONICAL_PHASES.map((name) => `commands/speckit.${name}`);
@@ -352,7 +352,7 @@ export function canonicalPipelineIds() {
 /**
  * Return the REQUIRED canonical anchors as fully-qualified command
  * artifact ids. Fresh array on each call. Used by
- * `validateInferredPipeline` and `computeStage2Necessity`.
+ * `validateInferredPipeline` and `computePipelineFastPath`.
  */
 export function requiredCanonicalPipelineIds() {
     return REQUIRED_CANONICAL_PHASES.map((name) => `commands/speckit.${name}`);

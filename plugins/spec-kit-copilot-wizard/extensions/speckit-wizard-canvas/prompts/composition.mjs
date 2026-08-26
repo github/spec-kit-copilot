@@ -37,8 +37,8 @@ export function buildCompositionPrompt(kind, payload, context, { workspacePath, 
     switch (kind) {
         case "composition.refresh":
         case "composition.inferPipeline": {
-            // Stage 2 (inferPipeline) only. Stage 1 — building
-            // { presets, extensions, artifacts } — is now handled entirely
+            // LLM pipeline inference only. Building
+            // { presets, extensions, artifacts } is now handled entirely
             // by the deterministic fast assembler (composition-assembler.mjs)
             // which runs on install/boot. This prompt is the LLM path for
             // pipeline shape inference, which still needs README fetching
@@ -48,8 +48,8 @@ export function buildCompositionPrompt(kind, payload, context, { workspacePath, 
             // canonical spine (no new commands, no wraps/prepends/appends),
             // `runFastComposition` stamps `inferredPipeline` directly and
             // this prompt is never triggered. It only runs when the user
-            // explicitly clicks Refresh Now AND `computeStage2Necessity`
-            // returned `needed: true`.
+            // explicitly clicks Refresh Now AND `computePipelineFastPath`
+            // returned `pipelineFastPath: false`.
             //
             // Reads the composition slice from state.json (populated by the
             // fast path) and emits ONLY `inferredPipeline` — partial-merge

@@ -144,10 +144,10 @@ export const SKILL_BY_KIND = Object.freeze({
     // `speckit-X`.
     ...Object.fromEntries(CANONICAL_PHASES.map((id) => [id, `speckit-${id}`])),
 
-    // Composition Stage 2 (inferPipeline). Stage 1 (extract) is now handled
+    // LLM pipeline inference. Composition extraction is now handled
     // by the deterministic fast assembler (composition-assembler.mjs) which
     // runs on install/boot — no LLM turn, no ACTION_KINDS entry. The two
-    // remaining kinds both route to the same Stage-2-only prompt body; the
+    // remaining kinds both route to the same non-fast inference prompt; the
     // wizard emits `composition.refresh` from the "Refresh Now" button as a
     // stable name for backwards-compat with older sessions.
     "composition.refresh": null,

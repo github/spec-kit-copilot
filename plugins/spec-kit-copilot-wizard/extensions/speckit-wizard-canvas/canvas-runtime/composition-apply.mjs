@@ -10,7 +10,7 @@
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { applyPatch, writeState, readState, validateInferredPipeline, activeFingerprint, normalizeExecutionReports } from "../state/store.mjs";
-import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { assembleComposition, computePipelineFastPath } from "../composition/assembler.mjs";
 import { fsDeps } from "./instances.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -280,13 +280,12 @@ export async function applyComposition(inst, input) {
 // milliseconds by reading manifests directly — the LLM Stage 1 turn is
 // retired entirely.
 //
-// Trivial Stage 2 shortcut: `computeStage2Necessity` inspects the freshly
-// assembled composition and decides whether the LLM Stage 2 pipeline
-// inference is actually needed. When it isn't (no new commands, no
-// wraps/prepends/appends directives), we synthesize `inferredPipeline`
-// from the canonical spine here. When it IS needed, we skip pipeline
+// Pipeline fast path: `computePipelineFastPath` inspects the freshly
+// assembled composition and decides whether it can synthesize
+// `inferredPipeline` from the canonical spine. When it cannot (new commands
+// or wraps/prepends/appends directives), we skip pipeline
 // synthesis and the prior `inferredPipeline` carries forward until the
-// user clicks Refresh Now on the Composition tab to invoke the LLM path.
+// user clicks Refresh Now on the Composition tab to invoke LLM inference.
 //
 // Runs silently on catalog changes — failures degrade to a warn log and
 // leave the composition slice alone.
@@ -298,18 +297,18 @@ export async function runFastComposition(inst, { reason } = {}) {
             presetItems: inst.cachedPresetItems ?? [],
             extensionItems: inst.cachedExtensionItems ?? [],
         });
-        // `_presetManifests` is a side channel used only for Stage 2
-        // necessity detection — never persisted.
+        // `_presetManifests` is a side channel used only for the pipeline
+        // fast-path decision — never persisted.
         const presetManifests = payload._presetManifests ?? [];
         delete payload._presetManifests;
 
-        const stage2 = computeStage2Necessity(payload, presetManifests);
-        if (!stage2.needed && stage2.syntheticPipeline) {
-            payload.inferredPipeline = stage2.syntheticPipeline;
+        const fastPath = computePipelineFastPath(payload, presetManifests);
+        if (fastPath.pipelineFastPath && fastPath.syntheticPipeline) {
+            payload.inferredPipeline = fastPath.syntheticPipeline;
         }
 
         await applyComposition(inst, payload);
-        return { ok: true, reason, stage2Needed: stage2.needed };
+        return { ok: true, reason, pipelineFastPath: fastPath.pipelineFastPath };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
     }
