@@ -4,7 +4,7 @@ import {
     buildCompositionFromCli,
 } from "../composition/artifact-cli.mjs";
 import { computePipelineFastPath } from "../composition/pipeline-fast-path.mjs";
-import { parseLookupId, findLayerByLookupId } from "../ui/lookup-id.mjs";
+import { findLayerByLookupId } from "../ui/lookup-id.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -157,7 +157,6 @@ describe("buildCompositionFromCli", () => {
                 assert.equal(a.stack[0].sourceId, null);
                 assert.equal(a.stack[0].presetId, null);
                 assert.equal(a.stack[0].lookupId, null);
-                assert.equal(parseLookupId(a.stack[0].lookupId), null);
                 assert.equal(a.stack[0].manifestPath, null);
             }
 
@@ -195,13 +194,10 @@ describe("buildCompositionFromCli", () => {
             assert.equal(winner.hidden, false);
             assert.equal(winner.manifestPath, ".specify/presets/compliance/preset.yml");
             assert.equal(winner.lookupId, "preset:compliance:command:speckit.plan");
-            // Behavioral coverage: lookupId parses to the expected shape and
-            // round-trips through findLayerByLookupId back to this winner.
-            const parsed = parseLookupId(winner.lookupId);
-            assert.equal(parsed.providerKind, "preset");
-            assert.equal(parsed.providerId, "compliance");
-            assert.equal(parsed.kind, "command");
-            assert.equal(parsed.name, "speckit.plan");
+            // Behavioral coverage: the CLI-shaped composition artifact
+            // round-trips through findLayerByLookupId back to this winner
+            // (parseLookupId's own shape/edge-case behavior is covered by
+            // test/lookup-id.test.mjs — no need to re-assert it here).
             assert.equal(findLayerByLookupId(cmd, winner.lookupId), winner);
 
             // Hidden built-in layer.
