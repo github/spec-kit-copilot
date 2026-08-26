@@ -299,7 +299,12 @@ export async function runFastComposition(inst, { reason } = {}) {
         }
 
         await applyComposition(inst, payload);
-        return { ok: true, reason, pipelineFastPath: fastPath.canSynthesize };
+        return {
+            ok: true,
+            reason,
+            pipelineFastPath: fastPath.canSynthesize,
+            stage2Needed: !fastPath.canSynthesize,
+        };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
     }
