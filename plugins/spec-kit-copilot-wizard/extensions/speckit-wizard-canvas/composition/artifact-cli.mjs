@@ -123,6 +123,13 @@ function shapeArtifact(cliArtifact) {
     const stack = Array.isArray(cliArtifact.stack)
         ? cliArtifact.stack.map(normalizeCliStackLayer).filter(Boolean)
         : [];
+    if (kind === "command") {
+        const activeLayer = stack.find((layer) => layer.active);
+        const skillName = wizardId.slice("commands/".length).replace(/\./g, "-");
+        if (activeLayer && skillName) {
+            activeLayer.sourcePath = `.github/skills/${skillName}/SKILL.md`;
+        }
+    }
     return {
         id: wizardId,
         kind,
