@@ -172,16 +172,7 @@ export function computeProviderContributions(artifacts) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
             // Prefer the deterministic lookupId's providerId; fall back to
             // legacy presetId/extensionId for wizard-synthesized hook layers
-            // (applyHookAttributions writes lookupId: null — see
-            // composition/artifact-cli.mjs). This fallback can be deleted
-            // once spec-kit issue #4343 ("Expose hook contributions and
-            // runtime bindings via specify artifact") lands AND the wizard
-            // migrates off applyHookAttributions to consume CLI-native hook
-            // artifacts directly (tracked alongside #4209) — at that point
-            // every hook layer will carry a real, non-null lookupId and this
-            // fallback becomes dead code. Landing #4343 alone is not
-            // sufficient; applyHookAttributions must stop synthesizing
-            // lookupId: null first.
+            // (applyHookAttributions writes lookupId: null).
             const id = parseLookupId(layer.lookupId)?.providerId
                 ?? layer.presetId
                 ?? layer.extensionId;
