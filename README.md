@@ -10,6 +10,22 @@ Copilot experience around it.
 
 **Status:** active development.
 
+> [!NOTE]
+> **New Copilot canvas showcase videos**
+>
+> See how GitHub Copilot App's canvas functionality turns Spec Kit workflows into
+> visual, Copilot-interactive experiences:
+> [*Spec Kit Assess: Visual Idea Intake with GitHub Copilot*](https://youtu.be/eo1_QUZMYb0?si=dCjcCYXzWjpLPfKC)
+> showcases the `assess` extension's five-stage discovery funnel — intake,
+> research, define, shape, and decide — helping teams turn rough concepts into a
+> clear go, needs clarification, or kill decision before moving into SDD.
+>
+> [*Spec Kit Wizard: Visual Spec-Driven Development with GitHub Copilot*](https://youtu.be/-yRdys89DtY?si=0XbgF8zy2Z6rBdgq)
+> showcases a guided visual workflow for exploring, understanding, and running the
+> full Spec-Driven Development lifecycle, plus discovering and applying
+> customizations that tailor the workflow to your team, on top of Spec Kit's
+> `specify` CLI.
+
 ## Background
 
 [Spec Kit](https://github.com/github/spec-kit) provides the `specify` CLI and
