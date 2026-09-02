@@ -739,6 +739,56 @@ test("S6: .specify/presets/.registry order flows through preset-loader into scan
     }
 });
 
+// -------- S6b: scanner → buildStateSnapshot → commandSourcePath -----------
+
+test("S6b: a real scanned preset command's snapshot object resolves via commandSourcePath's legacy source fallback", async () => {
+    // Regression test: buildCommands forwards `cmd.source` ("preset:<id>")
+    // onto snapshot.commands but does not attach a `lookupId` — that field
+    // only exists on composition-artifact stack layers, a separate producer.
+    // commandSourcePath must still resolve a path for these real command
+    // objects, not silently return null.
+    const ws = tmpWs();
+    try {
+        mkdirSync(join(ws, ".specify", "presets", "alpha", "commands"), { recursive: true });
+        writeFileSync(
+            join(ws, ".specify", "presets", ".registry"),
+            JSON.stringify([{ id: "alpha", priority: 100, enabled: true }]),
+        );
+        writeFileSync(
+            join(ws, ".specify", "presets", "alpha", "preset.yml"),
+            [
+                "preset:",
+                "  name: Alpha",
+                "  version: 1.0.0",
+                "provides:",
+                "  templates:",
+                "    - type: command",
+                "      name: speckit.a1",
+                "      file: commands/a1.md",
+                "",
+            ].join("\n"),
+        );
+        writeFileSync(
+            join(ws, ".specify", "presets", "alpha", "commands", "a1.md"),
+            "---\nhandoffs: []\n---\n# A1\n",
+        );
+
+        const scan = await scanWorkspace(ws, await realFsDeps());
+        const snap = buildStateSnapshot(scan);
+        const cmd = (snap.commands ?? []).find((c) => c.commandName === "speckit.a1" || c.name === "speckit.a1");
+        assert.ok(cmd, `snapshot.commands missing speckit.a1: ${JSON.stringify(snap.commands)}`);
+        assert.equal(cmd.source, "preset:alpha");
+        assert.equal(cmd.lookupId, undefined, "buildCommands does not attach lookupId today");
+
+        const { commandSourcePath } = await import("../ui/phase-runtime.js");
+        const { state } = await import("../ui/state.js");
+        state.snapshot = { composition: { artifacts: [] } };
+        assert.equal(commandSourcePath(cmd), ".specify/presets/alpha/commands/speckit.a1.md");
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
 // -------- S7: scanner → buildStateSnapshot lock/gate ----------------------
 
 test("S7: buildStateSnapshot derives per-phase locked from durable setup completion", async () => {

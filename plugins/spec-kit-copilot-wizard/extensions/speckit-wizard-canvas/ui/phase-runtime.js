@@ -22,6 +22,7 @@ import {
 import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { findLayerByLookupId, parseLookupId } from "./lookup-id.mjs";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -198,6 +199,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const active = lookupActiveLayerForCommand({ id, commandName: `speckit.${id}` }, snapshot);
         return {
             kind: "core",
             id,
@@ -217,6 +219,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 commandName: `speckit.${id}`,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
+                lookupId: active?.lookupId ?? null,
                 ...(scanned?.folderPath ? { folderPath: scanned.folderPath } : {}),
             },
         };
@@ -234,6 +237,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const active = lookupActiveLayerForCommand({ id, commandName: extResolved.commandName }, snapshot);
         return {
             kind: "extension",
             id,
@@ -250,6 +254,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 source: `extension:${extResolved.ext.id}`,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
+                lookupId: active?.lookupId ?? null,
                 // LLM-inferred metadata from artifact-targets.json cache
                 // (via extension.inferArtifactTargets prompt). The phase
                 // card reads these to render the tagline under the header
@@ -890,14 +895,30 @@ export function renderMoreCommandsPanel() {
 // Resolve the on-disk markdown path for a command tile, when known.
 // Priority:
 //   1. composition activeLayer.sourcePath (accurate — includes preset overrides).
-//   2. derived preset path from `p.source` + `p.commandName`.
+//   2. derived preset path from the `lookupId` provider id + `p.commandName`.
+//   3. derived preset path from the legacy `p.source` string ("preset:<id>") —
+//      still the ONLY provenance snapshot-builder.mjs::buildCommands attaches
+//      to preset-only command objects (it forwards `cmd.source` but not a
+//      `lookupId`; the composition-artifact lookupId pipeline is a separate
+//      producer). Keep this until that producer starts propagating lookupId.
 // Returns null when the file isn't on disk (e.g. synthesized core-only commands).
 export function commandSourcePath(p) {
     if (!p) return null;
-    const activeLayer = lookupActiveLayer(p.id, p.commandName);
+    const activeLayer = lookupActiveLayerForCommand(p);
     if (activeLayer?.sourcePath) return activeLayer.sourcePath;
-    // Derive from `source: "preset:<presetId>"` for preset-only commands
-    // that don't have composition entries (game-narrative extras).
+    // Derive from the preset provider id for preset-only commands that
+    // don't have composition entries (game-narrative extras). Prefer the
+    // active composition layer's lookupId, falling back to the phase's own.
+    const parsedActive = parseLookupId(activeLayer?.lookupId);
+    const parsedPhase = parseLookupId(p.lookupId);
+    const parsed = parsedActive?.providerKind === "preset" ? parsedActive
+        : parsedPhase?.providerKind === "preset" ? parsedPhase
+        : null;
+    if (parsed && p.commandName) {
+        return `.specify/presets/${parsed.providerId}/commands/${p.commandName}.md`;
+    }
+    // Legacy fallback: derive from `source: "preset:<presetId>"` for
+    // preset-only commands that don't yet carry a `lookupId` at all.
     if (typeof p.source === "string" && p.source.startsWith("preset:") && p.commandName) {
         const presetId = p.source.slice("preset:".length).split(":")[0];
         return `.specify/presets/${presetId}/commands/${p.commandName}.md`;
@@ -905,13 +926,33 @@ export function commandSourcePath(p) {
     return null;
 }
 
-// Look up the winning composition layer for a command id (either "commands/<name>" or a phase id).
-export function lookupActiveLayer(id, commandName) {
-    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
+// Look up the winning composition layer for a phase, using phase-discovery
+// semantics: prefer the "commands/<commandName>" artifact, falling back to
+// the phase `id` (either "commands/<name>" or a bare phase id).
+// `snapshot` defaults to the global state snapshot for UI-only callers;
+// snapshot-pure callers (e.g. resolvePipelineEntry) must pass their own so
+// the resolved layer comes from the same snapshot as the rest of the data.
+export function lookupActiveLayerForCommand(p, snapshot = state.snapshot) {
+    const id = p?.id;
+    const commandName = p?.commandName;
+    const compArtifacts = snapshot?.composition?.artifacts ?? [];
     const cmdLookupId = commandName ? `commands/${commandName}` : null;
     const compArtifact =
         (cmdLookupId && compArtifacts.find((a) => a.id === cmdLookupId)) ||
         compArtifacts.find((a) => a.id === id);
     return (compArtifact?.stack ?? []).find((l) => l.active) || null;
 }
+
+// Look up a composition stack layer by its deterministic `lookupId`
+// (see ui/lookup-id.mjs). Returns `null` when no artifact/layer matches.
+export function lookupLayerByLookupId(lookupId) {
+    if (!lookupId) return null;
+    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
+    for (const compArtifact of compArtifacts) {
+        const layer = findLayerByLookupId(compArtifact, lookupId);
+        if (layer) return layer;
+    }
+    return null;
+}
+
 
