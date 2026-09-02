@@ -11,7 +11,7 @@ Copilot experience around it.
 **Status:** active development.
 
 > [!NOTE]
-> **Explore Spec Kit workflows visually with GitHub Copilot**
+> **Experience visual, Copilot-interactive Spec Kit canvases**
 >
 > See how GitHub Copilot App's canvas functionality turns Spec Kit workflows into
 > visual, Copilot-interactive experiences:
