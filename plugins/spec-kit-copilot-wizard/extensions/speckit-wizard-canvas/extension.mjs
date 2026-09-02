@@ -195,18 +195,27 @@ export async function bootAsync(inst) {
         tracker.fail("env-probe", { title: `env probe failed: ${err?.message ?? err}` });
     }
 
-    // Step 5: catalog bootstrap + fast composition.
+    // Step 5: catalog bootstrap (remote JSON fetches + `specify <group> list`).
     tracker.start("catalog");
     try {
         await hydrateCatalogs(inst);
-        await runFastComposition(inst, { reason: "boot" });
-        await snapshot(inst);
         tracker.ok("catalog");
     } catch (err) {
         tracker.fail("catalog", { title: `catalog hydrate failed: ${err?.message ?? err}` });
     }
 
-    // Step 6: ready
+    // Step 6: composition build (single `specify artifact list --json` call).
+    tracker.start("composition");
+    try {
+        const result = await runFastComposition(inst, { reason: "boot" });
+        if (!result?.ok) throw new Error(result?.reason ?? "composition build failed");
+        await snapshot(inst);
+        tracker.ok("composition");
+    } catch (err) {
+        tracker.fail("composition", { title: `composition build failed: ${err?.message ?? err}` });
+    }
+
+    // Step 7: ready
     tracker.ready();
     try {
         const snap = await snapshot(inst);
@@ -241,6 +250,14 @@ async function hydrateCatalogs(inst) {
     // catalogs (and does NOT register them via `specify preset catalog add`).
     // Third-party catalogs a user has added via the CLI will NOT appear here
     // — that is intentional in the current scope.
+    //
+    // The three groups (presets / extensions / bundles) are independent —
+    // each does its own `specify <kind> list` shell-out + remote fetches.
+    // Run them in parallel so the boot "catalog" step finishes in the time
+    // of the slowest group rather than the sum. Errors are swallowed inside
+    // each hydrator so one failing group can't kill the others.
+    const jobs = [];
+
     if (!inst.cachedCatalogSources?.length) {
         const bootstrap = [
             {
@@ -269,7 +286,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedCatalogSources = bootstrap;
-        await hydratePresetsForSources(inst, bootstrap).catch(() => {});
+        jobs.push(hydratePresetsForSources(inst, bootstrap).catch(() => {}));
     }
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
@@ -291,7 +308,7 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
-        await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
+        jobs.push(hydrateExtensionsForSources(inst, extBootstrap).catch(() => {}));
     }
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
@@ -313,8 +330,10 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
-        await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
+        jobs.push(hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {}));
     }
+
+    await Promise.all(jobs);
 }
 
 // Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
