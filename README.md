@@ -11,7 +11,7 @@ Copilot experience around it.
 **Status:** active development.
 
 > [!NOTE]
-> **New Copilot canvas showcase videos**
+> **See GitHub Copilot App canvases in action**
 >
 > See how GitHub Copilot App's canvas functionality turns Spec Kit workflows into
 > visual, Copilot-interactive experiences:
