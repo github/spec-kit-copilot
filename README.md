@@ -23,7 +23,7 @@ Copilot experience around it.
 > [*Spec Kit Wizard: Visual Spec-Driven Development with GitHub Copilot*](https://youtu.be/-yRdys89DtY?si=0XbgF8zy2Z6rBdgq)
 > showcases a guided visual workflow for exploring, understanding, and running the
 > full Spec-Driven Development lifecycle, plus discovering and applying
-> customizations that tailor the workflow to your team.
+> customizations that tailor the workflow to your project.
 
 ## Background
 
