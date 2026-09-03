@@ -236,7 +236,8 @@ export function resolvePipelineEntry(id, snapshot) {
         // is found on disk). Both `artifactPath` and `status` come from
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
-        const scanned = snapshot?.phases?.[id] ?? null;
+        const phaseKey = id.startsWith("commands/") ? id : `commands/${id}`;
+        const scanned = snapshot?.phases?.[phaseKey] ?? snapshot?.phases?.[id] ?? null;
         return {
             kind: "extension",
             id,

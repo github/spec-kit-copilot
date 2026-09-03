@@ -202,10 +202,18 @@ test("resolvePipelineEntry: bare extension id (prefix already stripped) → exte
         }],
         [{ id: "assess", name: "Idea Assessment Pipeline", version: "1.0.0" }],
     );
+    snap.phases = {
+        "commands/speckit.assess.intake": {
+            status: "done",
+            artifactPath: ".specify/assessments/dead-sea-undersea-game/intake.md",
+        },
+    };
     const r = resolvePipelineEntry("speckit.assess.intake", snap);
     assert.equal(r.kind, "extension");
     assert.equal(r.phase.name, "intake");
     assert.equal(r.phase.commandName, "speckit.assess.intake");
+    assert.equal(r.phase.status, "done");
+    assert.equal(r.phase.artifactPath, ".specify/assessments/dead-sea-undersea-game/intake.md");
     assert.equal(r.ext.id, "assess");
 });
 
