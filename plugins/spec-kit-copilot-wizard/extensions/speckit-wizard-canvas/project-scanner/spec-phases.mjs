@@ -67,7 +67,37 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
     }
     const isChecklistFile = (name) => /\.md$/i.test(name);
 
-    const resolveChecklistPath = (raw, checklistsDir) => {
+    const canonicalize = (p) => /^[\\/](?![\\/])/.test(p) ? normalize(p) : resolve(p);
+    const isContained = (root, candidate) => {
+        const rel = relative(root, candidate);
+        return !rel || !(rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel));
+    };
+    const realpathOrNull = async (p) => {
+        try {
+            const real = deps.realpath ? await deps.realpath(p) : p;
+            return canonicalize(real);
+        } catch {
+            return null;
+        }
+    };
+    const securePathWithin = async (candidatePath, rootPath) => {
+        const resolvedRoot = canonicalize(rootPath);
+        const resolvedCandidate = canonicalize(candidatePath);
+        if (!isContained(resolvedRoot, resolvedCandidate)) return null;
+        if (!deps.realpath) return resolvedCandidate;
+
+        const [realCwd, realRoot, realCandidate] = await Promise.all([
+            realpathOrNull(cwd),
+            realpathOrNull(resolvedRoot),
+            realpathOrNull(resolvedCandidate),
+        ]);
+        if (!realCwd || !realRoot || !realCandidate) return null;
+        if (!isContained(realCwd, realRoot)) return null;
+        if (!isContained(realRoot, realCandidate)) return null;
+        return realCandidate;
+    };
+
+    const resolveChecklistPath = async (raw, checklistsDir) => {
         if (typeof raw !== "string" || !raw.trim()) return null;
         const rawTrimmed = raw.trim();
         const normalized = raw.trim().replace(/\\/g, "/");
@@ -81,22 +111,21 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         } else {
             candidatePath = join(checklistsDir, rawTrimmed);
         }
-        const canonicalize = (p) => /^[\\/](?![\\/])/.test(p) ? normalize(p) : resolve(p);
-        const resolvedChecklistsDir = canonicalize(checklistsDir);
-        const resolvedCandidate = canonicalize(candidatePath);
-        const rel = relative(resolvedChecklistsDir, resolvedCandidate);
-        if (rel && (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel))) return null;
-        return { kind, path: resolvedCandidate };
+        const securedPath = await securePathWithin(candidatePath, checklistsDir);
+        return securedPath ? { kind, path: securedPath } : null;
     };
 
     const newestChecklistFile = async (checklistsDir) => {
-        const entries = await deps.readdir(checklistsDir, { withFileTypes: true }).catch(() => []);
+        const securedDir = await securePathWithin(checklistsDir, checklistsDir);
+        if (!securedDir) return null;
+        const entries = await deps.readdir(securedDir, { withFileTypes: true }).catch(() => []);
         const files = [];
         for (const entry of entries) {
             if (!entry?.isFile?.() || !isChecklistFile(entry.name)) continue;
-            const filePath = join(checklistsDir, entry.name);
+            const filePath = await securePathWithin(join(securedDir, entry.name), securedDir);
+            if (!filePath) continue;
             const st = await deps.stat(filePath).catch(() => null);
-            files.push({ name: entry.name, path: filePath, mtimeMs: st?.mtimeMs ?? 0 });
+            if (st?.isFile?.()) files.push({ name: entry.name, path: filePath, mtimeMs: st?.mtimeMs ?? 0 });
         }
         files.sort((a, b) => (b.mtimeMs - a.mtimeMs) || a.name.localeCompare(b.name));
         return files[0]?.path ?? null;
@@ -110,7 +139,7 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         for (const configured of configuredSources) {
             if (typeof configured !== "string" || !configured.trim()) continue;
             const raw = configured.trim();
-            const resolved = resolveChecklistPath(raw, checklistsDir);
+            const resolved = await resolveChecklistPath(raw, checklistsDir);
             if (!resolved) continue;
             if (resolved.kind === "dir") {
                 const newest = await newestChecklistFile(resolved.path);

@@ -14,7 +14,7 @@
 // can read the session without importing extension.mjs — which would form
 // an import cycle with the boot module.
 
-import { readFile, writeFile, stat, readdir, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, stat, readdir, mkdir, rename, realpath } from "node:fs/promises";
 import { pathExists, resolveWorkspace } from "../env/workspace.mjs";
 import { runSkillsReload } from "../server/handlers-ops.mjs";
 
@@ -24,6 +24,7 @@ export const fsDeps = {
     mkdir,
     stat,
     readdir,
+    realpath,
     rename,
     pathExists,
 };

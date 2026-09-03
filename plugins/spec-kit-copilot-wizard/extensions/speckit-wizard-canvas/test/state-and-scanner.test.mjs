@@ -764,6 +764,11 @@ function makeFs(files) {
             if (typeof v !== "string" || v === "__DIR__") throw new Error(`ENOENT: ${p}`);
             return v;
         },
+        realpath: async (p) => {
+            const np = norm(p);
+            if (!store.has(np) && !isDir(np)) throw new Error(`ENOENT: ${p}`);
+            return p;
+        },
         readdir: async (p) => {
             const np = norm(p) + "/";
             const names = new Set();
@@ -1017,6 +1022,44 @@ test("scanWorkspace ignores checklist paths outside the active checklists direct
         "/proj/specs/feature/checklists/requirements.md": "# Requirements",
         "/outside/secret.md": "# Secret",
     });
+    for (const op of ["pathExists", "readdir", "stat"]) {
+        const original = fs[op];
+        fs[op] = async (p, ...args) => {
+            assert.equal(String(p).replace(/\\/g, "/").includes("/outside/"), false, `${op} probed ${p}`);
+            return original(p, ...args);
+        };
+    }
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/requirements.md");
+});
+
+test("scanWorkspace rejects checklist symlinks that escape the workspace", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/feature/checklists/symlink-dir/",
+                    formValues: { checklistFile: "evil.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/evil.md": "# Link placeholder",
+        "/proj/specs/feature/checklists/symlink-dir": "__DIR__",
+        "/outside/secret.md": "# Secret",
+        "/outside/symlink-dir/secret.md": "# Secret",
+    });
+    const origRealpath = fs.realpath;
+    fs.realpath = async (p) => {
+        const np = String(p).replace(/\\/g, "/");
+        if (np.endsWith("/checklists/evil.md")) return "/outside/secret.md";
+        if (np.endsWith("/checklists/symlink-dir")) return "/outside/symlink-dir";
+        return origRealpath(p);
+    };
     for (const op of ["pathExists", "readdir", "stat"]) {
         const original = fs[op];
         fs[op] = async (p, ...args) => {
