@@ -871,6 +871,8 @@ test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug"
     assert.equal(scan.phases.specify.status, "done");
     assert.equal(scan.phases.plan.status, "done");
     assert.equal(scan.phases.tasks.status, "done");
+    assert.equal(scan.phases.converge.status, "empty");
+    assert.equal(scan.phases.converge.artifactPath, "specs/newer-slug/tasks.md");
 });
 
 test("scanWorkspace treats task markers as task content, not template placeholders", async () => {

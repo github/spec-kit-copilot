@@ -53,6 +53,16 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         check("tasks.md", "tasks"),
         check("analysis.md", "analyze"),
     ]);
+    // Converge appends remediation work to tasks.md. Hydrate the concrete
+    // artifact path from the same file without inferring Converge status from
+    // Tasks file existence.
+    const tasksPath = join(specDir, "tasks.md");
+    if (await deps.pathExists(tasksPath)) {
+        phases.converge = {
+            ...phases.converge,
+            artifactPath: toPortable(relative(cwd, tasksPath)),
+        };
+    }
     // Clarify enriches spec.md — it doesn't produce its own file. Point the
     // clarify phase's artifactPath at spec.md so the "View artifact" button
     // resolves. Status is preserved: clarify only becomes "done" when
