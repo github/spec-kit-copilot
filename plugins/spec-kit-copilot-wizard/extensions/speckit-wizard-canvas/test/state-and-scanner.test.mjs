@@ -807,8 +807,8 @@ test("scanWorkspace picks up constitution.md and sets phase status", async () =>
     assert.equal(scan.phases.constitution.status, "done");
 });
 
-test("scanWorkspace treats any existing constitution artifact as done", async () => {
-    const withPlaceholders = [
+test("scanWorkspace keeps constitution done when placeholder breadcrumbs are only in comments", async () => {
+    const withCommentPlaceholders = [
         "<!--",
         "Sync Impact Report",
         "- [PRINCIPLE_1_NAME] → I. Clarity Over Cleverness",
@@ -823,10 +823,25 @@ test("scanWorkspace treats any existing constitution artifact as done", async ()
     ].join("\n");
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
-        "/proj/.specify/memory/constitution.md": withPlaceholders,
+        "/proj/.specify/memory/constitution.md": withCommentPlaceholders,
     });
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases.constitution.status, "done");
+    assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
+});
+
+test("scanWorkspace keeps untouched constitution scaffold empty", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/memory/constitution.md": [
+            "# [PROJECT_NAME] Constitution",
+            "",
+            "## I. [PRINCIPLE_1_NAME]",
+            "[PRINCIPLE_1_DESCRIPTION]",
+        ].join("\n"),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.constitution.status, "empty");
     assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
 });
 

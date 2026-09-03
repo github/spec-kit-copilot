@@ -12,6 +12,7 @@ import {
     toPortable,
     SKIP_DIRS,
     emptyPhases,
+    MAX_MARKDOWN_PREVIEW,
     pickNewestSubdir,
     readBoundedJson,
 } from "./project-scanner/fs-helpers.mjs";
@@ -74,6 +75,20 @@ async function scanComposition(workspacePath, deps) {
     return { presets, extensions };
 }
 
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const CONSTITUTION_PLACEHOLDER_TOKEN_RE = /\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
+
+async function looksLikeUnfilledConstitution(path, deps) {
+    try {
+        const text = await deps.readFile(path, "utf8");
+        const preview = text.length > MAX_MARKDOWN_PREVIEW ? text.slice(0, MAX_MARKDOWN_PREVIEW) : text;
+        const matches = preview.replace(HTML_COMMENT_RE, "").match(CONSTITUTION_PLACEHOLDER_TOKEN_RE);
+        return new Set(matches ?? []).size >= 2;
+    } catch {
+        return false;
+    }
+}
+
 // deps shape:
 //   readFile(path, enc)     → Promise<string>
 //   stat(path)              → Promise<{ isFile, isDirectory, mtimeMs, size }>
@@ -125,10 +140,18 @@ export async function scanWorkspace(workspacePath, deps) {
     const constPath = join(workspacePath, ".specify", "memory", "constitution.md");
     if (await deps.pathExists(constPath)) {
         constitutionPath = toPortable(relative(workspacePath, constPath));
+        // Constitution is the one artifact we still inspect for scaffold
+        // placeholders: `specify init` pre-creates constitution.md before the
+        // Constitution phase runs. Other phase artifacts are owned by their
+        // phase command, so existence means they should be viewable and the
+        // user decides whether they are complete enough to proceed.
+        const unfilledConstitution = await looksLikeUnfilledConstitution(constPath, deps);
         phases.constitution = {
             ...phases.constitution,
             artifactPath: constitutionPath,
-            status: phases.constitution.status === "empty" ? "done" : phases.constitution.status,
+            status: unfilledConstitution
+                ? "empty"
+                : (phases.constitution.status === "empty" ? "done" : phases.constitution.status),
         };
     }
 
