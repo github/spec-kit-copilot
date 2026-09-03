@@ -145,6 +145,8 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
             if (fileExists) {
                 const unfilled = await looksLikeUnfilledTemplate(abs, deps);
                 next.status = unfilled ? "empty" : "done";
+                const mtimeIso = await artifactMtimeIso(abs, deps);
+                if (mtimeIso) next.lastRunAt = mtimeIso;
             } else if (next.status === "done") {
                 next.status = "empty";
             }
@@ -163,12 +165,25 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
                     const parentAbs = join(cwd, parentRel);
                     if (await deps.pathExists(parentAbs)) {
                         next.folderPath = toPortable(parentRel);
+                        const mtimeIso = await artifactMtimeIso(parentAbs, deps);
+                        if (mtimeIso) next.lastRunAt = mtimeIso;
                     }
                 }
             }
         }
 
         phases[key] = next;
+    }
+}
+
+async function artifactMtimeIso(absPath, deps) {
+    try {
+        const st = await deps.stat(absPath);
+        const mtimeMs = Number(st?.mtimeMs ?? 0);
+        if (!Number.isFinite(mtimeMs) || mtimeMs <= 0) return null;
+        return new Date(mtimeMs).toISOString();
+    } catch {
+        return null;
     }
 }
 

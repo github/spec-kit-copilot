@@ -19,6 +19,7 @@ import {
 } from "../composition/collect.mjs";
 import { canonicalSpine, canonicalTemplateIds, isCanonical } from "../pipeline/canonical.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
+import { scanWorkspace } from "../project-scanner.mjs";
 import { state } from "../ui/state.js";
 import {
     clearPhaseRunning,
@@ -28,6 +29,48 @@ import {
     resolvePipelineEntry,
     setRunLockDeps,
 } from "../ui/phase-runtime.js";
+
+function makeScannerFs(files) {
+    const norm = (p) => p.replace(/\\/g, "/");
+    const store = new Map(Object.entries(files).map(([k, v]) => [norm(k), v]));
+    const isDir = (p) => {
+        const np = norm(p);
+        if (store.get(np) === "__DIR__") return true;
+        for (const k of store.keys()) {
+            if (k.startsWith(np + "/")) return true;
+        }
+        return false;
+    };
+    return {
+        pathExists: async (p) => store.has(norm(p)) || isDir(p),
+        stat: async (p) => {
+            const np = norm(p);
+            if (isDir(np) && !store.has(np)) return { isFile: () => false, isDirectory: () => true, size: 0, mtimeMs: 1 };
+            const v = store.get(np);
+            if (v === undefined) throw new Error(`ENOENT: ${p}`);
+            return { isFile: () => v !== "__DIR__", isDirectory: () => v === "__DIR__", size: typeof v === "string" ? v.length : 0, mtimeMs: 2 };
+        },
+        readFile: async (p) => {
+            const v = store.get(norm(p));
+            if (typeof v !== "string" || v === "__DIR__") throw new Error(`ENOENT: ${p}`);
+            return v;
+        },
+        readdir: async (p) => {
+            const np = norm(p) + "/";
+            const names = new Set();
+            for (const k of store.keys()) {
+                if (!k.startsWith(np)) continue;
+                const first = k.slice(np.length).split("/")[0];
+                if (first) names.add(first);
+            }
+            return Array.from(names).map((name) => ({
+                name,
+                isFile: () => !isDir(np + name),
+                isDirectory: () => isDir(np + name),
+            }));
+        },
+    };
+}
 
 describe("canonical", () => {
 // Tests for ui/canonical.mjs — small surface of pure predicates and a
@@ -305,42 +348,44 @@ test("observePhaseProgress clears extension run locks using commands/<id> phase 
     }
 });
 
-test("observePhaseProgress keeps rerun lock when terminal status is unchanged", () => {
+test("observePhaseProgress clears extension rerun lock when scanner-observed artifact mtime advances", async () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
     try {
-        state.snapshot = {
-            phases: {
-                "commands/speckit.assess.intake": {
-                    status: "done",
-                    lastRunAt: "2026-01-01T00:00:00.000Z",
+        const fs = makeScannerFs({
+            "/proj/.specify": "__DIR__",
+            "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+            "/proj/.specify/assessments/demo/intake.md": "done",
+            "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+                version: 1,
+                entries: {
+                    "commands/speckit.assess.intake": {
+                        writesTo: ".specify/assessments/demo/intake.md",
+                        source: "manual",
+                    },
                 },
-            },
+            }),
+        });
+        const origStat = fs.stat;
+        let artifactMtimeMs = Date.parse("2026-01-01T00:00:00.000Z");
+        fs.stat = async (p) => {
+            const s = await origStat(p);
+            if (String(p).replace(/\\/g, "/").endsWith("/.specify/assessments/demo/intake.md")) {
+                return { ...s, mtimeMs: artifactMtimeMs };
+            }
+            return s;
         };
+
+        state.snapshot = await scanWorkspace("/proj", fs);
         markPhaseRunning("speckit.assess.intake");
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
 
-        state.snapshot = {
-            phases: {
-                "commands/speckit.assess.intake": {
-                    status: "done",
-                    lastRunAt: "2026-01-01T00:00:00.000Z",
-                    artifactPath: ".specify/assessments/demo/intake.md",
-                },
-            },
-        };
+        state.snapshot = await scanWorkspace("/proj", fs);
         observePhaseProgress();
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
 
-        state.snapshot = {
-            phases: {
-                "commands/speckit.assess.intake": {
-                    status: "done",
-                    lastRunAt: "2026-01-01T00:01:00.000Z",
-                    artifactPath: ".specify/assessments/demo/intake.md",
-                },
-            },
-        };
+        artifactMtimeMs = Date.parse("2026-01-01T00:01:00.000Z");
+        state.snapshot = await scanWorkspace("/proj", fs);
         observePhaseProgress();
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
         assert.ok(renders >= 2);
