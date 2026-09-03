@@ -920,6 +920,27 @@ test("scanWorkspace prefers configured checklist file when checklist already ran
     assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/security.md");
 });
 
+test("scanWorkspace lets rerun checklist filename override persisted artifact path", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/feature/checklists/requirements.md",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/security.md");
+});
+
 test("scanWorkspace resolves checklist folder to newest markdown file after checklist ran", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",

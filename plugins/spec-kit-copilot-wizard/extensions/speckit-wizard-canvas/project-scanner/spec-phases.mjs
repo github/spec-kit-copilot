@@ -101,8 +101,8 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
 
     const checklistArtifactPath = async (checklistsDir) => {
         const configuredSources = [
-            phases.checklist?.artifactPath,
             phases.checklist?.formValues?.checklistFile,
+            phases.checklist?.artifactPath,
         ];
         for (const configured of configuredSources) {
             if (typeof configured !== "string" || !configured.trim()) continue;
