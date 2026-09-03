@@ -5,6 +5,7 @@ import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 import {
     clearClarifications,
+    clearPhaseRunning,
     getPendingClarifications,
     getPhaseLastSubmitted,
     markPhaseRunning,
@@ -451,6 +452,7 @@ export async function flushClarifications(p) {
         return true;
     } catch (err) {
         console.error(`dispatch failed: ${err?.message ?? err}`);
+        clearPhaseRunning(p.commandName);
         return false;
     }
 }

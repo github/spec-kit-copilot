@@ -15,6 +15,7 @@ import { describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 import { flushClarifications, setViewersDeps } from "../ui/modals.js";
+import { state } from "../ui/state.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -386,6 +387,7 @@ test("flushClarifications preserves queued answers when submit fails", async () 
                 answer: "no",
             }]);
             assert.equal(getPhaseLastSubmitted(commandName), "previous decision context");
+            assert.equal(state.phaseRunning.has(commandName), false);
         } finally {
             console.error = priorError;
             clearPhaseRunning(commandName);
