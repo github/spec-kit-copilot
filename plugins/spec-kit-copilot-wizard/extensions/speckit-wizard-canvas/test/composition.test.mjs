@@ -325,6 +325,7 @@ test("resolvePipelineEntry: extension artifact whose active layer isn't extensio
 test("observePhaseProgress clears extension run locks using commands/<id> phase slices", () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
+    const completedAt = new Date(Date.now() + 60_000).toISOString();
     try {
         state.snapshot = {
             phases: {
@@ -338,7 +339,7 @@ test("observePhaseProgress clears extension run locks using commands/<id> phase 
             phases: {
                 "commands/speckit.assess.intake": {
                     status: "done",
-                    lastRunAt: "2026-01-01T00:00:00.000Z",
+                    lastRunAt: completedAt,
                     artifactPath: ".specify/assessments/demo/intake.md",
                 },
             },
@@ -373,7 +374,7 @@ test("observePhaseProgress clears extension rerun lock when scanner-observed art
             }),
         });
         const origStat = fs.stat;
-        let artifactMtimeMs = Date.parse("2026-01-01T00:00:00.000Z");
+        let artifactMtimeMs = Date.now() - 60_000;
         fs.stat = async (p) => {
             const s = await origStat(p);
             if (String(p).replace(/\\/g, "/").endsWith("/.specify/assessments/demo/intake.md")) {
@@ -410,7 +411,7 @@ test("observePhaseProgress clears extension rerun lock when scanner-observed art
         resolved = resolvePipelineEntry("speckit.assess.intake", state.snapshot);
         assert.equal(resolved.phase.status, "in_progress");
 
-        artifactMtimeMs = Date.parse("2026-01-01T00:01:00.000Z");
+        artifactMtimeMs = Date.now() + 60_000;
         state.snapshot = await scanWorkspace("/proj", fs);
         state.snapshot.composition = {
             artifacts: [{
@@ -433,9 +434,45 @@ test("observePhaseProgress clears extension rerun lock when scanner-observed art
     }
 });
 
+test("observePhaseProgress reconciles active runs from server snapshots", () => {
+    let renders = 0;
+    setRunLockDeps({ render: () => { renders += 1; } });
+    try {
+        state.snapshot = {
+            activeRuns: [{
+                commandName: "speckit.assess.intake",
+                runId: "run-1",
+                startedAt: new Date().toISOString(),
+            }],
+            phases: {
+                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
+            },
+        };
+
+        observePhaseProgress();
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+
+        state.snapshot = {
+            activeRuns: [],
+            phases: {
+                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
+            },
+        };
+        observePhaseProgress();
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
+        assert.ok(renders >= 1);
+    } finally {
+        clearPhaseRunning("speckit.assess.intake");
+        setRunLockDeps({ render: () => {} });
+        state.snapshot = null;
+    }
+});
+
 test("resolvePipelineEntry suppresses core artifact readiness only while owner command is running", async () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
+    const firstRunAt = new Date(Date.now() - 60_000).toISOString();
+    const secondRunAt = new Date(Date.now() + 60_000).toISOString();
     try {
         const fs = makeScannerFs({
             "/proj/.specify": "__DIR__",
@@ -444,7 +481,7 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
                 phases: {
                     specify: {
                         status: "done",
-                        lastRunAt: "2026-01-01T00:00:00.000Z",
+                        lastRunAt: firstRunAt,
                     },
                 },
             }),
@@ -463,7 +500,7 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
             phases: {
                 specify: {
                     status: "done",
-                    lastRunAt: "2026-01-01T00:01:00.000Z",
+                    lastRunAt: secondRunAt,
                 },
             },
         }));

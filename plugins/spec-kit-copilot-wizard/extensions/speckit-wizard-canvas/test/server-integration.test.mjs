@@ -848,9 +848,11 @@ test("S7: buildStateSnapshot derives per-phase locked from durable setup complet
         phases: {},
         composition: { presets: [], extensions: [] },
         catalog: { presets: [] },
+        activeRuns: [{ commandName: "speckit.plan", runId: "run-1", startedAt: "2026-01-01T00:00:00.000Z" }],
         warnings: [],
     };
     const snapA = buildStateSnapshot(scanIncomplete);
+    assert.deepEqual(snapA.activeRuns, scanIncomplete.activeRuns);
     // Setup itself is never locked.
     assert.notEqual(snapA.phases.setup?.locked, true);
     // Everything else is.

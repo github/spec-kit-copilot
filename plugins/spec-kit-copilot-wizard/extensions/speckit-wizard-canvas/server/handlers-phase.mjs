@@ -52,12 +52,12 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
         inst = getInstance?.();
     } catch { /* best-effort */ }
     try {
-        dispatchPhaseCommand(inst, { commandName, args, allowEmpty, track });
+        const run = dispatchPhaseCommand(inst, { commandName, args, allowEmpty, track });
+        if (log) await log(`dispatch workflow ${commandName}`, "info");
+        return jsonRes(res, 202, { queued: true, commandName, runId: run?.runId, startedAt: run?.startedAt });
     } catch (err) {
         return jsonError(res, 400, err?.message ?? String(err));
     }
-    if (log) await log(`dispatch workflow ${commandName}`, "info");
-    return jsonRes(res, 202, { queued: true, commandName });
 }
 
 export async function handlePhaseSubmit(res, body, deps) {

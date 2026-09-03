@@ -65,6 +65,7 @@ import {
     renderPipelineBanner,
     setExtensionCardDeps,
     setInferenceDeps,
+    observePhaseProgress,
 } from "./phase-runtime.js";
 
 // -------- Section: app.js --------
@@ -245,6 +246,7 @@ async function refreshState() {
         boot.setInitialSnapshot(snap);
         const cp = snap.currentPhase || "constitution";
         state.currentPhase = SETUP_TAB_PHASE_KEYS.has(cp) ? "constitution" : cp;
+        observePhaseProgress();
         render();
         // Kick the one-time auto-chain once we have real state to evaluate.
         // Fires only when plugin+CLI are already installed but init hasn't
@@ -277,4 +279,3 @@ if (typeof window !== "undefined") window.__speckitParseClarifications = parseCl
 // Kick off the app now that every module-level `const`/`let` above is
 // initialized (avoids TDZ when init touches later declarations).
 init();
-

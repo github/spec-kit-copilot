@@ -171,8 +171,6 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
                     const safeParentPath = await secureExistingPath(parentAbs, cwd, deps);
                     if (safeParentPath) {
                         next.folderPath = toPortable(parentRel);
-                        const mtimeIso = await artifactMtimeIso(safeParentPath, deps);
-                        if (mtimeIso) next.lastRunAt = mtimeIso;
                     }
                 }
             }

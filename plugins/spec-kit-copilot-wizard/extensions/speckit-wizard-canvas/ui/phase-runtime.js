@@ -115,8 +115,6 @@ export function setPhaseLastSubmitted(commandName, value) {
 export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
 const _phaseRunTimers = new Map();
 const _phaseRunStartedAt = new Map();
-const _phaseRunBaselineLastRunAt = new Map();
-const _phaseRunBaselineStatus = new Map();
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 let __render = () => {};
@@ -137,12 +135,6 @@ export function markPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
     _phaseRunStartedAt.set(commandName, Date.now());
-    const phaseId = _phaseIdForCommand(commandName);
-    const baselinePhase = state.snapshot?.phases?.[phaseId];
-    const baselineLastRunAt = baselinePhase?.lastRunAt ?? null;
-    const baselineStatus = baselinePhase?.status ?? null;
-    _phaseRunBaselineLastRunAt.set(commandName, baselineLastRunAt);
-    _phaseRunBaselineStatus.set(commandName, baselineStatus);
     if (_phaseRunTimers.has(commandName)) {
         clearTimeout(_phaseRunTimers.get(commandName));
     }
@@ -155,8 +147,6 @@ export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
     _phaseRunStartedAt.delete(commandName);
-    _phaseRunBaselineLastRunAt.delete(commandName);
-    _phaseRunBaselineStatus.delete(commandName);
     if (_phaseRunTimers.has(commandName)) {
         clearTimeout(_phaseRunTimers.get(commandName));
         _phaseRunTimers.delete(commandName);
@@ -168,25 +158,37 @@ export function isPhaseRunning(commandName) {
     return !!commandName && state.phaseRunning.has(commandName);
 }
 
-// Called after each state snapshot lands. Clears `phaseRunning` on the
-// first positive completion signal from EITHER of two consistent channels
-// that every phase produces via setPhaseStatus:
-//   1. `lastRunAt` advances past the click-time baseline, OR
-//   2. phase status transitions to a terminal value (done/skipped/error).
+// Called after each state snapshot lands. Server-provided activeRuns are the
+// authoritative run state; lastRunAt/terminal status remain a compatibility
+// fast path for legacy or race-window snapshots that lack activeRuns.
 export function observePhaseProgress() {
+    const serverRuns = Array.isArray(state.snapshot?.activeRuns) ? state.snapshot.activeRuns : null;
+    const serverActive = new Set();
+    if (serverRuns) {
+        for (const run of serverRuns) {
+            const commandName = typeof run?.commandName === "string" ? run.commandName : null;
+            if (!commandName) continue;
+            serverActive.add(commandName);
+            state.phaseRunning.add(commandName);
+            const startedAtMs = Date.parse(run.startedAt);
+            if (Number.isFinite(startedAtMs) && !_phaseRunStartedAt.has(commandName)) {
+                _phaseRunStartedAt.set(commandName, startedAtMs);
+            }
+        }
+    }
     if (!state.phaseRunning.size) return;
     for (const commandName of Array.from(state.phaseRunning)) {
+        if (serverRuns && serverActive.has(commandName)) continue;
         const phaseId = _phaseIdForCommand(commandName);
         const phase = state.snapshot?.phases?.[phaseId];
-        const baselineLastRunAt = _phaseRunBaselineLastRunAt.get(commandName) ?? null;
-        const baselineStatus = _phaseRunBaselineStatus.get(commandName) ?? null;
+        const startedAt = _phaseRunStartedAt.get(commandName) ?? 0;
         const currentLastRunAt = phase?.lastRunAt ?? null;
-        const lastRunAtAdvanced = currentLastRunAt && currentLastRunAt !== baselineLastRunAt;
+        const lastRunAtAdvanced = Date.parse(currentLastRunAt) > startedAt;
         const terminalTransition =
             phase?.status &&
-            phase.status !== baselineStatus &&
-            TERMINAL_PHASE_STATUSES.has(phase.status);
-        if (lastRunAtAdvanced || terminalTransition) {
+            TERMINAL_PHASE_STATUSES.has(phase.status) &&
+            (lastRunAtAdvanced || (!serverRuns && phase.status !== "done"));
+        if (serverRuns || lastRunAtAdvanced || terminalTransition) {
             clearPhaseRunning(commandName);
         }
     }

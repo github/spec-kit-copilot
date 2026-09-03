@@ -32,6 +32,7 @@ import {
     buildWorkflowTrackingPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
+import { beginRun } from "./run-tracker.mjs";
 
 // -------- Section: fire-and-forget send --------
 // Fire-and-forget so the caller (HTTP handler or canvas action) can
@@ -146,6 +147,7 @@ export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty 
         const preamble = buildWorkflowTrackingPreamble({ commandName, artifactPath, expectedArtifacts });
         if (preamble) prompt = `${prompt}\n${preamble}`;
     }
+    const run = beginRun(commandName);
     dispatchPromptToSession({ prompt });
-    return { prompt, commandName };
+    return { prompt, commandName, runId: run?.runId, startedAt: run?.startedAt };
 }
