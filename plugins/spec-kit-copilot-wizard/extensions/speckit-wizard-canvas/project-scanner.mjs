@@ -75,14 +75,21 @@ async function scanComposition(workspacePath, deps) {
     return { presets, extensions };
 }
 
-const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
-const CONSTITUTION_PLACEHOLDER_TOKEN_RE = /\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
+const CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE = /<!--[\s\S]*?-->|\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
+
+function constitutionPlaceholdersOutsideComments(text) {
+    const matches = [];
+    for (const match of text.matchAll(CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE)) {
+        if (!match[0].startsWith("<!--")) matches.push(match[0]);
+    }
+    return matches;
+}
 
 async function looksLikeUnfilledConstitution(path, deps) {
     try {
         const text = await deps.readFile(path, "utf8");
         const preview = text.length > MAX_MARKDOWN_PREVIEW ? text.slice(0, MAX_MARKDOWN_PREVIEW) : text;
-        const matches = preview.replace(HTML_COMMENT_RE, "").match(CONSTITUTION_PLACEHOLDER_TOKEN_RE);
+        const matches = constitutionPlaceholdersOutsideComments(preview);
         return new Set(matches ?? []).size >= 2;
     } catch {
         return false;
