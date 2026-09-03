@@ -107,6 +107,7 @@ export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
 const _phaseRunTimers = new Map();
 const _phaseRunStartedAt = new Map();
 const _phaseRunBaselineLastRunAt = new Map();
+const _phaseRunBaselineStatus = new Map();
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 let __render = () => {};
@@ -128,8 +129,11 @@ export function markPhaseRunning(commandName) {
     state.phaseRunning.add(commandName);
     _phaseRunStartedAt.set(commandName, Date.now());
     const phaseId = _phaseIdForCommand(commandName);
-    const baselineLastRunAt = state.snapshot?.phases?.[phaseId]?.lastRunAt ?? null;
+    const baselinePhase = state.snapshot?.phases?.[phaseId];
+    const baselineLastRunAt = baselinePhase?.lastRunAt ?? null;
+    const baselineStatus = baselinePhase?.status ?? null;
     _phaseRunBaselineLastRunAt.set(commandName, baselineLastRunAt);
+    _phaseRunBaselineStatus.set(commandName, baselineStatus);
     if (_phaseRunTimers.has(commandName)) {
         clearTimeout(_phaseRunTimers.get(commandName));
     }
@@ -143,6 +147,7 @@ export function clearPhaseRunning(commandName) {
     state.phaseRunning.delete(commandName);
     _phaseRunStartedAt.delete(commandName);
     _phaseRunBaselineLastRunAt.delete(commandName);
+    _phaseRunBaselineStatus.delete(commandName);
     if (_phaseRunTimers.has(commandName)) {
         clearTimeout(_phaseRunTimers.get(commandName));
         _phaseRunTimers.delete(commandName);
@@ -161,10 +166,14 @@ export function observePhaseProgress() {
         const phaseId = _phaseIdForCommand(commandName);
         const phase = state.snapshot?.phases?.[phaseId];
         const baselineLastRunAt = _phaseRunBaselineLastRunAt.get(commandName) ?? null;
+        const baselineStatus = _phaseRunBaselineStatus.get(commandName) ?? null;
         const currentLastRunAt = phase?.lastRunAt ?? null;
         const lastRunAtAdvanced = currentLastRunAt && currentLastRunAt !== baselineLastRunAt;
-        const terminal = phase?.status && TERMINAL_PHASE_STATUSES.has(phase.status);
-        if (lastRunAtAdvanced || terminal) {
+        const terminalTransition =
+            phase?.status &&
+            phase.status !== baselineStatus &&
+            TERMINAL_PHASE_STATUSES.has(phase.status);
+        if (lastRunAtAdvanced || terminalTransition) {
             clearPhaseRunning(commandName);
         }
     }

@@ -305,6 +305,52 @@ test("observePhaseProgress clears extension run locks using commands/<id> phase 
     }
 });
 
+test("observePhaseProgress keeps rerun lock when terminal status is unchanged", () => {
+    let renders = 0;
+    setRunLockDeps({ render: () => { renders += 1; } });
+    try {
+        state.snapshot = {
+            phases: {
+                "commands/speckit.assess.intake": {
+                    status: "done",
+                    lastRunAt: "2026-01-01T00:00:00.000Z",
+                },
+            },
+        };
+        markPhaseRunning("speckit.assess.intake");
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+
+        state.snapshot = {
+            phases: {
+                "commands/speckit.assess.intake": {
+                    status: "done",
+                    lastRunAt: "2026-01-01T00:00:00.000Z",
+                    artifactPath: ".specify/assessments/demo/intake.md",
+                },
+            },
+        };
+        observePhaseProgress();
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+
+        state.snapshot = {
+            phases: {
+                "commands/speckit.assess.intake": {
+                    status: "done",
+                    lastRunAt: "2026-01-01T00:01:00.000Z",
+                    artifactPath: ".specify/assessments/demo/intake.md",
+                },
+            },
+        };
+        observePhaseProgress();
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
+        assert.ok(renders >= 2);
+    } finally {
+        clearPhaseRunning("speckit.assess.intake");
+        setRunLockDeps({ render: () => {} });
+        state.snapshot = null;
+    }
+});
+
 test("renderMoreCommandsPanel keeps customized canonicals available in the Core list", () => {
     const el = {
         innerHTML: "",
