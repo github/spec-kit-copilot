@@ -119,7 +119,7 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
 
         const newest = await newestChecklistFile(checklistsDir);
         if (newest) return toPortable(relative(cwd, newest));
-        return null;
+        return toPortable(relative(cwd, checklistsDir));
     };
 
     // Checklist filenames are chosen by the agent at runtime and there may

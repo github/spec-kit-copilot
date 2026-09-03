@@ -972,6 +972,26 @@ test("scanWorkspace resolves checklist folder to newest markdown file after chec
     assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/accessibility.md");
 });
 
+test("scanWorkspace falls back to checklist directory when done checklist file is missing", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/<slug>/checklists/",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists": "__DIR__",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists");
+});
+
 test("scanWorkspace defensively normalizes malformed state.json", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
