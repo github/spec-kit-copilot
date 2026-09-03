@@ -482,7 +482,7 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
     }
 });
 
-test("renderMoreCommandsPanel keeps customized canonicals available in the Core list", () => {
+test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions are installed", () => {
     const el = {
         innerHTML: "",
         querySelectorAll: () => [],
@@ -494,16 +494,57 @@ test("renderMoreCommandsPanel keeps customized canonicals available in the Core 
     state.moreCollapsedSections = new Set();
     state.snapshot = {
         commands: [{
-            id: "constitution",
-            commandName: "speckit.constitution",
-            shortLabel: "Constitution",
+            id: "commands/speckit.audit.report",
+            commandName: "speckit.audit.report",
+            shortLabel: "Report",
+            source: "extension:audit",
+        }],
+        composition: {
+            presets: [],
+            extensions: [{ id: "audit", name: "Audit" }],
+            artifacts: [{
+                id: "commands/speckit.audit.report",
+                kind: "command",
+                stack: [{ layer: "extension", active: true, extensionId: "audit", presetId: "audit", presetName: "Audit" }],
+            }],
+        },
+    };
+
+    try {
+        renderMoreCommandsPanel();
+        assert.match(el.innerHTML, /data-mc-section="core"/);
+        assert.equal((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length, 1);
+        assert.match(el.innerHTML, /data-mc-section="extension:audit"/);
+    } finally {
+        state.snapshot = null;
+        state.moreCollapsedSections = new Set();
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderMoreCommandsPanel excludes preset-replaced canonicals from Core", () => {
+    const el = {
+        innerHTML: "",
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        getElementById: (id) => (id === "more-commands" ? el : null),
+    };
+    state.moreCollapsedSections = new Set();
+    state.snapshot = {
+        commands: [{
+            id: "specify",
+            commandName: "speckit.specify",
+            shortLabel: "Specify",
             source: "preset:lean",
         }],
         composition: {
             presets: [{ id: "lean", name: "Lean" }],
             extensions: [],
             artifacts: [{
-                id: "commands/speckit.constitution",
+                id: "commands/speckit.specify",
                 kind: "command",
                 stack: [{ layer: "preset", active: true, presetId: "lean", presetName: "Lean" }],
             }],
@@ -512,9 +553,9 @@ test("renderMoreCommandsPanel keeps customized canonicals available in the Core 
 
     try {
         renderMoreCommandsPanel();
-        assert.match(el.innerHTML, /data-mc-section="core"/);
-        assert.equal((el.innerHTML.match(/data-phase-id="constitution"/g) ?? []).length, 2);
-        assert.match(el.innerHTML, /Core/);
+        assert.match(el.innerHTML, /data-mc-section="preset:preset:lean"/);
+        assert.equal((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length, 1);
+        assert.match(el.innerHTML, /Core • Customized/);
     } finally {
         state.snapshot = null;
         state.moreCollapsedSections = new Set();
