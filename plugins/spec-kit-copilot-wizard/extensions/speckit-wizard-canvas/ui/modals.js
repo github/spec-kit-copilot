@@ -435,26 +435,36 @@ export function setViewersDeps({ postJson, HEADERS } = {}) {
     if (HEADERS) __HEADERS = HEADERS;
 }
 let activeArtifactPhase = null; // phase currently open in the viewer
+const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
 
 export async function flushClarifications(p) {
-    if (!p?.commandName) return false;
-    const list = getPendingClarifications(p.commandName);
+    const commandName = p?.commandName;
+    if (!commandName) return false;
+    if (clarificationFlushes.has(commandName)) return clarificationFlushes.get(commandName);
+
+    const list = getPendingClarifications(commandName);
     if (!list.length) return false;
-    const lastArgs = getPhaseLastSubmitted(p.commandName) || "";
+    const lastArgs = getPhaseLastSubmitted(commandName) || "";
     const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
     const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
-    try {
-        markPhaseRunning(p.commandName);
-        const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
-        if (!result) throw new Error("phase submit did not return a queued response");
-        setPhaseLastSubmitted(p.commandName, args);
-        clearClarifications(p.commandName);
-        return true;
-    } catch (err) {
-        console.error(`dispatch failed: ${err?.message ?? err}`);
-        clearPhaseRunning(p.commandName);
-        return false;
-    }
+    const flush = (async () => {
+        try {
+            markPhaseRunning(commandName);
+            const result = await __postJson("/api/phase/submit", { commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            setPhaseLastSubmitted(commandName, args);
+            clearClarifications(commandName);
+            return true;
+        } catch (err) {
+            console.error(`dispatch failed: ${err?.message ?? err}`);
+            clearPhaseRunning(commandName);
+            return false;
+        } finally {
+            clarificationFlushes.delete(commandName);
+        }
+    })();
+    clarificationFlushes.set(commandName, flush);
+    return flush;
 }
 
 export async function openArtifactViewer(p) {
