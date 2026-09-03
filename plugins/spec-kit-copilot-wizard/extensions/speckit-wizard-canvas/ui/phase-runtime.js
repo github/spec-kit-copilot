@@ -45,6 +45,15 @@ export function clearClarifications(commandName) {
     pendingClarifications.set(commandName, []);
 }
 
+export function clearSubmittedClarifications(commandName, submitted) {
+    const remaining = getPendingClarifications(commandName).filter((current) => (
+        !submitted.some((snapshot) => (
+            snapshot.question === current.question && snapshot.answer === current.answer
+        ))
+    ));
+    pendingClarifications.set(commandName, remaining);
+}
+
 
 // -------- Section: phase/draft-cache.js --------
 

@@ -6,6 +6,7 @@ import { parseClarifications } from "../pipeline/canonical.mjs";
 import {
     clearClarifications,
     clearPhaseRunning,
+    clearSubmittedClarifications,
     getPendingClarifications,
     getPhaseLastSubmitted,
     markPhaseRunning,
@@ -442,7 +443,7 @@ export async function flushClarifications(p) {
     if (!commandName) return false;
     if (clarificationFlushes.has(commandName)) return clarificationFlushes.get(commandName);
 
-    const list = getPendingClarifications(commandName);
+    const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
     if (!list.length) return false;
     const lastArgs = getPhaseLastSubmitted(commandName) || "";
     const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
@@ -453,7 +454,7 @@ export async function flushClarifications(p) {
             const result = await __postJson("/api/phase/submit", { commandName, args });
             if (!result) throw new Error("phase submit did not return a queued response");
             setPhaseLastSubmitted(commandName, args);
-            clearClarifications(commandName);
+            clearSubmittedClarifications(commandName, list);
             return true;
         } catch (err) {
             console.error(`dispatch failed: ${err?.message ?? err}`);
@@ -556,8 +557,8 @@ export async function openArtifactViewer(p) {
                         btn.textContent = "Applying…";
                     }
                     const dispatched = await flushClarifications(p);
-                    if (dispatched) closeArtifactViewer();
-                    else refreshPillState("Could not submit the clarification rerun. Your queued answers were preserved.");
+                    if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
+                    else refreshPillState(dispatched ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
                 });
             } else {
                 banner.hidden = true;
@@ -574,7 +575,8 @@ export async function openArtifactViewer(p) {
             const pending = getPendingClarifications(p.commandName).length;
             if (pending >= totalMarks && totalMarks > 0) {
                 const dispatched = await flushClarifications(p);
-                if (dispatched) closeArtifactViewer();
+                if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
+                else refreshPillState();
             }
         }));
     });

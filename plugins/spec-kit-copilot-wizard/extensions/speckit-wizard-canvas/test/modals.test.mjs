@@ -56,4 +56,30 @@ describe("modal clarification flushing", () => {
 
         clearPhaseRunning("speckit.plan");
     });
+
+    test("preserves answers added or edited while flush is in flight", async () => {
+        const postedBodies = [];
+        setViewersDeps({
+            postJson: async (_url, body) => {
+                postedBodies.push(body);
+                queueClarification("speckit.plan", "Which scope?", "Core and wizard plugins.");
+                queueClarification("speckit.plan", "Which tests?", "Focused modal tests.");
+                return { queued: true };
+            },
+        });
+
+        queueClarification("speckit.plan", "Which scope?", "Only the CLI plugin.");
+
+        const dispatched = await flushClarifications({ commandName: "speckit.plan" });
+
+        assert.equal(dispatched, true);
+        assert.equal(postedBodies.length, 1);
+        assert.match(postedBodies[0].args, /Clarification — Which scope\?\nAnswer: Only the CLI plugin\./);
+        assert.deepEqual(getPendingClarifications("speckit.plan"), [
+            { question: "Which scope?", answer: "Core and wizard plugins." },
+            { question: "Which tests?", answer: "Focused modal tests." },
+        ]);
+
+        clearPhaseRunning("speckit.plan");
+    });
 });
