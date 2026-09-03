@@ -16,6 +16,7 @@ import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
+import { clearRun } from "../run-tracker.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -95,6 +96,7 @@ export const phaseActions = [
                         },
                     },
                 });
+                clearRun(`speckit.${phase}`);
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.
                 return { ok: true };

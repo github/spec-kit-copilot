@@ -1,10 +1,11 @@
 // Server-owned phase run tracking.
 //
-// Dispatch starts a run. The SDK session activity bridge clears runs when the
-// session becomes idle after the run started, so artifact-less commands do not
-// depend on file mtimes to release their UI run locks.
+// Dispatch starts a run. Wizard-owned completion signals clear it: phase status
+// reports, scanner-observed artifact timestamps, or the safety timeout. SDK idle
+// is only a fallback and is ignored while the agent is waiting on user input.
 
 import { ensureSessionActivity, onSessionActivity } from "./session-activity.mjs";
+import { PHASE_BY_ID } from "./wizard-phases.mjs";
 
 export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
 
@@ -53,6 +54,22 @@ export function activeRunsSnapshot() {
         .map(({ runId, commandName, startedAt }) => ({ runId, commandName, startedAt }));
 }
 
+export function reconcileRunsWithPhases(phases) {
+    if (!phases || typeof phases !== "object") return false;
+    let changed = false;
+    for (const [commandName, run] of Array.from(activeRuns.entries())) {
+        const phase = phases[phaseKeyForCommand(commandName)];
+        const lastRunAtMs = Date.parse(phase?.lastRunAt);
+        if (Number.isFinite(lastRunAtMs) && lastRunAtMs > run.startedAtMs) {
+            activeRuns.delete(commandName);
+            clearSafetyTimer(commandName);
+            changed = true;
+        }
+    }
+    if (changed) emitChange();
+    return changed;
+}
+
 export function __resetRunTrackerForTests() {
     for (const commandName of Array.from(safetyTimers.keys())) clearSafetyTimer(commandName);
     activeRuns.clear();
@@ -66,6 +83,7 @@ export function __resetRunTrackerForTests() {
 
 function handleSessionActivity(event) {
     if (event?.kind !== "session-idle") return;
+    if (event.awaitingUserInput) return;
     const idleAt = Number.isFinite(event.at) ? event.at : Date.now();
     let changed = false;
     for (const [commandName, run] of Array.from(activeRuns.entries())) {
@@ -76,6 +94,14 @@ function handleSessionActivity(event) {
         }
     }
     if (changed) emitChange();
+}
+
+function phaseKeyForCommand(commandName) {
+    if (typeof commandName !== "string") return "";
+    if (commandName.startsWith("commands/")) return commandName;
+    if (!commandName.startsWith("speckit.")) return commandName;
+    const phase = commandName.slice("speckit.".length);
+    return PHASE_BY_ID[phase] ? phase : `commands/${commandName}`;
 }
 
 function resetSafetyTimer(commandName) {
