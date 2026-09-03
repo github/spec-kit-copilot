@@ -42,10 +42,6 @@ export function ensureSessionActivity() {
     subscribe(SESSION_IDLE_EVENT, () => emitActivity({ kind: "session-idle", working: false }));
 }
 
-export function __emitSessionActivityForTests(event) {
-    emitActivity(event);
-}
-
 function emitActivity(event = {}) {
     const at = Number.isFinite(event.at) ? event.at : Date.now();
     agentWorking = !!event.working;
