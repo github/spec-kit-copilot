@@ -4,7 +4,7 @@
 // (`.github/skills/` + `specs/<slug>/*.md`) into the phases state object.
 // The scanner orchestrator merges what these return with state.json.
 
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { toPortable } from "./fs-helpers.mjs";
 import { looksLikeUnfilledTemplate } from "./fs-helpers.mjs";
 
@@ -78,12 +78,24 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
 
     const resolveChecklistPath = (raw, checklistsDir) => {
         if (typeof raw !== "string" || !raw.trim()) return null;
+        const rawTrimmed = raw.trim();
         const normalized = raw.trim().replace(/\\/g, "/");
         if (normalized.includes("<slug>")) return null;
-        if (normalized.endsWith("/")) return { kind: "dir", path: join(cwd, ...normalized.split("/").filter(Boolean)) };
-        if (isAbsolute(raw)) return { kind: "file", path: raw };
-        if (normalized.includes("/")) return { kind: "file", path: join(cwd, ...normalized.split("/")) };
-        return { kind: "file", path: join(checklistsDir, raw.trim()) };
+        const kind = normalized.endsWith("/") ? "dir" : "file";
+        let candidatePath;
+        if (isAbsolute(rawTrimmed)) {
+            candidatePath = rawTrimmed;
+        } else if (normalized.includes("/")) {
+            candidatePath = join(cwd, ...normalized.split("/").filter(Boolean));
+        } else {
+            candidatePath = join(checklistsDir, rawTrimmed);
+        }
+        const canonicalize = (p) => /^[\\/](?![\\/])/.test(p) ? normalize(p) : resolve(p);
+        const resolvedChecklistsDir = canonicalize(checklistsDir);
+        const resolvedCandidate = canonicalize(candidatePath);
+        const rel = relative(resolvedChecklistsDir, resolvedCandidate);
+        if (rel && (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel))) return null;
+        return { kind, path: resolvedCandidate };
     };
 
     const newestChecklistFile = async (checklistsDir) => {
