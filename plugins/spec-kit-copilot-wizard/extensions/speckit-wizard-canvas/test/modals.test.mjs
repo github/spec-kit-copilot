@@ -82,4 +82,29 @@ describe("modal clarification flushing", () => {
 
         clearPhaseRunning("speckit.plan");
     });
+
+    test("rejects another flush while the queued rerun is still running", async () => {
+        const postedBodies = [];
+        setViewersDeps({
+            postJson: async (_url, body) => {
+                postedBodies.push(body);
+                queueClarification("speckit.plan", "Which scope?", "Core and wizard plugins.");
+                return { queued: true };
+            },
+        });
+
+        queueClarification("speckit.plan", "Which scope?", "Only the CLI plugin.");
+
+        const firstDispatched = await flushClarifications({ commandName: "speckit.plan" });
+        const secondDispatched = await flushClarifications({ commandName: "speckit.plan" });
+
+        assert.equal(firstDispatched, true);
+        assert.equal(secondDispatched, false);
+        assert.equal(postedBodies.length, 1);
+        assert.deepEqual(getPendingClarifications("speckit.plan"), [
+            { question: "Which scope?", answer: "Core and wizard plugins." },
+        ]);
+
+        clearPhaseRunning("speckit.plan");
+    });
 });

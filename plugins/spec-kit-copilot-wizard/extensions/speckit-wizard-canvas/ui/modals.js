@@ -9,6 +9,7 @@ import {
     clearSubmittedClarifications,
     getPendingClarifications,
     getPhaseLastSubmitted,
+    isPhaseRunning,
     markPhaseRunning,
     queueClarification,
     setPhaseLastSubmitted,
@@ -442,6 +443,7 @@ export async function flushClarifications(p) {
     const commandName = p?.commandName;
     if (!commandName) return false;
     if (clarificationFlushes.has(commandName)) return clarificationFlushes.get(commandName);
+    if (isPhaseRunning(commandName)) return false;
 
     const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
     if (!list.length) return false;
