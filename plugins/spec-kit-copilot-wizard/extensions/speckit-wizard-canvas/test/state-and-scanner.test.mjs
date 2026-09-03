@@ -883,6 +883,8 @@ test("scanWorkspace treats task markers as task content, not template placeholde
             "",
             "- [ ] T001 [P] [US1] Write unit tests",
             "- [ ] T002 [US1] Implement feature path",
+            "- [ ] T010 [P] [US10] Add reporting flow",
+            "- [ ] T011 [US11] Wire admin flow",
         ].join("\n"),
     });
     const scan = await scanWorkspace("/proj", fs);
