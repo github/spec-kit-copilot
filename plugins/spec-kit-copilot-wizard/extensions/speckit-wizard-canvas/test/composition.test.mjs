@@ -20,7 +20,7 @@ import {
 import { canonicalSpine, canonicalTemplateIds, isCanonical } from "../pipeline/canonical.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
-import { state } from "../ui/state.js";
+import { state, PHASE_ORDER as UI_FALLBACK_PHASE_ORDER } from "../ui/state.js";
 import {
     clearPhaseRunning,
     markPhaseRunning,
@@ -33,6 +33,7 @@ import {
     renderGraphPhaseCard,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
+import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 
 function makeScannerFs(files) {
     const norm = (p) => p.replace(/\\/g, "/");
@@ -576,6 +577,11 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
         if (priorDocument === undefined) delete globalThis.document;
         else globalThis.document = priorDocument;
     }
+});
+
+test("UI fallback phase order omits unseeded Converge while runtime can still track it", () => {
+    assert.equal(RUNTIME_PHASE_ORDER.includes("converge"), true);
+    assert.equal(UI_FALLBACK_PHASE_ORDER.includes("converge"), false);
 });
 });
 
