@@ -75,7 +75,7 @@ async function scanComposition(workspacePath, deps) {
     return { presets, extensions };
 }
 
-const CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE = /<!--[\s\S]*?-->|\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
+const CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE = /<!--[\s\S]*?(?:-->|$)|\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
 
 function constitutionPlaceholdersOutsideComments(text) {
     const matches = [];

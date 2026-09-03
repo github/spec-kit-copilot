@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 import { _internal as scannerInternal, readMarkdownArtifact, scanWorkspace } from "../project-scanner.mjs";
+import { MAX_MARKDOWN_PREVIEW } from "../project-scanner/fs-helpers.mjs";
 import {
     buildPrompt,
     buildWorkflowSlashCommand,
@@ -829,6 +830,24 @@ test("scanWorkspace keeps constitution done when placeholder breadcrumbs are onl
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
         "/proj/.specify/memory/constitution.md": withCommentPlaceholders,
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.constitution.status, "done");
+    assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
+});
+
+test("scanWorkspace ignores truncated constitution comments through end of preview", async () => {
+    const commentPrefix = [
+        "<!--",
+        "Sync Impact Report",
+        "- [PRINCIPLE_1_NAME] -> I. Clarity Over Cleverness",
+        "- [PRINCIPLE_2_NAME] -> II. Small, Reviewable Changes",
+        "- [SECTION_2_NAME] -> Engineering Standards",
+    ].join("\n");
+    const text = `${commentPrefix}\n${"x".repeat(MAX_MARKDOWN_PREVIEW)}`;
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/memory/constitution.md": text,
     });
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases.constitution.status, "done");
