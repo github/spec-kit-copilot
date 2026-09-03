@@ -170,6 +170,8 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
                     const parentAbs = join(cwd, parentRel);
                     const safeParentPath = await secureExistingPath(parentAbs, cwd, deps);
                     if (safeParentPath) {
+                        const mtimeIso = await newestMarkdownMtimeIso(safeParentPath, deps);
+                        if (mtimeIso) next.lastRunAt = mtimeIso;
                         next.folderPath = toPortable(parentRel);
                     }
                 }
@@ -190,6 +192,23 @@ async function artifactMtimeIso(absPath, deps) {
         const mtimeMs = Number(st?.mtimeMs ?? 0);
         if (!Number.isFinite(mtimeMs) || mtimeMs <= 0) return null;
         return new Date(mtimeMs).toISOString();
+    } catch {
+        return null;
+    }
+}
+
+async function newestMarkdownMtimeIso(dirAbs, deps) {
+    try {
+        const entries = await safeReaddir(dirAbs, deps);
+        let newestMs = 0;
+        for (const entry of entries) {
+            const name = typeof entry?.name === "string" ? entry.name : "";
+            if (!name.endsWith(".md") || entry?.isDirectory?.()) continue;
+            const st = await deps.stat(join(dirAbs, name));
+            const mtimeMs = Number(st?.mtimeMs ?? 0);
+            if (Number.isFinite(mtimeMs) && mtimeMs > newestMs) newestMs = mtimeMs;
+        }
+        return newestMs > 0 ? new Date(newestMs).toISOString() : null;
     } catch {
         return null;
     }

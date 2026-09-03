@@ -736,6 +736,8 @@ describe("scanner", () => {
 function makeFs(files) {
     const norm = (p) => p.replace(/\\/g, "/");
     const store = new Map(Object.entries(files).map(([k, v]) => [norm(k), v]));
+    const fileContent = (v) => (typeof v === "object" && v !== null ? v.content : v);
+    const fileMtimeMs = (v) => (typeof v === "object" && v !== null ? v.mtimeMs : 2);
     const isDir = (p) => {
         const np = norm(p);
         if (store.get(np) === "__DIR__") return true;
@@ -757,11 +759,12 @@ function makeFs(files) {
                 return { isFile: () => false, isDirectory: () => true, size: 0, mtimeMs: 1 };
             const v = store.get(np);
             if (v === undefined) throw new Error(`ENOENT: ${p}`);
-            const size = typeof v === "string" ? v.length : 0;
-            return { isFile: () => v !== "__DIR__", isDirectory: () => v === "__DIR__", size, mtimeMs: 2 };
+            const content = fileContent(v);
+            const size = typeof content === "string" ? content.length : 0;
+            return { isFile: () => v !== "__DIR__", isDirectory: () => v === "__DIR__", size, mtimeMs: fileMtimeMs(v) };
         },
         readFile: async (p) => {
-            const v = store.get(norm(p));
+            const v = fileContent(store.get(norm(p)));
             if (typeof v !== "string" || v === "__DIR__") throw new Error(`ENOENT: ${p}`);
             return v;
         },
@@ -1232,6 +1235,59 @@ test("scanWorkspace treats existing extension artifacts as done even with placeh
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.status, "done");
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/demo/intake.md");
+});
+
+test("scanWorkspace advances extension folder fallback lastRunAt from newest off-name markdown", async () => {
+    const firstRunMs = Date.parse("2026-01-01T00:00:00.000Z");
+    const secondRunMs = Date.parse("2026-01-01T00:05:00.000Z");
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/notes.md": { content: "first run", mtimeMs: firstRunMs },
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+
+    const firstScan = await scanWorkspace("/proj", fs);
+    assert.equal(
+        firstScan.phases["commands/speckit.assess.intake"]?.lastRunAt,
+        new Date(firstRunMs).toISOString(),
+    );
+
+    fs._store.set("/proj/.specify/assessments/demo/notes.md", { content: "second run", mtimeMs: secondRunMs });
+    const secondScan = await scanWorkspace("/proj", fs);
+    assert.equal(
+        secondScan.phases["commands/speckit.assess.intake"]?.lastRunAt,
+        new Date(secondRunMs).toISOString(),
+    );
+});
+
+test("scanWorkspace leaves extension folder fallback lastRunAt null when folder has no markdown", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo": "__DIR__",
+        "/proj/.specify/assessments/demo/notes.txt": { content: "not markdown", mtimeMs: Date.parse("2026-01-01T00:00:00.000Z") },
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.folderPath, ".specify/assessments/demo");
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.lastRunAt ?? null, null);
 });
 
 test("scanWorkspace ignores malformed cache entries", async () => {
