@@ -30,7 +30,6 @@ import {
     safeReaddir,
     readBoundedJson,
     pickNewestSubdir,
-    looksLikeUnfilledTemplate,
 } from "./fs-helpers.mjs";
 
 export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, deps }) {
@@ -143,8 +142,7 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
             const abs = join(cwd, resolvedPath);
             const fileExists = await deps.pathExists(abs);
             if (fileExists) {
-                const unfilled = await looksLikeUnfilledTemplate(abs, deps);
-                next.status = unfilled ? "empty" : "done";
+                next.status = "done";
                 const mtimeIso = await artifactMtimeIso(abs, deps);
                 if (mtimeIso) next.lastRunAt = mtimeIso;
             } else if (next.status === "done") {

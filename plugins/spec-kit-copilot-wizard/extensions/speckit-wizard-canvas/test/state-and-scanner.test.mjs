@@ -807,12 +807,8 @@ test("scanWorkspace picks up constitution.md and sets phase status", async () =>
     assert.equal(scan.phases.constitution.status, "done");
 });
 
-test("scanWorkspace keeps constitution done when Sync Impact Report contains bracket tokens in an HTML comment", async () => {
-    // The constitution SKILL prescribes an HTML-comment Sync Impact Report at
-    // the top of constitution.md that intentionally includes bracket-token
-    // breadcrumbs like `[PRINCIPLE_1_NAME] → I. Clarity`. Those must not
-    // trip the unfilled-template heuristic and downgrade status back to empty.
-    const filled = [
+test("scanWorkspace treats any existing constitution artifact as done", async () => {
+    const withPlaceholders = [
         "<!--",
         "Sync Impact Report",
         "- [PRINCIPLE_1_NAME] → I. Clarity Over Cleverness",
@@ -827,31 +823,14 @@ test("scanWorkspace keeps constitution done when Sync Impact Report contains bra
     ].join("\n");
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
-        "/proj/.specify/memory/constitution.md": filled,
+        "/proj/.specify/memory/constitution.md": withPlaceholders,
     });
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases.constitution.status, "done");
     assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
 });
 
-test("scanWorkspace still flags a genuinely unfilled constitution template", async () => {
-    // Two or more distinct bracket tokens OUTSIDE any HTML comment should
-    // still downgrade the phase — this is the whole point of the heuristic.
-    const unfilled = [
-        "# [PROJECT_NAME] Constitution",
-        "",
-        "## I. [PRINCIPLE_1_NAME]",
-        "[PRINCIPLE_1_DESCRIPTION]",
-    ].join("\n");
-    const fs = makeFs({
-        "/proj/.specify": "__DIR__",
-        "/proj/.specify/memory/constitution.md": unfilled,
-    });
-    const scan = await scanWorkspace("/proj", fs);
-    assert.equal(scan.phases.constitution.status, "empty");
-});
-
-test("scanWorkspace still flags short uppercase placeholder tokens", async () => {
+test("scanWorkspace treats existing spec artifacts as done even with placeholders", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
         "/proj/specs/feature/spec.md": [
@@ -861,7 +840,7 @@ test("scanWorkspace still flags short uppercase placeholder tokens", async () =>
         ].join("\n"),
     });
     const scan = await scanWorkspace("/proj", fs);
-    assert.equal(scan.phases.specify.status, "empty");
+    assert.equal(scan.phases.specify.status, "done");
     assert.equal(scan.phases.specify.artifactPath, "specs/feature/spec.md");
 });
 
@@ -889,7 +868,7 @@ test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug"
     assert.equal(scan.phases.converge.artifactPath, "specs/newer-slug/tasks.md");
 });
 
-test("scanWorkspace treats task markers as task content, not template placeholders", async () => {
+test("scanWorkspace treats existing task artifact as done with task markers", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
         "/proj/specs/feature/tasks.md": [
@@ -1155,6 +1134,26 @@ test("scanWorkspace leaves writesTo template as-is when there is no slug", async
         ".specify/assessments/<slug>/intake.md",
     );
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.status, "empty");
+});
+
+test("scanWorkspace treats existing extension artifacts as done even with placeholders", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/intake.md": "Capture [API] and [URL] details.",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.status, "done");
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/demo/intake.md");
 });
 
 test("scanWorkspace ignores malformed cache entries", async () => {

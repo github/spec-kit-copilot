@@ -6,7 +6,6 @@
 
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { toPortable } from "./fs-helpers.mjs";
-import { looksLikeUnfilledTemplate } from "./fs-helpers.mjs";
 
 // List `.github/skills/speckit-*` subdirectories. Returns bare skill ids
 // (e.g. "speckit-plan"). Empty array on any FS error — the UI treats an
@@ -34,15 +33,7 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
                 ...phases[phaseId],
                 artifactPath: artifactRel,
             };
-            // Same rule as constitution: file existence alone is not
-            // enough — the spec-kit templates are copied into specs/<slug>/
-            // with placeholder tokens like [FEATURE NAME]. Only flip to
-            // done once those have been filled in; and downgrade a stale
-            // stored `done` if the file has reverted to a template shape.
-            const unfilled = await looksLikeUnfilledTemplate(p, deps);
-            if (unfilled) {
-                if (phases[phaseId].status === "done") phases[phaseId].status = "empty";
-            } else if (phases[phaseId].status === "empty") {
+            if (phases[phaseId].status === "empty") {
                 phases[phaseId].status = "done";
             }
         }
