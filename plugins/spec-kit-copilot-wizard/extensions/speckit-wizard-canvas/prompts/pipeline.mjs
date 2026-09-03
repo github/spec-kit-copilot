@@ -26,6 +26,22 @@ export const PIPELINE_KINDS = new Set([
     ...CANONICAL_UNSEEDED,
 ]);
 
+const ARTIFACT_OWNER_BY_UPDATER_PHASE = {
+    clarify: "specify",
+    converge: "tasks",
+};
+
+function artifactInstruction(kind, artifact) {
+    if (!artifact || artifact === "(none)") {
+        return "This phase does not create a markdown artifact; do not add or rewrite provenance markers in existing files.";
+    }
+    const owner = ARTIFACT_OWNER_BY_UPDATER_PHASE[kind];
+    if (owner) {
+        return `Artifact: \`${artifact}\` (update the existing artifact and preserve its \`<!-- speckit:${owner} v1 -->\` first-line provenance marker).`;
+    }
+    return `Artifact: \`${artifact}\` (first line must be \`<!-- speckit:${kind} v1 -->\`).`;
+}
+
 export function buildPipelinePrompt(kind, payload, context, { workspacePath, skill }) {
     void context;
     switch (kind) {
@@ -49,7 +65,7 @@ export function buildPipelinePrompt(kind, payload, context, { workspacePath, ski
                     boundary: `Run the ${kind} phase only.`,
                 }) +
                 [
-                    `Artifact: \`${artifact}\` (first line must be \`<!-- speckit:${kind} v1 -->\`).`,
+                    artifactInstruction(kind, artifact),
                     `Payload:\n\`\`\`json\n${fmtPayload(payload)}\n\`\`\``,
                     STATE_UPDATE_HINT,
                 ].join("\n")

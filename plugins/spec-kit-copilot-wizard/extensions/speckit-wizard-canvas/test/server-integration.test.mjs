@@ -966,6 +966,23 @@ test("S1×S2: every ACTION_KIND builds a non-empty prompt without throwing", () 
     }
 });
 
+test("S1×S2: artifact-owner prompts distinguish creator, updater, and no-artifact phases", () => {
+    const specify = buildPrompt("specify", {}, { workspacePath: "/ws" });
+    assert.match(specify, /Artifact: `specs\/<slug>\/spec\.md` \(first line must be `<!-- speckit:specify v1 -->`\)\./);
+
+    const clarify = buildPrompt("clarify", {}, { workspacePath: "/ws" });
+    assert.match(clarify, /preserve its `<!-- speckit:specify v1 -->` first-line provenance marker/);
+    assert.doesNotMatch(clarify, /speckit:clarify v1/);
+
+    const converge = buildPrompt("converge", {}, { workspacePath: "/ws" });
+    assert.match(converge, /preserve its `<!-- speckit:tasks v1 -->` first-line provenance marker/);
+    assert.doesNotMatch(converge, /speckit:converge v1/);
+
+    const implement = buildPrompt("implement", {}, { workspacePath: "/ws" });
+    assert.match(implement, /does not create a markdown artifact/);
+    assert.doesNotMatch(implement, /speckit:implement v1/);
+});
+
 // ---------- S1×catalog: wizard-phase → skill naming contract ----------
 
 test("S1×catalog: every canonical phase in PHASE_ORDER maps to skill 'speckit-<phase>'", () => {

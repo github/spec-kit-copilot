@@ -21,7 +21,7 @@
 // Restating 7 lines every turn floods the chat window without carrying new
 // information.
 export const FILE_CONTRACT_PREAMBLE =
-    "File-contract rules: Persist all outputs to files (never inline in chat); markdown starts with a `<!-- speckit:<phase> v1 -->` provenance marker; state.json lives under `.speckit-wizard/` (preserve shape, own only your fields); do only this turn's step.";
+    "File-contract rules: Persist all outputs to files (never inline in chat); new markdown artifacts include a `<!-- speckit:<owner> v1 -->` provenance marker, while updates to existing artifacts preserve their current marker; state.json lives under `.speckit-wizard/` (preserve shape, own only your fields); do only this turn's step.";
 
 export function fmtPayload(payload) {
     if (payload === undefined || payload === null) return "(empty)";
