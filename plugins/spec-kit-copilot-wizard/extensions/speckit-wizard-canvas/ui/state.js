@@ -82,6 +82,7 @@ export const PHASE_ORDER = [
     "analyze",
     "taskstoissues",
     "implement",
+    "converge",
 ];
 
 // SETUP_STEPS: sub-step keys within the Setup tab.

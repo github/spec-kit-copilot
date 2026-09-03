@@ -4,7 +4,7 @@
 // (`.github/skills/` + `specs/<slug>/*.md`) into the phases state object.
 // The scanner orchestrator merges what these return with state.json.
 
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { toPortable } from "./fs-helpers.mjs";
 import { looksLikeUnfilledTemplate } from "./fs-helpers.mjs";
 
@@ -64,13 +64,70 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
             artifactPath: toPortable(relative(cwd, specPath)),
         };
     }
-    // Checklists directory presence.
+    const isChecklistFile = (name) => /\.md$/i.test(name);
+
+    const resolveChecklistPath = (raw, checklistsDir) => {
+        if (typeof raw !== "string" || !raw.trim()) return null;
+        const normalized = raw.trim().replace(/\\/g, "/");
+        if (normalized.includes("<slug>")) return null;
+        if (normalized.endsWith("/")) return { kind: "dir", path: join(cwd, ...normalized.split("/").filter(Boolean)) };
+        if (isAbsolute(raw)) return { kind: "file", path: raw };
+        if (normalized.includes("/")) return { kind: "file", path: join(cwd, ...normalized.split("/")) };
+        return { kind: "file", path: join(checklistsDir, raw.trim()) };
+    };
+
+    const newestChecklistFile = async (checklistsDir) => {
+        const entries = await deps.readdir(checklistsDir, { withFileTypes: true }).catch(() => []);
+        const files = [];
+        for (const entry of entries) {
+            if (!entry?.isFile?.() || !isChecklistFile(entry.name)) continue;
+            const filePath = join(checklistsDir, entry.name);
+            const st = await deps.stat(filePath).catch(() => null);
+            files.push({ name: entry.name, path: filePath, mtimeMs: st?.mtimeMs ?? 0 });
+        }
+        files.sort((a, b) => (b.mtimeMs - a.mtimeMs) || a.name.localeCompare(b.name));
+        return files[0]?.path ?? null;
+    };
+
+    const checklistArtifactPath = async (checklistsDir) => {
+        const configuredSources = [
+            phases.checklist?.artifactPath,
+            phases.checklist?.formValues?.checklistFile,
+        ];
+        for (const configured of configuredSources) {
+            if (typeof configured !== "string" || !configured.trim()) continue;
+            const raw = configured.trim();
+            const resolved = resolveChecklistPath(raw, checklistsDir);
+            if (!resolved) continue;
+            if (resolved.kind === "dir") {
+                const newest = await newestChecklistFile(resolved.path);
+                if (newest) return toPortable(relative(cwd, newest));
+            } else if (isChecklistFile(resolved.path) && await deps.pathExists(resolved.path)) {
+                return toPortable(relative(cwd, resolved.path));
+            }
+        }
+
+        const newest = await newestChecklistFile(checklistsDir);
+        if (newest) return toPortable(relative(cwd, newest));
+        return null;
+    };
+
+    // Checklist filenames are chosen by the agent at runtime and there may
+    // be multiple files. A completed checklist phase with a folder target
+    // resolves to the newest markdown file in that folder. Directory
+    // presence alone does not mark the phase done because other phases can
+    // also create checklist files.
     const checklistsDir = join(specDir, "checklists");
-    if (await deps.pathExists(checklistsDir)) {
-        phases.checklist = {
-            ...phases.checklist,
-            artifactPath: toPortable(relative(cwd, checklistsDir)),
-        };
-        if (phases.checklist.status === "empty") phases.checklist.status = "done";
+    const hasChecklistRun = phases.checklist?.status === "done";
+    const hasConfiguredChecklist = typeof phases.checklist?.formValues?.checklistFile === "string"
+        && !!phases.checklist.formValues.checklistFile.trim();
+    if ((hasChecklistRun || hasConfiguredChecklist) && await deps.pathExists(checklistsDir)) {
+        const artifactPath = await checklistArtifactPath(checklistsDir);
+        if (artifactPath) {
+            phases.checklist = {
+                ...phases.checklist,
+                artifactPath,
+            };
+        }
     }
 }

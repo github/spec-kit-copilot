@@ -14,6 +14,15 @@ import { Readable } from "node:stream";
 import { describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
+import { flushClarifications, setViewersDeps } from "../ui/modals.js";
+import {
+    clearClarifications,
+    clearPhaseRunning,
+    getPendingClarifications,
+    getPhaseLastSubmitted,
+    queueClarification,
+    setPhaseLastSubmitted,
+} from "../ui/phase-runtime.js";
 import {
     ACTION_KINDS,
     PHASE_BY_ID,
@@ -302,6 +311,87 @@ test("POST /api/phase/submit rejects invalid commandName", async () => {
     const res = mockRes();
     await h(req, res);
     assert.equal(res.statusCode, 400);
+});
+
+function withLocalStorage(fn) {
+    const prior = globalThis.localStorage;
+    const store = new Map();
+    globalThis.localStorage = {
+        getItem: (key) => store.has(key) ? store.get(key) : null,
+        setItem: (key, value) => { store.set(key, String(value)); },
+        removeItem: (key) => { store.delete(key); },
+        clear: () => { store.clear(); },
+    };
+    return Promise.resolve()
+        .then(fn)
+        .finally(() => {
+            if (prior === undefined) delete globalThis.localStorage;
+            else globalThis.localStorage = prior;
+        });
+}
+
+test("flushClarifications reruns any command with queued answers and clears only after submit succeeds", async () => {
+    await withLocalStorage(async () => {
+        const commandName = "speckit.assess.research";
+        const calls = [];
+        setViewersDeps({
+            postJson: async (url, body) => {
+                calls.push({ url, body });
+                return { queued: true };
+            },
+        });
+        setPhaseLastSubmitted(commandName, "existing research direction");
+        queueClarification(commandName, "which signal exists?", "request from users");
+        queueClarification(commandName, "what scope?", "lightweight");
+        try {
+            const ok = await flushClarifications({ commandName });
+
+            assert.equal(ok, true);
+            assert.deepEqual(calls, [{
+                url: "/api/phase/submit",
+                body: {
+                    commandName,
+                    args: [
+                        "existing research direction",
+                        "",
+                        "Clarification — which signal exists?\nAnswer: request from users",
+                        "",
+                        "Clarification — what scope?\nAnswer: lightweight",
+                    ].join("\n"),
+                },
+            }]);
+            assert.deepEqual(getPendingClarifications(commandName), []);
+            assert.equal(getPhaseLastSubmitted(commandName), calls[0].body.args);
+        } finally {
+            clearPhaseRunning(commandName);
+            clearClarifications(commandName);
+        }
+    });
+});
+
+test("flushClarifications preserves queued answers when submit fails", async () => {
+    await withLocalStorage(async () => {
+        const commandName = "speckit.assess.decide";
+        const priorError = console.error;
+        console.error = () => {};
+        setViewersDeps({ postJson: async () => undefined });
+        setPhaseLastSubmitted(commandName, "previous decision context");
+        queueClarification(commandName, "legal review required?", "no");
+        try {
+            const ok = await flushClarifications({ commandName });
+
+            assert.equal(ok, false);
+            assert.deepEqual(getPendingClarifications(commandName), [{
+                question: "legal review required?",
+                answer: "no",
+            }]);
+            assert.equal(getPhaseLastSubmitted(commandName), "previous decision context");
+        } finally {
+            console.error = priorError;
+            clearPhaseRunning(commandName);
+            clearClarifications(commandName);
+        }
+    });
 });
 
 
@@ -903,18 +993,11 @@ test("S2: every canonical command name maps to a phase applyPatch will accept", 
     // If phaseIdForCommandName returns an id state-store rejects, the
     // agent's state write silently no-ops. This is the wire contract
     // that binds prompt-side and store-side together.
-    const canonicalNames = [
-        "speckit.constitution",
-        "speckit-constitution",
-        "speckit.specify",
-        "speckit.clarify",
-        "speckit.checklist",
-        "speckit.plan",
-        "speckit.tasks",
-        "speckit.analyze",
-        "speckit.taskstoissues",
-        "speckit.implement",
-    ];
+    const canonicalNames = PHASE_ORDER
+        .filter((phaseId) => phaseId !== "setup" && phaseId !== "preset")
+        .flatMap((phaseId, index) => index === 0
+            ? [`speckit.${phaseId}`, `speckit-${phaseId}`]
+            : [`speckit.${phaseId}`]);
     for (const cmd of canonicalNames) {
         const phaseId = phaseIdForCommandName(cmd);
         assert.ok(phaseId, `${cmd} must classify as canonical`);

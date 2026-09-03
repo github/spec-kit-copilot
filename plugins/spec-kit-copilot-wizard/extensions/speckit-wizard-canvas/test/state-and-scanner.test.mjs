@@ -873,6 +873,80 @@ test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug"
     assert.equal(scan.phases.tasks.status, "done");
 });
 
+test("scanWorkspace treats task markers as task content, not template placeholders", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/tasks.md": [
+            "# Tasks",
+            "",
+            "- [ ] T001 [P] [US1] Write unit tests",
+            "- [ ] T002 [US1] Implement feature path",
+        ].join("\n"),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.tasks.status, "done");
+    assert.equal(scan.phases.tasks.artifactPath, "specs/feature/tasks.md");
+});
+
+test("scanWorkspace does not mark checklist done from directory contents alone", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "empty");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/<slug>/checklists/");
+});
+
+test("scanWorkspace prefers configured checklist file when checklist already ran", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/security.md");
+});
+
+test("scanWorkspace resolves checklist folder to newest markdown file after checklist ran", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/feature/checklists/",
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+        "/proj/specs/feature/checklists/accessibility.md": "# Accessibility",
+    });
+    const origStat = fs.stat;
+    fs.stat = async (p) => {
+        const s = await origStat(p);
+        if (String(p).includes("security.md")) return { ...s, mtimeMs: 20 };
+        if (String(p).includes("accessibility.md")) return { ...s, mtimeMs: 30 };
+        if (String(p).includes("requirements.md")) return { ...s, mtimeMs: 10 };
+        return s;
+    };
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/accessibility.md");
+});
+
 test("scanWorkspace defensively normalizes malformed state.json", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",

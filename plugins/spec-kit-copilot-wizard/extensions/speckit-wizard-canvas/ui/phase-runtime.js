@@ -117,7 +117,10 @@ export function setRunLockDeps({ render }) {
 
 function _phaseIdForCommand(commandName) {
     if (typeof commandName !== "string") return null;
-    return commandName.startsWith("speckit.") ? commandName.slice("speckit.".length) : commandName;
+    if (commandName.startsWith("commands/")) return commandName;
+    if (!commandName.startsWith("speckit.")) return commandName;
+    const bare = commandName.slice("speckit.".length);
+    return isCanonical(bare) ? bare : `commands/${commandName}`;
 }
 
 export function markPhaseRunning(commandName) {
@@ -756,14 +759,17 @@ export function renderMoreCommandsPanel() {
         if (w && w.layer !== "core") customizedIds.add(canonicalId);
     }
 
-    // CORE group: canonical Spec Kit phases NOT customized by any preset.
+    // CORE group: the full canonical Spec Kit surface, including commands
+    // customized by presets. The Core list is an explicit escape hatch for
+    // adding the canonical command back to the pipeline even when the active
+    // preset also contributes a customized version.
     // Shown regardless of pipeline membership so users can always browse
     // the full Spec Kit surface. Synthesize minimal card shapes since these
     // often aren't in commands(). CANONICAL_UNSEEDED (e.g. converge) is
     // included too — canonical add-on-demand commands outside the default flow.
     const coreCandidates = [
-        ...canonicalSpine().filter((id) => !customizedIds.has(id)),
-        ...CANONICAL_UNSEEDED.filter((id) => !customizedIds.has(id)),
+        ...canonicalSpine(),
+        ...CANONICAL_UNSEEDED,
     ];
     const coreCards = coreCandidates
         .map((id) => __synthesizeCanonicalPhase(id))
@@ -775,7 +781,7 @@ export function renderMoreCommandsPanel() {
         <summary class="mc-group-title"><span class="mc-group-title-text">CORE</span> <span class="mc-group-count">${coreCandidates.length}</span></summary>
         ${coreCandidates.length
             ? `<div class="more-commands-grid">${coreCards}</div>`
-            : `<p class="mc-group-hint muted">All Core Spec Kit commands are customized by installed presets.</p>`}
+            : `<p class="mc-group-hint muted">No Core Spec Kit commands are available.</p>`}
     </details>`;
 
     // Extension groups. Emitted in composition.extensions[] payload order
@@ -914,4 +920,3 @@ export function lookupActiveLayer(id, commandName) {
         compArtifacts.find((a) => a.id === id);
     return (compArtifact?.stack ?? []).find((l) => l.active) || null;
 }
-

@@ -16,14 +16,14 @@
 // See `../prompts.mjs` for the top-level dispatcher and family split.
 
 import { getPhase } from "../canvas-runtime/wizard-phases.mjs";
-import { CANONICAL_PHASES } from "../pipeline/canonical.mjs";
+import { CANONICAL_PHASES, CANONICAL_UNSEEDED } from "../pipeline/canonical.mjs";
 import { fmtHeader, fmtPayload, STATE_UPDATE_HINT } from "./shared.mjs";
 
-// The 9 canonical Spec-Driven phase kinds (constitution … implement) are
-// spread from CANONICAL_PHASES so this Set auto-tracks the single source
-// of truth in `pipeline/canonical.mjs`.
+// Canonical Spec-Driven phase kinds are spread from canonical.mjs so this
+// Set auto-tracks both the seeded spine and add-on-demand core commands.
 export const PIPELINE_KINDS = new Set([
     ...CANONICAL_PHASES,
+    ...CANONICAL_UNSEEDED,
 ]);
 
 export function buildPipelinePrompt(kind, payload, context, { workspacePath, skill }) {
@@ -37,6 +37,7 @@ export function buildPipelinePrompt(kind, payload, context, { workspacePath, ski
         case "checklist":
         case "tasks":
         case "analyze":
+        case "converge":
         case "implement": {
             const phase = getPhase(kind);
             const artifact = phase?.artifact ?? "(none)";

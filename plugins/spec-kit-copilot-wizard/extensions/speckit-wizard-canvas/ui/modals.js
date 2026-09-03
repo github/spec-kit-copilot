@@ -3,7 +3,14 @@
 import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
-import { queueClarification } from "./phase-runtime.js";
+import {
+    clearClarifications,
+    getPendingClarifications,
+    getPhaseLastSubmitted,
+    markPhaseRunning,
+    queueClarification,
+    setPhaseLastSubmitted,
+} from "./phase-runtime.js";
 
 // -------- Section: markdown.mjs --------
 
@@ -435,10 +442,12 @@ export async function flushClarifications(p) {
     const lastArgs = getPhaseLastSubmitted(p.commandName) || "";
     const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
     const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
-    setPhaseLastSubmitted(p.commandName, args);
-    clearClarifications(p.commandName);
     try {
-        await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+        markPhaseRunning(p.commandName);
+        const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+        if (!result) throw new Error("phase submit did not return a queued response");
+        setPhaseLastSubmitted(p.commandName, args);
+        clearClarifications(p.commandName);
         return true;
     } catch (err) {
         console.error(`dispatch failed: ${err?.message ?? err}`);
@@ -501,7 +510,7 @@ export async function openArtifactViewer(p) {
     if (body) body.innerHTML = `<div class="artifact-viewer-md">${rendered}</div>`;
 
     const totalMarks = marks.length;
-    const refreshPillState = () => {
+    const refreshPillState = (errorMessage = "") => {
         const answered = getPendingClarifications(p.commandName);
         body?.querySelectorAll(".clarify-pill").forEach((btn) => {
             const idx = Number(btn.getAttribute("data-clarify-idx"));
@@ -525,11 +534,18 @@ export async function openArtifactViewer(p) {
                 banner.innerHTML = `
                     <span>${pending} clarification${pending === 1 ? "" : "s"} queued
                     ${totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— will apply on close"}.</span>
+                    ${errorMessage ? `<p class="wizard-modal-error">${escapeHtml(errorMessage)}</p>` : ""}
                     <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now">Apply and Rerun</button>
                 `;
                 banner.querySelector('[data-clarify-action="apply-now"]')?.addEventListener("click", async () => {
+                    const btn = banner.querySelector('[data-clarify-action="apply-now"]');
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.textContent = "Applying…";
+                    }
                     const dispatched = await flushClarifications(p);
                     if (dispatched) closeArtifactViewer();
+                    else refreshPillState("Could not submit the clarification rerun. Your queued answers were preserved.");
                 });
             } else {
                 banner.hidden = true;
@@ -739,4 +755,3 @@ export function openClarifyModal(p, question, onAnswered) {
         },
     });
 }
-

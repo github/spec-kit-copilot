@@ -19,7 +19,15 @@ import {
 } from "../composition/collect.mjs";
 import { canonicalSpine, canonicalTemplateIds, isCanonical } from "../pipeline/canonical.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
-import { resolvePipelineEntry } from "../ui/phase-runtime.js";
+import { state } from "../ui/state.js";
+import {
+    clearPhaseRunning,
+    markPhaseRunning,
+    observePhaseProgress,
+    renderMoreCommandsPanel,
+    resolvePipelineEntry,
+    setRunLockDeps,
+} from "../ui/phase-runtime.js";
 
 describe("canonical", () => {
 // Tests for ui/canonical.mjs — small surface of pure predicates and a
@@ -255,6 +263,79 @@ test("resolvePipelineEntry: extension artifact whose active layer isn't extensio
     // will use the flat command list for it via commands()).
     const r = resolvePipelineEntry("commands/speckit.assess.intake", snap);
     assert.equal(r.kind, "orphan");
+});
+
+test("observePhaseProgress clears extension run locks using commands/<id> phase slices", () => {
+    let renders = 0;
+    setRunLockDeps({ render: () => { renders += 1; } });
+    try {
+        state.snapshot = {
+            phases: {
+                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
+            },
+        };
+        markPhaseRunning("speckit.assess.intake");
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+
+        state.snapshot = {
+            phases: {
+                "commands/speckit.assess.intake": {
+                    status: "done",
+                    lastRunAt: "2026-01-01T00:00:00.000Z",
+                    artifactPath: ".specify/assessments/demo/intake.md",
+                },
+            },
+        };
+        observePhaseProgress();
+
+        assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
+        assert.ok(renders >= 2);
+    } finally {
+        clearPhaseRunning("speckit.assess.intake");
+        setRunLockDeps({ render: () => {} });
+        state.snapshot = null;
+    }
+});
+
+test("renderMoreCommandsPanel keeps customized canonicals available in the Core list", () => {
+    const el = {
+        innerHTML: "",
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        getElementById: (id) => (id === "more-commands" ? el : null),
+    };
+    state.moreCollapsedSections = new Set();
+    state.snapshot = {
+        commands: [{
+            id: "constitution",
+            commandName: "speckit.constitution",
+            shortLabel: "Constitution",
+            source: "preset:lean",
+        }],
+        composition: {
+            presets: [{ id: "lean", name: "Lean" }],
+            extensions: [],
+            artifacts: [{
+                id: "commands/speckit.constitution",
+                kind: "command",
+                stack: [{ layer: "preset", active: true, presetId: "lean", presetName: "Lean" }],
+            }],
+        },
+    };
+
+    try {
+        renderMoreCommandsPanel();
+        assert.match(el.innerHTML, /data-mc-section="core"/);
+        assert.equal((el.innerHTML.match(/data-phase-id="constitution"/g) ?? []).length, 2);
+        assert.match(el.innerHTML, /Core/);
+    } finally {
+        state.snapshot = null;
+        state.moreCollapsedSections = new Set();
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
 });
 });
 

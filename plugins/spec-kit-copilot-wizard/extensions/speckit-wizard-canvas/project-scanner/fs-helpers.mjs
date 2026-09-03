@@ -34,11 +34,11 @@ export const SKIP_DIRS = new Set([
 export const MAX_FILE_BYTES = 512 * 1024; // 512 KB safety cap on any single read
 export const MAX_MARKDOWN_PREVIEW = 8 * 1024; // 8 KB preview to keep state light
 
-// Regex matching template placeholder tokens like [PROJECT_NAME] or
-// [PRINCIPLE_1_DESCRIPTION]. Deliberately narrow: only UPPER_SNAKE inside
-// square brackets so it never matches [NEEDS CLARIFICATION: …] (has spaces
-// and a colon) or ordinary prose like [link text].
-export const PLACEHOLDER_TOKEN_RE = /\[[A-Z][A-Z0-9_]*\]/g;
+// Regex matching template placeholder tokens like [PROJECT_NAME], [FEATURE],
+// or [DATE]. Deliberately narrow: only all-caps tokens of length >= 4 inside
+// square brackets so it never matches task/checklist markers like [ID], [P],
+// or [US1], nor prose like [NEEDS CLARIFICATION: …] or [link text].
+export const PLACEHOLDER_TOKEN_RE = /\[[A-Z][A-Z0-9_]{3,}\]/g;
 
 // Strip HTML comment blocks (`<!-- … -->`) before running placeholder
 // detection. The constitution SKILL prescribes a "Sync Impact Report" at

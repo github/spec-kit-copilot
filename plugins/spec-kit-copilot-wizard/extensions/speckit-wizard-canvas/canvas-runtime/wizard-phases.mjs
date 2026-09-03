@@ -27,7 +27,7 @@
 // Pure module: zero I/O, zero SDK, zero subprocess — safely importable in
 // tests.
 
-import { CANONICAL_PHASES, canonicalLabel, isCanonicalOptional } from "../pipeline/canonical.mjs";
+import { CANONICAL_PHASES, CANONICAL_UNSEEDED, canonicalLabel, isCanonicalOptional } from "../pipeline/canonical.mjs";
 
 // Helper: for canonical phases, derive `name` and `optional` from the
 // canonical.mjs record so display copy and skip-eligibility stay in a
@@ -97,6 +97,10 @@ export const PHASES = [
         tagline: "Execute all tasks and build according to the plan.",
         artifact: null,
     }),
+    canonical("converge", {
+        tagline: "Assess implementation gaps and append remediation work to the task list.",
+        artifact: "specs/<slug>/tasks.md",
+    }),
 ];
 
 export const PHASE_ORDER = PHASES.map((p) => p.id);
@@ -142,7 +146,7 @@ export const SKILL_BY_KIND = Object.freeze({
     // adding/removing a canonical phase there flows through automatically —
     // the naming rule is deterministic: canonical id `X` → skill
     // `speckit-X`.
-    ...Object.fromEntries(CANONICAL_PHASES.map((id) => [id, `speckit-${id}`])),
+    ...Object.fromEntries([...CANONICAL_PHASES, ...CANONICAL_UNSEEDED].map((id) => [id, `speckit-${id}`])),
 
     // Composition Stage 2 (inferPipeline). Stage 1 (extract) is now handled
     // by the deterministic fast assembler (composition-assembler.mjs) which
