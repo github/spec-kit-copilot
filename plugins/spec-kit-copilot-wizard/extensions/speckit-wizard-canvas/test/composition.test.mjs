@@ -29,6 +29,10 @@ import {
     resolvePipelineEntry,
     setRunLockDeps,
 } from "../ui/phase-runtime.js";
+import {
+    renderGraphPhaseCard,
+    setGraphPhaseCardDeps,
+} from "../ui/phase-card.js";
 
 function makeScannerFs(files) {
     const norm = (p) => p.replace(/\\/g, "/");
@@ -513,6 +517,62 @@ test("renderMoreCommandsPanel keeps customized canonicals available in the Core 
     } finally {
         state.snapshot = null;
         state.moreCollapsedSections = new Set();
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderGraphPhaseCard omits file viewer action for folder-only checklist fallback", () => {
+    let openedArtifact = 0;
+    const el = {
+        innerHTML: "",
+        querySelector(selector) {
+            if (selector === '[data-phase-action="view"]') return null;
+            if (selector === "form.graph-phase-form" && this.innerHTML.includes("graph-phase-form")) {
+                return {
+                    querySelector: () => null,
+                    addEventListener: () => {},
+                };
+            }
+            return null;
+        },
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        activeElement: null,
+        getElementById: () => null,
+    };
+    setGraphPhaseCardDeps({
+        openArtifactViewer: () => { openedArtifact += 1; },
+        renderPhaseCard: () => {},
+        renderStepper: () => {},
+    });
+    state.snapshot = { pipeline: ["checklist"], composition: { artifacts: [] } };
+
+    try {
+        renderGraphPhaseCard(el, {
+            id: "checklist",
+            name: "Checklist",
+            status: "done",
+            optional: true,
+            locked: false,
+            commandName: "speckit.checklist",
+            artifactPath: null,
+            folderPath: "specs/feature/checklists",
+        });
+        assert.match(el.innerHTML, /data-phase-action="browse-folder"/);
+        assert.match(el.innerHTML, /data-folder-path="specs\/feature\/checklists"/);
+        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="redo"/);
+        assert.equal(openedArtifact, 0);
+    } finally {
+        state.snapshot = null;
+        setGraphPhaseCardDeps({
+            openArtifactViewer: () => {},
+            renderPhaseCard: () => {},
+            renderStepper: () => {},
+        });
         if (priorDocument === undefined) delete globalThis.document;
         else globalThis.document = priorDocument;
     }

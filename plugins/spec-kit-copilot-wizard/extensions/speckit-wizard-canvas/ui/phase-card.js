@@ -487,7 +487,8 @@ export function renderGraphPhaseCard(el, p) {
     const cached = getPhaseDraft(p.commandName);
 
     const disabledAttr = p.locked ? "disabled" : "";
-    const isDone = p.status === "done" && !!p.artifactPath;
+    const isDone = p.status === "done";
+    const canViewArtifact = isDone && !!p.artifactPath;
 
     // Status-driven action row:
     //  - done      → View artifact + Run again (the phase has actually been
@@ -521,7 +522,7 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (isDone) {
         centerActions = `
-              <button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
               <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Rerun phase"}</button>`;
     } else {
         centerActions = `
@@ -820,4 +821,3 @@ export function wireGraphPhaseCard(el, p) {
     });
 
 }
-

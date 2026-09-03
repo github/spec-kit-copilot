@@ -102,7 +102,7 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         return files[0]?.path ?? null;
     };
 
-    const checklistArtifactPath = async (checklistsDir) => {
+    const checklistArtifactTarget = async (checklistsDir) => {
         const configuredSources = [
             phases.checklist?.formValues?.checklistFile,
             phases.checklist?.artifactPath,
@@ -114,15 +114,17 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
             if (!resolved) continue;
             if (resolved.kind === "dir") {
                 const newest = await newestChecklistFile(resolved.path);
-                if (newest) return toPortable(relative(cwd, newest));
+                if (newest) {
+                    return { artifactPath: toPortable(relative(cwd, newest)), folderPath: null };
+                }
             } else if (isChecklistFile(resolved.path) && await deps.pathExists(resolved.path)) {
-                return toPortable(relative(cwd, resolved.path));
+                return { artifactPath: toPortable(relative(cwd, resolved.path)), folderPath: null };
             }
         }
 
         const newest = await newestChecklistFile(checklistsDir);
-        if (newest) return toPortable(relative(cwd, newest));
-        return toPortable(relative(cwd, checklistsDir));
+        if (newest) return { artifactPath: toPortable(relative(cwd, newest)), folderPath: null };
+        return { artifactPath: null, folderPath: toPortable(relative(cwd, checklistsDir)) };
     };
 
     // Checklist filenames are chosen by the agent at runtime and there may
@@ -135,11 +137,12 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
     const hasConfiguredChecklist = typeof phases.checklist?.formValues?.checklistFile === "string"
         && !!phases.checklist.formValues.checklistFile.trim();
     if ((hasChecklistRun || hasConfiguredChecklist) && await deps.pathExists(checklistsDir)) {
-        const artifactPath = await checklistArtifactPath(checklistsDir);
-        if (artifactPath) {
+        const target = await checklistArtifactTarget(checklistsDir);
+        if (target) {
             phases.checklist = {
                 ...phases.checklist,
-                artifactPath,
+                artifactPath: target.artifactPath,
+                ...(target.folderPath ? { folderPath: target.folderPath } : {}),
             };
         }
     }
