@@ -4,8 +4,8 @@
 // (`.github/skills/` + `specs/<slug>/*.md`) into the phases state object.
 // The scanner orchestrator merges what these return with state.json.
 
-import { isAbsolute, join, normalize, relative, resolve } from "node:path";
-import { toPortable } from "./fs-helpers.mjs";
+import { isAbsolute, join, relative } from "node:path";
+import { securePathWithin, toPortable } from "./fs-helpers.mjs";
 
 // List `.github/skills/speckit-*` subdirectories. Returns bare skill ids
 // (e.g. "speckit-plan"). Empty array on any FS error — the UI treats an
@@ -67,36 +67,6 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
     }
     const isChecklistFile = (name) => /\.md$/i.test(name);
 
-    const canonicalize = (p) => /^[\\/](?![\\/])/.test(p) ? normalize(p) : resolve(p);
-    const isContained = (root, candidate) => {
-        const rel = relative(root, candidate);
-        return !rel || !(rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel));
-    };
-    const realpathOrNull = async (p) => {
-        try {
-            const real = deps.realpath ? await deps.realpath(p) : p;
-            return canonicalize(real);
-        } catch {
-            return null;
-        }
-    };
-    const securePathWithin = async (candidatePath, rootPath) => {
-        const resolvedRoot = canonicalize(rootPath);
-        const resolvedCandidate = canonicalize(candidatePath);
-        if (!isContained(resolvedRoot, resolvedCandidate)) return null;
-        if (!deps.realpath) return resolvedCandidate;
-
-        const [realCwd, realRoot, realCandidate] = await Promise.all([
-            realpathOrNull(cwd),
-            realpathOrNull(resolvedRoot),
-            realpathOrNull(resolvedCandidate),
-        ]);
-        if (!realCwd || !realRoot || !realCandidate) return null;
-        if (!isContained(realCwd, realRoot)) return null;
-        if (!isContained(realRoot, realCandidate)) return null;
-        return realCandidate;
-    };
-
     const resolveChecklistPath = async (raw, checklistsDir) => {
         if (typeof raw !== "string" || !raw.trim()) return null;
         const rawTrimmed = raw.trim();
@@ -111,18 +81,18 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         } else {
             candidatePath = join(checklistsDir, rawTrimmed);
         }
-        const securedPath = await securePathWithin(candidatePath, checklistsDir);
+        const securedPath = await securePathWithin(candidatePath, checklistsDir, cwd, deps);
         return securedPath ? { kind, path: securedPath } : null;
     };
 
     const newestChecklistFile = async (checklistsDir) => {
-        const securedDir = await securePathWithin(checklistsDir, checklistsDir);
+        const securedDir = await securePathWithin(checklistsDir, checklistsDir, cwd, deps);
         if (!securedDir) return null;
         const entries = await deps.readdir(securedDir, { withFileTypes: true }).catch(() => []);
         const files = [];
         for (const entry of entries) {
             if (!entry?.isFile?.() || !isChecklistFile(entry.name)) continue;
-            const filePath = await securePathWithin(join(securedDir, entry.name), securedDir);
+            const filePath = await securePathWithin(join(securedDir, entry.name), securedDir, cwd, deps);
             if (!filePath) continue;
             const st = await deps.stat(filePath).catch(() => null);
             if (st?.isFile?.()) files.push({ name: entry.name, path: filePath, mtimeMs: st?.mtimeMs ?? 0 });

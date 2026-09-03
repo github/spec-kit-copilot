@@ -4,12 +4,44 @@
 // capture). Kept together because they're mutually referenced (pickNewestSubdir
 // uses safeReaddir; the extension-artifacts hydrator uses everything here).
 
-import { join, sep } from "node:path";
+import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { PHASE_ORDER, emptyPhaseSlice } from "../canvas-runtime/wizard-phases.mjs";
 
 // Normalize path separators to forward slashes so state.json is portable
 // across Windows and POSIX and so scanner output is stable in tests.
 export const toPortable = (p) => (typeof p === "string" ? p.split(sep).join("/") : p);
+
+export const canonicalizePath = (p) => /^[\\/](?![\\/])/.test(p) ? normalize(p) : resolve(p);
+
+export function isPathContained(root, candidate) {
+    const rel = relative(root, candidate);
+    return !rel || !(rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel));
+}
+
+export async function securePathWithin(candidatePath, rootPath, cwd, deps) {
+    const resolvedRoot = canonicalizePath(rootPath);
+    const resolvedCandidate = canonicalizePath(candidatePath);
+    if (!isPathContained(resolvedRoot, resolvedCandidate)) return null;
+    if (!deps.realpath) return resolvedCandidate;
+
+    const realpathOrNull = async (p) => {
+        try {
+            return canonicalizePath(await deps.realpath(p));
+        } catch {
+            return null;
+        }
+    };
+
+    const [realCwd, realRoot, realCandidate] = await Promise.all([
+        realpathOrNull(cwd),
+        realpathOrNull(resolvedRoot),
+        realpathOrNull(resolvedCandidate),
+    ]);
+    if (!realCwd || !realRoot || !realCandidate) return null;
+    if (!isPathContained(realCwd, realRoot)) return null;
+    if (!isPathContained(realRoot, realCandidate)) return null;
+    return realCandidate;
+}
 
 export const SKIP_DIRS = new Set([
     "node_modules",

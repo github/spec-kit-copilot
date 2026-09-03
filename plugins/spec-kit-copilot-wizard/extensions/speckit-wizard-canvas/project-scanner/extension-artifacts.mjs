@@ -23,13 +23,16 @@
 // This scanner is the read side. Writing / re-inference is the agent's
 // job, exposed via the wizard's HTTP surface (see server /api/inference/*).
 
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { emptyPhaseSlice } from "../canvas-runtime/wizard-phases.mjs";
 import { toPortable } from "./fs-helpers.mjs";
 import {
     safeReaddir,
     readBoundedJson,
     pickNewestSubdir,
+    securePathWithin,
+    canonicalizePath,
+    isPathContained,
 } from "./fs-helpers.mjs";
 
 export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, deps }) {
@@ -115,7 +118,7 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
             let resolvedPath = writesTo;
             if (writesTo.includes("<slug>")) {
                 const direct = slug ? writesTo.replace(/<slug>/g, slug) : null;
-                if (direct && (await deps.pathExists(join(cwd, direct)))) {
+                if (direct && (await secureExistingPath(join(cwd, direct), cwd, deps))) {
                     resolvedPath = direct;
                 } else {
                     const match = writesTo.match(/^\.specify\/([^/]+)\/<slug>\/(.+)$/);
@@ -135,15 +138,19 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
                     }
                 }
             }
-            const artifactRel = toPortable(resolvedPath);
-            next.artifactPath = artifactRel;
-
             // Compute status from file existence (same rule core phases use).
-            const abs = join(cwd, resolvedPath);
-            const fileExists = await deps.pathExists(abs);
-            if (fileExists) {
+            const abs = isAbsolute(resolvedPath) ? resolvedPath : join(cwd, resolvedPath);
+            const lexicallyInsideWorkspace = isPathContained(canonicalizePath(cwd), canonicalizePath(abs));
+            if (!lexicallyInsideWorkspace) {
+                phases[key] = next;
+                continue;
+            }
+
+            next.artifactPath = toPortable(resolvedPath);
+            const safeArtifactPath = await secureExistingPath(abs, cwd, deps);
+            if (safeArtifactPath) {
                 next.status = "done";
-                const mtimeIso = await artifactMtimeIso(abs, deps);
+                const mtimeIso = await artifactMtimeIso(safeArtifactPath, deps);
                 if (mtimeIso) next.lastRunAt = mtimeIso;
             } else if (next.status === "done") {
                 next.status = "empty";
@@ -155,15 +162,16 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
             // dir). Emit `folderPath` so the UI can offer a folder-listing
             // link. Silent when the folder is also missing — the phase
             // simply hasn't been run yet.
-            if (!fileExists) {
+            if (!safeArtifactPath) {
                 const parentRel = resolvedPath.includes("/")
                     ? resolvedPath.slice(0, resolvedPath.lastIndexOf("/"))
                     : "";
                 if (parentRel) {
                     const parentAbs = join(cwd, parentRel);
-                    if (await deps.pathExists(parentAbs)) {
+                    const safeParentPath = await secureExistingPath(parentAbs, cwd, deps);
+                    if (safeParentPath) {
                         next.folderPath = toPortable(parentRel);
-                        const mtimeIso = await artifactMtimeIso(parentAbs, deps);
+                        const mtimeIso = await artifactMtimeIso(safeParentPath, deps);
                         if (mtimeIso) next.lastRunAt = mtimeIso;
                     }
                 }
@@ -172,6 +180,10 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
 
         phases[key] = next;
     }
+}
+
+async function secureExistingPath(absPath, cwd, deps) {
+    return securePathWithin(absPath, cwd, cwd, deps);
 }
 
 async function artifactMtimeIso(absPath, deps) {
