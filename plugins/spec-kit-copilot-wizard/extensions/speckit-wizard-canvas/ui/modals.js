@@ -439,10 +439,14 @@ export function setViewersDeps({ postJson, HEADERS } = {}) {
 let activeArtifactPhase = null; // phase currently open in the viewer
 const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
 
+export function isClarificationFlushPending(commandName) {
+    return !!commandName && clarificationFlushes.has(commandName);
+}
+
 export async function flushClarifications(p) {
     const commandName = p?.commandName;
     if (!commandName) return false;
-    if (clarificationFlushes.has(commandName)) return clarificationFlushes.get(commandName);
+    if (isClarificationFlushPending(commandName)) return clarificationFlushes.get(commandName);
     if (isPhaseRunning(commandName)) return false;
 
     const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
@@ -527,10 +531,12 @@ export async function openArtifactViewer(p) {
     const totalMarks = marks.length;
     const refreshPillState = (errorMessage = "") => {
         const answered = getPendingClarifications(p.commandName);
+        const submitting = isClarificationFlushPending(p.commandName);
         body?.querySelectorAll(".clarify-pill").forEach((btn) => {
             const idx = Number(btn.getAttribute("data-clarify-idx"));
             const q = marks[idx]?.question ?? "";
             const match = answered.find((c) => c.question === q);
+            btn.disabled = submitting;
             if (match) {
                 btn.textContent = "Answered ✓";
                 btn.classList.add("clarify-pill-answered");
@@ -548,17 +554,20 @@ export async function openArtifactViewer(p) {
                 banner.hidden = false;
                 banner.innerHTML = `
                     <span>${pending} clarification${pending === 1 ? "" : "s"} queued
-                    ${totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— will apply on close"}.</span>
+                    ${submitting ? "— applying now" : totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— ready to apply"}.</span>
                     ${errorMessage ? `<p class="wizard-modal-error">${escapeHtml(errorMessage)}</p>` : ""}
-                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now">Apply and Rerun</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now" ${submitting ? "disabled" : ""}>${submitting ? "Applying…" : "Apply and Rerun"}</button>
                 `;
                 banner.querySelector('[data-clarify-action="apply-now"]')?.addEventListener("click", async () => {
                     const btn = banner.querySelector('[data-clarify-action="apply-now"]');
+                    if (btn?.disabled) return;
                     if (btn) {
                         btn.disabled = true;
                         btn.textContent = "Applying…";
                     }
-                    const dispatched = await flushClarifications(p);
+                    const pendingFlush = flushClarifications(p);
+                    refreshPillState();
+                    const dispatched = await pendingFlush;
                     if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
                     else refreshPillState(dispatched ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
                 });
@@ -576,7 +585,9 @@ export async function openArtifactViewer(p) {
             refreshPillState();
             const pending = getPendingClarifications(p.commandName).length;
             if (pending >= totalMarks && totalMarks > 0) {
-                const dispatched = await flushClarifications(p);
+                const pendingFlush = flushClarifications(p);
+                refreshPillState();
+                const dispatched = await pendingFlush;
                 if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
                 else refreshPillState();
             }
@@ -588,6 +599,14 @@ export async function openArtifactViewer(p) {
 export async function closeArtifactViewer() {
     const root = document.getElementById("phase-artifact-viewer");
     const p = activeArtifactPhase;
+    if (p?.commandName && isClarificationFlushPending(p.commandName)) {
+        const banner = root?.querySelector(".artifact-viewer-clarify-banner");
+        if (banner) {
+            banner.hidden = false;
+            banner.innerHTML = `<span>Applying clarification rerun. Wait for it to finish before closing.</span>`;
+        }
+        return false;
+    }
     activeArtifactPhase = null;
     if (p?.commandName) {
         // Back-to-Wizard discards any queued clarifications — the
