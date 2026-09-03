@@ -42,6 +42,7 @@ function makeScannerFs(files) {
         return false;
     };
     return {
+        _store: store,
         pathExists: async (p) => store.has(norm(p)) || isDir(p),
         stat: async (p) => {
             const np = norm(p);
@@ -377,20 +378,100 @@ test("observePhaseProgress clears extension rerun lock when scanner-observed art
         };
 
         state.snapshot = await scanWorkspace("/proj", fs);
+        state.snapshot.composition = {
+            artifacts: [{
+                id: "commands/speckit.assess.intake",
+                kind: "command",
+                stack: [{ layer: "extension", active: true, presetId: "assess" }],
+            }],
+            extensions: [{ id: "assess", name: "Assess", version: "1.0.0" }],
+        };
         markPhaseRunning("speckit.assess.intake");
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+        let resolved = resolvePipelineEntry("speckit.assess.intake", state.snapshot);
+        assert.equal(resolved.phase.status, "in_progress");
 
         state.snapshot = await scanWorkspace("/proj", fs);
+        state.snapshot.composition = {
+            artifacts: [{
+                id: "commands/speckit.assess.intake",
+                kind: "command",
+                stack: [{ layer: "extension", active: true, presetId: "assess" }],
+            }],
+            extensions: [{ id: "assess", name: "Assess", version: "1.0.0" }],
+        };
         observePhaseProgress();
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
+        resolved = resolvePipelineEntry("speckit.assess.intake", state.snapshot);
+        assert.equal(resolved.phase.status, "in_progress");
 
         artifactMtimeMs = Date.parse("2026-01-01T00:01:00.000Z");
         state.snapshot = await scanWorkspace("/proj", fs);
+        state.snapshot.composition = {
+            artifacts: [{
+                id: "commands/speckit.assess.intake",
+                kind: "command",
+                stack: [{ layer: "extension", active: true, presetId: "assess" }],
+            }],
+            extensions: [{ id: "assess", name: "Assess", version: "1.0.0" }],
+        };
         observePhaseProgress();
         assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
+        resolved = resolvePipelineEntry("speckit.assess.intake", state.snapshot);
+        assert.equal(resolved.phase.status, "done");
+        assert.equal(resolved.phase.artifactPath, ".specify/assessments/demo/intake.md");
         assert.ok(renders >= 2);
     } finally {
         clearPhaseRunning("speckit.assess.intake");
+        setRunLockDeps({ render: () => {} });
+        state.snapshot = null;
+    }
+});
+
+test("resolvePipelineEntry suppresses core artifact readiness only while owner command is running", async () => {
+    let renders = 0;
+    setRunLockDeps({ render: () => { renders += 1; } });
+    try {
+        const fs = makeScannerFs({
+            "/proj/.specify": "__DIR__",
+            "/proj/specs/feature/spec.md": "<!-- speckit:specify v1 -->\nready",
+            "/proj/.speckit-wizard/state.json": JSON.stringify({
+                phases: {
+                    specify: {
+                        status: "done",
+                        lastRunAt: "2026-01-01T00:00:00.000Z",
+                    },
+                },
+            }),
+        });
+
+        state.snapshot = await scanWorkspace("/proj", fs);
+        let resolved = resolvePipelineEntry("specify", state.snapshot);
+        assert.equal(resolved.phase.status, "done");
+
+        markPhaseRunning("speckit.specify");
+        resolved = resolvePipelineEntry("specify", state.snapshot);
+        assert.equal(resolved.phase.status, "in_progress");
+        assert.equal(resolved.phase.artifactPath, "specs/feature/spec.md");
+
+        fs._store.set("/proj/.speckit-wizard/state.json", JSON.stringify({
+            phases: {
+                specify: {
+                    status: "done",
+                    lastRunAt: "2026-01-01T00:01:00.000Z",
+                },
+            },
+        }));
+        state.snapshot = await scanWorkspace("/proj", fs);
+        observePhaseProgress();
+
+        assert.equal(state.phaseRunning.has("speckit.specify"), false);
+        resolved = resolvePipelineEntry("specify", state.snapshot);
+        assert.equal(resolved.phase.status, "done");
+        assert.equal(resolved.phase.artifactPath, "specs/feature/spec.md");
+        assert.ok(renders >= 2);
+    } finally {
+        clearPhaseRunning("speckit.specify");
         setRunLockDeps({ render: () => {} });
         state.snapshot = null;
     }

@@ -35,9 +35,10 @@ export const MAX_FILE_BYTES = 512 * 1024; // 512 KB safety cap on any single rea
 export const MAX_MARKDOWN_PREVIEW = 8 * 1024; // 8 KB preview to keep state light
 
 // Regex matching template placeholder tokens like [PROJECT_NAME], [FEATURE],
-// or [DATE]. Deliberately excludes Spec Kit task markers like [P], [US1],
-// and [US10] so completed tasks artifacts don't look like raw templates.
-export const PLACEHOLDER_TOKEN_RE = /\[(?!(?:P|US\d+)\])[A-Z][A-Z0-9_]{3,}\]/g;
+// or [DATE]. Deliberately excludes only known Spec Kit task markers like
+// [P], [ID], [US1], and [US10] so completed tasks artifacts don't look like
+// raw templates while short real placeholders like [API] still count.
+export const PLACEHOLDER_TOKEN_RE = /\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
 
 // Strip HTML comment blocks (`<!-- … -->`) before running placeholder
 // detection. The constitution SKILL prescribes a "Sync Impact Report" at

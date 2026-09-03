@@ -164,6 +164,10 @@ export function clearPhaseRunning(commandName) {
     __render();
 }
 
+export function isPhaseRunning(commandName) {
+    return !!commandName && state.phaseRunning.has(commandName);
+}
+
 // Called after each state snapshot lands. Clears `phaseRunning` on the
 // first positive completion signal from EITHER of two consistent channels
 // that every phase produces via setPhaseStatus:
@@ -219,13 +223,15 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const commandName = `speckit.${id}`;
+        const running = isPhaseRunning(commandName);
         return {
             kind: "core",
             id,
             phase: {
                 id,
                 name: canonicalLabel(id),
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: isCanonicalOptional(id),
                 locked: false,
                 // Required so the phase card's Run phase submit path can
@@ -235,7 +241,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 // the server silently rejects — Run phase button appears
                 // to do nothing. Mirrors synthesizeCanonicalPhase() in
                 // app.js which uses the same `speckit.<id>` convention.
-                commandName: `speckit.${id}`,
+                commandName,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
                 ...(scanned?.folderPath ? { folderPath: scanned.folderPath } : {}),
@@ -256,6 +262,7 @@ export function resolvePipelineEntry(id, snapshot) {
         // way core phases do.
         const phaseKey = id.startsWith("commands/") ? id : `commands/${id}`;
         const scanned = snapshot?.phases?.[phaseKey] ?? snapshot?.phases?.[id] ?? null;
+        const running = isPhaseRunning(extResolved.commandName);
         return {
             kind: "extension",
             id,
@@ -265,7 +272,7 @@ export function resolvePipelineEntry(id, snapshot) {
             phase: {
                 id,
                 name: extResolved.shortLabel,
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: false,
                 locked: false,
                 commandName: extResolved.commandName,

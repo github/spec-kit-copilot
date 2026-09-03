@@ -851,6 +851,20 @@ test("scanWorkspace still flags a genuinely unfilled constitution template", asy
     assert.equal(scan.phases.constitution.status, "empty");
 });
 
+test("scanWorkspace still flags short uppercase placeholder tokens", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/spec.md": [
+            "# Feature",
+            "",
+            "Call the [API] endpoint and render the [URL].",
+        ].join("\n"),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.specify.status, "empty");
+    assert.equal(scan.phases.specify.artifactPath, "specs/feature/spec.md");
+});
+
 test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
@@ -881,8 +895,8 @@ test("scanWorkspace treats task markers as task content, not template placeholde
         "/proj/specs/feature/tasks.md": [
             "# Tasks",
             "",
-            "- [ ] T001 [P] [US1] Write unit tests",
-            "- [ ] T002 [US1] Implement feature path",
+            "- [ ] T001 [P] [US1] [ID] Write unit tests",
+            "- [ ] T002 [US1] [ID] Implement feature path",
             "- [ ] T010 [P] [US10] Add reporting flow",
             "- [ ] T011 [US11] Wire admin flow",
         ].join("\n"),
