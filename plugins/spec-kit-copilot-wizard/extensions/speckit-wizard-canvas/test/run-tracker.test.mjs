@@ -15,15 +15,15 @@ afterEach(() => {
     setSession(null);
 });
 
-test("run tracker keeps runs active through question, idle, and answer until terminal status", () => {
+test("run tracker keeps any phase active through question, idle, and answer until terminal status", () => {
     const changes = [];
     const session = new EventEmitter();
     setSession(session);
     configureRunTracker({ onChange: (runs) => changes.push(runs) });
 
-    const run = beginRun("speckit.clarify", { startedAtMs: 1_000 });
+    const run = beginRun("speckit.plan", { startedAtMs: 1_000 });
 
-    assert.equal(run.commandName, "speckit.clarify");
+    assert.equal(run.commandName, "speckit.plan");
     assert.equal(activeRunsSnapshot().length, 1);
 
     session.emit("user_input.requested", {
@@ -43,7 +43,7 @@ test("run tracker keeps runs active through question, idle, and answer until ter
     assert.equal(activeRunsSnapshot().length, 1);
 
     reconcileRunsWithPhases({
-        clarify: {
+        plan: {
             status: "done",
             lastRunAt: new Date(1_500).toISOString(),
         },

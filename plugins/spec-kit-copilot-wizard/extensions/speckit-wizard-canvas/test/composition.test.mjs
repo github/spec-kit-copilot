@@ -442,7 +442,7 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
     }
 });
 
-test("renderPhaseCard locks later required phases while clarify is still active", () => {
+test("renderPhaseCard locks later required phases while an earlier required phase is active", () => {
     let renderedPhase = null;
     const priorDocument = globalThis.document;
     globalThis.document = {
@@ -452,7 +452,7 @@ test("renderPhaseCard locks later required phases while clarify is still active"
         renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
     });
     try {
-        state.currentPhase = "plan";
+        state.currentPhase = "tasks";
         state.snapshot = {
             projectInitialized: true,
             setup: {
@@ -461,27 +461,27 @@ test("renderPhaseCard locks later required phases while clarify is still active"
                 projectInitialized: true,
                 skillsReloaded: true,
             },
-            pipeline: [{ id: "specify" }, { id: "clarify" }, { id: "plan" }],
+            pipeline: [{ id: "specify" }, { id: "plan" }, { id: "tasks" }],
             phases: {
                 specify: { status: "done" },
-                clarify: { status: "in_progress" },
-                plan: { status: "empty" },
+                plan: { status: "in_progress" },
+                tasks: { status: "empty" },
             },
             commands: [
                 { id: "specify", commandName: "speckit.specify", status: "done" },
-                { id: "clarify", commandName: "speckit.clarify", status: "in_progress" },
-                { id: "plan", commandName: "speckit.plan", status: "empty" },
+                { id: "plan", commandName: "speckit.plan", status: "in_progress" },
+                { id: "tasks", commandName: "speckit.tasks", status: "empty" },
             ],
             composition: { artifacts: [] },
         };
-        markPhaseRunning("speckit.clarify");
+        markPhaseRunning("speckit.plan");
 
         renderPhaseCard();
 
-        assert.equal(renderedPhase?.id, "plan");
+        assert.equal(renderedPhase?.id, "tasks");
         assert.equal(renderedPhase?.locked, true);
     } finally {
-        clearPhaseRunning("speckit.clarify");
+        clearPhaseRunning("speckit.plan");
         setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
         state.snapshot = null;
         state.currentPhase = "constitution";
