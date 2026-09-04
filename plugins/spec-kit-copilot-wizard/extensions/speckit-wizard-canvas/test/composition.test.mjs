@@ -35,6 +35,7 @@ import {
     setPhaseCardDeps,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
+import { buildExecutionReport } from "../ui/phase-contributors.js";
 import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 
 function makeScannerFs(files) {
@@ -470,6 +471,33 @@ test("renderPhaseCard ignores earlier optional phase metadata when deciding lock
         if (priorDocument === undefined) delete globalThis.document;
         else globalThis.document = priorDocument;
     }
+});
+
+test("buildExecutionReport ignores previous witness reports after terminal failure", () => {
+    const snapshotState = {
+        snapshot: {
+            composition: {
+                executionReports: {
+                    "commands/speckit.plan": {
+                        expected: { templates: ["plan-template"], scripts: [], hooks: [] },
+                        artifacts: {
+                            template: { "plan-template": { state: "executed" } },
+                            script: {},
+                            hook: {},
+                        },
+                    },
+                },
+            },
+        },
+    };
+
+    const failed = buildExecutionReport(snapshotState, "speckit.plan", "error");
+    assert.equal(failed.hasReport, false);
+    assert.equal(failed.runtimePillFor("template", "plan-template"), "");
+
+    const succeeded = buildExecutionReport(snapshotState, "speckit.plan", "done");
+    assert.equal(succeeded.hasReport, true);
+    assert.match(succeeded.runtimePillFor("template", "plan-template"), /Executed/);
 });
 
 test("renderMoreCommandsPanel keeps Core canonicals when presets add new commands", () => {

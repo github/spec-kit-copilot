@@ -156,7 +156,7 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
         `- Success: call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg}${runIdArg} })\` after the skill's normal work is complete.`,
         `- Optional phase intentionally bypassed: call \`setPhaseStatus({ phase: "${phaseId}", status: "skipped"${runIdArg} })\`.`,
         `- Declined checklist gate, checklist rejection, cancellation, validation failure, skill/tool failure, or any other blocker: call \`setPhaseStatus({ phase: "${phaseId}", status: "error"${runIdArg} })\`.`,
-        `Do not leave the phase in progress, and do not omit this terminal callback because the wizard's Run button stays locked until it receives one or the safety timeout expires.`,
+        `Do not leave the phase in progress, and do not omit this terminal callback: it updates the wizard's saved phase status and lets stale callbacks be rejected. Chat remains the progress surface, and scanner-confirmed files control artifact buttons.`,
     ];
     // Attach the closed-list witness ask so the agent self-reports which of
     // the phase's expected templates / scripts / hooks it actually invoked.
