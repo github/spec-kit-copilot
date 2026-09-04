@@ -142,6 +142,30 @@ test("run tracker clears extension runs on correlated session completion when ar
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
 });
 
+test("run tracker correlates only one queued run to each session turn", () => {
+    const session = new EventEmitter();
+    setSession(session);
+    configureRunTracker();
+
+    const first = beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    const second = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 1_010 });
+
+    session.emit("assistant.turn_start", { timestamp: new Date(1_100).toISOString() });
+    session.emit("assistant.turn_end", { timestamp: new Date(1_500).toISOString() });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), [{
+        runId: second.runId,
+        commandName: "speckit.implement",
+        startedAt: new Date(1_010).toISOString(),
+    }]);
+
+    session.emit("assistant.turn_start", { timestamp: new Date(1_600).toISOString() });
+    session.emit("assistant.turn_end", { timestamp: new Date(1_900).toISOString() });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+    assert.ok(first.runId);
+});
+
 test("run tracker ignores stale terminal session activity without a post-dispatch turn start", () => {
     const session = new EventEmitter();
     setSession(session);

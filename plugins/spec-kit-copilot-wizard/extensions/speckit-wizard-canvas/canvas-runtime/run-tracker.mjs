@@ -110,12 +110,13 @@ export function __resetRunTrackerForTests() {
 function handleSessionActivity(event) {
     if (!event) return;
     if (!activeRuns.size) return;
+    if (event.kind === "turn-start") {
+        correlateRunWithTurnStart(event.at);
+        emitChange();
+        return;
+    }
     let changed = false;
     for (const [key, run] of Array.from(activeRuns.entries())) {
-        if (event.kind === "turn-start" && event.at >= run.startedAtMs) {
-            run.turnStartedAtMs = event.at;
-            continue;
-        }
         if (!isTerminalSessionActivity(event)) continue;
         if (event.awaitingUserInput) continue;
         if (!Number.isFinite(run.turnStartedAtMs)) continue;
@@ -129,6 +130,18 @@ function handleSessionActivity(event) {
         return;
     }
     emitChange();
+}
+
+function correlateRunWithTurnStart(turnStartedAtMs) {
+    const nextRun = Array.from(activeRuns.values())
+        .filter((run) => !Number.isFinite(run.turnStartedAtMs) && turnStartedAtMs >= run.startedAtMs)
+        .sort((a, b) => a.startedAtMs - b.startedAtMs || runSequence(a) - runSequence(b))[0];
+    if (nextRun) nextRun.turnStartedAtMs = turnStartedAtMs;
+}
+
+function runSequence(run) {
+    const parsed = Number.parseInt(String(run?.runId ?? "").replace(/^run-/, ""), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isTerminalSessionActivity(event) {
