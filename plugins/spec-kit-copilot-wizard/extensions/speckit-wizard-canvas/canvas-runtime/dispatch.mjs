@@ -35,30 +35,19 @@ import {
 import {
     beginRun,
     clearRun,
-    failSessionDispatch,
-    markSessionDispatchSent,
-    phaseKeyForCommand,
-    registerSessionDispatch,
 } from "./run-tracker.mjs";
 
 // -------- Section: deferred send --------
 // Defer the actual SDK send so the caller does not do it on the current stack,
 // but return a promise for the handoff. Agent-side errors still surface in
-// chat; transport/session failures reject so callers can correct their local
-// queued/run state instead of leaving stale active runs behind.
-export function dispatchPromptToSession({ prompt, run = null, instanceId = null }) {
-    const dispatchId = registerSessionDispatch({
-        instanceId,
-        commandName: run?.commandName,
-        runId: run?.runId,
-    });
+// chat; transport/session failures reject so callers can clear local UI
+// acknowledgement state immediately.
+export function dispatchPromptToSession({ prompt }) {
     return new Promise((resolve, reject) => {
         setImmediate(async () => {
             try {
-                markSessionDispatchSent(dispatchId);
                 resolve(await sessionAdapter().send({ prompt }));
             } catch (err) {
-                failSessionDispatch(dispatchId);
                 reject(err);
             }
         });
@@ -129,7 +118,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
         installedPresetCount,
         installedExtensionCount,
     });
-    await dispatchPromptToSession({ prompt, instanceId: inst?.instanceId });
+    await dispatchPromptToSession({ prompt });
     return { prompt, kind };
 }
 
@@ -161,19 +150,9 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
             expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
         } catch { /* best-effort */ }
     }
-    // A tracked run only clears via a completion signal `reconcileRunsWithPhases`
-    // can observe: the tracking preamble (agent self-reports via
-    // `setPhaseStatus`), or a scanner-declared artifact target (writesTo
-    // resolves to a terminal status, or a folder-fallback signal) for
-    // extension commands that get no preamble. Without either, the run
-    // would sit locked for the full safety timeout on every invocation, so
-    // skip tracking rather than start a run nothing will ever clear early.
-    const hasArtifactSignal = Boolean(
-        inst?.cwdBoundState?.phases?.[phaseKeyForCommand(commandName)]?.artifactPath,
-    );
-    const run = (phaseId || hasArtifactSignal)
-        ? beginRun(inst?.instanceId, commandName)
-        : null;
+    // Only canonical phases get a status token for stale callback rejection.
+    // Extension artifact availability is scanner-driven; chat owns progress.
+    const run = phaseId ? beginRun(inst?.instanceId, commandName) : null;
     if (phaseId) {
         const preamble = buildWorkflowTrackingPreamble({
             commandName,
@@ -184,9 +163,9 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
         if (preamble) prompt = `${prompt}\n${preamble}`;
     }
     try {
-        await dispatchPromptToSession({ prompt, run, instanceId: inst?.instanceId });
+        await dispatchPromptToSession({ prompt });
     } catch (err) {
-        if (run) clearRun(inst?.instanceId, commandName);
+        if (run) clearRun(inst?.instanceId, commandName, run.runId);
         throw err;
     }
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };

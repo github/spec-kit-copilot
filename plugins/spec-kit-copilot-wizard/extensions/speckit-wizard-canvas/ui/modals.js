@@ -459,7 +459,6 @@ export async function flushClarifications(p) {
             markPhaseRunning(commandName);
             const result = await __postJson("/api/phase/submit", { commandName, args });
             if (!result) throw new Error("phase submit did not return a queued response");
-            if (result.untracked === true) clearPhaseRunning(commandName);
             setPhaseLastSubmitted(commandName, args);
             clearSubmittedClarifications(commandName, list);
             return true;
@@ -756,9 +755,8 @@ export async function openCatalogViewer(remoteUrl, title) {
 // Redo confirm modal (screenshot 2)
 // -----------------------------------------------------------------------
 export function openRedoModal(p, draftOverride) {
-    // Deprecated: the "Run again" flow now uses a small anchored yes/no
-    // popover (see wireGraphPhaseCard). Kept as a thin shim for any
-    // legacy caller, but no longer used by the phase-card UI.
+    // Thin shim for callers that still target the modal-style redo API.
+    // The phase-card UI uses an anchored yes/no popover.
     void p; void draftOverride;
 }
 

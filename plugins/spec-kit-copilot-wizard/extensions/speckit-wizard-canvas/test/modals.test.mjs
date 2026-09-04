@@ -52,7 +52,7 @@ describe("modal clarification flushing", () => {
         clearPhaseRunning("speckit.plan");
     });
 
-    test("clears optimistic run lock when clarification submit is untracked", async () => {
+    test("keeps local running acknowledgement after successful untracked clarification submit", async () => {
         setViewersDeps({
             postJson: async () => ({ queued: true, untracked: true }),
         });
@@ -62,6 +62,7 @@ describe("modal clarification flushing", () => {
         const dispatched = await flushClarifications({ commandName: "speckit.plan" });
 
         assert.equal(dispatched, true);
-        assert.equal(isPhaseRunning("speckit.plan"), false);
+        assert.equal(isPhaseRunning("speckit.plan"), true);
+        clearPhaseRunning("speckit.plan");
     });
 });

@@ -110,12 +110,10 @@ export function setPhaseLastSubmitted(commandName, value) {
 }
 
 
-// -------- Section: phase/run-lock.js --------
+// -------- Section: phase/run-ack.js --------
 
-export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
+export const PHASE_RUN_ACK_MS = 3 * 1000;
 const _phaseRunTimers = new Map();
-const _phaseRunStartedAt = new Map();
-const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 let __render = () => {};
 
@@ -123,26 +121,18 @@ export function setRunLockDeps({ render }) {
     if (typeof render === "function") __render = render;
 }
 
-function _phaseIdForCommand(commandName) {
-    if (typeof commandName !== "string") return null;
-    if (commandName.startsWith("commands/")) return commandName;
-    if (!commandName.startsWith("speckit.")) return commandName;
-    const bare = commandName.slice("speckit.".length);
-    return isCanonical(bare) ? bare : `commands/${commandName}`;
-}
-
-export function markPhaseRunning(commandName, { safetyMs = PHASE_RUN_SAFETY_MS } = {}) {
+// This is an acknowledgement animation, not authoritative execution state:
+// chat owns live progress and the scanner owns artifact availability.
+export function markPhaseRunning(commandName, { durationMs = PHASE_RUN_ACK_MS } = {}) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
-    _phaseRunStartedAt.set(commandName, Date.now());
-    resetPhaseRunTimer(commandName, safetyMs);
+    resetPhaseRunTimer(commandName, durationMs);
     __render();
 }
 
 export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
-    _phaseRunStartedAt.delete(commandName);
     clearPhaseRunTimer(commandName);
     __render();
 }
@@ -151,43 +141,14 @@ export function isPhaseRunning(commandName) {
     return !!commandName && state.phaseRunning.has(commandName);
 }
 
-// Called after each state snapshot lands. Server-provided activeRuns are the
-// authoritative run state; lastRunAt/terminal status remain a compatibility
-// fast path for legacy or race-window snapshots that lack activeRuns.
 export function observePhaseProgress() {
-    const serverRuns = Array.isArray(state.snapshot?.activeRuns) ? state.snapshot.activeRuns : null;
-    const serverActive = new Set();
-    if (serverRuns) {
-        for (const run of serverRuns) {
-            const commandName = typeof run?.commandName === "string" ? run.commandName : null;
-            if (!commandName) continue;
-            serverActive.add(commandName);
-            state.phaseRunning.add(commandName);
-            const startedAtMs = Date.parse(run.startedAt);
-            if (Number.isFinite(startedAtMs) && !_phaseRunStartedAt.has(commandName)) {
-                _phaseRunStartedAt.set(commandName, startedAtMs);
-            }
-        }
-    }
-    if (!state.phaseRunning.size) return;
-    for (const commandName of Array.from(state.phaseRunning)) {
-        if (serverRuns && serverActive.has(commandName)) continue;
-        const phaseId = _phaseIdForCommand(commandName);
-        const phase = state.snapshot?.phases?.[phaseId];
-        const startedAt = _phaseRunStartedAt.get(commandName) ?? 0;
-        const currentLastRunAt = phase?.lastRunAt ?? null;
-        const lastRunAtAdvanced = Date.parse(currentLastRunAt) > startedAt;
-        const terminalTransition = TERMINAL_PHASE_STATUSES.has(phase?.status);
-        if (serverRuns || (terminalTransition && lastRunAtAdvanced)) {
-            clearPhaseRunning(commandName);
-        }
-    }
+    // State snapshots refresh artifact/status data; running feedback is local.
 }
 
-function resetPhaseRunTimer(commandName, safetyMs) {
+function resetPhaseRunTimer(commandName, durationMs) {
     clearPhaseRunTimer(commandName);
-    if (!Number.isFinite(safetyMs) || safetyMs <= 0) return;
-    const timer = setTimeout(() => clearPhaseRunning(commandName), safetyMs);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    const timer = setTimeout(() => clearPhaseRunning(commandName), durationMs);
     _phaseRunTimers.set(commandName, timer);
 }
 

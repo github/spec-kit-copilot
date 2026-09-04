@@ -33,7 +33,6 @@ export function buildStateSnapshot(scan) {
             environment: null,
             boot: null,
             depsError: null,
-            activeRuns: [],
             warnings: [],
         };
     }
@@ -147,7 +146,6 @@ export function buildStateSnapshot(scan) {
         environment: scan.environment ?? null,
         boot: scan.boot ?? null,
         depsError: scan.depsError ?? null,
-        activeRuns: Array.isArray(scan.activeRuns) ? scan.activeRuns : [],
         scaffoldedSkills: Array.isArray(scan.scaffoldedSkills) ? scan.scaffoldedSkills : [],
         warnings: Array.isArray(scan.warnings) ? scan.warnings.slice(0, 20) : [],
     };

@@ -324,78 +324,11 @@ test("resolvePipelineEntry: extension artifact whose active layer isn't extensio
     assert.equal(r.kind, "orphan");
 });
 
-test("observePhaseProgress clears extension run locks using commands/<id> phase slices", () => {
-    let renders = 0;
-    setRunLockDeps({ render: () => { renders += 1; } });
-    const completedAt = new Date(Date.now() + 60_000).toISOString();
-    try {
-        state.snapshot = {
-            phases: {
-                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
-            },
-        };
-        markPhaseRunning("speckit.assess.intake");
-        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
-
-        state.snapshot = {
-            phases: {
-                "commands/speckit.assess.intake": {
-                    status: "done",
-                    lastRunAt: completedAt,
-                    artifactPath: ".specify/assessments/demo/intake.md",
-                },
-            },
-        };
-        observePhaseProgress();
-
-        assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
-        assert.ok(renders >= 2);
-    } finally {
-        clearPhaseRunning("speckit.assess.intake");
-        setRunLockDeps({ render: () => {} });
-        state.snapshot = null;
-    }
-});
-
-test("observePhaseProgress reconciles active runs from server snapshots", () => {
+test("client phase running acknowledgement clears after its local duration", async () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
     try {
-        state.snapshot = {
-            activeRuns: [{
-                commandName: "speckit.assess.intake",
-                runId: "run-1",
-                startedAt: new Date().toISOString(),
-            }],
-            phases: {
-                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
-            },
-        };
-
-        observePhaseProgress();
-        assert.equal(state.phaseRunning.has("speckit.assess.intake"), true);
-
-        state.snapshot = {
-            activeRuns: [],
-            phases: {
-                "commands/speckit.assess.intake": { status: "empty", lastRunAt: null },
-            },
-        };
-        observePhaseProgress();
-        assert.equal(state.phaseRunning.has("speckit.assess.intake"), false);
-        assert.ok(renders >= 1);
-    } finally {
-        clearPhaseRunning("speckit.assess.intake");
-        setRunLockDeps({ render: () => {} });
-        state.snapshot = null;
-    }
-});
-
-test("client phase run lock clears on the safety timeout when no server status arrives", async () => {
-    let renders = 0;
-    setRunLockDeps({ render: () => { renders += 1; } });
-    try {
-        markPhaseRunning("speckit.implement", { safetyMs: 5 });
+        markPhaseRunning("speckit.implement", { durationMs: 5 });
         assert.equal(state.phaseRunning.has("speckit.implement"), true);
 
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -408,11 +341,10 @@ test("client phase run lock clears on the safety timeout when no server status a
     }
 });
 
-test("resolvePipelineEntry suppresses core artifact readiness only while owner command is running", async () => {
+test("local running acknowledgement temporarily displays in-progress without hiding artifact path", async () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
     const firstRunAt = new Date(Date.now() - 60_000).toISOString();
-    const secondRunAt = new Date(Date.now() + 60_000).toISOString();
     try {
         const fs = makeScannerFs({
             "/proj/.specify": "__DIR__",
@@ -431,21 +363,12 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
         let resolved = resolvePipelineEntry("specify", state.snapshot);
         assert.equal(resolved.phase.status, "done");
 
-        markPhaseRunning("speckit.specify");
+        markPhaseRunning("speckit.specify", { durationMs: 5 });
         resolved = resolvePipelineEntry("specify", state.snapshot);
         assert.equal(resolved.phase.status, "in_progress");
         assert.equal(resolved.phase.artifactPath, "specs/feature/spec.md");
 
-        fs._store.set("/proj/.speckit-wizard/state.json", JSON.stringify({
-            phases: {
-                specify: {
-                    status: "done",
-                    lastRunAt: secondRunAt,
-                },
-            },
-        }));
-        state.snapshot = await scanWorkspace("/proj", fs);
-        observePhaseProgress();
+        await new Promise((resolve) => setTimeout(resolve, 20));
 
         assert.equal(state.phaseRunning.has("speckit.specify"), false);
         resolved = resolvePipelineEntry("specify", state.snapshot);
@@ -684,6 +607,62 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.equal(openedArtifact, 0);
     } finally {
+        state.snapshot = null;
+        setGraphPhaseCardDeps({
+            openArtifactViewer: () => {},
+            renderPhaseCard: () => {},
+            renderStepper: () => {},
+        });
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderGraphPhaseCard does not show View artifact from local running acknowledgement alone", () => {
+    const el = {
+        innerHTML: "",
+        querySelector(selector) {
+            if (selector === '[data-phase-action="view"]') return null;
+            if (selector === "form.graph-phase-form" && this.innerHTML.includes("graph-phase-form")) {
+                return {
+                    querySelector: () => null,
+                    addEventListener: () => {},
+                };
+            }
+            return null;
+        },
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        activeElement: null,
+        getElementById: () => null,
+    };
+    setGraphPhaseCardDeps({
+        openArtifactViewer: () => {},
+        renderPhaseCard: () => {},
+        renderStepper: () => {},
+    });
+    state.snapshot = { pipeline: ["plan"], composition: { artifacts: [] } };
+
+    try {
+        markPhaseRunning("speckit.plan", { durationMs: 10_000 });
+        renderGraphPhaseCard(el, {
+            id: "plan",
+            name: "Plan",
+            status: "empty",
+            optional: false,
+            locked: false,
+            commandName: "speckit.plan",
+            artifact: "specs/<slug>/plan.md",
+            artifactPath: null,
+        });
+
+        assert.match(el.innerHTML, /Running/);
+        assert.match(el.innerHTML, /specs\/&lt;slug&gt;\/plan\.md/);
+        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+    } finally {
+        clearPhaseRunning("speckit.plan");
         state.snapshot = null;
         setGraphPhaseCardDeps({
             openArtifactViewer: () => {},

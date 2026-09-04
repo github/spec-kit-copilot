@@ -36,8 +36,6 @@ import { hydrateBundlesForSources } from "./catalog/bundles.mjs";
 import { PRESET_CATALOG_URL, EXTENSION_CATALOG_URL, BUNDLE_CATALOG_URL } from "./catalog/sources.mjs";
 import { snapshot } from "./canvas-runtime/snapshot.mjs";
 import { runFastComposition, normalizeHookArtifactsInComposition } from "./canvas-runtime/composition-apply.mjs";
-import { ensureSessionActivity } from "./canvas-runtime/session-activity.mjs";
-import { configureRunTracker } from "./canvas-runtime/run-tracker.mjs";
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
@@ -360,18 +358,6 @@ setSession(await joinSession({
         }),
     ],
 }));
-ensureSessionActivity();
-configureRunTracker({
-    onChange: () => {
-        for (const inst of instances.values()) {
-            if (!inst?.broadcast || !inst.workspacePath) continue;
-            snapshot(inst)
-                .then((snap) => inst.broadcast({ type: "state", data: snap }))
-                .catch(() => {});
-        }
-    },
-});
-
 // Late-bind session on any instance opened during startup races.
 for (const inst of instances.values()) inst._session = getSession();
 

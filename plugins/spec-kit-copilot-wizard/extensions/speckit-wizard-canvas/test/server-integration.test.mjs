@@ -24,13 +24,13 @@ import { summarizeResults } from "../env/probe.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
 import { buildPrompt, buildWorkflowTrackingPreamble, phaseIdForCommandName } from "../prompts.mjs";
 import { createHandler } from "../server.mjs";
+import { __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 import {
     applyPatch,
     EXECUTION_STATES,
     normalizeExecutionReports,
     normalizeState,
 } from "../state/store.mjs";
-import { activeRunsSnapshot, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 
 afterEach(() => {
     __resetRunTrackerForTests();
@@ -579,7 +579,6 @@ test("POST /api/phase/submit clears a tracked run when session.send fails", asyn
 
         assert.equal(res.statusCode, 400);
         assert.match(res.body, /session disconnected/);
-        assert.deepEqual(activeRunsSnapshot("inst-fail"), []);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -795,11 +794,10 @@ test("S7: buildStateSnapshot derives per-phase locked from durable setup complet
         phases: {},
         composition: { presets: [], extensions: [] },
         catalog: { presets: [] },
-        activeRuns: [{ commandName: "speckit.plan", runId: "run-1", startedAt: "2026-01-01T00:00:00.000Z" }],
         warnings: [],
     };
     const snapA = buildStateSnapshot(scanIncomplete);
-    assert.deepEqual(snapA.activeRuns, scanIncomplete.activeRuns);
+    assert.equal("activeRuns" in snapA, false);
     // Setup itself is never locked.
     assert.notEqual(snapA.phases.setup?.locked, true);
     // Everything else is.
