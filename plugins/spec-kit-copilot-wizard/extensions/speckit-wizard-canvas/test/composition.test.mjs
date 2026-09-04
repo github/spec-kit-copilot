@@ -442,7 +442,7 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
     }
 });
 
-test("renderPhaseCard locks later required phases while an earlier required phase is active", () => {
+test("renderPhaseCard keeps selected phases runnable when earlier phases are incomplete", () => {
     let renderedPhase = null;
     const priorDocument = globalThis.document;
     globalThis.document = {
@@ -452,7 +452,7 @@ test("renderPhaseCard locks later required phases while an earlier required phas
         renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
     });
     try {
-        state.currentPhase = "tasks";
+        state.currentPhase = "analyze";
         state.snapshot = {
             projectInitialized: true,
             setup: {
@@ -461,27 +461,69 @@ test("renderPhaseCard locks later required phases while an earlier required phas
                 projectInitialized: true,
                 skillsReloaded: true,
             },
-            pipeline: [{ id: "specify" }, { id: "plan" }, { id: "tasks" }],
+            pipeline: [{ id: "specify" }, { id: "plan" }, { id: "analyze" }],
             phases: {
-                specify: { status: "done" },
-                plan: { status: "in_progress" },
-                tasks: { status: "empty" },
+                specify: { status: "empty" },
+                plan: { status: "empty" },
+                analyze: { status: "empty" },
             },
             commands: [
-                { id: "specify", commandName: "speckit.specify", status: "done" },
-                { id: "plan", commandName: "speckit.plan", status: "in_progress" },
-                { id: "tasks", commandName: "speckit.tasks", status: "empty" },
+                { id: "specify", commandName: "speckit.specify", status: "empty", locked: false },
+                { id: "plan", commandName: "speckit.plan", status: "empty", locked: false },
+                { id: "analyze", commandName: "speckit.analyze", status: "empty", locked: false },
             ],
             composition: { artifacts: [] },
         };
-        markPhaseRunning("speckit.plan");
 
         renderPhaseCard();
 
-        assert.equal(renderedPhase?.id, "tasks");
-        assert.equal(renderedPhase?.locked, true);
+        assert.equal(renderedPhase?.id, "analyze");
+        assert.equal(renderedPhase?.locked, false);
     } finally {
-        clearPhaseRunning("speckit.plan");
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = null;
+        state.currentPhase = "constitution";
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderPhaseCard ignores earlier optional phase metadata when deciding locks", () => {
+    let renderedPhase = null;
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? { innerHTML: "" } : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
+    });
+    try {
+        state.currentPhase = "implement";
+        state.snapshot = {
+            projectInitialized: true,
+            setup: {
+                pluginInstalled: true,
+                cliInstalled: true,
+                projectInitialized: true,
+                skillsReloaded: true,
+            },
+            pipeline: [{ id: "taskstoissues" }, { id: "implement" }],
+            phases: {
+                taskstoissues: { status: "empty" },
+                implement: { status: "empty" },
+            },
+            commands: [
+                { id: "taskstoissues", commandName: "speckit.taskstoissues", status: "empty", optional: false, locked: false },
+                { id: "implement", commandName: "speckit.implement", status: "empty", locked: false },
+            ],
+            composition: { artifacts: [] },
+        };
+
+        renderPhaseCard();
+
+        assert.equal(renderedPhase?.id, "implement");
+        assert.equal(renderedPhase?.locked, false);
+    } finally {
         setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
         state.snapshot = null;
         state.currentPhase = "constitution";
