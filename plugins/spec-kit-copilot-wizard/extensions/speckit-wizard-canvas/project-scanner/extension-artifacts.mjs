@@ -23,7 +23,7 @@
 // This scanner is the read side. Writing / re-inference is the agent's
 // job, exposed via the wizard's HTTP surface (see server /api/inference/*).
 
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { emptyPhaseSlice } from "../canvas-runtime/wizard-phases.mjs";
 import { toPortable } from "./fs-helpers.mjs";
 import {
@@ -146,7 +146,8 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
                 continue;
             }
 
-            next.artifactPath = toPortable(resolvedPath);
+            const artifactRelPath = isAbsolute(resolvedPath) ? relative(cwd, abs) : resolvedPath;
+            next.artifactPath = toPortable(artifactRelPath);
             const safeArtifactPath = await secureExistingPath(abs, cwd, deps);
             if (safeArtifactPath) {
                 next.status = "done";
@@ -163,10 +164,8 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
             // link. Silent when the folder is also missing — the phase
             // simply hasn't been run yet.
             if (!safeArtifactPath) {
-                const parentRel = resolvedPath.includes("/")
-                    ? resolvedPath.slice(0, resolvedPath.lastIndexOf("/"))
-                    : "";
-                if (parentRel) {
+                const parentRel = dirname(artifactRelPath);
+                if (parentRel && parentRel !== ".") {
                     const parentAbs = join(cwd, parentRel);
                     const safeParentPath = await secureExistingPath(parentAbs, cwd, deps);
                     if (safeParentPath) {

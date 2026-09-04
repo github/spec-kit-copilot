@@ -1165,6 +1165,28 @@ test("scanWorkspace treats existing extension artifacts as done even with placeh
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/demo/intake.md");
 });
 
+test("scanWorkspace emits relative artifact paths for absolute in-workspace extension targets", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/intake.md": "intake",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: "/proj/.specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+
+    const scan = await scanWorkspace("/proj", fs);
+    const phase = scan.phases["commands/speckit.assess.intake"];
+    assert.equal(phase?.status, "done");
+    assert.equal(phase?.artifactPath, ".specify/assessments/demo/intake.md");
+});
+
 test("scanWorkspace keeps missing extension artifacts empty when realpath is unavailable", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
