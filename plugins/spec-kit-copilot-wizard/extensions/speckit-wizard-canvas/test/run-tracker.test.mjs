@@ -56,6 +56,41 @@ test("run tracker keeps any phase active through question, idle, and answer unti
     assert.ok(changes.length >= 2);
 });
 
+test("run tracker normalizes canonical hyphen commands before tracking", () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    const run = beginRun(INSTANCE, "speckit-plan", { startedAtMs: 1_000 });
+
+    assert.equal(run.commandName, "speckit.plan");
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), [{
+        runId: run.runId,
+        commandName: "speckit.plan",
+        startedAt: new Date(1_000).toISOString(),
+    }]);
+
+    reconcileRunsWithPhases(INSTANCE, {
+        plan: {
+            status: "done",
+            lastRunAt: new Date(1_500).toISOString(),
+        },
+    });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker treats canonical dot and hyphen forms as duplicate runs", () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+
+    assert.throws(
+        () => beginRun(INSTANCE, "speckit-plan", { startedAtMs: 2_000 }),
+        /run already active for speckit\.plan/,
+    );
+});
+
 test("run tracker clears runs when scanner observes a post-dispatch artifact timestamp", () => {
     setSession(new EventEmitter());
     configureRunTracker();

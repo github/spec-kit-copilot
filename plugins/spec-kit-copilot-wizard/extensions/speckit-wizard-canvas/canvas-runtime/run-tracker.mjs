@@ -38,13 +38,14 @@ export function configureRunTracker({ onChange } = {}) {
 }
 
 export function beginRun(instanceId, commandName, { startedAtMs = Date.now(), safetyMs = RUN_TRACKER_SAFETY_MS } = {}) {
-    if (!instanceId || !commandName) return null;
-    const key = runKey(instanceId, commandName);
-    if (activeRuns.has(key)) throw new Error(`run already active for ${commandName}`);
+    const trackedCommandName = normalizeTrackedCommandName(commandName);
+    if (!instanceId || !trackedCommandName) return null;
+    const key = runKey(instanceId, trackedCommandName);
+    if (activeRuns.has(key)) throw new Error(`run already active for ${trackedCommandName}`);
     const run = {
         runId: `run-${++sequence}`,
         instanceId,
-        commandName,
+        commandName: trackedCommandName,
         startedAt: new Date(startedAtMs).toISOString(),
         startedAtMs,
     };
@@ -55,7 +56,7 @@ export function beginRun(instanceId, commandName, { startedAtMs = Date.now(), sa
 }
 
 export function clearRun(instanceId, commandName) {
-    const key = runKey(instanceId, commandName);
+    const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
     if (!activeRuns.has(key)) return false;
     activeRuns.delete(key);
     clearSafetyTimer(key);
@@ -113,11 +114,22 @@ function handleSessionActivity(event) {
 }
 
 export function phaseKeyForCommand(commandName) {
-    if (typeof commandName !== "string") return "";
-    if (commandName.startsWith("commands/")) return commandName;
-    if (!commandName.startsWith("speckit.")) return commandName;
-    const phase = commandName.slice("speckit.".length);
+    const normalized = normalizeTrackedCommandName(commandName);
+    if (typeof normalized !== "string") return "";
+    if (normalized.startsWith("commands/")) return normalized;
+    if (!normalized.startsWith("speckit.")) return normalized;
+    const phase = normalized.slice("speckit.".length);
     return PHASE_BY_ID[phase] ? phase : `commands/${commandName}`;
+}
+
+function normalizeTrackedCommandName(commandName) {
+    if (typeof commandName !== "string") return "";
+    const name = commandName.startsWith("/") ? commandName.slice(1) : commandName;
+    const hyphenMatch = /^speckit-([a-z0-9_]+)$/i.exec(name);
+    if (hyphenMatch && PHASE_BY_ID[hyphenMatch[1]]) {
+        return `speckit.${hyphenMatch[1]}`;
+    }
+    return name;
 }
 
 function resetSafetyTimer(key, safetyMs) {
