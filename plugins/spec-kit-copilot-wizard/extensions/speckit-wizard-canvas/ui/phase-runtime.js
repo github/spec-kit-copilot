@@ -19,7 +19,7 @@ import {
     canonicalLabel,
     isCanonicalOptional,
 } from "../pipeline/canonical.mjs";
-import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
+import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
 
@@ -699,6 +699,11 @@ export function renderMoreCommandsPanel() {
         const canonicalAlias = CANONICAL_BY_FULL[bare];
         if (canonicalAlias) winnerByCmdId.set(canonicalAlias, active);
     }
+    const overriddenCanonicals = new Set();
+    for (const id of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
+        const winner = winnerByCmdId.get(id) || winnerByCmdId.get(`speckit.${id}`);
+        if (winner && winner.layer !== "core") overriddenCanonicals.add(id);
+    }
     const winnerSourceForPhase = (p) => {
         const cmd = p.commandName || p.id;
         const w = winnerByCmdId.get(cmd);
@@ -765,17 +770,16 @@ export function renderMoreCommandsPanel() {
         presetSectionHtmlParts.push(emitPresetSection(source, items));
     }
 
-    // CORE group: the full canonical Spec Kit surface. Active presets may
-    // also show customized versions in their own sections, but Core remains
-    // available so users can add the default command back to the pipeline.
-    // Shown regardless of pipeline membership. Synthesize minimal card shapes
-    // since these often aren't in commands(). CANONICAL_UNSEEDED (e.g.
-    // converge) is included too — canonical add-on-demand commands outside
-    // the default flow.
+    // CORE group: canonical commands that are addable as true Core entries.
+    // Omit commands already in the pipeline and canonicals whose active
+    // composition winner comes from a preset/extension, because the current
+    // pipeline schema stores only the bare id and would dispatch the override
+    // rather than the stock Core implementation.
+    const pipelineIds = new Set(pipelineItems().map((item) => stripCommandsPrefix(item?.id)));
     const coreCandidates = [
         ...canonicalSpine(),
         ...CANONICAL_UNSEEDED,
-    ];
+    ].filter((id) => !pipelineIds.has(id) && !overriddenCanonicals.has(id));
     const coreCards = coreCandidates
         .map((id) => __synthesizeCanonicalPhase(id))
         .sort((a, b) => collator.compare(a.shortLabel || a.id, b.shortLabel || b.id))

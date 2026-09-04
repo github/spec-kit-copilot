@@ -549,7 +549,7 @@ test("renderPhaseCard ignores earlier optional phase metadata when deciding lock
     }
 });
 
-test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions are installed", () => {
+test("renderMoreCommandsPanel keeps Core canonicals when presets add new commands", () => {
     const el = {
         innerHTML: "",
         querySelectorAll: () => [],
@@ -560,19 +560,20 @@ test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions ar
     };
     state.moreCollapsedSections = new Set();
     state.snapshot = {
+        pipeline: [{ id: "constitution" }],
         commands: [{
-            id: "commands/speckit.audit.report",
-            commandName: "speckit.audit.report",
-            shortLabel: "Report",
-            source: "extension:audit",
+            id: "commands/speckit.assess.intake",
+            commandName: "speckit.assess.intake",
+            shortLabel: "Intake",
+            source: "preset:assess",
         }],
         composition: {
-            presets: [],
-            extensions: [{ id: "audit", name: "Audit" }],
+            presets: [{ id: "assess", name: "Assess" }],
+            extensions: [],
             artifacts: [{
-                id: "commands/speckit.audit.report",
+                id: "commands/speckit.assess.intake",
                 kind: "command",
-                stack: [{ layer: "extension", active: true, extensionId: "audit", presetId: "audit", presetName: "Audit" }],
+                stack: [{ layer: "preset", active: true, presetId: "assess", presetName: "Assess" }],
             }],
         },
     };
@@ -581,7 +582,8 @@ test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions ar
         renderMoreCommandsPanel();
         assert.match(el.innerHTML, /data-mc-section="core"/);
         assert.equal((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length, 1);
-        assert.match(el.innerHTML, /data-mc-section="extension:audit"/);
+        assert.match(el.innerHTML, /data-mc-section="preset:preset:assess"/);
+        assert.match(el.innerHTML, /data-phase-id="commands\/speckit\.assess\.intake"/);
     } finally {
         state.snapshot = null;
         state.moreCollapsedSections = new Set();
@@ -590,7 +592,7 @@ test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions ar
     }
 });
 
-test("renderMoreCommandsPanel keeps Core canonicals even when presets customize them", () => {
+test("renderMoreCommandsPanel hides Core canonicals when presets customize them", () => {
     const el = {
         innerHTML: "",
         querySelectorAll: () => [],
@@ -601,6 +603,7 @@ test("renderMoreCommandsPanel keeps Core canonicals even when presets customize 
     };
     state.moreCollapsedSections = new Set();
     state.snapshot = {
+        pipeline: [{ id: "constitution" }],
         commands: [{
             id: "specify",
             commandName: "speckit.specify",
@@ -622,10 +625,10 @@ test("renderMoreCommandsPanel keeps Core canonicals even when presets customize 
         renderMoreCommandsPanel();
         assert.match(el.innerHTML, /data-mc-section="preset:preset:lean"/);
         assert.match(el.innerHTML, /data-mc-section="core"/);
-        const coreCount = canonicalSpine().length + CANONICAL_UNSEEDED.length;
+        const coreCount = canonicalSpine().length + CANONICAL_UNSEEDED.length - 2;
         assert.match(el.innerHTML, new RegExp(`mc-group-count">${coreCount}</span>`));
-        assert.ok((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length >= 2);
-        assert.equal((el.innerHTML.match(/data-phase-id="constitution"/g) ?? []).length, 1);
+        assert.equal((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length, 1);
+        assert.equal((el.innerHTML.match(/data-phase-id="constitution"/g) ?? []).length, 0);
         assert.equal((el.innerHTML.match(/data-phase-id="plan"/g) ?? []).length, 1);
         assert.match(el.innerHTML, /Core • Customized/);
     } finally {
