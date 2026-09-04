@@ -133,8 +133,9 @@ function handleSessionActivity(event) {
 }
 
 function correlateRunWithTurnStart(turnStartedAtMs) {
+    if (Array.from(activeRuns.values()).some((run) => Number.isFinite(run.turnStartedAtMs))) return;
     const nextRun = Array.from(activeRuns.values())
-        .filter((run) => !Number.isFinite(run.turnStartedAtMs) && turnStartedAtMs >= run.startedAtMs)
+        .filter((run) => turnStartedAtMs >= run.startedAtMs)
         .sort((a, b) => a.startedAtMs - b.startedAtMs || runSequence(a) - runSequence(b))[0];
     if (nextRun) nextRun.turnStartedAtMs = turnStartedAtMs;
 }
@@ -154,7 +155,7 @@ export function phaseKeyForCommand(commandName) {
     if (normalized.startsWith("commands/")) return normalized;
     if (!normalized.startsWith("speckit.")) return normalized;
     const phase = normalized.slice("speckit.".length);
-    return PHASE_BY_ID[phase] ? phase : `commands/${commandName}`;
+    return PHASE_BY_ID[phase] ? phase : `commands/${normalized}`;
 }
 
 function normalizeTrackedCommandName(commandName) {
