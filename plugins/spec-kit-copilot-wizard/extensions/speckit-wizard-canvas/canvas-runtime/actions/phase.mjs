@@ -81,11 +81,12 @@ export const phaseActions = [
                 phase: { type: "string", enum: PHASE_ORDER },
                 status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
                 artifactPath: { type: "string" },
+                runId: { type: "string" },
             },
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
-                const { phase, status, artifactPath } = ctx.input ?? {};
+                const { phase, status, artifactPath, runId } = ctx.input ?? {};
                 if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
                 await persistAndBroadcast(inst, {
                     phases: {
@@ -97,7 +98,7 @@ export const phaseActions = [
                     },
                 });
                 if (["done", "skipped", "error"].includes(status)) {
-                    clearRun(inst.instanceId, `speckit.${phase}`);
+                    clearRun(inst.instanceId, `speckit.${phase}`, runId);
                 }
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.

@@ -15,11 +15,13 @@ import { PHASE_BY_ID } from "./wizard-phases.mjs";
 export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
-// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs, turnStartedAtMs }
+// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs, turnStartedAtMs, timedOut }
 const activeRuns = new Map();
+const dispatchQueue = [];
 const safetyTimers = new Map();
 const listeners = new Set();
 let sequence = 0;
+let dispatchSequence = 0;
 let activitySubscription = null;
 
 function runKey(instanceId, commandName) {
@@ -55,20 +57,57 @@ export function beginRun(instanceId, commandName, { startedAtMs = Date.now(), sa
     return { runId: run.runId, commandName: run.commandName, startedAt: run.startedAt };
 }
 
-export function clearRun(instanceId, commandName) {
+export function clearRun(instanceId, commandName, runId = null) {
     const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
-    if (!activeRuns.has(key)) return false;
-    activeRuns.delete(key);
-    clearSafetyTimer(key);
+    const run = activeRuns.get(key);
+    if (!run) return false;
+    if (runId && run.runId !== runId) return false;
+    if (run.timedOut && !runId) return false;
+    removeRun(key);
     emitChange();
     return true;
 }
 
 export function activeRunsSnapshot(instanceId) {
     return Array.from(activeRuns.values())
-        .filter((run) => run.instanceId === instanceId)
+        .filter((run) => run.instanceId === instanceId && !run.timedOut)
         .sort((a, b) => a.startedAtMs - b.startedAtMs)
         .map(({ runId, commandName, startedAt }) => ({ runId, commandName, startedAt }));
+}
+
+export function registerSessionDispatch({ instanceId = null, commandName = null, runId = null } = {}) {
+    const trackedCommandName = normalizeTrackedCommandName(commandName);
+    const key = instanceId && trackedCommandName && runId
+        ? runKey(instanceId, trackedCommandName)
+        : null;
+    const dispatch = {
+        dispatchId: `dispatch-${++dispatchSequence}`,
+        instanceId,
+        commandName: trackedCommandName || null,
+        runId: runId || null,
+        runKey: key,
+        sent: false,
+        turnStartedAtMs: null,
+    };
+    dispatchQueue.push(dispatch);
+    return dispatch.dispatchId;
+}
+
+export function markSessionDispatchSent(dispatchId, sentAtMs = Date.now()) {
+    const dispatch = dispatchQueue.find((item) => item.dispatchId === dispatchId);
+    if (!dispatch) return false;
+    dispatch.sent = true;
+    dispatch.sentAtMs = sentAtMs;
+    return true;
+}
+
+export function failSessionDispatch(dispatchId) {
+    const index = dispatchQueue.findIndex((item) => item.dispatchId === dispatchId);
+    if (index < 0) return false;
+    const [dispatch] = dispatchQueue.splice(index, 1);
+    const changed = clearDispatchRun(dispatch);
+    if (changed) emitChange();
+    return true;
 }
 
 export function reconcileRunsWithPhases(instanceId, phases) {
@@ -87,8 +126,7 @@ export function reconcileRunsWithPhases(instanceId, phases) {
         if (!hasCompletionSignal) continue;
         const lastRunAtMs = Date.parse(phase?.lastRunAt);
         if (Number.isFinite(lastRunAtMs) && lastRunAtMs > run.startedAtMs) {
-            activeRuns.delete(key);
-            clearSafetyTimer(key);
+            removeRun(key);
             changed = true;
         }
     }
@@ -99,8 +137,10 @@ export function reconcileRunsWithPhases(instanceId, phases) {
 export function __resetRunTrackerForTests() {
     for (const key of Array.from(safetyTimers.keys())) clearSafetyTimer(key);
     activeRuns.clear();
+    dispatchQueue.length = 0;
     listeners.clear();
     sequence = 0;
+    dispatchSequence = 0;
     if (activitySubscription) {
         try { activitySubscription(); } catch { /* ignore */ }
         activitySubscription = null;
@@ -109,21 +149,21 @@ export function __resetRunTrackerForTests() {
 
 function handleSessionActivity(event) {
     if (!event) return;
-    if (!activeRuns.size) return;
+    if (!activeRuns.size && !dispatchQueue.length) return;
     if (event.kind === "turn-start") {
         correlateRunWithTurnStart(event.at);
         emitChange();
         return;
     }
     let changed = false;
-    for (const [key, run] of Array.from(activeRuns.entries())) {
-        if (!isTerminalSessionActivity(event)) continue;
-        if (event.awaitingUserInput) continue;
-        if (!Number.isFinite(run.turnStartedAtMs)) continue;
-        if (event.at < run.turnStartedAtMs) continue;
-        activeRuns.delete(key);
-        clearSafetyTimer(key);
-        changed = true;
+    if (isTerminalSessionActivity(event) && !event.awaitingUserInput) {
+        const dispatchIndex = dispatchQueue.findIndex((item) => Number.isFinite(item.turnStartedAtMs));
+        if (dispatchIndex >= 0) {
+            const [dispatch] = dispatchQueue.splice(dispatchIndex, 1);
+            if (event.at >= dispatch.turnStartedAtMs) {
+                changed = clearDispatchRun(dispatch);
+            }
+        }
     }
     if (changed) {
         emitChange();
@@ -133,16 +173,11 @@ function handleSessionActivity(event) {
 }
 
 function correlateRunWithTurnStart(turnStartedAtMs) {
-    if (Array.from(activeRuns.values()).some((run) => Number.isFinite(run.turnStartedAtMs))) return;
-    const nextRun = Array.from(activeRuns.values())
-        .filter((run) => turnStartedAtMs >= run.startedAtMs)
-        .sort((a, b) => a.startedAtMs - b.startedAtMs || runSequence(a) - runSequence(b))[0];
-    if (nextRun) nextRun.turnStartedAtMs = turnStartedAtMs;
-}
-
-function runSequence(run) {
-    const parsed = Number.parseInt(String(run?.runId ?? "").replace(/^run-/, ""), 10);
-    return Number.isFinite(parsed) ? parsed : 0;
+    const dispatch = dispatchQueue.find((item) => item.sent && !Number.isFinite(item.turnStartedAtMs));
+    if (!dispatch) return;
+    dispatch.turnStartedAtMs = turnStartedAtMs;
+    const run = dispatch.runKey ? activeRuns.get(dispatch.runKey) : null;
+    if (run && run.runId === dispatch.runId) run.turnStartedAtMs = turnStartedAtMs;
 }
 
 function isTerminalSessionActivity(event) {
@@ -172,11 +207,28 @@ function resetSafetyTimer(key, safetyMs) {
     clearSafetyTimer(key);
     if (!Number.isFinite(safetyMs) || safetyMs <= 0) return;
     const timer = setTimeout(() => {
-        if (activeRuns.delete(key)) emitChange();
+        const run = activeRuns.get(key);
+        if (run) {
+            run.timedOut = true;
+            emitChange();
+        }
         safetyTimers.delete(key);
     }, safetyMs);
     timer.unref?.();
     safetyTimers.set(key, timer);
+}
+
+function clearDispatchRun(dispatch) {
+    if (!dispatch?.runKey || !dispatch.runId) return false;
+    const run = activeRuns.get(dispatch.runKey);
+    if (!run || run.runId !== dispatch.runId) return false;
+    removeRun(dispatch.runKey);
+    return true;
+}
+
+function removeRun(key) {
+    activeRuns.delete(key);
+    clearSafetyTimer(key);
 }
 
 function clearSafetyTimer(key) {

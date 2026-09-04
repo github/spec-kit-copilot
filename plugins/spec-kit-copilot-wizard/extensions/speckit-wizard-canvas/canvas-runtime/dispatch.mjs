@@ -32,19 +32,33 @@ import {
     buildWorkflowTrackingPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
-import { beginRun, clearRun, phaseKeyForCommand } from "./run-tracker.mjs";
+import {
+    beginRun,
+    clearRun,
+    failSessionDispatch,
+    markSessionDispatchSent,
+    phaseKeyForCommand,
+    registerSessionDispatch,
+} from "./run-tracker.mjs";
 
 // -------- Section: deferred send --------
 // Defer the actual SDK send so the caller does not do it on the current stack,
 // but return a promise for the handoff. Agent-side errors still surface in
 // chat; transport/session failures reject so callers can correct their local
 // queued/run state instead of leaving stale active runs behind.
-export function dispatchPromptToSession({ prompt }) {
+export function dispatchPromptToSession({ prompt, run = null, instanceId = null }) {
+    const dispatchId = registerSessionDispatch({
+        instanceId,
+        commandName: run?.commandName,
+        runId: run?.runId,
+    });
     return new Promise((resolve, reject) => {
         setImmediate(async () => {
             try {
+                markSessionDispatchSent(dispatchId);
                 resolve(await sessionAdapter().send({ prompt }));
             } catch (err) {
+                failSessionDispatch(dispatchId);
                 reject(err);
             }
         });
@@ -115,7 +129,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
         installedPresetCount,
         installedExtensionCount,
     });
-    await dispatchPromptToSession({ prompt });
+    await dispatchPromptToSession({ prompt, instanceId: inst?.instanceId });
     return { prompt, kind };
 }
 
@@ -133,23 +147,19 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 // those dispatches unwrapped so extension skills stay preset-agnostic.
 export async function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
-    let hasTrackingPreamble = false;
+    let phaseId = null;
+    let artifactPath = null;
+    let expectedArtifacts = null;
     if (track) {
-        const phaseId = phaseIdForCommandName(commandName);
-        const artifactPath = phaseId ? PHASE_BY_ID[phaseId]?.artifact ?? null : null;
+        phaseId = phaseIdForCommandName(commandName);
+        artifactPath = phaseId ? PHASE_BY_ID[phaseId]?.artifact ?? null : null;
         // Derive the closed list of expected artifact IDs from
         // `activeArtifactsForCommand` — the SAME derivation the phase card
         // uses to draw pill rows, so the witness ask and the pill display
         // can never diverge.
-        let expectedArtifacts = null;
         try {
             expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
         } catch { /* best-effort */ }
-        const preamble = buildWorkflowTrackingPreamble({ commandName, artifactPath, expectedArtifacts });
-        if (preamble) {
-            prompt = `${prompt}\n${preamble}`;
-            hasTrackingPreamble = true;
-        }
     }
     // A tracked run only clears via a completion signal `reconcileRunsWithPhases`
     // can observe: the tracking preamble (agent self-reports via
@@ -161,11 +171,20 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
     const hasArtifactSignal = Boolean(
         inst?.cwdBoundState?.phases?.[phaseKeyForCommand(commandName)]?.artifactPath,
     );
-    const run = (hasTrackingPreamble || hasArtifactSignal)
+    const run = (phaseId || hasArtifactSignal)
         ? beginRun(inst?.instanceId, commandName)
         : null;
+    if (phaseId) {
+        const preamble = buildWorkflowTrackingPreamble({
+            commandName,
+            artifactPath,
+            expectedArtifacts,
+            runId: run?.runId,
+        });
+        if (preamble) prompt = `${prompt}\n${preamble}`;
+    }
     try {
-        await dispatchPromptToSession({ prompt });
+        await dispatchPromptToSession({ prompt, run, instanceId: inst?.instanceId });
     } catch (err) {
         if (run) clearRun(inst?.instanceId, commandName);
         throw err;

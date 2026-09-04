@@ -493,7 +493,7 @@ function baseDeps({ workspacePath, extras = {} } = {}) {
         session,
         log: async () => {},
         getState: async () => ({ workspacePath, currentPhase: "setup", setup: {}, preset: "core", phases: {}, slug: null }),
-        getInstance: () => ({ workspacePath, state: {} }),
+        getInstance: () => ({ instanceId: "test-instance", workspacePath, state: {} }),
         broadcast: () => {},
         registerSse: () => {},
         fs: { readFile: async () => "", stat: async () => ({ isFile: () => true, size: 0 }) },
@@ -538,8 +538,10 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
         const argBody = setCallMatch[1];
         const phaseM = argBody.match(/phase:\s*"([^"]+)"/);
         const statusM = argBody.match(/status:\s*"([^"]+)"/);
+        const runIdM = argBody.match(/runId:\s*"([^"]+)"/);
         assert.ok(phaseM, "setPhaseStatus arg must include phase field");
         assert.ok(statusM, "setPhaseStatus arg must include status field");
+        assert.ok(runIdM, "setPhaseStatus arg must include runId field");
 
         // Feed the extracted arg through applyPatch — the agent will call
         // setPhaseStatus which the wizard's canvas action wires to

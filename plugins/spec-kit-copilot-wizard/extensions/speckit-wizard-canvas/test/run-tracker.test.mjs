@@ -7,11 +7,29 @@ import {
     beginRun,
     clearRun,
     configureRunTracker,
+    markSessionDispatchSent,
     reconcileRunsWithPhases,
+    registerSessionDispatch,
     __resetRunTrackerForTests,
 } from "../canvas-runtime/run-tracker.mjs";
 
 const INSTANCE = "inst-1";
+
+function queueTrackedDispatch(run, instanceId = INSTANCE) {
+    const dispatchId = registerSessionDispatch({
+        instanceId,
+        commandName: run.commandName,
+        runId: run.runId,
+    });
+    markSessionDispatchSent(dispatchId);
+    return dispatchId;
+}
+
+function queueUntrackedDispatch() {
+    const dispatchId = registerSessionDispatch();
+    markSessionDispatchSent(dispatchId);
+    return dispatchId;
+}
 
 afterEach(() => {
     __resetRunTrackerForTests();
@@ -25,6 +43,7 @@ test("run tracker keeps any phase active through question and clears on correlat
     configureRunTracker({ onChange: (runs) => changes.push(runs) });
 
     const run = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+    queueTrackedDispatch(run);
 
     assert.equal(run.commandName, "speckit.plan");
     assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
@@ -104,7 +123,8 @@ test("run tracker treats an advanced lastRunAt with a folder fallback as complet
     setSession(new EventEmitter());
     configureRunTracker();
 
-    beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    const run = beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    queueTrackedDispatch(run);
     assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
     // Extension wrote an off-name file: status stays "empty", but the
@@ -125,7 +145,8 @@ test("run tracker clears extension runs on correlated session completion when ar
     setSession(session);
     configureRunTracker();
 
-    beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    const run = beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    queueTrackedDispatch(run);
     session.emit("assistant.turn_start", { timestamp: new Date(1_100).toISOString() });
 
     reconcileRunsWithPhases(INSTANCE, {
@@ -148,7 +169,9 @@ test("run tracker correlates only one queued run to each session turn", () => {
     configureRunTracker();
 
     const first = beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    queueTrackedDispatch(first);
     const second = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 1_010 });
+    queueTrackedDispatch(second);
 
     session.emit("assistant.turn_start", { timestamp: new Date(1_100).toISOString() });
     session.emit("assistant.turn_end", { timestamp: new Date(1_500).toISOString() });
@@ -164,6 +187,30 @@ test("run tracker correlates only one queued run to each session turn", () => {
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
     assert.ok(first.runId);
+});
+
+test("run tracker does not clear a tracked run from an earlier untracked dispatch turn", () => {
+    const session = new EventEmitter();
+    setSession(session);
+    configureRunTracker();
+
+    queueUntrackedDispatch();
+    const run = beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    queueTrackedDispatch(run);
+
+    session.emit("assistant.turn_start", { timestamp: new Date(1_100).toISOString() });
+    session.emit("assistant.turn_end", { timestamp: new Date(1_500).toISOString() });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), [{
+        runId: run.runId,
+        commandName: "speckit.assess.define",
+        startedAt: new Date(1_000).toISOString(),
+    }]);
+
+    session.emit("assistant.turn_start", { timestamp: new Date(1_600).toISOString() });
+    session.emit("assistant.turn_end", { timestamp: new Date(1_900).toISOString() });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
 });
 
 test("run tracker ignores stale terminal session activity without a post-dispatch turn start", () => {
@@ -187,6 +234,52 @@ test("run tracker clears runs on the safety timeout when no terminal status arri
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker keeps timed-out runs as duplicate guards until their queued turn completes", async () => {
+    const session = new EventEmitter();
+    setSession(session);
+    configureRunTracker();
+
+    const run = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 1_000, safetyMs: 5 });
+    queueTrackedDispatch(run);
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+    assert.throws(
+        () => beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_000 }),
+        /run already active for speckit\.implement/,
+    );
+    assert.equal(clearRun(INSTANCE, "speckit.implement"), false);
+    assert.throws(
+        () => beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_100 }),
+        /run already active for speckit\.implement/,
+    );
+
+    session.emit("assistant.turn_start", { timestamp: new Date(2_100).toISOString() });
+    session.emit("assistant.turn_end", { timestamp: new Date(2_500).toISOString() });
+
+    const next = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 3_000 });
+    assert.equal(next.commandName, "speckit.implement");
+});
+
+test("run tracker clears timed-out runs when the callback includes the matching run id", async () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    const run = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 1_000, safetyMs: 5 });
+    queueTrackedDispatch(run);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+    assert.equal(clearRun(INSTANCE, "speckit.implement", "not-this-run"), false);
+    assert.equal(clearRun(INSTANCE, "speckit.implement", run.runId), true);
+
+    const next = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_000 });
+    assert.equal(next.commandName, "speckit.implement");
 });
 
 test("run tracker scopes runs per instance so one workspace can't see or clear another's run", () => {

@@ -136,23 +136,26 @@ export function phaseIdForCommandName(commandName) {
  *   derive the wizard phase id.
  * @param {string} [opts.artifactPath]  Optional expected artifact path
  *   (from the wizard phase spec) to pass to setPhaseStatus.
+ * @param {string} [opts.runId]  Optional run id to pass back so stale
+ *   callbacks cannot clear a newer run.
  * @returns {string|null}  Preamble text with a trailing blank line, or
  *   `null` when the command isn't a tracked canonical phase (caller should
  *   dispatch without wrapping).
  */
-export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null, expectedArtifacts = null } = {}) {
+export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null, expectedArtifacts = null, runId = null } = {}) {
     const phaseId = phaseIdForCommandName(commandName);
     if (!phaseId) return null;
     const artifactPathArg = artifactPath
         ? `, artifactPath: ${JSON.stringify(artifactPath)}`
         : "";
+    const runIdArg = runId ? `, runId: ${JSON.stringify(runId)}` : "";
     const lines = [
         `<!-- speckit-wizard tracking preamble — do NOT include in reply -->`,
         `Invoke the \`skill\` tool with name \`speckit-${phaseId}\` before running any other tool call. The bare \`/speckit-${phaseId}\` on the first line is a hint for humans reading the transcript, not an auto-intercepted slash command.`,
         `You were dispatched by the Spec Kit Wizard's Run phase button. Before you return, call \`setPhaseStatus\` exactly once with a terminal status for this phase:`,
-        `- Success: call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg} })\` after the skill's normal work is complete.`,
-        `- Optional phase intentionally bypassed: call \`setPhaseStatus({ phase: "${phaseId}", status: "skipped" })\`.`,
-        `- Declined checklist gate, checklist rejection, cancellation, validation failure, skill/tool failure, or any other blocker: call \`setPhaseStatus({ phase: "${phaseId}", status: "error" })\`.`,
+        `- Success: call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg}${runIdArg} })\` after the skill's normal work is complete.`,
+        `- Optional phase intentionally bypassed: call \`setPhaseStatus({ phase: "${phaseId}", status: "skipped"${runIdArg} })\`.`,
+        `- Declined checklist gate, checklist rejection, cancellation, validation failure, skill/tool failure, or any other blocker: call \`setPhaseStatus({ phase: "${phaseId}", status: "error"${runIdArg} })\`.`,
         `Do not leave the phase in progress, and do not omit this terminal callback because the wizard's Run button stays locked until it receives one or the safety timeout expires.`,
     ];
     // Attach the closed-list witness ask so the agent self-reports which of
