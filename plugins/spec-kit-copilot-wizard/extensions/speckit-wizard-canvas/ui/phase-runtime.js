@@ -765,42 +765,16 @@ export function renderMoreCommandsPanel() {
         presetSectionHtmlParts.push(emitPresetSection(source, items));
     }
 
-    // Ids customized by any preset — routed under the preset section
-    // instead of CORE. Uses the composition winner (not seed source) so
-    // an overridden command doesn't double-appear.
-    //
-    // Two sources feed this set:
-    //  1. Every `commands()` entry whose winner isn't core — catches
-    //     preset-only phases the scanner surfaced but that aren't in the
-    //     canonical spine.
-    //  2. Every canonical id whose winner map entry is layer=preset —
-    //     catches lean-replaced canonicals like `constitution`/`specify`
-    //     even if the scanner doesn't surface them as scanner-side phases.
-    //     Without this second pass, replaced canonicals appear under BOTH
-    //     the preset section AND CORE.
-    const winnerForPhase = (p) => {
-        const cmd = p.commandName || p.id;
-        return winnerByCmdId.get(cmd) ?? winnerByCmdId.get(p.id);
-    };
-    const customizedIds = new Set(
-        all
-            .filter((p) => winnerForPhase(p)?.layer === "preset")
-            .map((p) => p.id),
-    );
-    for (const canonicalId of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
-        const w = winnerByCmdId.get(canonicalId);
-        if (w?.layer === "preset") customizedIds.add(canonicalId);
-    }
-
-    // CORE group: canonical Spec Kit commands that are not replaced by
-    // active presets. Shown regardless of pipeline membership so users can
-    // browse addable core commands. Synthesize minimal card shapes since
-    // these often aren't in commands(). CANONICAL_UNSEEDED (e.g. converge)
-    // is included too — canonical add-on-demand commands outside the
-    // default flow.
+    // CORE group: the full canonical Spec Kit surface. Active presets may
+    // also show customized versions in their own sections, but Core remains
+    // available so users can add the default command back to the pipeline.
+    // Shown regardless of pipeline membership. Synthesize minimal card shapes
+    // since these often aren't in commands(). CANONICAL_UNSEEDED (e.g.
+    // converge) is included too — canonical add-on-demand commands outside
+    // the default flow.
     const coreCandidates = [
-        ...canonicalSpine().filter((id) => !customizedIds.has(id)),
-        ...CANONICAL_UNSEEDED.filter((id) => !customizedIds.has(id)),
+        ...canonicalSpine(),
+        ...CANONICAL_UNSEEDED,
     ];
     const coreCards = coreCandidates
         .map((id) => __synthesizeCanonicalPhase(id))
@@ -810,9 +784,7 @@ export function renderMoreCommandsPanel() {
     const coreOpen = isSectionOpen("core") ? " open" : "";
     const coreSection = `<details class="mc-group mc-group-core"${coreOpen} data-mc-section="core">
         <summary class="mc-group-title"><span class="mc-group-title-text">CORE</span> <span class="mc-group-count">${coreCandidates.length}</span></summary>
-        ${coreCandidates.length
-            ? `<div class="more-commands-grid">${coreCards}</div>`
-            : `<p class="mc-group-hint muted">All Core Spec Kit commands are customized by installed presets.</p>`}
+        <div class="more-commands-grid">${coreCards}</div>
     </details>`;
 
     // Extension groups. Emitted in composition.extensions[] payload order

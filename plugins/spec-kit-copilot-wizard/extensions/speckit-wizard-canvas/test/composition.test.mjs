@@ -17,7 +17,7 @@ import {
     repoRelative,
     splitLines,
 } from "../composition/collect.mjs";
-import { canonicalSpine, canonicalTemplateIds, isCanonical } from "../pipeline/canonical.mjs";
+import { CANONICAL_UNSEEDED, canonicalSpine, canonicalTemplateIds, isCanonical } from "../pipeline/canonical.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
 import { state, PHASE_ORDER as UI_FALLBACK_PHASE_ORDER } from "../ui/state.js";
@@ -590,7 +590,7 @@ test("renderMoreCommandsPanel keeps Core canonicals when unrelated extensions ar
     }
 });
 
-test("renderMoreCommandsPanel excludes preset-replaced canonicals from Core", () => {
+test("renderMoreCommandsPanel keeps Core canonicals even when presets customize them", () => {
     const el = {
         innerHTML: "",
         querySelectorAll: () => [],
@@ -621,7 +621,12 @@ test("renderMoreCommandsPanel excludes preset-replaced canonicals from Core", ()
     try {
         renderMoreCommandsPanel();
         assert.match(el.innerHTML, /data-mc-section="preset:preset:lean"/);
-        assert.equal((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length, 1);
+        assert.match(el.innerHTML, /data-mc-section="core"/);
+        const coreCount = canonicalSpine().length + CANONICAL_UNSEEDED.length;
+        assert.match(el.innerHTML, new RegExp(`mc-group-count">${coreCount}</span>`));
+        assert.ok((el.innerHTML.match(/data-phase-id="specify"/g) ?? []).length >= 2);
+        assert.equal((el.innerHTML.match(/data-phase-id="constitution"/g) ?? []).length, 1);
+        assert.equal((el.innerHTML.match(/data-phase-id="plan"/g) ?? []).length, 1);
         assert.match(el.innerHTML, /Core • Customized/);
     } finally {
         state.snapshot = null;
