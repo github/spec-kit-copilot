@@ -31,6 +31,7 @@ import {
     queueClarification,
     clearClarifications,
     markPhaseRunning,
+    isPhaseRunning,
 } from "./phase-runtime.js";
 import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
@@ -184,6 +185,14 @@ export function renderStepper() {
             p: { ...entry.p, locked: true },
         }));
     }
+    let priorRequiredBlocking = false;
+    visible = visible.map((entry) => {
+        const locked = entry.p.locked || priorRequiredBlocking;
+        if (!entry.p.optional && (isPhaseRunning(entry.p.commandName) || entry.p.status !== "done")) {
+            priorRequiredBlocking = true;
+        }
+        return locked ? { ...entry, p: { ...entry.p, locked: true } } : entry;
+    });
     visible.forEach(({ id, orphan, synthesized, extension, p }, idx) => {
         if (idx > 0) {
             const sep = document.createElement("li");
@@ -385,7 +394,16 @@ export function renderPhaseCard() {
             renderMoreCommandsPanel();
             return;
         }
-        __renderGraphPhaseCard(el, setupLocked ? { ...p, locked: true } : p);
+        let priorRequiredBlocking = false;
+        for (const it of items) {
+            if (it.id === p.id) break;
+            const prior = resolvePhase(it.id);
+            if (!prior?.optional && (isPhaseRunning(prior?.commandName) || prior?.status !== "done")) {
+                priorRequiredBlocking = true;
+                break;
+            }
+        }
+        __renderGraphPhaseCard(el, (setupLocked || priorRequiredBlocking) ? { ...p, locked: true } : p);
         renderMoreCommandsPanel();
         return;
     }

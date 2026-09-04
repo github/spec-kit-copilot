@@ -15,28 +15,17 @@ afterEach(() => {
     setSession(null);
 });
 
-test("run tracker clears runs when the session idles after dispatch", () => {
+test("run tracker keeps runs active through question, idle, and answer until terminal status", () => {
     const changes = [];
     const session = new EventEmitter();
     setSession(session);
     configureRunTracker({ onChange: (runs) => changes.push(runs) });
 
-    const run = beginRun("speckit.plan", { startedAtMs: 1_000 });
+    const run = beginRun("speckit.clarify", { startedAtMs: 1_000 });
 
-    assert.equal(run.commandName, "speckit.plan");
+    assert.equal(run.commandName, "speckit.clarify");
     assert.equal(activeRunsSnapshot().length, 1);
 
-    session.emit("session.idle");
-    assert.deepEqual(activeRunsSnapshot(), []);
-    assert.equal(changes.length, 2);
-});
-
-test("run tracker keeps runs active while the agent is waiting for user input", () => {
-    const session = new EventEmitter();
-    setSession(session);
-    configureRunTracker();
-
-    beginRun("speckit.checklist", { startedAtMs: 1_000 });
     session.emit("user_input.requested", {
         timestamp: new Date(1_100).toISOString(),
         data: { requestId: "question-1", question: "Which checklist?" },
@@ -51,7 +40,17 @@ test("run tracker keeps runs active while the agent is waiting for user input", 
     });
     session.emit("session.idle", { timestamp: new Date(1_400).toISOString() });
 
+    assert.equal(activeRunsSnapshot().length, 1);
+
+    reconcileRunsWithPhases({
+        clarify: {
+            status: "done",
+            lastRunAt: new Date(1_500).toISOString(),
+        },
+    });
+
     assert.deepEqual(activeRunsSnapshot(), []);
+    assert.ok(changes.length >= 2);
 });
 
 test("run tracker clears runs when scanner observes a post-dispatch artifact timestamp", () => {

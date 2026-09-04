@@ -10,7 +10,7 @@ const TURN_START_EVENTS = ["assistant.turn_start", "turn.start", "turn-start"];
 const TURN_END_EVENTS = ["assistant.turn_end", "turn.end", "turn-end"];
 const SESSION_IDLE_EVENT = "session.idle";
 const USER_INPUT_REQUESTED_EVENT = "user_input.requested";
-const USER_INPUT_COMPLETED_EVENT = "user_input.completed";
+const USER_INPUT_COMPLETED_EVENTS = ["user_input.completed", "user_input.submitted", "ask_user.completed"];
 
 const listeners = new Set();
 let subscribedSession = null;
@@ -61,12 +61,14 @@ export function ensureSessionActivity() {
         if (typeof requestId === "string" && requestId) pendingUserInputs.add(requestId);
         emitActivity({ kind: "user-input-requested", working: false, awaitingUserInput: true, at: eventAt(event) });
     });
-    subscribe(USER_INPUT_COMPLETED_EVENT, (event) => {
-        const requestId = event?.data?.requestId;
-        if (typeof requestId === "string" && requestId) pendingUserInputs.delete(requestId);
-        else pendingUserInputs.clear();
-        emitActivity({ kind: "user-input-completed", working: false, awaitingUserInput: isAwaitingUserInput(), at: eventAt(event) });
-    });
+    for (const eventName of USER_INPUT_COMPLETED_EVENTS) {
+        subscribe(eventName, (event) => {
+            const requestId = event?.data?.requestId;
+            if (typeof requestId === "string" && requestId) pendingUserInputs.delete(requestId);
+            else pendingUserInputs.clear();
+            emitActivity({ kind: "user-input-completed", working: false, awaitingUserInput: isAwaitingUserInput(), at: eventAt(event) });
+        });
+    }
     subscribe(SESSION_IDLE_EVENT, (event) => emitActivity({ kind: "session-idle", working: false, at: eventAt(event) }));
 }
 

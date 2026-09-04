@@ -30,7 +30,9 @@ import {
     setRunLockDeps,
 } from "../ui/phase-runtime.js";
 import {
+    renderPhaseCard,
     renderGraphPhaseCard,
+    setPhaseCardDeps,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
 import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
@@ -437,6 +439,54 @@ test("resolvePipelineEntry suppresses core artifact readiness only while owner c
         clearPhaseRunning("speckit.specify");
         setRunLockDeps({ render: () => {} });
         state.snapshot = null;
+    }
+});
+
+test("renderPhaseCard locks later required phases while clarify is still active", () => {
+    let renderedPhase = null;
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? { innerHTML: "" } : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
+    });
+    try {
+        state.currentPhase = "plan";
+        state.snapshot = {
+            projectInitialized: true,
+            setup: {
+                pluginInstalled: true,
+                cliInstalled: true,
+                projectInitialized: true,
+                skillsReloaded: true,
+            },
+            pipeline: [{ id: "specify" }, { id: "clarify" }, { id: "plan" }],
+            phases: {
+                specify: { status: "done" },
+                clarify: { status: "in_progress" },
+                plan: { status: "empty" },
+            },
+            commands: [
+                { id: "specify", commandName: "speckit.specify", status: "done" },
+                { id: "clarify", commandName: "speckit.clarify", status: "in_progress" },
+                { id: "plan", commandName: "speckit.plan", status: "empty" },
+            ],
+            composition: { artifacts: [] },
+        };
+        markPhaseRunning("speckit.clarify");
+
+        renderPhaseCard();
+
+        assert.equal(renderedPhase?.id, "plan");
+        assert.equal(renderedPhase?.locked, true);
+    } finally {
+        clearPhaseRunning("speckit.clarify");
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = null;
+        state.currentPhase = "constitution";
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
     }
 });
 

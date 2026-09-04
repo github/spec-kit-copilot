@@ -1,16 +1,15 @@
 // Server-owned phase run tracking.
 //
 // Dispatch starts a run. Wizard-owned completion signals clear it: phase status
-// reports, scanner-observed artifact timestamps, or the safety timeout. SDK idle
-// is only a fallback and is ignored while the agent is waiting on user input.
+// reports or scanner-observed terminal statuses. SDK idle is never treated as
+// completion because conversation phases can idle while waiting on user input.
 
 import { ensureSessionActivity, onSessionActivity } from "./session-activity.mjs";
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 
-export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
+const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 const activeRuns = new Map(); // commandName -> { runId, commandName, startedAt, startedAtMs }
-const safetyTimers = new Map();
 const listeners = new Set();
 let sequence = 0;
 let activitySubscription = null;
@@ -35,7 +34,6 @@ export function beginRun(commandName, { startedAtMs = Date.now() } = {}) {
         startedAtMs,
     };
     activeRuns.set(commandName, run);
-    resetSafetyTimer(commandName);
     emitChange();
     return { runId: run.runId, commandName: run.commandName, startedAt: run.startedAt };
 }
@@ -43,7 +41,6 @@ export function beginRun(commandName, { startedAtMs = Date.now() } = {}) {
 export function clearRun(commandName) {
     if (!activeRuns.has(commandName)) return false;
     activeRuns.delete(commandName);
-    clearSafetyTimer(commandName);
     emitChange();
     return true;
 }
@@ -59,10 +56,10 @@ export function reconcileRunsWithPhases(phases) {
     let changed = false;
     for (const [commandName, run] of Array.from(activeRuns.entries())) {
         const phase = phases[phaseKeyForCommand(commandName)];
+        if (!TERMINAL_PHASE_STATUSES.has(phase?.status)) continue;
         const lastRunAtMs = Date.parse(phase?.lastRunAt);
         if (Number.isFinite(lastRunAtMs) && lastRunAtMs > run.startedAtMs) {
             activeRuns.delete(commandName);
-            clearSafetyTimer(commandName);
             changed = true;
         }
     }
@@ -71,7 +68,6 @@ export function reconcileRunsWithPhases(phases) {
 }
 
 export function __resetRunTrackerForTests() {
-    for (const commandName of Array.from(safetyTimers.keys())) clearSafetyTimer(commandName);
     activeRuns.clear();
     listeners.clear();
     sequence = 0;
@@ -82,18 +78,9 @@ export function __resetRunTrackerForTests() {
 }
 
 function handleSessionActivity(event) {
-    if (event?.kind !== "session-idle") return;
-    if (event.awaitingUserInput) return;
-    const idleAt = Number.isFinite(event.at) ? event.at : Date.now();
-    let changed = false;
-    for (const [commandName, run] of Array.from(activeRuns.entries())) {
-        if (run.startedAtMs <= idleAt) {
-            activeRuns.delete(commandName);
-            clearSafetyTimer(commandName);
-            changed = true;
-        }
-    }
-    if (changed) emitChange();
+    if (!event) return;
+    if (!activeRuns.size) return;
+    emitChange();
 }
 
 function phaseKeyForCommand(commandName) {
@@ -102,23 +89,6 @@ function phaseKeyForCommand(commandName) {
     if (!commandName.startsWith("speckit.")) return commandName;
     const phase = commandName.slice("speckit.".length);
     return PHASE_BY_ID[phase] ? phase : `commands/${commandName}`;
-}
-
-function resetSafetyTimer(commandName) {
-    clearSafetyTimer(commandName);
-    const timer = setTimeout(() => {
-        if (activeRuns.delete(commandName)) emitChange();
-        safetyTimers.delete(commandName);
-    }, RUN_TRACKER_SAFETY_MS);
-    timer.unref?.();
-    safetyTimers.set(commandName, timer);
-}
-
-function clearSafetyTimer(commandName) {
-    const timer = safetyTimers.get(commandName);
-    if (!timer) return;
-    clearTimeout(timer);
-    safetyTimers.delete(commandName);
 }
 
 function emitChange() {

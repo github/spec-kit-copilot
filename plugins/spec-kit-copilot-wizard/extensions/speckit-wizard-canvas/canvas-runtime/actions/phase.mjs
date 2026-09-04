@@ -79,7 +79,7 @@ export const phaseActions = [
             required: ["phase", "status"],
             properties: {
                 phase: { type: "string", enum: PHASE_ORDER },
-                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped"] },
+                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
                 artifactPath: { type: "string" },
             },
         },
@@ -96,7 +96,9 @@ export const phaseActions = [
                         },
                     },
                 });
-                clearRun(`speckit.${phase}`);
+                if (["done", "skipped", "error"].includes(status)) {
+                    clearRun(`speckit.${phase}`);
+                }
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.
                 return { ok: true };

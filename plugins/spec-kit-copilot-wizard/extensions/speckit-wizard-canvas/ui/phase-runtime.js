@@ -112,8 +112,6 @@ export function setPhaseLastSubmitted(commandName, value) {
 
 // -------- Section: phase/run-lock.js --------
 
-export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
-const _phaseRunTimers = new Map();
 const _phaseRunStartedAt = new Map();
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
@@ -135,11 +133,6 @@ export function markPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
     _phaseRunStartedAt.set(commandName, Date.now());
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-    }
-    const t = setTimeout(() => clearPhaseRunning(commandName), PHASE_RUN_SAFETY_MS);
-    _phaseRunTimers.set(commandName, t);
     __render();
 }
 
@@ -147,10 +140,6 @@ export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
     _phaseRunStartedAt.delete(commandName);
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-        _phaseRunTimers.delete(commandName);
-    }
     __render();
 }
 
@@ -184,11 +173,8 @@ export function observePhaseProgress() {
         const startedAt = _phaseRunStartedAt.get(commandName) ?? 0;
         const currentLastRunAt = phase?.lastRunAt ?? null;
         const lastRunAtAdvanced = Date.parse(currentLastRunAt) > startedAt;
-        const terminalTransition =
-            phase?.status &&
-            TERMINAL_PHASE_STATUSES.has(phase.status) &&
-            (lastRunAtAdvanced || (!serverRuns && phase.status !== "done"));
-        if (serverRuns || lastRunAtAdvanced || terminalTransition) {
+        const terminalTransition = TERMINAL_PHASE_STATUSES.has(phase?.status);
+        if (serverRuns || (terminalTransition && lastRunAtAdvanced)) {
             clearPhaseRunning(commandName);
         }
     }

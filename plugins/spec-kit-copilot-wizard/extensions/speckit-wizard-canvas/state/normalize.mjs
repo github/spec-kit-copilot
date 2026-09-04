@@ -57,7 +57,7 @@ export function coerceStringArray(v) {
 
 // -------- Section: normalization --------
 
-const ALLOWED_STATUSES = new Set(["empty", "in_progress", "done", "skipped"]);
+const ALLOWED_STATUSES = new Set(["empty", "in_progress", "done", "skipped", "error"]);
 
 // The four sub-flags that together define the setup phase's progress. Kept
 // in sync with SETUP_KEYS in ui/app.js. `catalogsLoaded` is intentionally
