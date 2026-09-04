@@ -40,6 +40,7 @@ export function configureRunTracker({ onChange } = {}) {
 export function beginRun(instanceId, commandName, { startedAtMs = Date.now(), safetyMs = RUN_TRACKER_SAFETY_MS } = {}) {
     if (!instanceId || !commandName) return null;
     const key = runKey(instanceId, commandName);
+    if (activeRuns.has(key)) throw new Error(`run already active for ${commandName}`);
     const run = {
         runId: `run-${++sequence}`,
         instanceId,

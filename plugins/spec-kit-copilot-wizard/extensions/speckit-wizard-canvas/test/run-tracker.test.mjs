@@ -126,3 +126,20 @@ test("run tracker scopes runs per instance so one workspace can't see or clear a
     assert.equal(clearRun("inst-b", "speckit.plan"), true);
     assert.deepEqual(activeRunsSnapshot("inst-b"), []);
 });
+
+test("run tracker rejects duplicate active runs for the same instance and command", () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    const first = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+
+    assert.throws(
+        () => beginRun(INSTANCE, "speckit.plan", { startedAtMs: 2_000 }),
+        /run already active for speckit\.plan/,
+    );
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), [{
+        runId: first.runId,
+        commandName: "speckit.plan",
+        startedAt: new Date(1_000).toISOString(),
+    }]);
+});
