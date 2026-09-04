@@ -165,5 +165,5 @@ export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty 
         ? beginRun(inst?.instanceId, commandName)
         : null;
     dispatchPromptToSession({ prompt });
-    return { prompt, commandName, runId: run?.runId, startedAt: run?.startedAt };
+    return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }

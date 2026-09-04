@@ -563,6 +563,7 @@ test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus ca
         const res = mockRes();
         await h(req, res);
         assert.equal(res.statusCode, 202);
+        assert.equal(JSON.parse(res.body).untracked, true);
         await new Promise((r) => setImmediate(r));
         const prompt = deps._sessionCalls[0].prompt;
         assert.ok(prompt.startsWith("/speckit-assess-intake"), "dispatch must slash-normalize");

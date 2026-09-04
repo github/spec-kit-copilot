@@ -459,6 +459,7 @@ export async function flushClarifications(p) {
             markPhaseRunning(commandName);
             const result = await __postJson("/api/phase/submit", { commandName, args });
             if (!result) throw new Error("phase submit did not return a queued response");
+            if (result.untracked === true) clearPhaseRunning(commandName);
             setPhaseLastSubmitted(commandName, args);
             clearSubmittedClarifications(commandName, list);
             return true;

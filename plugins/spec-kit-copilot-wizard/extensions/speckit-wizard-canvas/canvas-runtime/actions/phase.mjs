@@ -123,7 +123,14 @@ export const phaseActions = [
                 const commandName = `speckit.${phase}`;
                 try {
                     const run = dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
-                    return { ok: true, commandName, runId: run?.runId, startedAt: run?.startedAt };
+                    return {
+                        ok: true,
+                        commandName,
+                        tracked: run?.tracked === true,
+                        untracked: run?.untracked === true,
+                        runId: run?.runId,
+                        startedAt: run?.startedAt,
+                    };
                 } catch (err) {
                     return { ok: false, error: err?.message ?? String(err) };
                 }

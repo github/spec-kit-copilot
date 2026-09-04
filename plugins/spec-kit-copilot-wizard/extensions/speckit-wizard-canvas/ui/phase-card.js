@@ -30,6 +30,7 @@ import {
     getPendingClarifications,
     queueClarification,
     clearClarifications,
+    clearPhaseRunning,
     markPhaseRunning,
 } from "./phase-runtime.js";
 import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
@@ -704,7 +705,9 @@ export function wireGraphPhaseCard(el, p) {
         setPhaseLastSubmitted(p.commandName, args);
         markPhaseRunning(p.commandName);
         try {
-            await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            if (result.untracked === true) clearPhaseRunning(p.commandName);
         } catch (err) {
             console.error(`dispatch failed: ${err?.message ?? err}`);
             clearPhaseRunning(p.commandName);
@@ -773,7 +776,9 @@ export function wireGraphPhaseCard(el, p) {
         setPhaseLastSubmitted(p.commandName, args);
         markPhaseRunning(p.commandName);
         try {
-            await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            if (result.untracked === true) clearPhaseRunning(p.commandName);
         } catch (err) {
             console.error(`dispatch failed: ${err?.message ?? err}`);
             clearPhaseRunning(p.commandName);

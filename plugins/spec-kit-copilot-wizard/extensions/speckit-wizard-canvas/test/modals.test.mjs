@@ -5,6 +5,7 @@ import {
     clearClarifications,
     clearPhaseRunning,
     getPendingClarifications,
+    isPhaseRunning,
     queueClarification,
 } from "../ui/phase-runtime.js";
 
@@ -49,5 +50,18 @@ describe("modal clarification flushing", () => {
         ]);
 
         clearPhaseRunning("speckit.plan");
+    });
+
+    test("clears optimistic run lock when clarification submit is untracked", async () => {
+        setViewersDeps({
+            postJson: async () => ({ queued: true, untracked: true }),
+        });
+
+        queueClarification("speckit.plan", "Which scope?", "Only the CLI plugin.");
+
+        const dispatched = await flushClarifications({ commandName: "speckit.plan" });
+
+        assert.equal(dispatched, true);
+        assert.equal(isPhaseRunning("speckit.plan"), false);
     });
 });
