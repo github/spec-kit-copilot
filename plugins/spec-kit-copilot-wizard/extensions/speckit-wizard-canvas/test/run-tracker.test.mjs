@@ -5,10 +5,13 @@ import { setSession } from "../canvas-runtime/instances.mjs";
 import {
     activeRunsSnapshot,
     beginRun,
+    clearRun,
     configureRunTracker,
     reconcileRunsWithPhases,
     __resetRunTrackerForTests,
 } from "../canvas-runtime/run-tracker.mjs";
+
+const INSTANCE = "inst-1";
 
 afterEach(() => {
     __resetRunTrackerForTests();
@@ -21,10 +24,10 @@ test("run tracker keeps any phase active through question, idle, and answer unti
     setSession(session);
     configureRunTracker({ onChange: (runs) => changes.push(runs) });
 
-    const run = beginRun("speckit.plan", { startedAtMs: 1_000 });
+    const run = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
 
     assert.equal(run.commandName, "speckit.plan");
-    assert.equal(activeRunsSnapshot().length, 1);
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
     session.emit("user_input.requested", {
         timestamp: new Date(1_100).toISOString(),
@@ -32,7 +35,7 @@ test("run tracker keeps any phase active through question, idle, and answer unti
     });
     session.emit("session.idle", { timestamp: new Date(1_200).toISOString() });
 
-    assert.equal(activeRunsSnapshot().length, 1);
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
     session.emit("user_input.completed", {
         timestamp: new Date(1_300).toISOString(),
@@ -40,16 +43,16 @@ test("run tracker keeps any phase active through question, idle, and answer unti
     });
     session.emit("session.idle", { timestamp: new Date(1_400).toISOString() });
 
-    assert.equal(activeRunsSnapshot().length, 1);
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
-    reconcileRunsWithPhases({
+    reconcileRunsWithPhases(INSTANCE, {
         plan: {
             status: "done",
             lastRunAt: new Date(1_500).toISOString(),
         },
     });
 
-    assert.deepEqual(activeRunsSnapshot(), []);
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
     assert.ok(changes.length >= 2);
 });
 
@@ -57,27 +60,69 @@ test("run tracker clears runs when scanner observes a post-dispatch artifact tim
     setSession(new EventEmitter());
     configureRunTracker();
 
-    beginRun("speckit.assess.intake", { startedAtMs: 1_000 });
-    assert.equal(activeRunsSnapshot().length, 1);
+    beginRun(INSTANCE, "speckit.assess.intake", { startedAtMs: 1_000 });
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
-    reconcileRunsWithPhases({
+    reconcileRunsWithPhases(INSTANCE, {
         "commands/speckit.assess.intake": {
             status: "done",
             lastRunAt: new Date(1_500).toISOString(),
         },
     });
 
-    assert.deepEqual(activeRunsSnapshot(), []);
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker treats an advanced lastRunAt with a folder fallback as completion", () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
+
+    // Extension wrote an off-name file: status stays "empty", but the
+    // scanner emits a folderPath fallback plus an advanced lastRunAt.
+    reconcileRunsWithPhases(INSTANCE, {
+        "commands/speckit.assess.define": {
+            status: "empty",
+            folderPath: ".specify/assessments/demo",
+            lastRunAt: new Date(1_500).toISOString(),
+        },
+    });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
 });
 
 test("run tracker clears runs on the safety timeout when no terminal status arrives", async () => {
     setSession(new EventEmitter());
     configureRunTracker();
 
-    beginRun("speckit.implement", { startedAtMs: 1_000, safetyMs: 5 });
-    assert.equal(activeRunsSnapshot().length, 1);
+    beginRun(INSTANCE, "speckit.implement", { startedAtMs: 1_000, safetyMs: 5 });
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    assert.deepEqual(activeRunsSnapshot(), []);
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker scopes runs per instance so one workspace can't see or clear another's run", () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    beginRun("inst-a", "speckit.plan", { startedAtMs: 1_000 });
+    beginRun("inst-b", "speckit.plan", { startedAtMs: 1_000 });
+
+    assert.equal(activeRunsSnapshot("inst-a").length, 1);
+    assert.equal(activeRunsSnapshot("inst-b").length, 1);
+
+    // Neither instance's reconcile or clear pass touches the other's run.
+    reconcileRunsWithPhases("inst-a", {
+        plan: { status: "done", lastRunAt: new Date(1_500).toISOString() },
+    });
+    assert.deepEqual(activeRunsSnapshot("inst-a"), []);
+    assert.equal(activeRunsSnapshot("inst-b").length, 1);
+
+    assert.equal(clearRun("inst-a", "speckit.plan"), false);
+    assert.equal(clearRun("inst-b", "speckit.plan"), true);
+    assert.deepEqual(activeRunsSnapshot("inst-b"), []);
 });

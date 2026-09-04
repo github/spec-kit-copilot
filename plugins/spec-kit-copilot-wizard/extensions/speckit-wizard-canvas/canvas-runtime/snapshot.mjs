@@ -80,8 +80,8 @@ export async function snapshot(inst) {
     // reflects live state without waiting for the next SSE event.
     if (inst.boot) scan.boot = inst.boot;
     if (inst.depsError) scan.depsError = inst.depsError;
-    reconcileRunsWithPhases(scan.phases);
-    scan.activeRuns = activeRunsSnapshot();
+    reconcileRunsWithPhases(inst.instanceId, scan.phases);
+    scan.activeRuns = activeRunsSnapshot(inst.instanceId);
     // Setup step "done" state is derived live from `scan.environment` (plugin
     // and CLI probes) and `scan.projectInitialized` (fs check on .specify/),
     // NOT from persisted setup.* flags — those drift when things are

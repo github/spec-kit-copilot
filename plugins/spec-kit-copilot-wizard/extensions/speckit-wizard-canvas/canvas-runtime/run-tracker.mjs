@@ -4,6 +4,10 @@
 // reports, scanner-observed terminal statuses, or the safety timeout. SDK idle
 // is never treated as completion because conversation phases can idle while
 // waiting on user input.
+//
+// Runs are scoped per canvas instance (`instanceId`): the extension can have
+// multiple canvas instances/workspaces open concurrently, and a run started
+// in one must never be visible to, or clearable by, another.
 
 import { ensureSessionActivity, onSessionActivity } from "./session-activity.mjs";
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
@@ -11,11 +15,16 @@ import { PHASE_BY_ID } from "./wizard-phases.mjs";
 export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
-const activeRuns = new Map(); // commandName -> { runId, commandName, startedAt, startedAtMs }
+// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs }
+const activeRuns = new Map();
 const safetyTimers = new Map();
 const listeners = new Set();
 let sequence = 0;
 let activitySubscription = null;
+
+function runKey(instanceId, commandName) {
+    return `${instanceId}::${commandName}`;
+}
 
 export function configureRunTracker({ onChange } = {}) {
     if (typeof onChange === "function") listeners.add(onChange);
@@ -28,44 +37,56 @@ export function configureRunTracker({ onChange } = {}) {
     };
 }
 
-export function beginRun(commandName, { startedAtMs = Date.now(), safetyMs = RUN_TRACKER_SAFETY_MS } = {}) {
-    if (!commandName) return null;
+export function beginRun(instanceId, commandName, { startedAtMs = Date.now(), safetyMs = RUN_TRACKER_SAFETY_MS } = {}) {
+    if (!instanceId || !commandName) return null;
+    const key = runKey(instanceId, commandName);
     const run = {
         runId: `run-${++sequence}`,
+        instanceId,
         commandName,
         startedAt: new Date(startedAtMs).toISOString(),
         startedAtMs,
     };
-    activeRuns.set(commandName, run);
-    resetSafetyTimer(commandName, safetyMs);
+    activeRuns.set(key, run);
+    resetSafetyTimer(key, safetyMs);
     emitChange();
     return { runId: run.runId, commandName: run.commandName, startedAt: run.startedAt };
 }
 
-export function clearRun(commandName) {
-    if (!activeRuns.has(commandName)) return false;
-    activeRuns.delete(commandName);
-    clearSafetyTimer(commandName);
+export function clearRun(instanceId, commandName) {
+    const key = runKey(instanceId, commandName);
+    if (!activeRuns.has(key)) return false;
+    activeRuns.delete(key);
+    clearSafetyTimer(key);
     emitChange();
     return true;
 }
 
-export function activeRunsSnapshot() {
+export function activeRunsSnapshot(instanceId) {
     return Array.from(activeRuns.values())
+        .filter((run) => run.instanceId === instanceId)
         .sort((a, b) => a.startedAtMs - b.startedAtMs)
         .map(({ runId, commandName, startedAt }) => ({ runId, commandName, startedAt }));
 }
 
-export function reconcileRunsWithPhases(phases) {
+export function reconcileRunsWithPhases(instanceId, phases) {
     if (!phases || typeof phases !== "object") return false;
     let changed = false;
-    for (const [commandName, run] of Array.from(activeRuns.entries())) {
-        const phase = phases[phaseKeyForCommand(commandName)];
-        if (!TERMINAL_PHASE_STATUSES.has(phase?.status)) continue;
+    for (const [key, run] of Array.from(activeRuns.entries())) {
+        if (run.instanceId !== instanceId) continue;
+        const phase = phases[phaseKeyForCommand(run.commandName)];
+        // A terminal phase status is the normal completion signal, but
+        // extension commands that write an off-name file only get the
+        // "browse folder" fallback (`folderPath` + an advanced `lastRunAt`)
+        // — `status` stays "empty" in that case. Treat either as a
+        // completion signal so those runs don't sit locked until the
+        // safety timeout.
+        const hasCompletionSignal = TERMINAL_PHASE_STATUSES.has(phase?.status) || Boolean(phase?.folderPath);
+        if (!hasCompletionSignal) continue;
         const lastRunAtMs = Date.parse(phase?.lastRunAt);
         if (Number.isFinite(lastRunAtMs) && lastRunAtMs > run.startedAtMs) {
-            activeRuns.delete(commandName);
-            clearSafetyTimer(commandName);
+            activeRuns.delete(key);
+            clearSafetyTimer(key);
             changed = true;
         }
     }
@@ -74,7 +95,7 @@ export function reconcileRunsWithPhases(phases) {
 }
 
 export function __resetRunTrackerForTests() {
-    for (const commandName of Array.from(safetyTimers.keys())) clearSafetyTimer(commandName);
+    for (const key of Array.from(safetyTimers.keys())) clearSafetyTimer(key);
     activeRuns.clear();
     listeners.clear();
     sequence = 0;
@@ -90,7 +111,7 @@ function handleSessionActivity(event) {
     emitChange();
 }
 
-function phaseKeyForCommand(commandName) {
+export function phaseKeyForCommand(commandName) {
     if (typeof commandName !== "string") return "";
     if (commandName.startsWith("commands/")) return commandName;
     if (!commandName.startsWith("speckit.")) return commandName;
@@ -98,27 +119,29 @@ function phaseKeyForCommand(commandName) {
     return PHASE_BY_ID[phase] ? phase : `commands/${commandName}`;
 }
 
-function resetSafetyTimer(commandName, safetyMs) {
-    clearSafetyTimer(commandName);
+function resetSafetyTimer(key, safetyMs) {
+    clearSafetyTimer(key);
     if (!Number.isFinite(safetyMs) || safetyMs <= 0) return;
     const timer = setTimeout(() => {
-        if (activeRuns.delete(commandName)) emitChange();
-        safetyTimers.delete(commandName);
+        if (activeRuns.delete(key)) emitChange();
+        safetyTimers.delete(key);
     }, safetyMs);
     timer.unref?.();
-    safetyTimers.set(commandName, timer);
+    safetyTimers.set(key, timer);
 }
 
-function clearSafetyTimer(commandName) {
-    const timer = safetyTimers.get(commandName);
+function clearSafetyTimer(key) {
+    const timer = safetyTimers.get(key);
     if (!timer) return;
     clearTimeout(timer);
-    safetyTimers.delete(commandName);
+    safetyTimers.delete(key);
 }
 
 function emitChange() {
-    const snapshot = activeRunsSnapshot();
+    // Not instance-scoped: listeners re-derive per-instance state
+    // themselves (e.g. `extension.mjs` fans this out to every open canvas
+    // instance and calls `activeRunsSnapshot(inst.instanceId)` for each).
     for (const listener of Array.from(listeners)) {
-        try { listener(snapshot); } catch { /* isolate listeners */ }
+        try { listener(); } catch { /* isolate listeners */ }
     }
 }

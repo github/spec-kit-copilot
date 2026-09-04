@@ -97,7 +97,7 @@ export const phaseActions = [
                     },
                 });
                 if (["done", "skipped", "error"].includes(status)) {
-                    clearRun(`speckit.${phase}`);
+                    clearRun(inst.instanceId, `speckit.${phase}`);
                 }
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.

@@ -26,6 +26,11 @@ import { readMarkdownArtifact, extractMarker } from "./project-scanner/markdown.
 
 export { readMarkdownArtifact };
 
+// Terminal statuses that a scaffold-placeholder detection must not clobber —
+// only a stale `done` (or the already-current `empty`) should be downgraded
+// to `empty` when the file still looks unfilled.
+const PRESERVED_TEMPLATE_STATUSES = new Set(["error", "skipped", "in_progress"]);
+
 // -------- Section: shallow composition inventory (was composition/scan.mjs) --------
 // Reads the two summary manifests the `specify` CLI writes when presets or
 // extensions are installed:
@@ -157,7 +162,9 @@ export async function scanWorkspace(workspacePath, deps) {
             ...phases.constitution,
             artifactPath: constitutionPath,
             status: unfilledConstitution
-                ? "empty"
+                ? (PRESERVED_TEMPLATE_STATUSES.has(phases.constitution.status)
+                    ? phases.constitution.status
+                    : "empty")
                 : (phases.constitution.status === "empty" ? "done" : phases.constitution.status),
         };
     }

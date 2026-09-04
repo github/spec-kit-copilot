@@ -32,7 +32,7 @@ import {
     buildWorkflowTrackingPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
-import { beginRun } from "./run-tracker.mjs";
+import { beginRun, phaseKeyForCommand } from "./run-tracker.mjs";
 
 // -------- Section: fire-and-forget send --------
 // Fire-and-forget so the caller (HTTP handler or canvas action) can
@@ -133,6 +133,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 // those dispatches unwrapped so extension skills stay preset-agnostic.
 export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
+    let hasTrackingPreamble = false;
     if (track) {
         const phaseId = phaseIdForCommandName(commandName);
         const artifactPath = phaseId ? PHASE_BY_ID[phaseId]?.artifact ?? null : null;
@@ -145,9 +146,24 @@ export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty 
             expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
         } catch { /* best-effort */ }
         const preamble = buildWorkflowTrackingPreamble({ commandName, artifactPath, expectedArtifacts });
-        if (preamble) prompt = `${prompt}\n${preamble}`;
+        if (preamble) {
+            prompt = `${prompt}\n${preamble}`;
+            hasTrackingPreamble = true;
+        }
     }
-    const run = beginRun(commandName);
+    // A tracked run only clears via a completion signal `reconcileRunsWithPhases`
+    // can observe: the tracking preamble (agent self-reports via
+    // `setPhaseStatus`), or a scanner-declared artifact target (writesTo
+    // resolves to a terminal status, or a folder-fallback signal) for
+    // extension commands that get no preamble. Without either, the run
+    // would sit locked for the full safety timeout on every invocation, so
+    // skip tracking rather than start a run nothing will ever clear early.
+    const hasArtifactSignal = Boolean(
+        inst?.cwdBoundState?.phases?.[phaseKeyForCommand(commandName)]?.artifactPath,
+    );
+    const run = (hasTrackingPreamble || hasArtifactSignal)
+        ? beginRun(inst?.instanceId, commandName)
+        : null;
     dispatchPromptToSession({ prompt });
     return { prompt, commandName, runId: run?.runId, startedAt: run?.startedAt };
 }
