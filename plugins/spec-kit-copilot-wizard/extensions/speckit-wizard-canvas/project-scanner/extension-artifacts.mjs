@@ -183,7 +183,9 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
 }
 
 async function secureExistingPath(absPath, cwd, deps) {
-    return securePathWithin(absPath, cwd, cwd, deps);
+    const safePath = await securePathWithin(absPath, cwd, cwd, deps);
+    if (!safePath) return null;
+    return await deps.pathExists(safePath) ? safePath : null;
 }
 
 async function artifactMtimeIso(absPath, deps) {

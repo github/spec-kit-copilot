@@ -1160,6 +1160,29 @@ test("scanWorkspace treats existing extension artifacts as done even with placeh
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/demo/intake.md");
 });
 
+test("scanWorkspace keeps missing extension artifacts empty when realpath is unavailable", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    delete fs.realpath;
+
+    const scan = await scanWorkspace("/proj", fs);
+    const phase = scan.phases["commands/speckit.assess.intake"];
+    assert.equal(phase?.status, "empty");
+    assert.equal(phase?.artifactPath, ".specify/assessments/demo/intake.md");
+    assert.equal(phase?.lastRunAt ?? null, null);
+});
+
 test("scanWorkspace advances extension folder fallback lastRunAt from newest off-name markdown", async () => {
     const firstRunMs = Date.parse("2026-01-01T00:00:00.000Z");
     const secondRunMs = Date.parse("2026-01-01T00:05:00.000Z");
