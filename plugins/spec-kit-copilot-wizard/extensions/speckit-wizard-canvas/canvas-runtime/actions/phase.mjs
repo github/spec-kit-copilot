@@ -122,7 +122,7 @@ export const phaseActions = [
                 if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
                 const commandName = `speckit.${phase}`;
                 try {
-                    const run = dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
+                    const run = await dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
                     return {
                         ok: true,
                         commandName,

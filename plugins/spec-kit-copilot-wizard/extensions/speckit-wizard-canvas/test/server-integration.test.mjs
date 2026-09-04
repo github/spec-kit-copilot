@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 import {
@@ -30,6 +30,12 @@ import {
     normalizeExecutionReports,
     normalizeState,
 } from "../state/store.mjs";
+import { activeRunsSnapshot, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
+
+afterEach(() => {
+    __resetRunTrackerForTests();
+    setSession(null);
+});
 
 describe("server", () => {
 // Tests for server.mjs — createHandler with mock req/res + injected deps.
@@ -541,6 +547,37 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
         const before = normalizeState({});
         const after = applyPatch(before, { phases: { [phaseM[1]]: { status: statusM[1] } } });
         assert.equal(after.phases[phaseM[1]].status, statusM[1]);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit clears a tracked run when session.send fails", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: {
+                session: {
+                    send: async () => { throw new Error("session disconnected"); },
+                    log: async () => {},
+                },
+                getInstance: () => ({ instanceId: "inst-fail", workspacePath: ws, state: {} }),
+            },
+        });
+        setSession(deps.session);
+        const h = createHandler(deps);
+        const req = mockReq({
+            method: "POST",
+            url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.constitution", args: "principles..." }),
+        });
+        const res = mockRes();
+        await h(req, res);
+
+        assert.equal(res.statusCode, 400);
+        assert.match(res.body, /session disconnected/);
+        assert.deepEqual(activeRunsSnapshot("inst-fail"), []);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }

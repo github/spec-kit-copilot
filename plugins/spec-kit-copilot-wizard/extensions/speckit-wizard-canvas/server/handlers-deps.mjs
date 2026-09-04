@@ -53,7 +53,7 @@ export async function handleNpmDiagnose(res, body, { broadcast, getInstance }) {
             stderr: cached?.stderrTail ?? "",
             workspacePath: inst.workspacePath ?? null,
         });
-        dispatchPromptToSession({ prompt });
+        void dispatchPromptToSession({ prompt }).catch(() => {});
         return jsonRes(res, 200, { ok: true, errorCode });
     } finally {
         // Release the guard after a short window so the button stays

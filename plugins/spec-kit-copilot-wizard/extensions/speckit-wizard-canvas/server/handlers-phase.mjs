@@ -52,7 +52,7 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
         inst = getInstance?.();
     } catch { /* best-effort */ }
     try {
-        const run = dispatchPhaseCommand(inst, { commandName, args, allowEmpty, track });
+        const run = await dispatchPhaseCommand(inst, { commandName, args, allowEmpty, track });
         if (log) await log(`dispatch workflow ${commandName}`, "info");
         return jsonRes(res, 202, {
             queued: true,

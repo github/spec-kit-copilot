@@ -32,22 +32,22 @@ import {
     buildWorkflowTrackingPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
-import { beginRun, phaseKeyForCommand } from "./run-tracker.mjs";
+import { beginRun, clearRun, phaseKeyForCommand } from "./run-tracker.mjs";
 
-// -------- Section: fire-and-forget send --------
-// Fire-and-forget so the caller (HTTP handler or canvas action) can
-// acknowledge immediately without blocking on the agent's turn. Errors are
-// swallowed — agent-side errors surface in chat, network errors are best
-// effort. This matches the semantics both existing paths already used.
+// -------- Section: deferred send --------
+// Defer the actual SDK send so the caller does not do it on the current stack,
+// but return a promise for the handoff. Agent-side errors still surface in
+// chat; transport/session failures reject so callers can correct their local
+// queued/run state instead of leaving stale active runs behind.
 export function dispatchPromptToSession({ prompt }) {
-    setImmediate(() => {
-        try {
-            sessionAdapter().send({ prompt }).catch?.(() => {
-                // best-effort dispatch; agent-side errors surface in chat
-            });
-        } catch {
-            // best-effort dispatch; agent-side errors surface in chat
-        }
+    return new Promise((resolve, reject) => {
+        setImmediate(async () => {
+            try {
+                resolve(await sessionAdapter().send({ prompt }));
+            } catch (err) {
+                reject(err);
+            }
+        });
     });
 }
 
@@ -115,7 +115,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
         installedPresetCount,
         installedExtensionCount,
     });
-    dispatchPromptToSession({ prompt });
+    await dispatchPromptToSession({ prompt });
     return { prompt, kind };
 }
 
@@ -131,7 +131,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 // engaged. `buildWorkflowTrackingPreamble` returns null for
 // extension-namespaced commands (e.g. `speckit.assess.intake`), leaving
 // those dispatches unwrapped so extension skills stay preset-agnostic.
-export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
+export async function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
     let hasTrackingPreamble = false;
     if (track) {
@@ -164,6 +164,11 @@ export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty 
     const run = (hasTrackingPreamble || hasArtifactSignal)
         ? beginRun(inst?.instanceId, commandName)
         : null;
-    dispatchPromptToSession({ prompt });
+    try {
+        await dispatchPromptToSession({ prompt });
+    } catch (err) {
+        if (run) clearRun(inst?.instanceId, commandName);
+        throw err;
+    }
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }
