@@ -167,7 +167,7 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
     const scripts   = expectedArtifacts?.scripts   ?? [];
     const hooks     = expectedArtifacts?.hooks     ?? [];
     const hasAny = templates.length || scripts.length || hooks.length;
-    if (hasAny) {
+    if (hasAny && runId) {
         const fmt = (arr) => arr.length ? `[${arr.map((s) => JSON.stringify(s)).join(", ")}]` : "[]";
         // Vocabulary is authoritative — pulled from state-store's
         // EXECUTION_STATES so the CLOSED list embedded in the prompt is
@@ -175,10 +175,11 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
         const statesInline = EXECUTION_STATES.map((s) => `"${s}"`).join(" or ");
         const statesArray = `[${EXECUTION_STATES.map((s) => `"${s}"`).join(", ")}]`;
         lines.push(
-            `If and only if you reported status "done", call \`reportExecution\` ONCE to record which of the phase's expected artifacts you actually invoked during this run:`,
+            `If and only if \`setPhaseStatus\` returned \`{ ok: true }\` for status "done", call \`reportExecution\` ONCE with the same run id to record which of the phase's expected artifacts you actually invoked during this run:`,
             "```",
             `reportExecution({`,
             `  phase: "${phaseId}",`,
+            `  runId: ${JSON.stringify(runId)},`,
             `  artifacts: {`,
             `    templates: { /* one entry per expected id, value ${statesInline} */ },`,
             `    scripts:   { /* one entry per expected id, value ${statesInline} */ },`,
@@ -198,6 +199,8 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
             `- hook     "executed" = you dispatched the hook's slash-command during THIS run. Hooks are per-run side-effects; a prior run's hook dispatch does not count.`,
             `Any expected ID that doesn't meet the above → "omitted". Look at the artifact on disk (for templates) and this turn's tool calls (for scripts/hooks) to answer accurately; do not guess.`,
         );
+    } else if (hasAny) {
+        lines.push(`The wizard could not allocate a run id for this command, so no \`reportExecution\` call is needed.`);
     } else {
         lines.push(`The wizard has no expected-artifact list for this command, so no \`reportExecution\` call is needed.`);
     }

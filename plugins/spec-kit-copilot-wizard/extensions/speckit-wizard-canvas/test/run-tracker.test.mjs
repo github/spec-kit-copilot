@@ -14,6 +14,7 @@ import {
 
 const INSTANCE = "inst-1";
 const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
+const reportExecution = phaseActions.find((action) => action.name === "reportExecution");
 
 afterEach(() => {
     __resetRunTrackerForTests();
@@ -52,6 +53,51 @@ test("setPhaseStatus rejects stale terminal run ids before persisting status", a
         });
         assert.deepEqual(matching, { ok: true });
         assert.equal(activeRunMatches(INSTANCE, "speckit.plan", run.runId), false);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("reportExecution accepts only the run id whose done status was accepted", async () => {
+    const ws = tmpWorkspace();
+    try {
+        setSession(new EventEmitter());
+
+        const first = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+        const second = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 2_000 });
+        const staleDone = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done", runId: first.runId },
+        });
+        assert.deepEqual(staleDone, { ok: false, error: "stale phase run" });
+
+        const staleReport = await reportExecution.handler({
+            instanceId: INSTANCE,
+            input: {
+                cwd: ws,
+                phase: "plan",
+                runId: first.runId,
+                artifacts: { templates: {}, scripts: {}, hooks: {} },
+            },
+        });
+        assert.deepEqual(staleReport, { ok: false, error: "stale phase run" });
+
+        const matchingDone = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done", runId: second.runId },
+        });
+        assert.deepEqual(matchingDone, { ok: true });
+
+        const matchingReport = await reportExecution.handler({
+            instanceId: INSTANCE,
+            input: {
+                cwd: ws,
+                phase: "plan",
+                runId: second.runId,
+                artifacts: { templates: {}, scripts: {}, hooks: {} },
+            },
+        });
+        assert.deepEqual(matchingReport, { ok: true, merged: 1 });
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }

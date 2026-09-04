@@ -16,7 +16,7 @@ import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
-import { activeRunMatches, clearRun } from "../run-tracker.mjs";
+import { activeRunMatches, clearRun, consumeReportableRun, finishRun } from "../run-tracker.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -103,7 +103,11 @@ export const phaseActions = [
                     },
                 });
                 if (["done", "skipped", "error"].includes(status)) {
-                    clearRun(inst.instanceId, `speckit.${phase}`, runId);
+                    if (runId) {
+                        finishRun(inst.instanceId, `speckit.${phase}`, runId, { allowReport: status === "done" });
+                    } else {
+                        clearRun(inst.instanceId, `speckit.${phase}`, runId);
+                    }
                 }
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.
@@ -148,9 +152,10 @@ export const phaseActions = [
             "Report which of the phase's expected templates / scripts / hooks the agent actually invoked, per the tracking preamble's closed list. Call once after setPhaseStatus(status:'done').",
         inputSchema: {
             type: "object",
-            required: ["phase", "artifacts"],
+            required: ["phase", "artifacts", "runId"],
             properties: {
                 phase: { type: "string", enum: PHASE_ORDER },
+                runId: { type: "string" },
                 artifacts: {
                     type: "object",
                     description:
@@ -174,8 +179,9 @@ export const phaseActions = [
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
-                const { phase, artifacts } = ctx.input ?? {};
+                const { phase, artifacts, runId } = ctx.input ?? {};
                 if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                if (!runId) return { ok: false, error: "missing runId" };
                 if (!artifacts || typeof artifacts !== "object") return { ok: false, error: "missing artifacts" };
                 const normalized = { template: {}, script: {}, hook: {} };
                 const KIND_MAP = { templates: "template", scripts: "script", hooks: "hook" };
@@ -186,6 +192,9 @@ export const phaseActions = [
                         if (state !== "executed" && state !== "omitted") continue;
                         normalized[singular][id] = { state, detail: null };
                     }
+                }
+                if (!consumeReportableRun(inst.instanceId, `speckit.${phase}`, runId)) {
+                    return { ok: false, error: "stale phase run" };
                 }
                 return applyExecutionReport(inst, {
                     commandId: `speckit.${phase}`,

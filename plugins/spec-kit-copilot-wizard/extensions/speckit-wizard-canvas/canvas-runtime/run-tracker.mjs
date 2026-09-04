@@ -7,6 +7,7 @@
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 
 const activeTokens = new Map();
+const reportableTokens = new Map();
 let sequence = 0;
 
 function runKey(instanceId, commandName) {
@@ -25,6 +26,7 @@ export function beginRun(instanceId, commandName, { startedAtMs = Date.now() } =
         startedAtMs,
     };
     activeTokens.set(key, run);
+    reportableTokens.delete(key);
     return { runId: run.runId, commandName: run.commandName, startedAt: run.startedAt };
 }
 
@@ -34,6 +36,29 @@ export function clearRun(instanceId, commandName, runId = null) {
     if (!run) return false;
     if (runId && run.runId !== runId) return false;
     activeTokens.delete(key);
+    reportableTokens.delete(key);
+    return true;
+}
+
+export function finishRun(instanceId, commandName, runId, { allowReport = false } = {}) {
+    const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
+    const run = activeTokens.get(key);
+    if (!run || !runId || run.runId !== runId) return false;
+    activeTokens.delete(key);
+    if (allowReport) {
+        reportableTokens.set(key, { runId });
+    } else {
+        reportableTokens.delete(key);
+    }
+    return true;
+}
+
+export function consumeReportableRun(instanceId, commandName, runId) {
+    if (!runId) return false;
+    const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
+    const reportable = reportableTokens.get(key);
+    if (reportable?.runId !== runId) return false;
+    reportableTokens.delete(key);
     return true;
 }
 
@@ -45,6 +70,7 @@ export function activeRunMatches(instanceId, commandName, runId) {
 
 export function __resetRunTrackerForTests() {
     activeTokens.clear();
+    reportableTokens.clear();
     sequence = 0;
 }
 

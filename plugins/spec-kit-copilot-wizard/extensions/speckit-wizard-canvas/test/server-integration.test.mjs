@@ -989,6 +989,7 @@ test("S2: tracking preamble embeds the same execution-state vocabulary state-sto
     const preamble = buildWorkflowTrackingPreamble({
         commandName: "speckit.plan",
         expectedArtifacts: { templates: ["plan-template"], scripts: [], hooks: [] },
+        runId: "run-test",
     });
     assert.ok(preamble, "canonical command must produce a preamble");
 
