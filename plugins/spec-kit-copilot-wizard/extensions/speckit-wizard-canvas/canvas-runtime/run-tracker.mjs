@@ -8,6 +8,12 @@
 // Runs are scoped per canvas instance (`instanceId`): the extension can have
 // multiple canvas instances/workspaces open concurrently, and a run started
 // in one must never be visible to, or clearable by, another.
+//
+// The wizard is designed for one active command per canvas instance. The
+// tracker prevents accidental duplicate clicks, but timeout favors recovery:
+// once the safety window expires, the run is removed so the user can retry.
+// Generic session turn correlation is best-effort UX cleanup, not a strict
+// concurrency scheduler.
 
 import { ensureSessionActivity, onSessionActivity } from "./session-activity.mjs";
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
@@ -15,7 +21,7 @@ import { PHASE_BY_ID } from "./wizard-phases.mjs";
 export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
-// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs, turnStartedAtMs, timedOut }
+// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs, turnStartedAtMs }
 const activeRuns = new Map();
 const dispatchQueue = [];
 const safetyTimers = new Map();
@@ -62,15 +68,20 @@ export function clearRun(instanceId, commandName, runId = null) {
     const run = activeRuns.get(key);
     if (!run) return false;
     if (runId && run.runId !== runId) return false;
-    if (run.timedOut && !runId) return false;
     removeRun(key);
     emitChange();
     return true;
 }
 
+export function activeRunMatches(instanceId, commandName, runId) {
+    if (!runId) return false;
+    const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
+    return activeRuns.get(key)?.runId === runId;
+}
+
 export function activeRunsSnapshot(instanceId) {
     return Array.from(activeRuns.values())
-        .filter((run) => run.instanceId === instanceId && !run.timedOut)
+        .filter((run) => run.instanceId === instanceId)
         .sort((a, b) => a.startedAtMs - b.startedAtMs)
         .map(({ runId, commandName, startedAt }) => ({ runId, commandName, startedAt }));
 }
@@ -207,12 +218,12 @@ function resetSafetyTimer(key, safetyMs) {
     clearSafetyTimer(key);
     if (!Number.isFinite(safetyMs) || safetyMs <= 0) return;
     const timer = setTimeout(() => {
-        const run = activeRuns.get(key);
-        if (run) {
-            run.timedOut = true;
+        if (activeRuns.has(key)) {
+            removeRun(key);
             emitChange();
+        } else {
+            safetyTimers.delete(key);
         }
-        safetyTimers.delete(key);
     }, safetyMs);
     timer.unref?.();
     safetyTimers.set(key, timer);
@@ -229,6 +240,9 @@ function clearDispatchRun(dispatch) {
 function removeRun(key) {
     activeRuns.delete(key);
     clearSafetyTimer(key);
+    for (let i = dispatchQueue.length - 1; i >= 0; i -= 1) {
+        if (dispatchQueue[i]?.runKey === key) dispatchQueue.splice(i, 1);
+    }
 }
 
 function clearSafetyTimer(key) {

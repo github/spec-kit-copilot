@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
+import { phaseActions } from "../canvas-runtime/actions/phase.mjs";
 import {
     activeRunsSnapshot,
     beginRun,
@@ -14,6 +18,7 @@ import {
 } from "../canvas-runtime/run-tracker.mjs";
 
 const INSTANCE = "inst-1";
+const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
 
 function queueTrackedDispatch(run, instanceId = INSTANCE) {
     const dispatchId = registerSessionDispatch({
@@ -35,6 +40,10 @@ afterEach(() => {
     __resetRunTrackerForTests();
     setSession(null);
 });
+
+function tmpWorkspace() {
+    return mkdtempSync(join(tmpdir(), "speckit-run-tracker-"));
+}
 
 test("run tracker keeps any phase active through question and clears on correlated turn completion", () => {
     const changes = [];
@@ -236,7 +245,7 @@ test("run tracker clears runs on the safety timeout when no terminal status arri
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
 });
 
-test("run tracker keeps timed-out runs as duplicate guards until their queued turn completes", async () => {
+test("run tracker removes timed-out runs so retry is never blocked until restart", async () => {
     const session = new EventEmitter();
     setSession(session);
     configureRunTracker();
@@ -248,24 +257,14 @@ test("run tracker keeps timed-out runs as duplicate guards until their queued tu
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
-    assert.throws(
-        () => beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_000 }),
-        /run already active for speckit\.implement/,
-    );
-    assert.equal(clearRun(INSTANCE, "speckit.implement"), false);
-    assert.throws(
-        () => beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_100 }),
-        /run already active for speckit\.implement/,
-    );
+    const retry = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_000 });
+    assert.equal(retry.commandName, "speckit.implement");
 
     session.emit("assistant.turn_start", { timestamp: new Date(2_100).toISOString() });
     session.emit("assistant.turn_end", { timestamp: new Date(2_500).toISOString() });
-
-    const next = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 3_000 });
-    assert.equal(next.commandName, "speckit.implement");
 });
 
-test("run tracker clears timed-out runs when the callback includes the matching run id", async () => {
+test("run tracker ignores callbacks for runs already removed by timeout", async () => {
     setSession(new EventEmitter());
     configureRunTracker();
 
@@ -276,7 +275,7 @@ test("run tracker clears timed-out runs when the callback includes the matching 
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
     assert.equal(clearRun(INSTANCE, "speckit.implement", "not-this-run"), false);
-    assert.equal(clearRun(INSTANCE, "speckit.implement", run.runId), true);
+    assert.equal(clearRun(INSTANCE, "speckit.implement", run.runId), false);
 
     const next = beginRun(INSTANCE, "speckit.implement", { startedAtMs: 2_000 });
     assert.equal(next.commandName, "speckit.implement");
@@ -319,4 +318,30 @@ test("run tracker rejects duplicate active runs for the same instance and comman
         commandName: "speckit.plan",
         startedAt: new Date(1_000).toISOString(),
     }]);
+});
+
+test("setPhaseStatus rejects stale terminal run ids before persisting status", async () => {
+    const ws = tmpWorkspace();
+    try {
+        setSession(new EventEmitter());
+        configureRunTracker();
+
+        const run = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+        const stale = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done", runId: "stale-run" },
+        });
+
+        assert.deepEqual(stale, { ok: false, error: "stale phase run" });
+        assert.deepEqual(activeRunsSnapshot(INSTANCE).map((item) => item.runId), [run.runId]);
+
+        const matching = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done", runId: run.runId },
+        });
+        assert.deepEqual(matching, { ok: true });
+        assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
 });
