@@ -24,13 +24,14 @@ function tmpWorkspace() {
     return mkdtempSync(join(tmpdir(), "speckit-run-token-"));
 }
 
-test("new run tokens replace older tokens without blocking reruns", () => {
+test("active run tokens reject overlapping runs", () => {
     const first = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
-    const second = beginRun(INSTANCE, "speckit.plan", { startedAtMs: 2_000 });
 
-    assert.notEqual(first.runId, second.runId);
-    assert.equal(activeRunMatches(INSTANCE, "speckit.plan", first.runId), false);
-    assert.equal(activeRunMatches(INSTANCE, "speckit.plan", second.runId), true);
+    assert.throws(
+        () => beginRun(INSTANCE, "speckit.plan", { startedAtMs: 2_000 }),
+        /phase run already active/,
+    );
+    assert.equal(activeRunMatches(INSTANCE, "speckit.plan", first.runId), true);
 });
 
 test("setPhaseStatus rejects stale terminal run ids before persisting status", async () => {
