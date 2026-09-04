@@ -1,8 +1,10 @@
 // Lightweight phase status token tracking.
 //
 // Chat owns execution progress, while the scanner owns artifact availability.
-// These tokens protect canonical phase status callbacks from stale writes
-// and prevent overlapping runs; they do not appear in UI snapshots.
+// These tokens protect canonical phase status callbacks from stale writes.
+// The wizard is a launcher: overlapping reruns are not serialized here, and
+// users should not rerun while the active chat turn is still in progress.
+// Tokens do not appear in UI snapshots.
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 
@@ -17,7 +19,6 @@ export function beginRun(instanceId, commandName, { startedAtMs = Date.now() } =
     const trackedCommandName = normalizeTrackedCommandName(commandName);
     if (!instanceId || !trackedCommandName) return null;
     const key = runKey(instanceId, trackedCommandName);
-    if (activeTokens.has(key)) throw new Error("phase run already active");
     const run = {
         runId: `run-${++sequence}`,
         instanceId,
