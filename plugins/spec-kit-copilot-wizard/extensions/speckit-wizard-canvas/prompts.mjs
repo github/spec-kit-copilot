@@ -120,12 +120,14 @@ export function phaseIdForCommandName(commandName) {
 }
 
 /**
- * Wizard-tracking preamble prepended to a raw `/speckit-<phase>` slash-command
- * dispatch. Tells the agent to run the skill normally, then call
- * `setPhaseStatus` with a terminal status before returning. The wizard keeps
- * the Run button locked until that callback lands, with only a timeout as a
- * last-resort fallback. Kept as a short, plain-English preamble so it doesn't
- * override the skill's own scope guard or user-facing behavior.
+ * Wizard-tracking preamble prepended when the launcher sends a canonical
+ * `/speckit-<phase>` run into chat. Tells the agent to run the skill normally,
+ * then call `setPhaseStatus` with a terminal status before returning. The local
+ * Run button state is only a short acknowledgement animation: chat owns live
+ * progress, `setPhaseStatus` persists terminal phase state, and the scanner
+ * confirms files before artifact buttons become available. Kept as a short,
+ * plain-English preamble so it doesn't override the skill's own scope guard or
+ * user-facing behavior.
  *
  * The preamble is NOT sent for handoff-style workflow dispatches (those go
  * through a separate lane); only the wizard's Run phase / Rerun phase paths
