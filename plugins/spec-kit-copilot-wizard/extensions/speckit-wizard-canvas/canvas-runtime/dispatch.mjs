@@ -121,8 +121,8 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 
 // -------- Section: dispatchPhaseCommand --------
 // Build a raw `/speckit-<phase>` slash command (optionally wrapped with the
-// tracking preamble that instructs the agent to call `setPhaseStatus` +
-// `reportExecution` on completion) and dispatch it. Used for Run phase /
+// tracking preamble that instructs the agent to report a terminal phase status
+// and, on success, `reportExecution`) and dispatch it. Used for Run phase /
 // Rerun phase clicks in the UI AND the agent's `runPhase` canvas action.
 //
 // When `track: true`, the wizard prepends a small tracking preamble that

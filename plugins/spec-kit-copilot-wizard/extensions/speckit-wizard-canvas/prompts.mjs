@@ -122,11 +122,10 @@ export function phaseIdForCommandName(commandName) {
 /**
  * Wizard-tracking preamble prepended to a raw `/speckit-<phase>` slash-command
  * dispatch. Tells the agent to run the skill normally, then call
- * `setPhaseStatus` when the artifact is written. The wizard itself observes
- * which templates/scripts/hooks actually ran via the deterministic witness
- * recorder (`witness/recorder.mjs`) — the agent no longer self-reports.
- * Kept as a short, plain-English preamble so it doesn't override the skill's
- * own scope guard or user-facing behavior.
+ * `setPhaseStatus` with a terminal status before returning. The wizard keeps
+ * the Run button locked until that callback lands, with only a timeout as a
+ * last-resort fallback. Kept as a short, plain-English preamble so it doesn't
+ * override the skill's own scope guard or user-facing behavior.
  *
  * The preamble is NOT sent for handoff-style workflow dispatches (those go
  * through a separate lane); only the wizard's Run phase / Rerun phase paths
@@ -150,7 +149,11 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
     const lines = [
         `<!-- speckit-wizard tracking preamble — do NOT include in reply -->`,
         `Invoke the \`skill\` tool with name \`speckit-${phaseId}\` before running any other tool call. The bare \`/speckit-${phaseId}\` on the first line is a hint for humans reading the transcript, not an auto-intercepted slash command.`,
-        `You were dispatched by the Spec Kit Wizard's Run phase button. Complete the skill's normal work, then when the artifact has been written call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg} })\`.`,
+        `You were dispatched by the Spec Kit Wizard's Run phase button. Before you return, call \`setPhaseStatus\` exactly once with a terminal status for this phase:`,
+        `- Success: call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg} })\` after the skill's normal work is complete.`,
+        `- Optional phase intentionally bypassed: call \`setPhaseStatus({ phase: "${phaseId}", status: "skipped" })\`.`,
+        `- Declined checklist gate, checklist rejection, cancellation, validation failure, skill/tool failure, or any other blocker: call \`setPhaseStatus({ phase: "${phaseId}", status: "error" })\`.`,
+        `Do not leave the phase in progress, and do not omit this terminal callback because the wizard's Run button stays locked until it receives one or the safety timeout expires.`,
     ];
     // Attach the closed-list witness ask so the agent self-reports which of
     // the phase's expected templates / scripts / hooks it actually invoked.
@@ -169,7 +172,7 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
         const statesInline = EXECUTION_STATES.map((s) => `"${s}"`).join(" or ");
         const statesArray = `[${EXECUTION_STATES.map((s) => `"${s}"`).join(", ")}]`;
         lines.push(
-            `After \`setPhaseStatus\` succeeds, call \`reportExecution\` ONCE to record which of the phase's expected artifacts you actually invoked during this run:`,
+            `If and only if you reported status "done", call \`reportExecution\` ONCE to record which of the phase's expected artifacts you actually invoked during this run:`,
             "```",
             `reportExecution({`,
             `  phase: "${phaseId}",`,

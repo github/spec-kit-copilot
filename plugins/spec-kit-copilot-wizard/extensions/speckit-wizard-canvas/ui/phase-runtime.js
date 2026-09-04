@@ -112,6 +112,8 @@ export function setPhaseLastSubmitted(commandName, value) {
 
 // -------- Section: phase/run-lock.js --------
 
+export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
+const _phaseRunTimers = new Map();
 const _phaseRunStartedAt = new Map();
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
@@ -129,10 +131,11 @@ function _phaseIdForCommand(commandName) {
     return isCanonical(bare) ? bare : `commands/${commandName}`;
 }
 
-export function markPhaseRunning(commandName) {
+export function markPhaseRunning(commandName, { safetyMs = PHASE_RUN_SAFETY_MS } = {}) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
     _phaseRunStartedAt.set(commandName, Date.now());
+    resetPhaseRunTimer(commandName, safetyMs);
     __render();
 }
 
@@ -140,6 +143,7 @@ export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
     _phaseRunStartedAt.delete(commandName);
+    clearPhaseRunTimer(commandName);
     __render();
 }
 
@@ -178,6 +182,20 @@ export function observePhaseProgress() {
             clearPhaseRunning(commandName);
         }
     }
+}
+
+function resetPhaseRunTimer(commandName, safetyMs) {
+    clearPhaseRunTimer(commandName);
+    if (!Number.isFinite(safetyMs) || safetyMs <= 0) return;
+    const timer = setTimeout(() => clearPhaseRunning(commandName), safetyMs);
+    _phaseRunTimers.set(commandName, timer);
+}
+
+function clearPhaseRunTimer(commandName) {
+    const timer = _phaseRunTimers.get(commandName);
+    if (!timer) return;
+    clearTimeout(timer);
+    _phaseRunTimers.delete(commandName);
 }
 
 

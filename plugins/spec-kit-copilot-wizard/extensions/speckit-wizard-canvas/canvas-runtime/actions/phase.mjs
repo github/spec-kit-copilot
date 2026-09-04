@@ -107,7 +107,7 @@ export const phaseActions = [
     {
         name: "runPhase",
         description:
-            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble so the agent knows to call `setPhaseStatus` and `reportExecution` when done. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
+            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble so the agent knows to report a terminal status and, on success, call `reportExecution`. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
         inputSchema: {
             type: "object",
             required: ["phase"],

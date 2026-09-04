@@ -978,6 +978,21 @@ test("S2: tracking preamble embeds the same execution-state vocabulary state-sto
     assert.equal(kept.length, EXECUTION_STATES.length, "every canonical state must round-trip");
 });
 
+test("S2: tracking preamble requires terminal status for success, skips, and blockers", () => {
+    const preamble = buildWorkflowTrackingPreamble({
+        commandName: "speckit.implement",
+        artifactPath: null,
+    });
+
+    assert.ok(preamble.includes('status: "done"'), "success must report done");
+    assert.ok(preamble.includes('status: "skipped"'), "intentional bypass must report skipped");
+    assert.ok(preamble.includes('status: "error"'), "blockers must report error");
+    assert.match(preamble, /Declined checklist gate/);
+    assert.match(preamble, /cancellation/);
+    assert.match(preamble, /skill\/tool failure/);
+    assert.match(preamble, /Before you return, call `setPhaseStatus` exactly once/);
+});
+
 // ---------- Full-state JSON round-trip ----------
 
 test("JSON round-trip: state exercising every slice survives stringify/parse/normalize", () => {

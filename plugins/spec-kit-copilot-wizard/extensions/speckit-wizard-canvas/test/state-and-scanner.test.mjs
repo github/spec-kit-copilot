@@ -55,6 +55,11 @@ test("normalizeState drops invalid status values to 'empty'", () => {
     assert.equal(s.phases.constitution.status, "empty");
 });
 
+test("normalizeState preserves error as a terminal phase status", () => {
+    const s = normalizeState({ phases: { implement: { status: "error" } } });
+    assert.equal(s.phases.implement.status, "error");
+});
+
 test("normalizeState coerces booleans from strings", () => {
     const s = normalizeState({
         setup: {

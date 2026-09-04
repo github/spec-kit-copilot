@@ -41,8 +41,8 @@ export function phaseSubmitKind(phase) {
  *
  * When `track: true` (default for Run phase / Rerun phase clicks — passed
  * through `handlePhaseSubmit`), the shared helper prepends the wizard
- * tracking preamble so the agent calls `setPhaseStatus` on completion and
- * `reportExecution` with a per-artifact executed/omitted verdict. Handoff
+ * tracking preamble so the agent reports a terminal phase status and, on
+ * success, `reportExecution` with a per-artifact executed/omitted verdict. Handoff
  * calls pass `track: false` so neither the preamble nor the witness window
  * are engaged.
  */
@@ -67,8 +67,8 @@ export async function handlePhaseSubmit(res, body, deps) {
     // workflow lane and is preset-agnostic.
     //
     // `track: true` prepends the wizard tracking preamble so the agent
-    // calls `setPhaseStatus` when the skill completes, and opens a witness
-    // window so the extension records which artifacts actually fired.
+    // reports a terminal phase status, and opens a witness window so the
+    // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,

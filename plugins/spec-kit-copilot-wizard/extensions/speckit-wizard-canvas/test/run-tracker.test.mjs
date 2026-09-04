@@ -69,3 +69,15 @@ test("run tracker clears runs when scanner observes a post-dispatch artifact tim
 
     assert.deepEqual(activeRunsSnapshot(), []);
 });
+
+test("run tracker clears runs on the safety timeout when no terminal status arrives", async () => {
+    setSession(new EventEmitter());
+    configureRunTracker();
+
+    beginRun("speckit.implement", { startedAtMs: 1_000, safetyMs: 5 });
+    assert.equal(activeRunsSnapshot().length, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.deepEqual(activeRunsSnapshot(), []);
+});

@@ -391,6 +391,23 @@ test("observePhaseProgress reconciles active runs from server snapshots", () => 
     }
 });
 
+test("client phase run lock clears on the safety timeout when no server status arrives", async () => {
+    let renders = 0;
+    setRunLockDeps({ render: () => { renders += 1; } });
+    try {
+        markPhaseRunning("speckit.implement", { safetyMs: 5 });
+        assert.equal(state.phaseRunning.has("speckit.implement"), true);
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        assert.equal(state.phaseRunning.has("speckit.implement"), false);
+        assert.ok(renders >= 2);
+    } finally {
+        clearPhaseRunning("speckit.implement");
+        setRunLockDeps({ render: () => {} });
+    }
+});
+
 test("resolvePipelineEntry suppresses core artifact readiness only while owner command is running", async () => {
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
