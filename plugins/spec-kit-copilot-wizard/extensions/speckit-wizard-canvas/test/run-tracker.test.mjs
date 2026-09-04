@@ -18,7 +18,7 @@ afterEach(() => {
     setSession(null);
 });
 
-test("run tracker keeps any phase active through question, idle, and answer until terminal status", () => {
+test("run tracker keeps any phase active through question and clears on correlated turn completion", () => {
     const changes = [];
     const session = new EventEmitter();
     setSession(session);
@@ -29,6 +29,7 @@ test("run tracker keeps any phase active through question, idle, and answer unti
     assert.equal(run.commandName, "speckit.plan");
     assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 
+    session.emit("assistant.turn_start", { timestamp: new Date(1_050).toISOString() });
     session.emit("user_input.requested", {
         timestamp: new Date(1_100).toISOString(),
         data: { requestId: "question-1", question: "Which checklist?" },
@@ -41,16 +42,7 @@ test("run tracker keeps any phase active through question, idle, and answer unti
         timestamp: new Date(1_300).toISOString(),
         data: { requestId: "question-1", answer: "security" },
     });
-    session.emit("session.idle", { timestamp: new Date(1_400).toISOString() });
-
-    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
-
-    reconcileRunsWithPhases(INSTANCE, {
-        plan: {
-            status: "done",
-            lastRunAt: new Date(1_500).toISOString(),
-        },
-    });
+    session.emit("assistant.turn_end", { timestamp: new Date(1_400).toISOString() });
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
     assert.ok(changes.length >= 2);
@@ -126,6 +118,39 @@ test("run tracker treats an advanced lastRunAt with a folder fallback as complet
     });
 
     assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker clears extension runs on correlated session completion when artifact mtime does not advance", () => {
+    const session = new EventEmitter();
+    setSession(session);
+    configureRunTracker();
+
+    beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    session.emit("assistant.turn_start", { timestamp: new Date(1_100).toISOString() });
+
+    reconcileRunsWithPhases(INSTANCE, {
+        "commands/speckit.assess.define": {
+            status: "empty",
+            folderPath: ".specify/assessments/demo",
+            lastRunAt: new Date(1_000).toISOString(),
+        },
+    });
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
+
+    session.emit("session.idle", { timestamp: new Date(1_500).toISOString() });
+
+    assert.deepEqual(activeRunsSnapshot(INSTANCE), []);
+});
+
+test("run tracker ignores stale terminal session activity without a post-dispatch turn start", () => {
+    const session = new EventEmitter();
+    setSession(session);
+    configureRunTracker();
+
+    beginRun(INSTANCE, "speckit.assess.define", { startedAtMs: 1_000 });
+    session.emit("session.idle", { timestamp: new Date(1_100).toISOString() });
+
+    assert.equal(activeRunsSnapshot(INSTANCE).length, 1);
 });
 
 test("run tracker clears runs on the safety timeout when no terminal status arrives", async () => {

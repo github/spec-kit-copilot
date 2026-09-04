@@ -1,9 +1,9 @@
 // Server-owned phase run tracking.
 //
 // Dispatch starts a run. Wizard-owned completion signals clear it: phase status
-// reports, scanner-observed terminal statuses, or the safety timeout. SDK idle
-// is never treated as completion because conversation phases can idle while
-// waiting on user input.
+// reports, scanner-observed terminal statuses, correlated SDK turn completion,
+// or the safety timeout. SDK idle is ignored while the session is waiting on
+// user input because conversation phases can legitimately pause there.
 //
 // Runs are scoped per canvas instance (`instanceId`): the extension can have
 // multiple canvas instances/workspaces open concurrently, and a run started
@@ -15,7 +15,7 @@ import { PHASE_BY_ID } from "./wizard-phases.mjs";
 export const RUN_TRACKER_SAFETY_MS = 5 * 60 * 1000;
 const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
-// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs }
+// runKey (`${instanceId}::${commandName}`) -> { runId, instanceId, commandName, startedAt, startedAtMs, turnStartedAtMs }
 const activeRuns = new Map();
 const safetyTimers = new Map();
 const listeners = new Set();
@@ -110,7 +110,29 @@ export function __resetRunTrackerForTests() {
 function handleSessionActivity(event) {
     if (!event) return;
     if (!activeRuns.size) return;
+    let changed = false;
+    for (const [key, run] of Array.from(activeRuns.entries())) {
+        if (event.kind === "turn-start" && event.at >= run.startedAtMs) {
+            run.turnStartedAtMs = event.at;
+            continue;
+        }
+        if (!isTerminalSessionActivity(event)) continue;
+        if (event.awaitingUserInput) continue;
+        if (!Number.isFinite(run.turnStartedAtMs)) continue;
+        if (event.at < run.turnStartedAtMs) continue;
+        activeRuns.delete(key);
+        clearSafetyTimer(key);
+        changed = true;
+    }
+    if (changed) {
+        emitChange();
+        return;
+    }
     emitChange();
+}
+
+function isTerminalSessionActivity(event) {
+    return event.kind === "turn-end" || event.kind === "session-idle";
 }
 
 export function phaseKeyForCommand(commandName) {
