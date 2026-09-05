@@ -489,15 +489,10 @@ export function renderGraphPhaseCard(el, p) {
 
     const disabledAttr = p.locked ? "disabled" : "";
     const isDone = p.status === "done";
-    const canViewArtifact = isDone && !!p.artifactPath;
+    const canViewArtifact = !!p.artifactPath;
 
-    // Status-driven action row:
-    //  - done      → View artifact + Run again (the phase has actually been
-    //                run, and there's something meaningful on disk to view)
-    //  - otherwise → Run phase only. Even if an artifact file exists on disk
-    //                (e.g., a scaffolded template from `specify init`, or a
-    //                sibling phase's shared file), View is hidden until this
-    //                phase's own run marks it done.
+    // View follows scanner-confirmed artifacts even after a later rerun fails.
+    // Run/Rerun wording still follows phase status.
     let actionRow;
     const running = state.phaseRunning.has(p.commandName);
     const runningLabel = `<span class="btn-spinner" aria-hidden="true"></span> Running…`;
@@ -527,6 +522,7 @@ export function renderGraphPhaseCard(el, p) {
               <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Rerun phase"}</button>`;
     } else {
         centerActions = `
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
               <button type="submit" class="btn btn-primary" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Run phase"}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">

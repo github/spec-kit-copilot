@@ -646,6 +646,62 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
     }
 });
 
+test("renderGraphPhaseCard keeps scanner-confirmed artifact viewable after failed rerun", () => {
+    const el = {
+        innerHTML: "",
+        querySelector(selector) {
+            if (selector === '[data-phase-action="view"]') {
+                return this.innerHTML.includes('data-phase-action="view"')
+                    ? { addEventListener: () => {} }
+                    : null;
+            }
+            if (selector === "form.graph-phase-form" && this.innerHTML.includes("graph-phase-form")) {
+                return {
+                    querySelector: () => null,
+                    addEventListener: () => {},
+                };
+            }
+            return null;
+        },
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        activeElement: null,
+        getElementById: () => null,
+    };
+    setGraphPhaseCardDeps({
+        openArtifactViewer: () => {},
+        renderPhaseCard: () => {},
+        renderStepper: () => {},
+    });
+    state.snapshot = { pipeline: ["plan"], composition: { artifacts: [] } };
+
+    try {
+        renderGraphPhaseCard(el, {
+            id: "plan",
+            name: "Plan",
+            status: "error",
+            optional: false,
+            locked: false,
+            commandName: "speckit.plan",
+            artifactPath: "specs/feature/plan.md",
+        });
+
+        assert.match(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /Run phase/);
+    } finally {
+        state.snapshot = null;
+        setGraphPhaseCardDeps({
+            openArtifactViewer: () => {},
+            renderPhaseCard: () => {},
+            renderStepper: () => {},
+        });
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
 test("renderGraphPhaseCard does not show View artifact from local running acknowledgement alone", () => {
     const el = {
         innerHTML: "",
