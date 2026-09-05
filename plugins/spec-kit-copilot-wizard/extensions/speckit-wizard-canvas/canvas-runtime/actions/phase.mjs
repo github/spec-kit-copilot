@@ -90,6 +90,10 @@ export const phaseActions = [
                 if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
                 if (["done", "skipped", "error"].includes(status)) {
                     const commandName = `speckit.${phase}`;
+                    // Freshness guard only: the wizard is a guided launcher,
+                    // not a serialized phase executor. Users should monitor
+                    // chat completion before rerunning the same phase; this
+                    // guard rejects callbacks already known to be stale.
                     if (runId) {
                         if (!activeRunMatches(inst.instanceId, commandName, runId)) {
                             return { ok: false, error: "stale phase run" };
