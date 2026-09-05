@@ -94,6 +94,9 @@ export const phaseActions = [
                     // not a serialized phase executor. Users should monitor
                     // chat completion before rerunning the same phase; this
                     // guard rejects callbacks already known to be stale.
+                    // The wizard starts the phase, then the chat shows whether it is still
+                    // working. If a user starts the same phase again before chat finishes, the
+                    // runs may overlap; that is outside the wizard's normal guided flow.
                     if (runId) {
                         if (!activeRunMatches(inst.instanceId, commandName, runId)) {
                             return { ok: false, error: "stale phase run" };
