@@ -138,6 +138,9 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
     if ((hasChecklistRun || hasConfiguredChecklist) && await deps.pathExists(checklistsDir)) {
         const target = await checklistArtifactTarget(checklistsDir);
         if (target) {
+            // The checklist directory is fixed for a feature's lifetime, so
+            // keeping an existing folder fallback alongside a later file
+            // target is safe and still points at the same artifact area.
             phases.checklist = {
                 ...phases.checklist,
                 artifactPath: target.artifactPath,
