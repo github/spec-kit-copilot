@@ -175,6 +175,10 @@ export const SKILL_BY_KIND = Object.freeze({
 });
 
 export const ACTION_KINDS = Object.freeze(new Set(Object.keys(SKILL_BY_KIND)));
+export const RUNNABLE_PHASE_ORDER = Object.freeze(
+    PHASE_ORDER.filter((id) => typeof SKILL_BY_KIND[id] === "string"),
+);
+export const RUNNABLE_PHASES = Object.freeze(new Set(RUNNABLE_PHASE_ORDER));
 
 // Helpers ------------------------------------------------------------------
 

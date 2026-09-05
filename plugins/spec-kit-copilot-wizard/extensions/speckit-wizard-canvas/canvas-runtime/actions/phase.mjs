@@ -10,7 +10,7 @@
 // operates on the resolved phase graph, not on any particular source
 // layer.
 
-import { PHASE_BY_ID, PHASE_ORDER } from "../wizard-phases.mjs";
+import { RUNNABLE_PHASE_ORDER, RUNNABLE_PHASES } from "../wizard-phases.mjs";
 import { withInstance } from "../instances.mjs";
 import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
@@ -78,7 +78,7 @@ export const phaseActions = [
             type: "object",
             required: ["phase", "status"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
                 status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
                 artifactPath: { type: "string" },
                 runId: { type: "string" },
@@ -87,7 +87,7 @@ export const phaseActions = [
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, status, artifactPath, runId } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
                 if (["done", "skipped", "error"].includes(status)) {
                     const commandName = `speckit.${phase}`;
                     if (runId) {
@@ -127,14 +127,14 @@ export const phaseActions = [
             type: "object",
             required: ["phase"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
                 args: { type: "string", description: "Verbatim textarea contents to append after the slash command." },
             },
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, args = "" } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
                 const commandName = `speckit.${phase}`;
                 try {
                     const run = await dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
@@ -159,7 +159,7 @@ export const phaseActions = [
             type: "object",
             required: ["phase", "artifacts", "runId"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
                 runId: { type: "string" },
                 artifacts: {
                     type: "object",
@@ -185,7 +185,7 @@ export const phaseActions = [
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, artifacts, runId } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
                 if (!runId) return { ok: false, error: "missing runId" };
                 if (!artifacts || typeof artifacts !== "object") return { ok: false, error: "missing artifacts" };
                 const normalized = { template: {}, script: {}, hook: {} };

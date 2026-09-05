@@ -14,6 +14,7 @@ import {
 
 const INSTANCE = "inst-1";
 const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
+const runPhase = phaseActions.find((action) => action.name === "runPhase");
 const reportExecution = phaseActions.find((action) => action.name === "reportExecution");
 
 afterEach(() => {
@@ -31,6 +32,25 @@ test("active run tokens keep only the latest overlapping run", () => {
 
     assert.equal(activeRunMatches(INSTANCE, "speckit.plan", first.runId), false);
     assert.equal(activeRunMatches(INSTANCE, "speckit.plan", second.runId), true);
+});
+
+test("runPhase schema and runtime reject meta phases", async () => {
+    const phaseEnum = runPhase.inputSchema.properties.phase.enum;
+    assert.equal(phaseEnum.includes("setup"), false);
+    assert.equal(phaseEnum.includes("preset"), false);
+    assert.equal(phaseEnum.includes("plan"), true);
+
+    const setup = await runPhase.handler({
+        instanceId: INSTANCE,
+        input: { phase: "setup" },
+    });
+    assert.deepEqual(setup, { ok: false, error: "invalid phase" });
+
+    const preset = await runPhase.handler({
+        instanceId: INSTANCE,
+        input: { phase: "preset" },
+    });
+    assert.deepEqual(preset, { ok: false, error: "invalid phase" });
 });
 
 test("setPhaseStatus rejects stale terminal run ids before persisting status", async () => {
