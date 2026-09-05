@@ -24,7 +24,7 @@ import { summarizeResults } from "../env/probe.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
 import { buildPrompt, buildWorkflowTrackingPreamble, phaseIdForCommandName } from "../prompts.mjs";
 import { createHandler } from "../server.mjs";
-import { __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
+import { activeRunMatches, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 import {
     applyPatch,
     EXECUTION_STATES,
@@ -554,7 +554,7 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
     }
 });
 
-test("POST /api/phase/submit clears a tracked run when session.send fails", async () => {
+test("POST /api/phase/submit acknowledges before session.send completion and clears failed tracked runs", async () => {
     const ws = tmpWorkspace();
     try {
         const deps = baseDeps({
@@ -577,8 +577,13 @@ test("POST /api/phase/submit clears a tracked run when session.send fails", asyn
         const res = mockRes();
         await h(req, res);
 
-        assert.equal(res.statusCode, 400);
-        assert.match(res.body, /session disconnected/);
+        assert.equal(res.statusCode, 202, res.body);
+        const body = JSON.parse(res.body);
+        assert.equal(body.queued, true);
+        assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), true);
+
+        await new Promise((r) => setImmediate(r));
+        assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }

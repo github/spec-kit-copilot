@@ -38,20 +38,24 @@ import {
 } from "./run-tracker.mjs";
 
 // -------- Section: deferred send --------
-// Defer the actual SDK send so the caller does not do it on the current stack,
-// but return a promise for the handoff. Agent-side errors still surface in
-// chat; transport/session failures reject so callers can clear local UI
-// acknowledgement state immediately.
-export function dispatchPromptToSession({ prompt }) {
-    return new Promise((resolve, reject) => {
-        setImmediate(async () => {
-            try {
-                resolve(await sessionAdapter().send({ prompt }));
-            } catch (err) {
-                reject(err);
-            }
+// Defer the actual SDK send so callers acknowledge the enqueue immediately
+// instead of waiting for the agent turn to finish. Agent-side errors still
+// surface in chat; transport/session failures are observed asynchronously so
+// local tracking state can be cleaned up without blocking the caller.
+export function dispatchPromptToSession({ prompt, onError } = {}) {
+    setImmediate(() => {
+        let completion;
+        try {
+            completion = sessionAdapter().send({ prompt });
+        } catch (err) {
+            try { onError?.(err); } catch { /* best-effort */ }
+            return;
+        }
+        Promise.resolve(completion).catch((err) => {
+            try { onError?.(err); } catch { /* best-effort */ }
         });
     });
+    return Promise.resolve();
 }
 
 // -------- Section: disk probe for installed layers --------
@@ -162,11 +166,11 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
         });
         if (preamble) prompt = `${prompt}\n${preamble}`;
     }
-    try {
-        await dispatchPromptToSession({ prompt });
-    } catch (err) {
-        if (run) clearRun(inst?.instanceId, commandName, run.runId);
-        throw err;
-    }
+    await dispatchPromptToSession({
+        prompt,
+        onError: () => {
+            if (run) clearRun(inst?.instanceId, commandName, run.runId);
+        },
+    });
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }
