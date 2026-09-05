@@ -6,6 +6,11 @@
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 
+// Kept in memory only for the current extension process. The wizard is
+// normally one guided panel per project; if a panel closes mid-run, any
+// leftover entry is harmless unless the same instance id is reused before the
+// process restarts. Artifact discovery and durable phase state do not depend
+// on these maps.
 const activeTokens = new Map();
 const reportableTokens = new Map();
 let sequence = 0;
