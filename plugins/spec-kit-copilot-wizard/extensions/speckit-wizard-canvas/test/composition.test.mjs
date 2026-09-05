@@ -22,9 +22,12 @@ import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effect
 import { scanWorkspace } from "../project-scanner.mjs";
 import { state, PHASE_ORDER as UI_FALLBACK_PHASE_ORDER } from "../ui/state.js";
 import {
+    clearPhaseSubmitted,
     clearPhaseRunning,
     markPhaseRunning,
+    markPhaseSubmitted,
     observePhaseProgress,
+    PHASE_RUN_ACK_MS,
     renderMoreCommandsPanel,
     resolvePipelineEntry,
     setRunLockDeps,
@@ -340,6 +343,10 @@ test("client phase running acknowledgement clears after its local duration", asy
         clearPhaseRunning("speckit.implement");
         setRunLockDeps({ render: () => {} });
     }
+});
+
+test("phase running acknowledgement default lasts 15 seconds", () => {
+    assert.equal(PHASE_RUN_ACK_MS, 15_000);
 });
 
 test("local running acknowledgement temporarily displays in-progress without hiding artifact path", async () => {
@@ -689,8 +696,66 @@ test("renderGraphPhaseCard keeps scanner-confirmed artifact viewable after faile
         });
 
         assert.match(el.innerHTML, /data-phase-action="view"/);
-        assert.match(el.innerHTML, /Run phase/);
+        assert.match(el.innerHTML, /Rerun phase/);
     } finally {
+        state.snapshot = null;
+        setGraphPhaseCardDeps({
+            openArtifactViewer: () => {},
+            renderPhaseCard: () => {},
+            renderStepper: () => {},
+        });
+
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderGraphPhaseCard switches to rerun after local dispatch acknowledgement", () => {
+    const el = {
+        innerHTML: "",
+        querySelector(selector) {
+            if (selector === '[data-phase-action="view"]') return null;
+            if (selector === "form.graph-phase-form" && this.innerHTML.includes("graph-phase-form")) {
+                return {
+                    querySelector: () => null,
+                    addEventListener: () => {},
+                };
+            }
+            return null;
+        },
+        querySelectorAll: () => [],
+    };
+    const priorDocument = globalThis.document;
+    globalThis.document = {
+        activeElement: null,
+        getElementById: () => null,
+    };
+    setGraphPhaseCardDeps({
+        openArtifactViewer: () => {},
+        renderPhaseCard: () => {},
+        renderStepper: () => {},
+    });
+    state.snapshot = { pipeline: ["plan"], composition: { artifacts: [] } };
+
+    try {
+        markPhaseSubmitted("speckit.plan");
+        renderGraphPhaseCard(el, {
+            id: "plan",
+            name: "Plan",
+            status: "empty",
+            optional: false,
+            locked: false,
+            commandName: "speckit.plan",
+            artifact: "specs/<slug>/plan.md",
+            artifactPath: null,
+        });
+
+        assert.match(el.innerHTML, /data-phase-action="redo"/);
+        assert.match(el.innerHTML, /Rerun phase/);
+        assert.doesNotMatch(el.innerHTML, /Run phase/);
+        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+    } finally {
+        clearPhaseSubmitted("speckit.plan");
         state.snapshot = null;
         setGraphPhaseCardDeps({
             openArtifactViewer: () => {},

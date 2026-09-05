@@ -112,7 +112,7 @@ export function setPhaseLastSubmitted(commandName, value) {
 
 // -------- Section: phase/run-ack.js --------
 
-export const PHASE_RUN_ACK_MS = 3 * 1000;
+export const PHASE_RUN_ACK_MS = 15 * 1000;
 const _phaseRunTimers = new Map();
 
 let __render = () => {};
@@ -127,6 +127,18 @@ export function markPhaseRunning(commandName, { durationMs = PHASE_RUN_ACK_MS } 
     if (!commandName) return;
     state.phaseRunning.add(commandName);
     resetPhaseRunTimer(commandName, durationMs);
+    __render();
+}
+
+export function markPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.add(commandName);
+    __render();
+}
+
+export function clearPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.delete(commandName);
     __render();
 }
 
