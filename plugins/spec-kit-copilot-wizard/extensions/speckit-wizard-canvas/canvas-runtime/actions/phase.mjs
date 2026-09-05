@@ -16,7 +16,7 @@ import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
-import { activeRunMatches, clearRun, consumeReportableRun, finishRun } from "../run-tracker.mjs";
+import { activeRunMatches, clearRun, consumeReportableRun, finishRun, hasActiveRun } from "../run-tracker.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -88,10 +88,15 @@ export const phaseActions = [
             withInstance(ctx, async (inst) => {
                 const { phase, status, artifactPath, runId } = ctx.input ?? {};
                 if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
-                if (["done", "skipped", "error"].includes(status)
-                    && runId
-                    && !activeRunMatches(inst.instanceId, `speckit.${phase}`, runId)) {
-                    return { ok: false, error: "stale phase run" };
+                if (["done", "skipped", "error"].includes(status)) {
+                    const commandName = `speckit.${phase}`;
+                    if (runId) {
+                        if (!activeRunMatches(inst.instanceId, commandName, runId)) {
+                            return { ok: false, error: "stale phase run" };
+                        }
+                    } else if (hasActiveRun(inst.instanceId, commandName)) {
+                        return { ok: false, error: "stale phase run" };
+                    }
                 }
                 await persistAndBroadcast(inst, {
                     phases: {

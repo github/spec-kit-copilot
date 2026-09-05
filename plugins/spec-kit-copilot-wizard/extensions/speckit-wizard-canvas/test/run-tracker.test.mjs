@@ -58,6 +58,29 @@ test("setPhaseStatus rejects stale terminal run ids before persisting status", a
     }
 });
 
+test("setPhaseStatus rejects tokenless terminal callbacks only while a run is active", async () => {
+    const ws = tmpWorkspace();
+    try {
+        setSession(new EventEmitter());
+
+        beginRun(INSTANCE, "speckit.plan", { startedAtMs: 1_000 });
+        const activeTokenless = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done" },
+        });
+        assert.deepEqual(activeTokenless, { ok: false, error: "stale phase run" });
+
+        __resetRunTrackerForTests();
+        const legacy = await setPhaseStatus.handler({
+            instanceId: INSTANCE,
+            input: { cwd: ws, phase: "plan", status: "done" },
+        });
+        assert.deepEqual(legacy, { ok: true });
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
 test("reportExecution accepts only the run id whose done status was accepted", async () => {
     const ws = tmpWorkspace();
     try {

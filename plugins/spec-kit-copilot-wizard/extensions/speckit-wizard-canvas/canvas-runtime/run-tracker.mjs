@@ -68,6 +68,11 @@ export function activeRunMatches(instanceId, commandName, runId) {
     return activeTokens.get(key)?.runId === runId;
 }
 
+export function hasActiveRun(instanceId, commandName) {
+    const key = runKey(instanceId, normalizeTrackedCommandName(commandName));
+    return activeTokens.has(key);
+}
+
 export function __resetRunTrackerForTests() {
     activeTokens.clear();
     reportableTokens.clear();

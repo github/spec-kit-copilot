@@ -1411,6 +1411,7 @@ test("phaseIdForCommandName distinguishes canonical, extension, and junk", () =>
     // this test guards the two branches integration doesn't reach:
     // extension commands (multi-segment slug) return null, and junk input
     // returns null.
+    assert.equal(phaseIdForCommandName("speckit.review"), null);
     assert.equal(phaseIdForCommandName("speckit.extension.custom-thing"), null);
     assert.equal(phaseIdForCommandName("speckit-extension-custom-thing"), null);
     assert.equal(phaseIdForCommandName(""), null);

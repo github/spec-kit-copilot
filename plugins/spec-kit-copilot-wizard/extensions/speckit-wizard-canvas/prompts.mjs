@@ -39,7 +39,7 @@
 //   • natural-language "please generate the constitution" that relies on
 //     Copilot fuzzy-matching to pick the right skill
 
-import { ACTION_KINDS, skillForKind } from "./canvas-runtime/wizard-phases.mjs";
+import { ACTION_KINDS, PHASE_BY_ID, skillForKind } from "./canvas-runtime/wizard-phases.mjs";
 import { EXECUTION_STATES } from "./state/store.mjs";
 import { CORE_COMMANDS } from "./pipeline/canonical.mjs";
 import { fmtPayload } from "./prompts/shared.mjs";
@@ -116,7 +116,7 @@ export function phaseIdForCommandName(commandName) {
     // an extension namespace rather than a canonical phase id.
     const bare = m[1];
     if (bare.includes("-")) return null;
-    return bare;
+    return PHASE_BY_ID[bare] ? bare : null;
 }
 
 /**
