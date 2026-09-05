@@ -1412,6 +1412,11 @@ test("phaseIdForCommandName distinguishes canonical, extension, and junk", () =>
     // extension commands (multi-segment slug) return null, and junk input
     // returns null.
     assert.equal(phaseIdForCommandName("speckit.review"), null);
+    assert.equal(phaseIdForCommandName("speckit.setup"), null);
+    assert.equal(phaseIdForCommandName("speckit-setup"), null);
+    assert.equal(phaseIdForCommandName("speckit.preset"), null);
+    assert.equal(phaseIdForCommandName("speckit-preset"), null);
+    assert.equal(phaseIdForCommandName("speckit.converge"), "converge");
     assert.equal(phaseIdForCommandName("speckit.extension.custom-thing"), null);
     assert.equal(phaseIdForCommandName("speckit-extension-custom-thing"), null);
     assert.equal(phaseIdForCommandName(""), null);
