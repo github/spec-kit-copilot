@@ -574,7 +574,9 @@ export function buildChainRowsFor({
 // -------- Section: render/phase-customizations/execution-report.js --------
 
 export function buildExecutionReport(state, cmdName, phaseStatus) {
-    const execReport = state.snapshot?.composition?.executionReports?.[`commands/${cmdName}`] || null;
+    const execReport = phaseStatus === "done"
+        ? state.snapshot?.composition?.executionReports?.[`commands/${cmdName}`] || null
+        : null;
     // Best-effort fallback: when the phase is `done` (or `skipped`) but no
     // witness report was recorded (e.g. the phase ran before witness
     // tracking existed, or the agent forgot to call reportExecution), we
@@ -896,4 +898,3 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
         <div class="phase-cust-grid">${writesRow}${commandRow}${rows.join("")}</div>
     </div>`;
 }
-

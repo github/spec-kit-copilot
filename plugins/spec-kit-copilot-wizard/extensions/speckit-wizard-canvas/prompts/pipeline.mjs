@@ -16,15 +16,31 @@
 // See `../prompts.mjs` for the top-level dispatcher and family split.
 
 import { getPhase } from "../canvas-runtime/wizard-phases.mjs";
-import { CANONICAL_PHASES } from "../pipeline/canonical.mjs";
+import { CANONICAL_PHASES, CANONICAL_UNSEEDED } from "../pipeline/canonical.mjs";
 import { fmtHeader, fmtPayload, STATE_UPDATE_HINT } from "./shared.mjs";
 
-// The 9 canonical Spec-Driven phase kinds (constitution … implement) are
-// spread from CANONICAL_PHASES so this Set auto-tracks the single source
-// of truth in `pipeline/canonical.mjs`.
+// Canonical Spec-Driven phase kinds are spread from canonical.mjs so this
+// Set auto-tracks both the seeded spine and add-on-demand core commands.
 export const PIPELINE_KINDS = new Set([
     ...CANONICAL_PHASES,
+    ...CANONICAL_UNSEEDED,
 ]);
+
+const ARTIFACT_OWNER_BY_UPDATER_PHASE = {
+    clarify: "specify",
+    converge: "tasks",
+};
+
+function artifactInstruction(kind, artifact) {
+    if (!artifact || artifact === "(none)") {
+        return "This phase does not create a markdown artifact; do not add or rewrite provenance markers in existing files.";
+    }
+    const owner = ARTIFACT_OWNER_BY_UPDATER_PHASE[kind];
+    if (owner) {
+        return `Artifact: \`${artifact}\` (update the existing artifact and preserve its \`<!-- speckit:${owner} v1 -->\` first-line provenance marker).`;
+    }
+    return `Artifact: \`${artifact}\` (first line must be \`<!-- speckit:${kind} v1 -->\`).`;
+}
 
 export function buildPipelinePrompt(kind, payload, context, { workspacePath, skill }) {
     void context;
@@ -37,6 +53,7 @@ export function buildPipelinePrompt(kind, payload, context, { workspacePath, ski
         case "checklist":
         case "tasks":
         case "analyze":
+        case "converge":
         case "implement": {
             const phase = getPhase(kind);
             const artifact = phase?.artifact ?? "(none)";
@@ -48,7 +65,7 @@ export function buildPipelinePrompt(kind, payload, context, { workspacePath, ski
                     boundary: `Run the ${kind} phase only.`,
                 }) +
                 [
-                    `Artifact: \`${artifact}\` (first line must be \`<!-- speckit:${kind} v1 -->\`).`,
+                    artifactInstruction(kind, artifact),
                     `Payload:\n\`\`\`json\n${fmtPayload(payload)}\n\`\`\``,
                     STATE_UPDATE_HINT,
                 ].join("\n")

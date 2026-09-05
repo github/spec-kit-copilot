@@ -46,11 +46,16 @@ export const state = {
     // Each entry is { predicate, resolve, reject, timer }. Consumed by
     // handleServerMessage's "state" case; see waitForSnapshot().
     snapshotWaiters: [],
-    // Per-phase in-flight tracking. Populated when the user clicks Run phase
-    // or Rerun phase; consulted in the render pass so the "Running…" label
-    // survives SSE-driven re-renders. Cleared when the phase status changes,
-    // the dispatch handler finishes, or a safety timeout fires.
+    // Per-phase local dispatch acknowledgement. Populated when the user clicks
+    // Run phase or Rerun phase; consulted in the render pass so "Running…"
+    // survives SSE-driven re-renders until its short acknowledgement timer
+    // clears.
     phaseRunning: new Set(),
+    // Per-phase local evidence that the user has submitted the phase at least
+    // once in this panel. This lets the primary action become "Rerun phase"
+    // immediately after dispatch acknowledgement, without waiting for the
+    // scanner to observe a terminal status or artifact on disk.
+    phaseSubmitted: new Set(),
     // Currently-visible artifact-kind subtab on the Composition page.
     // Persists across renders so switching tabs isn't reset by an SSE update.
     compositionActiveKind: "command",

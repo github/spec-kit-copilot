@@ -32,22 +32,30 @@ import {
     buildWorkflowTrackingPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
+import {
+    beginRun,
+    clearRun,
+} from "./run-tracker.mjs";
 
-// -------- Section: fire-and-forget send --------
-// Fire-and-forget so the caller (HTTP handler or canvas action) can
-// acknowledge immediately without blocking on the agent's turn. Errors are
-// swallowed — agent-side errors surface in chat, network errors are best
-// effort. This matches the semantics both existing paths already used.
-export function dispatchPromptToSession({ prompt }) {
+// -------- Section: deferred send --------
+// Defer the actual SDK send so callers acknowledge the enqueue immediately
+// instead of waiting for the agent turn to finish. Agent-side errors still
+// surface in chat; transport/session failures are observed asynchronously so
+// local tracking state can be cleaned up without blocking the caller.
+export function dispatchPromptToSession({ prompt, onError } = {}) {
     setImmediate(() => {
+        let completion;
         try {
-            sessionAdapter().send({ prompt }).catch?.(() => {
-                // best-effort dispatch; agent-side errors surface in chat
-            });
-        } catch {
-            // best-effort dispatch; agent-side errors surface in chat
+            completion = sessionAdapter().send({ prompt });
+        } catch (err) {
+            try { onError?.(err); } catch { /* best-effort */ }
+            return;
         }
+        Promise.resolve(completion).catch((err) => {
+            try { onError?.(err); } catch { /* best-effort */ }
+        });
     });
+    return Promise.resolve();
 }
 
 // -------- Section: disk probe for installed layers --------
@@ -114,14 +122,14 @@ export async function dispatchKindPrompt(inst, kind, payload) {
         installedPresetCount,
         installedExtensionCount,
     });
-    dispatchPromptToSession({ prompt });
+    await dispatchPromptToSession({ prompt });
     return { prompt, kind };
 }
 
 // -------- Section: dispatchPhaseCommand --------
 // Build a raw `/speckit-<phase>` slash command (optionally wrapped with the
-// tracking preamble that instructs the agent to call `setPhaseStatus` +
-// `reportExecution` on completion) and dispatch it. Used for Run phase /
+// tracking preamble that instructs the agent to report a terminal phase status
+// and, on success, `reportExecution`) and dispatch it. Used for Run phase /
 // Rerun phase clicks in the UI AND the agent's `runPhase` canvas action.
 //
 // When `track: true`, the wizard prepends a small tracking preamble that
@@ -130,22 +138,39 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 // engaged. `buildWorkflowTrackingPreamble` returns null for
 // extension-namespaced commands (e.g. `speckit.assess.intake`), leaving
 // those dispatches unwrapped so extension skills stay preset-agnostic.
-export function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
+export async function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
+    let phaseId = null;
+    let artifactPath = null;
+    let expectedArtifacts = null;
     if (track) {
-        const phaseId = phaseIdForCommandName(commandName);
-        const artifactPath = phaseId ? PHASE_BY_ID[phaseId]?.artifact ?? null : null;
+        phaseId = phaseIdForCommandName(commandName);
+        artifactPath = phaseId ? PHASE_BY_ID[phaseId]?.artifact ?? null : null;
         // Derive the closed list of expected artifact IDs from
         // `activeArtifactsForCommand` — the SAME derivation the phase card
         // uses to draw pill rows, so the witness ask and the pill display
         // can never diverge.
-        let expectedArtifacts = null;
         try {
             expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
         } catch { /* best-effort */ }
-        const preamble = buildWorkflowTrackingPreamble({ commandName, artifactPath, expectedArtifacts });
+    }
+    // Only canonical phases get a status token for stale callback rejection.
+    // Extension artifact availability is scanner-driven; chat owns progress.
+    const run = phaseId ? beginRun(inst?.instanceId, commandName) : null;
+    if (phaseId) {
+        const preamble = buildWorkflowTrackingPreamble({
+            commandName,
+            artifactPath,
+            expectedArtifacts,
+            runId: run?.runId,
+        });
         if (preamble) prompt = `${prompt}\n${preamble}`;
     }
-    dispatchPromptToSession({ prompt });
-    return { prompt, commandName };
+    await dispatchPromptToSession({
+        prompt,
+        onError: () => {
+            if (run) clearRun(inst?.instanceId, commandName, run.runId);
+        },
+    });
+    return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }
