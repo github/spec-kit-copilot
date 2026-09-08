@@ -23,6 +23,9 @@ test("implementation progress scans the complete bounded tasks artifact", (t) =>
     write(join(featureDir, "plan.md"), "# Plan\n", 2);
     const tasks = [
         "# Tasks",
+        "~~~markdown",
+        "- [x] T000 Example only",
+        "~~~",
         "- [x] T001 Complete near the start",
         "padding".repeat(10_000),
         "- [ ] T002 Incomplete after the 64 KiB scan prefix",
@@ -51,6 +54,9 @@ test("clarifications retain stable indices across supported markdown blocks", ()
         "```text",
         "[NEEDS CLARIFICATION: Ignore code?]",
         "```",
+        "   ~~~markdown",
+        "[NEEDS CLARIFICATION: Ignore indented tilde fence?]",
+        "   ~~~",
     ].join("\n");
 
     assert.deepEqual(extractClarifications(markdown), [
