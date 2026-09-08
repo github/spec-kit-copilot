@@ -43,7 +43,7 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 | `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
-| `spec-kit-copilot-wizard` | 0.1.0 | Copilot App canvas | Optional guided wizard canvas for the full Spec Kit lifecycle |
+| `spec-kit-copilot-wizard` | 0.1.1 | Copilot App canvas | Optional guided wizard canvas for the full Spec Kit lifecycle |
 
 The plugins are independently installable and versioned. Install the core skills,
 the assessment canvas, the bug fix canvas, the spec-driven development canvas, the
