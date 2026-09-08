@@ -30,7 +30,9 @@ import {
     getPendingClarifications,
     queueClarification,
     clearClarifications,
+    clearPhaseRunning,
     markPhaseRunning,
+    markPhaseSubmitted,
 } from "./phase-runtime.js";
 import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
@@ -487,15 +489,12 @@ export function renderGraphPhaseCard(el, p) {
     const cached = getPhaseDraft(p.commandName);
 
     const disabledAttr = p.locked ? "disabled" : "";
-    const isDone = p.status === "done" && !!p.artifactPath;
+    const hasSubmitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
+    const canViewArtifact = !!p.artifactPath;
 
-    // Status-driven action row:
-    //  - done      → View artifact + Run again (the phase has actually been
-    //                run, and there's something meaningful on disk to view)
-    //  - otherwise → Run phase only. Even if an artifact file exists on disk
-    //                (e.g., a scaffolded template from `specify init`, or a
-    //                sibling phase's shared file), View is hidden until this
-    //                phase's own run marks it done.
+    // View follows scanner-confirmed artifacts even after a later rerun fails.
+    // Run/Rerun wording follows either scanner terminal status or local
+    // dispatch acknowledgement so the button flips immediately after submit.
     let actionRow;
     const running = state.phaseRunning.has(p.commandName);
     const runningLabel = `<span class="btn-spinner" aria-hidden="true"></span> Running…`;
@@ -519,12 +518,13 @@ export function renderGraphPhaseCard(el, p) {
     // learn navigation. `phase-actions-center` holds whichever action
     // pair is relevant to the current phase state.
     let centerActions;
-    if (isDone) {
+    if (hasSubmitted) {
         centerActions = `
-              <button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
               <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Rerun phase"}</button>`;
     } else {
         centerActions = `
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
               <button type="submit" class="btn btn-primary" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Run phase"}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">
@@ -703,7 +703,9 @@ export function wireGraphPhaseCard(el, p) {
         setPhaseLastSubmitted(p.commandName, args);
         markPhaseRunning(p.commandName);
         try {
-            await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            markPhaseSubmitted(p.commandName);
         } catch (err) {
             console.error(`dispatch failed: ${err?.message ?? err}`);
             clearPhaseRunning(p.commandName);
@@ -772,7 +774,9 @@ export function wireGraphPhaseCard(el, p) {
         setPhaseLastSubmitted(p.commandName, args);
         markPhaseRunning(p.commandName);
         try {
-            await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            const result = await __postJson("/api/phase/submit", { commandName: p.commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            markPhaseSubmitted(p.commandName);
         } catch (err) {
             console.error(`dispatch failed: ${err?.message ?? err}`);
             clearPhaseRunning(p.commandName);
@@ -820,4 +824,3 @@ export function wireGraphPhaseCard(el, p) {
     });
 
 }
-

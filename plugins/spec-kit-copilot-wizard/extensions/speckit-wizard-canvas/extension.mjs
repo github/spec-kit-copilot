@@ -358,7 +358,6 @@ setSession(await joinSession({
         }),
     ],
 }));
-
 // Late-bind session on any instance opened during startup races.
 for (const inst of instances.values()) inst._session = getSession();
 

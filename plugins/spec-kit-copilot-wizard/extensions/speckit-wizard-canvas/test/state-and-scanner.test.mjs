@@ -55,6 +55,11 @@ test("normalizeState drops invalid status values to 'empty'", () => {
     assert.equal(s.phases.constitution.status, "empty");
 });
 
+test("normalizeState preserves error as a terminal phase status", () => {
+    const s = normalizeState({ phases: { implement: { status: "error" } } });
+    assert.equal(s.phases.implement.status, "error");
+});
+
 test("normalizeState coerces booleans from strings", () => {
     const s = normalizeState({
         setup: {
@@ -735,6 +740,8 @@ describe("scanner", () => {
 function makeFs(files) {
     const norm = (p) => p.replace(/\\/g, "/");
     const store = new Map(Object.entries(files).map(([k, v]) => [norm(k), v]));
+    const fileContent = (v) => (typeof v === "object" && v !== null ? v.content : v);
+    const fileMtimeMs = (v) => (typeof v === "object" && v !== null ? v.mtimeMs : 2);
     const isDir = (p) => {
         const np = norm(p);
         if (store.get(np) === "__DIR__") return true;
@@ -756,13 +763,19 @@ function makeFs(files) {
                 return { isFile: () => false, isDirectory: () => true, size: 0, mtimeMs: 1 };
             const v = store.get(np);
             if (v === undefined) throw new Error(`ENOENT: ${p}`);
-            const size = typeof v === "string" ? v.length : 0;
-            return { isFile: () => v !== "__DIR__", isDirectory: () => v === "__DIR__", size, mtimeMs: 2 };
+            const content = fileContent(v);
+            const size = typeof content === "string" ? content.length : 0;
+            return { isFile: () => v !== "__DIR__", isDirectory: () => v === "__DIR__", size, mtimeMs: fileMtimeMs(v) };
         },
         readFile: async (p) => {
-            const v = store.get(norm(p));
+            const v = fileContent(store.get(norm(p)));
             if (typeof v !== "string" || v === "__DIR__") throw new Error(`ENOENT: ${p}`);
             return v;
+        },
+        realpath: async (p) => {
+            const np = norm(p);
+            if (!store.has(np) && !isDir(np)) throw new Error(`ENOENT: ${p}`);
+            return p;
         },
         readdir: async (p) => {
             const np = norm(p) + "/";
@@ -807,12 +820,8 @@ test("scanWorkspace picks up constitution.md and sets phase status", async () =>
     assert.equal(scan.phases.constitution.status, "done");
 });
 
-test("scanWorkspace keeps constitution done when Sync Impact Report contains bracket tokens in an HTML comment", async () => {
-    // The constitution SKILL prescribes an HTML-comment Sync Impact Report at
-    // the top of constitution.md that intentionally includes bracket-token
-    // breadcrumbs like `[PRINCIPLE_1_NAME] → I. Clarity`. Those must not
-    // trip the unfilled-template heuristic and downgrade status back to empty.
-    const filled = [
+test("scanWorkspace keeps constitution done when placeholder breadcrumbs are only in comments", async () => {
+    const withCommentPlaceholders = [
         "<!--",
         "Sync Impact Report",
         "- [PRINCIPLE_1_NAME] → I. Clarity Over Cleverness",
@@ -827,28 +836,40 @@ test("scanWorkspace keeps constitution done when Sync Impact Report contains bra
     ].join("\n");
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
-        "/proj/.specify/memory/constitution.md": filled,
+        "/proj/.specify/memory/constitution.md": withCommentPlaceholders,
     });
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases.constitution.status, "done");
     assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
 });
 
-test("scanWorkspace still flags a genuinely unfilled constitution template", async () => {
-    // Two or more distinct bracket tokens OUTSIDE any HTML comment should
-    // still downgrade the phase — this is the whole point of the heuristic.
-    const unfilled = [
-        "# [PROJECT_NAME] Constitution",
-        "",
-        "## I. [PRINCIPLE_1_NAME]",
-        "[PRINCIPLE_1_DESCRIPTION]",
-    ].join("\n");
+test("scanWorkspace keeps untouched constitution scaffold empty", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
-        "/proj/.specify/memory/constitution.md": unfilled,
+        "/proj/.specify/memory/constitution.md": [
+            "# [PROJECT_NAME] Constitution",
+            "",
+            "## I. [PRINCIPLE_1_NAME]",
+            "[PRINCIPLE_1_DESCRIPTION]",
+        ].join("\n"),
     });
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases.constitution.status, "empty");
+    assert.equal(scan.phases.constitution.artifactPath, ".specify/memory/constitution.md");
+});
+
+test("scanWorkspace treats existing spec artifacts as done even with placeholders", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/spec.md": [
+            "# Feature",
+            "",
+            "Call the [API] endpoint and render the [URL].",
+        ].join("\n"),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.specify.status, "done");
+    assert.equal(scan.phases.specify.artifactPath, "specs/feature/spec.md");
 });
 
 test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug", async () => {
@@ -871,6 +892,154 @@ test("scanWorkspace hydrates specs/<slug>/ artifacts and picks most recent slug"
     assert.equal(scan.phases.specify.status, "done");
     assert.equal(scan.phases.plan.status, "done");
     assert.equal(scan.phases.tasks.status, "done");
+    assert.equal(scan.phases.converge.status, "empty");
+    assert.equal(scan.phases.converge.artifactPath, "specs/newer-slug/tasks.md");
+});
+
+test("scanWorkspace treats existing task artifact as done with task markers", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/tasks.md": [
+            "# Tasks",
+            "",
+            "- [ ] T001 [P] [US1] [ID] Write unit tests",
+            "- [ ] T002 [US1] [ID] Implement feature path",
+            "- [ ] T010 [P] [US10] Add reporting flow",
+            "- [ ] T011 [US11] Wire admin flow",
+        ].join("\n"),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.tasks.status, "done");
+    assert.equal(scan.phases.tasks.artifactPath, "specs/feature/tasks.md");
+});
+
+test("scanWorkspace does not mark checklist done from directory contents alone", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "empty");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/<slug>/checklists/");
+});
+
+test("scanWorkspace prefers configured checklist file when checklist already ran", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/security.md");
+});
+
+test("scanWorkspace lets rerun checklist filename override persisted artifact path", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/feature/checklists/requirements.md",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/security.md");
+});
+
+test("scanWorkspace resolves checklist folder to newest markdown file after checklist ran", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/feature/checklists/",
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/proj/specs/feature/checklists/security.md": "# Security",
+        "/proj/specs/feature/checklists/accessibility.md": "# Accessibility",
+    });
+    const origStat = fs.stat;
+    fs.stat = async (p) => {
+        const s = await origStat(p);
+        if (String(p).includes("security.md")) return { ...s, mtimeMs: 20 };
+        if (String(p).includes("accessibility.md")) return { ...s, mtimeMs: 30 };
+        if (String(p).includes("requirements.md")) return { ...s, mtimeMs: 10 };
+        return s;
+    };
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/accessibility.md");
+});
+
+test("scanWorkspace falls back to checklist folderPath when done checklist file is missing", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "specs/<slug>/checklists/",
+                    formValues: { checklistFile: "security.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists": "__DIR__",
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, null);
+    assert.equal(scan.phases.checklist.folderPath, "specs/feature/checklists");
+});
+
+test("scanWorkspace ignores checklist paths outside the active checklists directory", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.speckit-wizard": "__DIR__",
+        "/proj/.speckit-wizard/state.json": JSON.stringify({
+            phases: {
+                checklist: {
+                    status: "done",
+                    artifactPath: "../outside/secret.md",
+                    formValues: { checklistFile: "/outside/secret.md" },
+                },
+            },
+        }),
+        "/proj/specs/feature/checklists/requirements.md": "# Requirements",
+        "/outside/secret.md": "# Secret",
+    });
+    for (const op of ["pathExists", "readdir", "stat"]) {
+        const original = fs[op];
+        fs[op] = async (p, ...args) => {
+            assert.equal(String(p).replace(/\\/g, "/").includes("/outside/"), false, `${op} probed ${p}`);
+            return original(p, ...args);
+        };
+    }
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases.checklist.status, "done");
+    assert.equal(scan.phases.checklist.artifactPath, "specs/feature/checklists/requirements.md");
 });
 
 test("scanWorkspace defensively normalizes malformed state.json", async () => {
@@ -974,6 +1143,124 @@ test("scanWorkspace leaves writesTo template as-is when there is no slug", async
         ".specify/assessments/<slug>/intake.md",
     );
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.status, "empty");
+});
+
+test("scanWorkspace treats existing extension artifacts as done even with placeholders", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/intake.md": "Capture [API] and [URL] details.",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.status, "done");
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/demo/intake.md");
+});
+
+test("scanWorkspace emits relative artifact paths for absolute in-workspace extension targets", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/intake.md": "intake",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: "/proj/.specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+
+    const scan = await scanWorkspace("/proj", fs);
+    const phase = scan.phases["commands/speckit.assess.intake"];
+    assert.equal(phase?.status, "done");
+    assert.equal(phase?.artifactPath, ".specify/assessments/demo/intake.md");
+});
+
+test("scanWorkspace keeps missing extension artifacts empty when realpath is unavailable", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    delete fs.realpath;
+
+    const scan = await scanWorkspace("/proj", fs);
+    const phase = scan.phases["commands/speckit.assess.intake"];
+    assert.equal(phase?.status, "empty");
+    assert.equal(phase?.artifactPath, ".specify/assessments/demo/intake.md");
+    assert.equal(phase?.lastRunAt ?? null, null);
+});
+
+test("scanWorkspace advances extension folder fallback lastRunAt from newest off-name markdown", async () => {
+    const firstRunMs = Date.parse("2026-01-01T00:00:00.000Z");
+    const secondRunMs = Date.parse("2026-01-01T00:05:00.000Z");
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo/notes.md": { content: "first run", mtimeMs: firstRunMs },
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+
+    const firstScan = await scanWorkspace("/proj", fs);
+    assert.equal(
+        firstScan.phases["commands/speckit.assess.intake"]?.lastRunAt,
+        new Date(firstRunMs).toISOString(),
+    );
+
+    fs._store.set("/proj/.specify/assessments/demo/notes.md", { content: "second run", mtimeMs: secondRunMs });
+    const secondScan = await scanWorkspace("/proj", fs);
+    assert.equal(
+        secondScan.phases["commands/speckit.assess.intake"]?.lastRunAt,
+        new Date(secondRunMs).toISOString(),
+    );
+});
+
+test("scanWorkspace leaves extension folder fallback lastRunAt null when folder has no markdown", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.specify/extensions/assess/commands/speckit.assess.intake.md": "# intake skill",
+        "/proj/.specify/assessments/demo": "__DIR__",
+        "/proj/.specify/assessments/demo/notes.txt": { content: "not markdown", mtimeMs: Date.parse("2026-01-01T00:00:00.000Z") },
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/demo/intake.md",
+                    source: "manual",
+                },
+            },
+        }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.folderPath, ".specify/assessments/demo");
+    assert.equal(scan.phases["commands/speckit.assess.intake"]?.lastRunAt ?? null, null);
 });
 
 test("scanWorkspace ignores malformed cache entries", async () => {
@@ -1124,6 +1411,12 @@ test("phaseIdForCommandName distinguishes canonical, extension, and junk", () =>
     // this test guards the two branches integration doesn't reach:
     // extension commands (multi-segment slug) return null, and junk input
     // returns null.
+    assert.equal(phaseIdForCommandName("speckit.review"), null);
+    assert.equal(phaseIdForCommandName("speckit.setup"), null);
+    assert.equal(phaseIdForCommandName("speckit-setup"), null);
+    assert.equal(phaseIdForCommandName("speckit.preset"), null);
+    assert.equal(phaseIdForCommandName("speckit-preset"), null);
+    assert.equal(phaseIdForCommandName("speckit.converge"), "converge");
     assert.equal(phaseIdForCommandName("speckit.extension.custom-thing"), null);
     assert.equal(phaseIdForCommandName("speckit-extension-custom-thing"), null);
     assert.equal(phaseIdForCommandName(""), null);
