@@ -105,6 +105,8 @@ Buttons in the canvas POST to a loopback HTTP endpoint, which calls
 `session.send({ prompt: "/skill:speckit-<command> …" })`. The skill runs
 in your normal chat session — watch the transcript for the agent's work
 and any prompts (e.g. slug confirmation, clarifying questions, etc).
+Treat the wizard as a launcher: avoid rerunning the same phase until the
+active chat turn for that run has finished.
 
 Commands are restricted to the `speckit-*` skills of the customized
 lifecycle, and feature slugs are normalized to `[a-z0-9-]`, so the

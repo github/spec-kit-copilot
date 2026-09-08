@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 import {
@@ -24,12 +24,18 @@ import { summarizeResults } from "../env/probe.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
 import { buildPrompt, buildWorkflowTrackingPreamble, phaseIdForCommandName } from "../prompts.mjs";
 import { createHandler } from "../server.mjs";
+import { activeRunMatches, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 import {
     applyPatch,
     EXECUTION_STATES,
     normalizeExecutionReports,
     normalizeState,
 } from "../state/store.mjs";
+
+afterEach(() => {
+    __resetRunTrackerForTests();
+    setSession(null);
+});
 
 describe("server", () => {
 // Tests for server.mjs — createHandler with mock req/res + injected deps.
@@ -304,7 +310,6 @@ test("POST /api/phase/submit rejects invalid commandName", async () => {
     assert.equal(res.statusCode, 400);
 });
 
-
 // --- /api/artifact-targets tests ------------------------------------------
 
 function tmpWorkspace() {
@@ -488,7 +493,7 @@ function baseDeps({ workspacePath, extras = {} } = {}) {
         session,
         log: async () => {},
         getState: async () => ({ workspacePath, currentPhase: "setup", setup: {}, preset: "core", phases: {}, slug: null }),
-        getInstance: () => ({ workspacePath, state: {} }),
+        getInstance: () => ({ instanceId: "test-instance", workspacePath, state: {} }),
         broadcast: () => {},
         registerSse: () => {},
         fs: { readFile: async () => "", stat: async () => ({ isFile: () => true, size: 0 }) },
@@ -533,8 +538,10 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
         const argBody = setCallMatch[1];
         const phaseM = argBody.match(/phase:\s*"([^"]+)"/);
         const statusM = argBody.match(/status:\s*"([^"]+)"/);
+        const runIdM = argBody.match(/runId:\s*"([^"]+)"/);
         assert.ok(phaseM, "setPhaseStatus arg must include phase field");
         assert.ok(statusM, "setPhaseStatus arg must include status field");
+        assert.ok(runIdM, "setPhaseStatus arg must include runId field");
 
         // Feed the extracted arg through applyPatch — the agent will call
         // setPhaseStatus which the wizard's canvas action wires to
@@ -542,6 +549,41 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
         const before = normalizeState({});
         const after = applyPatch(before, { phases: { [phaseM[1]]: { status: statusM[1] } } });
         assert.equal(after.phases[phaseM[1]].status, statusM[1]);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit acknowledges before session.send completion and clears failed tracked runs", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: {
+                session: {
+                    send: async () => { throw new Error("session disconnected"); },
+                    log: async () => {},
+                },
+                getInstance: () => ({ instanceId: "inst-fail", workspacePath: ws, state: {} }),
+            },
+        });
+        setSession(deps.session);
+        const h = createHandler(deps);
+        const req = mockReq({
+            method: "POST",
+            url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.constitution", args: "principles..." }),
+        });
+        const res = mockRes();
+        await h(req, res);
+
+        assert.equal(res.statusCode, 202, res.body);
+        const body = JSON.parse(res.body);
+        assert.equal(body.queued, true);
+        assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), true);
+
+        await new Promise((r) => setImmediate(r));
+        assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -564,6 +606,7 @@ test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus ca
         const res = mockRes();
         await h(req, res);
         assert.equal(res.statusCode, 202);
+        assert.equal(JSON.parse(res.body).untracked, true);
         await new Promise((r) => setImmediate(r));
         const prompt = deps._sessionCalls[0].prompt;
         assert.ok(prompt.startsWith("/speckit-assess-intake"), "dispatch must slash-normalize");
@@ -759,6 +802,7 @@ test("S7: buildStateSnapshot derives per-phase locked from durable setup complet
         warnings: [],
     };
     const snapA = buildStateSnapshot(scanIncomplete);
+    assert.equal("activeRuns" in snapA, false);
     // Setup itself is never locked.
     assert.notEqual(snapA.phases.setup?.locked, true);
     // Everything else is.
@@ -874,6 +918,23 @@ test("S1×S2: every ACTION_KIND builds a non-empty prompt without throwing", () 
     }
 });
 
+test("S1×S2: artifact-owner prompts distinguish creator, updater, and no-artifact phases", () => {
+    const specify = buildPrompt("specify", {}, { workspacePath: "/ws" });
+    assert.match(specify, /Artifact: `specs\/<slug>\/spec\.md` \(first line must be `<!-- speckit:specify v1 -->`\)\./);
+
+    const clarify = buildPrompt("clarify", {}, { workspacePath: "/ws" });
+    assert.match(clarify, /preserve its `<!-- speckit:specify v1 -->` first-line provenance marker/);
+    assert.doesNotMatch(clarify, /speckit:clarify v1/);
+
+    const converge = buildPrompt("converge", {}, { workspacePath: "/ws" });
+    assert.match(converge, /preserve its `<!-- speckit:tasks v1 -->` first-line provenance marker/);
+    assert.doesNotMatch(converge, /speckit:converge v1/);
+
+    const implement = buildPrompt("implement", {}, { workspacePath: "/ws" });
+    assert.match(implement, /does not create a markdown artifact/);
+    assert.doesNotMatch(implement, /speckit:implement v1/);
+});
+
 // ---------- S1×catalog: wizard-phase → skill naming contract ----------
 
 test("S1×catalog: every canonical phase in PHASE_ORDER maps to skill 'speckit-<phase>'", () => {
@@ -903,18 +964,11 @@ test("S2: every canonical command name maps to a phase applyPatch will accept", 
     // If phaseIdForCommandName returns an id state-store rejects, the
     // agent's state write silently no-ops. This is the wire contract
     // that binds prompt-side and store-side together.
-    const canonicalNames = [
-        "speckit.constitution",
-        "speckit-constitution",
-        "speckit.specify",
-        "speckit.clarify",
-        "speckit.checklist",
-        "speckit.plan",
-        "speckit.tasks",
-        "speckit.analyze",
-        "speckit.taskstoissues",
-        "speckit.implement",
-    ];
+    const canonicalNames = PHASE_ORDER
+        .filter((phaseId) => phaseId !== "setup" && phaseId !== "preset")
+        .flatMap((phaseId, index) => index === 0
+            ? [`speckit.${phaseId}`, `speckit-${phaseId}`]
+            : [`speckit.${phaseId}`]);
     for (const cmd of canonicalNames) {
         const phaseId = phaseIdForCommandName(cmd);
         assert.ok(phaseId, `${cmd} must classify as canonical`);
@@ -940,6 +994,7 @@ test("S2: tracking preamble embeds the same execution-state vocabulary state-sto
     const preamble = buildWorkflowTrackingPreamble({
         commandName: "speckit.plan",
         expectedArtifacts: { templates: ["plan-template"], scripts: [], hooks: [] },
+        runId: "run-test",
     });
     assert.ok(preamble, "canonical command must produce a preamble");
 
@@ -965,6 +1020,21 @@ test("S2: tracking preamble embeds the same execution-state vocabulary state-sto
     });
     const kept = Object.keys(normalized["commands/speckit.plan"].artifacts.template);
     assert.equal(kept.length, EXECUTION_STATES.length, "every canonical state must round-trip");
+});
+
+test("S2: tracking preamble requires terminal status for success, skips, and blockers", () => {
+    const preamble = buildWorkflowTrackingPreamble({
+        commandName: "speckit.implement",
+        artifactPath: null,
+    });
+
+    assert.ok(preamble.includes('status: "done"'), "success must report done");
+    assert.ok(preamble.includes('status: "skipped"'), "intentional bypass must report skipped");
+    assert.ok(preamble.includes('status: "error"'), "blockers must report error");
+    assert.match(preamble, /Declined checklist gate/);
+    assert.match(preamble, /cancellation/);
+    assert.match(preamble, /skill\/tool failure/);
+    assert.match(preamble, /Before you return, call `setPhaseStatus` exactly once/);
 });
 
 // ---------- Full-state JSON round-trip ----------

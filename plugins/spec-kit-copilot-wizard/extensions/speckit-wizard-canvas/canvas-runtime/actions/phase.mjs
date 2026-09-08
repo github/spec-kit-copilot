@@ -10,12 +10,13 @@
 // operates on the resolved phase graph, not on any particular source
 // layer.
 
-import { PHASE_BY_ID, PHASE_ORDER } from "../wizard-phases.mjs";
+import { RUNNABLE_PHASE_ORDER, RUNNABLE_PHASES } from "../wizard-phases.mjs";
 import { withInstance } from "../instances.mjs";
 import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
+import { activeRunMatches, clearRun, consumeReportableRun, finishRun, hasActiveRun } from "../run-tracker.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -77,15 +78,33 @@ export const phaseActions = [
             type: "object",
             required: ["phase", "status"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
-                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped"] },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
+                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
                 artifactPath: { type: "string" },
+                runId: { type: "string" },
             },
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
-                const { phase, status, artifactPath } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                const { phase, status, artifactPath, runId } = ctx.input ?? {};
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
+                if (["done", "skipped", "error"].includes(status)) {
+                    const commandName = `speckit.${phase}`;
+                    // The wizard starts the phase, then the chat shows whether
+                    // it is still working. If a user starts the same phase
+                    // again before chat finishes, the runs may overlap; that
+                    // is outside the wizard's normal guided flow.
+                    //
+                    // This check rejects callbacks already known to be stale,
+                    // but it does not serialize the status write below.
+                    if (runId) {
+                        if (!activeRunMatches(inst.instanceId, commandName, runId)) {
+                            return { ok: false, error: "stale phase run" };
+                        }
+                    } else if (hasActiveRun(inst.instanceId, commandName)) {
+                        return { ok: false, error: "stale phase run" };
+                    }
+                }
                 await persistAndBroadcast(inst, {
                     phases: {
                         [phase]: {
@@ -95,6 +114,13 @@ export const phaseActions = [
                         },
                     },
                 });
+                if (["done", "skipped", "error"].includes(status)) {
+                    if (runId) {
+                        finishRun(inst.instanceId, `speckit.${phase}`, runId, { allowReport: status === "done" });
+                    } else {
+                        clearRun(inst.instanceId, `speckit.${phase}`, runId);
+                    }
+                }
                 // No deterministic witness anymore — the agent self-reports
                 // via `reportExecution` per the tracking preamble.
                 return { ok: true };
@@ -103,26 +129,33 @@ export const phaseActions = [
     {
         name: "runPhase",
         description:
-            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble so the agent knows to call `setPhaseStatus` and `reportExecution` when done. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
+            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble so the agent knows to report a terminal status and, on success, call `reportExecution`. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
         inputSchema: {
             type: "object",
             required: ["phase"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
                 args: { type: "string", description: "Verbatim textarea contents to append after the slash command." },
             },
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, args = "" } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
                 const commandName = `speckit.${phase}`;
                 try {
-                    dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
+                    const run = await dispatchPhaseCommand(inst, { commandName, args, allowEmpty: true, track: true });
+                    return {
+                        ok: true,
+                        commandName,
+                        tracked: run?.tracked === true,
+                        untracked: run?.untracked === true,
+                        runId: run?.runId,
+                        startedAt: run?.startedAt,
+                    };
                 } catch (err) {
                     return { ok: false, error: err?.message ?? String(err) };
                 }
-                return { ok: true, commandName };
             }),
     },
     {
@@ -131,9 +164,10 @@ export const phaseActions = [
             "Report which of the phase's expected templates / scripts / hooks the agent actually invoked, per the tracking preamble's closed list. Call once after setPhaseStatus(status:'done').",
         inputSchema: {
             type: "object",
-            required: ["phase", "artifacts"],
+            required: ["phase", "artifacts", "runId"],
             properties: {
-                phase: { type: "string", enum: PHASE_ORDER },
+                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
+                runId: { type: "string" },
                 artifacts: {
                     type: "object",
                     description:
@@ -157,8 +191,9 @@ export const phaseActions = [
         },
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
-                const { phase, artifacts } = ctx.input ?? {};
-                if (!phase || !PHASE_BY_ID[phase]) return { ok: false, error: "invalid phase" };
+                const { phase, artifacts, runId } = ctx.input ?? {};
+                if (!phase || !RUNNABLE_PHASES.has(phase)) return { ok: false, error: "invalid phase" };
+                if (!runId) return { ok: false, error: "missing runId" };
                 if (!artifacts || typeof artifacts !== "object") return { ok: false, error: "missing artifacts" };
                 const normalized = { template: {}, script: {}, hook: {} };
                 const KIND_MAP = { templates: "template", scripts: "script", hooks: "hook" };
@@ -169,6 +204,9 @@ export const phaseActions = [
                         if (state !== "executed" && state !== "omitted") continue;
                         normalized[singular][id] = { state, detail: null };
                     }
+                }
+                if (!consumeReportableRun(inst.instanceId, `speckit.${phase}`, runId)) {
+                    return { ok: false, error: "stale phase run" };
                 }
                 return applyExecutionReport(inst, {
                     commandId: `speckit.${phase}`,

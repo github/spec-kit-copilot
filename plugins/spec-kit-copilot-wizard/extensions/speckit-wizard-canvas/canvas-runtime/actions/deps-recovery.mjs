@@ -50,7 +50,7 @@ export const depsRecoveryActions = [
                     stderr: cached?.stderrTail ?? "",
                     workspacePath: inst?.workspacePath ?? null,
                 });
-                dispatchPromptToSession({ prompt });
+                void dispatchPromptToSession({ prompt }).catch(() => {});
                 return { ok: true, errorCode };
             }),
     },

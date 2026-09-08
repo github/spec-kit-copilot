@@ -19,7 +19,7 @@ import {
     canonicalLabel,
     isCanonicalOptional,
 } from "../pipeline/canonical.mjs";
-import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
+import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
 
@@ -43,6 +43,15 @@ export function queueClarification(commandName, question, answer) {
 
 export function clearClarifications(commandName) {
     pendingClarifications.set(commandName, []);
+}
+
+export function clearSubmittedClarifications(commandName, submitted) {
+    const remaining = getPendingClarifications(commandName).filter((current) => (
+        !submitted.some((snapshot) => (
+            snapshot.question === current.question && snapshot.answer === current.answer
+        ))
+    ));
+    pendingClarifications.set(commandName, remaining);
 }
 
 
@@ -101,13 +110,10 @@ export function setPhaseLastSubmitted(commandName, value) {
 }
 
 
-// -------- Section: phase/run-lock.js --------
+// -------- Section: phase/run-ack.js --------
 
-export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
+export const PHASE_RUN_ACK_MS = 15 * 1000;
 const _phaseRunTimers = new Map();
-const _phaseRunStartedAt = new Map();
-const _phaseRunBaselineLastRunAt = new Map();
-const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 let __render = () => {};
 
@@ -115,56 +121,54 @@ export function setRunLockDeps({ render }) {
     if (typeof render === "function") __render = render;
 }
 
-function _phaseIdForCommand(commandName) {
-    if (typeof commandName !== "string") return null;
-    return commandName.startsWith("speckit.") ? commandName.slice("speckit.".length) : commandName;
-}
-
-export function markPhaseRunning(commandName) {
+// This is an acknowledgement animation, not authoritative execution state:
+// chat owns live progress and the scanner owns artifact availability.
+export function markPhaseRunning(commandName, { durationMs = PHASE_RUN_ACK_MS } = {}) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
-    _phaseRunStartedAt.set(commandName, Date.now());
-    const phaseId = _phaseIdForCommand(commandName);
-    const baselineLastRunAt = state.snapshot?.phases?.[phaseId]?.lastRunAt ?? null;
-    _phaseRunBaselineLastRunAt.set(commandName, baselineLastRunAt);
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-    }
-    const t = setTimeout(() => clearPhaseRunning(commandName), PHASE_RUN_SAFETY_MS);
-    _phaseRunTimers.set(commandName, t);
+    resetPhaseRunTimer(commandName, durationMs);
+    __render();
+}
+
+export function markPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.add(commandName);
+    __render();
+}
+
+export function clearPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.delete(commandName);
     __render();
 }
 
 export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
-    _phaseRunStartedAt.delete(commandName);
-    _phaseRunBaselineLastRunAt.delete(commandName);
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-        _phaseRunTimers.delete(commandName);
-    }
+    clearPhaseRunTimer(commandName);
     __render();
 }
 
-// Called after each state snapshot lands. Clears `phaseRunning` on the
-// first positive completion signal from EITHER of two consistent channels
-// that every phase produces via setPhaseStatus:
-//   1. `lastRunAt` advances past the click-time baseline, OR
-//   2. phase status transitions to a terminal value (done/skipped/error).
+export function isPhaseRunning(commandName) {
+    return !!commandName && state.phaseRunning.has(commandName);
+}
+
 export function observePhaseProgress() {
-    if (!state.phaseRunning.size) return;
-    for (const commandName of Array.from(state.phaseRunning)) {
-        const phaseId = _phaseIdForCommand(commandName);
-        const phase = state.snapshot?.phases?.[phaseId];
-        const baselineLastRunAt = _phaseRunBaselineLastRunAt.get(commandName) ?? null;
-        const currentLastRunAt = phase?.lastRunAt ?? null;
-        const lastRunAtAdvanced = currentLastRunAt && currentLastRunAt !== baselineLastRunAt;
-        const terminal = phase?.status && TERMINAL_PHASE_STATUSES.has(phase.status);
-        if (lastRunAtAdvanced || terminal) {
-            clearPhaseRunning(commandName);
-        }
-    }
+    // State snapshots refresh artifact/status data; running feedback is local.
+}
+
+function resetPhaseRunTimer(commandName, durationMs) {
+    clearPhaseRunTimer(commandName);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    const timer = setTimeout(() => clearPhaseRunning(commandName), durationMs);
+    _phaseRunTimers.set(commandName, timer);
+}
+
+function clearPhaseRunTimer(commandName) {
+    const timer = _phaseRunTimers.get(commandName);
+    if (!timer) return;
+    clearTimeout(timer);
+    _phaseRunTimers.delete(commandName);
 }
 
 
@@ -198,13 +202,15 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
+        const commandName = `speckit.${id}`;
+        const running = isPhaseRunning(commandName);
         return {
             kind: "core",
             id,
             phase: {
                 id,
                 name: canonicalLabel(id),
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: isCanonicalOptional(id),
                 locked: false,
                 // Required so the phase card's Run phase submit path can
@@ -214,7 +220,7 @@ export function resolvePipelineEntry(id, snapshot) {
                 // the server silently rejects — Run phase button appears
                 // to do nothing. Mirrors synthesizeCanonicalPhase() in
                 // app.js which uses the same `speckit.<id>` convention.
-                commandName: `speckit.${id}`,
+                commandName,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
                 ...(scanned?.folderPath ? { folderPath: scanned.folderPath } : {}),
@@ -233,7 +239,9 @@ export function resolvePipelineEntry(id, snapshot) {
         // is found on disk). Both `artifactPath` and `status` come from
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
-        const scanned = snapshot?.phases?.[id] ?? null;
+        const phaseKey = id.startsWith("commands/") ? id : `commands/${id}`;
+        const scanned = snapshot?.phases?.[phaseKey] ?? snapshot?.phases?.[id] ?? null;
+        const running = isPhaseRunning(extResolved.commandName);
         return {
             kind: "extension",
             id,
@@ -243,7 +251,7 @@ export function resolvePipelineEntry(id, snapshot) {
             phase: {
                 id,
                 name: extResolved.shortLabel,
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: false,
                 locked: false,
                 commandName: extResolved.commandName,
@@ -664,6 +672,11 @@ export function renderMoreCommandsPanel() {
         const canonicalAlias = CANONICAL_BY_FULL[bare];
         if (canonicalAlias) winnerByCmdId.set(canonicalAlias, active);
     }
+    const overriddenCanonicals = new Set();
+    for (const id of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
+        const winner = winnerByCmdId.get(id) || winnerByCmdId.get(`speckit.${id}`);
+        if (winner && winner.layer !== "core") overriddenCanonicals.add(id);
+    }
     const winnerSourceForPhase = (p) => {
         const cmd = p.commandName || p.id;
         const w = winnerByCmdId.get(cmd);
@@ -730,41 +743,16 @@ export function renderMoreCommandsPanel() {
         presetSectionHtmlParts.push(emitPresetSection(source, items));
     }
 
-    // Ids customized by any preset — routed under the preset section
-    // instead of CORE. Uses the composition winner (not seed source) so
-    // an overridden command doesn't double-appear.
-    //
-    // Two sources feed this set:
-    //  1. Every `commands()` entry whose winner isn't core — catches
-    //     preset-only phases the scanner surfaced but that aren't in the
-    //     canonical spine.
-    //  2. Every canonical id whose winner map entry is layer=preset —
-    //     catches lean-replaced canonicals like `constitution`/`specify`
-    //     even if the scanner doesn't surface them as scanner-side phases.
-    //     Without this second pass, replaced canonicals appear under BOTH
-    //     the preset section AND CORE.
-    const customizedIds = new Set(
-        all
-            .filter((p) => {
-                const key = winnerSourceForPhase(p);
-                return key && key !== "core";
-            })
-            .map((p) => p.id),
-    );
-    for (const canonicalId of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
-        const w = winnerByCmdId.get(canonicalId);
-        if (w && w.layer !== "core") customizedIds.add(canonicalId);
-    }
-
-    // CORE group: canonical Spec Kit phases NOT customized by any preset.
-    // Shown regardless of pipeline membership so users can always browse
-    // the full Spec Kit surface. Synthesize minimal card shapes since these
-    // often aren't in commands(). CANONICAL_UNSEEDED (e.g. converge) is
-    // included too — canonical add-on-demand commands outside the default flow.
+    // CORE group: canonical commands that are addable as true Core entries.
+    // Omit commands already in the pipeline and canonicals whose active
+    // composition winner comes from a preset/extension, because the current
+    // pipeline schema stores only the bare id and would dispatch the override
+    // rather than the stock Core implementation.
+    const pipelineIds = new Set(pipelineItems().map((item) => stripCommandsPrefix(item?.id)));
     const coreCandidates = [
-        ...canonicalSpine().filter((id) => !customizedIds.has(id)),
-        ...CANONICAL_UNSEEDED.filter((id) => !customizedIds.has(id)),
-    ];
+        ...canonicalSpine(),
+        ...CANONICAL_UNSEEDED,
+    ].filter((id) => !pipelineIds.has(id) && !overriddenCanonicals.has(id));
     const coreCards = coreCandidates
         .map((id) => __synthesizeCanonicalPhase(id))
         .sort((a, b) => collator.compare(a.shortLabel || a.id, b.shortLabel || b.id))
@@ -773,9 +761,7 @@ export function renderMoreCommandsPanel() {
     const coreOpen = isSectionOpen("core") ? " open" : "";
     const coreSection = `<details class="mc-group mc-group-core"${coreOpen} data-mc-section="core">
         <summary class="mc-group-title"><span class="mc-group-title-text">CORE</span> <span class="mc-group-count">${coreCandidates.length}</span></summary>
-        ${coreCandidates.length
-            ? `<div class="more-commands-grid">${coreCards}</div>`
-            : `<p class="mc-group-hint muted">All Core Spec Kit commands are customized by installed presets.</p>`}
+        <div class="more-commands-grid">${coreCards}</div>
     </details>`;
 
     // Extension groups. Emitted in composition.extensions[] payload order
@@ -914,4 +900,3 @@ export function lookupActiveLayer(id, commandName) {
         compArtifacts.find((a) => a.id === id);
     return (compArtifact?.stack ?? []).find((l) => l.active) || null;
 }
-

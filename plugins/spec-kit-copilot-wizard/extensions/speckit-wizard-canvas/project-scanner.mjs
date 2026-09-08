@@ -12,7 +12,7 @@ import {
     toPortable,
     SKIP_DIRS,
     emptyPhases,
-    looksLikeUnfilledTemplate,
+    MAX_MARKDOWN_PREVIEW,
     pickNewestSubdir,
 } from "./project-scanner/fs-helpers.mjs";
 import {
@@ -28,6 +28,32 @@ export { readMarkdownArtifact };
 // Composition is read exclusively from `specify artifact list --json` (see
 // composition/artifact-cli.mjs) and overlaid via `overlayCachedComposition`.
 // No direct fs read here for presets or extensions.
+
+// Terminal statuses that a scaffold-placeholder detection must not clobber —
+// only a stale `done` (or the already-current `empty`) should be downgraded
+// to `empty` when the file still looks unfilled.
+const PRESERVED_TEMPLATE_STATUSES = new Set(["error", "skipped", "in_progress"]);
+
+const CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE = /<!--[\s\S]*?(?:-->|$)|\[(?!(?:P|ID|US\d+)\])[A-Z][A-Z0-9_]*\]/g;
+
+function constitutionPlaceholdersOutsideComments(text) {
+    const matches = [];
+    for (const match of text.matchAll(CONSTITUTION_COMMENT_OR_PLACEHOLDER_RE)) {
+        if (!match[0].startsWith("<!--")) matches.push(match[0]);
+    }
+    return matches;
+}
+
+async function looksLikeUnfilledConstitution(path, deps) {
+    try {
+        const text = await deps.readFile(path, "utf8");
+        const preview = text.length > MAX_MARKDOWN_PREVIEW ? text.slice(0, MAX_MARKDOWN_PREVIEW) : text;
+        const matches = constitutionPlaceholdersOutsideComments(preview);
+        return new Set(matches ?? []).size >= 2;
+    } catch {
+        return false;
+    }
+}
 
 // deps shape:
 //   readFile(path, enc)     → Promise<string>
@@ -80,19 +106,21 @@ export async function scanWorkspace(workspacePath, deps) {
     const constPath = join(workspacePath, ".specify", "memory", "constitution.md");
     if (await deps.pathExists(constPath)) {
         constitutionPath = toPortable(relative(workspacePath, constPath));
-        phases.constitution = { ...phases.constitution, artifactPath: constitutionPath };
-        // File presence alone is not enough: `specify init` scaffolds the
-        // template with placeholder tokens like [PROJECT_NAME]. Only mark
-        // the phase done once those placeholders have been filled in. If
-        // state.json remembers a stale `done` but the file is back to
-        // template-shaped, downgrade to empty — grounding rules trump
-        // stored state.
-        const unfilled = await looksLikeUnfilledTemplate(constPath, deps);
-        if (unfilled) {
-            if (phases.constitution.status === "done") phases.constitution.status = "empty";
-        } else if (phases.constitution.status === "empty") {
-            phases.constitution.status = "done";
-        }
+        // Constitution is the one artifact we still inspect for scaffold
+        // placeholders: `specify init` pre-creates constitution.md before the
+        // Constitution phase runs. Other phase artifacts are owned by their
+        // phase command, so existence means they should be viewable and the
+        // user decides whether they are complete enough to proceed.
+        const unfilledConstitution = await looksLikeUnfilledConstitution(constPath, deps);
+        phases.constitution = {
+            ...phases.constitution,
+            artifactPath: constitutionPath,
+            status: unfilledConstitution
+                ? (PRESERVED_TEMPLATE_STATUSES.has(phases.constitution.status)
+                    ? phases.constitution.status
+                    : "empty")
+                : (phases.constitution.status === "empty" ? "done" : phases.constitution.status),
+        };
     }
 
     // Specs — pick the most recently modified dir under specs/.
