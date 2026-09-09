@@ -151,6 +151,33 @@ const EXTENSION_SOURCE_PATH_FIXTURE = [
     ],
 }));
 
+function canonicalCommandRows() {
+    return ["constitution", "specify", "plan", "tasks", "implement"].map((phase) => {
+        const name = `speckit.${phase}`;
+        const id = `command:${name}`;
+        return {
+            id,
+            name,
+            kind: "command",
+            description: "",
+            stack: [
+                {
+                    id,
+                    layer: null,
+                    sourceId: null,
+                    presetId: null,
+                    presetName: null,
+                    strategy: "replace",
+                    active: true,
+                    hidden: false,
+                    manifestPath: null,
+                    lookupId: null,
+                },
+            ],
+        };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -272,29 +299,14 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("stage2 synthesizes canonical pipeline when no directives/new commands", async () => {
+    test("synthesizes a canonical pipeline when no inference is needed", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
-            // Build a fixture containing every REQUIRED canonical command.
-            const requiredNames = ["speckit.constitution", "speckit.specify", "speckit.plan", "speckit.tasks", "speckit.implement"];
-            const rows = [];
-            for (const name of requiredNames) {
-                const id = `command:${name}`;
-                rows.push({
-                    id, name, kind: "command", description: "",
-                    stack: [
-                        {
-                            id, layer: null, sourceId: null, presetId: null, presetName: null,
-                            strategy: "replace", active: true, hidden: false, manifestPath: null, lookupId: null,
-                        },
-                    ],
-                });
-            }
             const comp = await buildCompositionFromCli({
                 workspaceRoot: root,
                 presetItems: [],
                 extensionItems: [],
-                runner: fakeRunner(rows),
+                runner: fakeRunner(canonicalCommandRows()),
             });
             const fp = computePipelineFastPath(comp);
             assert.equal(fp.canSynthesize, true);
@@ -307,7 +319,7 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("stage2 detects wrap/prepend/append directives on canonical commands", async () => {
+    test("requires inference for stack directives on canonical commands", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
             const rows = [
@@ -339,6 +351,48 @@ describe("buildCompositionFromCli", () => {
             assert.equal(fp.hasStackDirectives, true);
             assert.equal(fp.canSynthesize, false);
             assert.equal(fp.syntheticPipeline, null);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("requires inference when the CLI payload contains a non-canonical command", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const rows = [
+                ...canonicalCommandRows(),
+                {
+                    id: "command:speckit.review",
+                    name: "speckit.review",
+                    kind: "command",
+                    description: "Review the implementation.",
+                    stack: [
+                        {
+                            id: "command:speckit.review",
+                            layer: "preset",
+                            sourceId: "review",
+                            presetId: "review",
+                            presetName: "Review",
+                            strategy: "replace",
+                            active: true,
+                            hidden: false,
+                            manifestPath: ".specify/presets/review/preset.yml",
+                            lookupId: "preset:review:command:speckit.review",
+                        },
+                    ],
+                },
+            ];
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [],
+                runner: fakeRunner(rows),
+            });
+
+            const fastPath = computePipelineFastPath(comp);
+            assert.equal(fastPath.canSynthesize, false);
+            assert.deepEqual(fastPath.newCommands, ["commands/speckit.review"]);
+            assert.equal(fastPath.syntheticPipeline, null);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

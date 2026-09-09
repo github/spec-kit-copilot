@@ -298,9 +298,9 @@ function resolveExtensionArtifactFromSnapshot(pipelineId, snapshot) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = snapshot?.composition?.extensions ?? [];
-    const ext = exts.find((e) => e.id === active.presetId) ?? {
-        id: active.presetId,
-        name: active.presetName || active.presetId,
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
         version: active.version || null,
     };
     const commandName = artifactId.slice("commands/".length);
