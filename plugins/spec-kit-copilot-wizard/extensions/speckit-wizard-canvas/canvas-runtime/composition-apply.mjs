@@ -271,8 +271,8 @@ export async function applyComposition(inst, input) {
     };
 }
 
-// Deterministic composition refresh — uses `specify artifact list --json` +
-// `specify artifact info <id> --json` via composition/artifact-cli.mjs.
+// Deterministic composition refresh — uses the complete payload from a
+// single `specify artifact list --json` call via composition/artifact-cli.mjs.
 //
 // Purpose: after any catalog change (preset/extension install, remove,
 // swap, priority change) the composition needs to be rebuilt. This helper
