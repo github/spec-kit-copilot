@@ -26,6 +26,9 @@ const execFileP = promisify(execFile);
 // shell-out is in flight. Returns a string (stdout). Tests inject a
 // synchronous runner that returns a Buffer/string — we `await` its
 // return, which unwraps both sync and Promise values transparently.
+// Keep this as a bounded one-shot read for the wizard's current inventory
+// scope. An oversized payload should fail the refresh rather than introducing
+// streaming complexity or allowing partial JSON to be treated as complete.
 const defaultAsyncRunner = async (cmd, args, opts) => {
     const augmentedPath = await buildAugmentedPath();
     const { stdout } = await execFileP(cmd, args, { ...opts, env: { ...process.env, PATH: augmentedPath } });
