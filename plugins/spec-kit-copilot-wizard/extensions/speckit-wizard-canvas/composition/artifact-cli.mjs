@@ -180,9 +180,10 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
             .filter((it) => it && it.active)
             .map((it) => [it.installedId || it.id, it]),
     );
-    // Iterate the union: cached catalog items (so we get version/priority
-    // even when an installed preset provides nothing yet) + any presetIds
-    // observed in stacks (so we don't miss anything).
+    // Preserve the wizard's existing cache/discovery order for provider
+    // summaries. Artifact stacks are authoritative for each artifact, but do
+    // not define a complete global provider order, so the wizard must not
+    // infer precedence from artifact enumeration.
     const ids = new Set();
     for (const [, item] of cachedById) ids.add(item.installedId || item.id);
     for (const [key, entry] of counts) {
