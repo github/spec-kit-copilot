@@ -4,7 +4,7 @@ import {
     buildCompositionFromCli,
 } from "../composition/artifact-cli.mjs";
 import { computePipelineFastPath } from "../composition/pipeline-fast-path.mjs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -294,6 +294,140 @@ describe("buildCompositionFromCli", () => {
                 scripts: 1,
                 hooks: 0,
             });
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("enriches an extension command with its registered hook bindings", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const extensionDir = join(root, ".specify", "extensions", "audit");
+            mkdirSync(extensionDir, { recursive: true });
+            writeFileSync(
+                join(extensionDir, "extension.yml"),
+                [
+                    "name: Audit Extension",
+                    "version: 1.0.0",
+                    "category: process",
+                    "effect: read-only",
+                    "hooks:",
+                    "  - phase: after_specify",
+                    "    command: speckit.audit.capture",
+                    "  - phase: after_plan",
+                    "    command: speckit.audit.capture",
+                    "",
+                ].join("\n"),
+            );
+            writeFileSync(
+                join(root, ".specify", "extensions.yml"),
+                [
+                    "hooks:",
+                    "  after_specify:",
+                    "    - extension: audit",
+                    "      command: speckit.audit.capture",
+                    "  after_plan:",
+                    "    - extension: audit",
+                    "      command: speckit.audit.capture",
+                    "",
+                ].join("\n"),
+            );
+
+            const extensionCommand = {
+                id: "command:speckit.audit.capture",
+                name: "speckit.audit.capture",
+                kind: "command",
+                description: "Capture an audit record.",
+                stack: [
+                    {
+                        id: "command:speckit.audit.capture",
+                        layer: "extension",
+                        sourceId: "audit",
+                        presetId: null,
+                        presetName: null,
+                        strategy: "replace",
+                        active: true,
+                        hidden: false,
+                        manifestPath: ".specify/extensions/audit/extension.yml",
+                        lookupId: "extension:audit:command:speckit.audit.capture",
+                        sourcePath: ".specify/extensions/audit/commands/capture.md",
+                    },
+                ],
+            };
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [
+                    {
+                        id: "audit",
+                        installedId: "audit",
+                        active: true,
+                        name: "Audit Extension",
+                        version: "1.0.0",
+                    },
+                ],
+                runner: fakeRunner([
+                    ...canonicalCommandRows(),
+                    extensionCommand,
+                ]),
+            });
+
+            assert.equal(
+                comp.artifacts.some(
+                    (artifact) => artifact.kind === "command"
+                        && artifact.id === "commands/speckit.audit.capture",
+                ),
+                false,
+            );
+
+            const hook = comp.artifacts.find(
+                (artifact) => artifact.kind === "hook"
+                    && artifact.id === "commands/speckit.audit.capture",
+            );
+            assert.ok(hook);
+            assert.deepEqual(
+                hook.hookBindings.map(({ phase, extensionId, targetCommand }) => ({
+                    phase,
+                    extensionId,
+                    targetCommand,
+                })),
+                [
+                    {
+                        phase: "after_specify",
+                        extensionId: "audit",
+                        targetCommand: "speckit.audit.capture",
+                    },
+                    {
+                        phase: "after_plan",
+                        extensionId: "audit",
+                        targetCommand: "speckit.audit.capture",
+                    },
+                ],
+            );
+            assert.equal(hook.stack[0].sourceId, "audit");
+            assert.equal(hook.stack[0].presetId, null);
+
+            for (const phase of ["specify", "plan"]) {
+                const parent = comp.artifacts.find(
+                    (artifact) => artifact.id === `commands/speckit.${phase}`,
+                );
+                assert.deepEqual(
+                    parent.hooks.map(({ phase: hookPhase, extensionId, registered }) => ({
+                        phase: hookPhase,
+                        extensionId,
+                        registered,
+                    })),
+                    [
+                        {
+                            phase: `after_${phase}`,
+                            extensionId: "audit",
+                            registered: true,
+                        },
+                    ],
+                );
+            }
+
+            assert.equal(comp.extensions[0].provides.hooks, 2);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
