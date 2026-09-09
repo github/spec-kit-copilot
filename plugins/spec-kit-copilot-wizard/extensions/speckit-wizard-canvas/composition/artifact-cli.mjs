@@ -321,13 +321,16 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
             const hookArtifactId = `commands/${hookCommand}`;
             let hookArtifact = hookArtifactsById.get(hookArtifactId);
             if (!hookArtifact) {
-                hookArtifact = {
-                    id: hookArtifactId,
-                    kind: "hook",
-                    description: "",
-                    stack: [],
-                    hookBindings: [],
-                };
+                const commandArtifact = byId.get(hookArtifactId);
+                hookArtifact = commandArtifact
+                    ? { ...commandArtifact, kind: "hook", hookBindings: [] }
+                    : {
+                        id: hookArtifactId,
+                        kind: "hook",
+                        description: "",
+                        stack: [],
+                        hookBindings: [],
+                    };
                 hookArtifactsById.set(hookArtifactId, hookArtifact);
             }
             const binding = {
@@ -446,10 +449,10 @@ export async function buildCompositionFromCli({
     //    Living with that in exchange for a single-shell-out boot; if
     //    upstream ever ships `preset list --json` / `extension list --json`
     //    with active detail, switch the summary to a direct query.
-    const presetsOut = summarizeInstalled("preset", artifacts, presetItems);
+    const presetsOut = summarizeInstalled("preset", artifactsRaw, presetItems);
     const extensionsOut = summarizeInstalled(
         "extension",
-        artifacts,
+        artifactsRaw,
         extensionItems,
         extensionHookInfo,
     );

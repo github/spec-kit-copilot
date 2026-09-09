@@ -316,7 +316,6 @@ export async function runFastComposition(inst, { reason } = {}) {
             ok: true,
             reason,
             pipelineFastPath: fastPath.canSynthesize,
-            stage2Needed: !fastPath.canSynthesize,
         };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };

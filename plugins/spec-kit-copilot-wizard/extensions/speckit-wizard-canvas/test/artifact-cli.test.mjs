@@ -423,6 +423,10 @@ describe("buildCompositionFromCli", () => {
             );
             assert.equal(hook.stack[0].sourceId, "audit");
             assert.equal(hook.stack[0].presetId, null);
+            assert.equal(
+                hook.stack[0].sourcePath,
+                ".specify/extensions/audit/commands/capture.md",
+            );
 
             for (const phase of ["specify", "plan"]) {
                 const parent = comp.artifacts.find(
@@ -446,6 +450,7 @@ describe("buildCompositionFromCli", () => {
 
             assert.equal(comp.extensions[0].name, "Audit Extension");
             assert.equal(comp.extensions[0].version, "1.0.0");
+            assert.equal(comp.extensions[0].provides.commands, 1);
             assert.equal(comp.extensions[0].provides.hooks, 2);
         } finally {
             rmSync(root, { recursive: true, force: true });
