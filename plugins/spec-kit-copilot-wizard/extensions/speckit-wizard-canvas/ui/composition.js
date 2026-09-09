@@ -455,9 +455,8 @@ export function renderCompositionPresetSidebar() {
     const countEl = document.getElementById("comp-group-presets-count");
     if (!host) return;
     const comp = state.snapshot.composition ?? {};
-    // Precedence is owned by the CLI (`specify preset resolve`) and passed
-    // through in composition.presets[] by the speckit-preset skill. The UI
-    // renders in payload order — no local sort, no tiebreak.
+    // Provider summaries preserve payload order. Applied precedence is shown
+    // by the CLI-provided stack on each artifact.
     const presets = orderedCompositionPresets();
 
     if (!presets.length) {
@@ -506,8 +505,8 @@ export function renderCompositionExtensionSidebar() {
     const countEl = document.getElementById("comp-group-extensions-count");
     if (!host) return;
     const comp = state.snapshot.composition ?? {};
-    // Precedence comes from the CLI via composition.extensions[]. The UI
-    // renders in payload order — no local sort, no tiebreak.
+    // Provider summaries preserve payload order. Applied precedence is shown
+    // by the CLI-provided stack on each artifact.
     const extensions = orderedCompositionExtensions();
 
     if (!extensions.length) {

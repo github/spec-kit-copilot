@@ -102,8 +102,8 @@ export const SETUP_TAB_PHASE_KEYS = new Set(["setup", "preset"]);
 // These are used all over render/composition/catalog code to fetch the active
 // command list, current selected phase card, and precedence-ordered
 // composition presets/extensions. They read `state.snapshot` verbatim — no
-// local sort, no tiebreak. The CLI (`specify preset resolve`) owns precedence;
-// the UI just trusts what the payload delivers.
+// local sort or tiebreak. Applied precedence lives in each artifact's
+// CLI-provided stack, not in these provider-summary arrays.
 
 /** Returns the flat command list emitted by snapshot-builder. */
 export function commands() {
@@ -111,20 +111,16 @@ export function commands() {
 }
 
 /**
- * Precedence-ordered presets from the composition payload.
- * The Spec Kit CLI (`specify preset resolve`) owns precedence. The
- * speckit-preset skill passes the resolved order through in
- * composition.presets[]. The UI must render in that order verbatim —
- * no local sort, no tiebreak. This helper is the single source of
- * that ordering so no call site can silently re-sort.
+ * Preset summaries from the composition payload. The UI preserves payload
+ * order; applied precedence is represented by each artifact's stack.
  */
 export function orderedCompositionPresets() {
     return state.snapshot?.composition?.presets ?? [];
 }
 
 /**
- * Precedence-ordered extensions from the composition payload. Same
- * contract as orderedCompositionPresets — trust the payload.
+ * Extension summaries from the composition payload. Same contract as
+ * orderedCompositionPresets — preserve payload order.
  */
 export function orderedCompositionExtensions() {
     return state.snapshot?.composition?.extensions ?? [];
