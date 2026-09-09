@@ -123,6 +123,8 @@ export const buildRow = (kindLabel, parts, extraClass = "", pill = "") => `
         <span class="phase-cust-detail">${joinParts(parts)}${pill ? ` <span class="phase-cust-pill-wrap">${pill}</span>` : ""}</span>
     </div>`;
 
+// Project layers remain in the upstream stack for fidelity, but this UI
+// intentionally scopes contributor ownership to Core, presets, and extensions.
 export const layerOwnerName = (layer) => {
     if (layer?.layer === "extension") {
         return layer.extensionName || layer.sourceId || "";
