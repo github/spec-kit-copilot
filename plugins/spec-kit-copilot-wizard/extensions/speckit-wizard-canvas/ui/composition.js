@@ -378,9 +378,6 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     const strategy = meaningfulStrategy
         ? `<span class="comp-artifact-strategy-chip comp-stack-layer-strategy" title="Composition strategy applied by this layer">${escapeHtml(capitalize(layer.strategy))}</span>`
         : "<span></span>";
-    const version = layer.version
-        ? `<span class="layer-version">v${escapeHtml(layer.version)}</span>`
-        : "<span></span>";
     const title = layer.sourcePath ? ` title="${escapeHtml(layer.sourcePath)}"` : "";
     const classes = [
         "comp-stack-layer",
@@ -390,7 +387,6 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     return `<div class="${classes}"${title}>
         <span class="layer-label"><span class="layer-dot layer-${escapeHtml(layer.layer)}"></span>${nameParts.join(" ")}</span>
         ${strategy}
-        ${version}
         <span class="layer-marker">${escapeHtml(marker)}</span>
     </div>`;
 }

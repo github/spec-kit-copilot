@@ -345,7 +345,6 @@ export function renderArtifactRow(artifact, opts = {}) {
         : `<div class="comp-stack-layer is-active">
               <span class="layer-label"><span class="layer-dot layer-core"></span>Core <span class="muted">(default)</span></span>
               <span></span>
-              <span></span>
               <span class="layer-marker">← active</span>
            </div>`;
 
@@ -625,4 +624,3 @@ export function artifactSourcePath(artifact, activeLayer) {
             return null;
     }
 }
-
