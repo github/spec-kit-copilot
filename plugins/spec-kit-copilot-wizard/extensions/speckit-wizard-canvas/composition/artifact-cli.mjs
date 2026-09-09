@@ -175,16 +175,22 @@ function accumulateProvidesCounts(artifacts) {
 
 function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
     const counts = accumulateProvidesCounts(artifacts);
+    const activeCachedItems = (cachedItems ?? []).filter((it) => it && it.active);
     const cachedById = new Map(
-        (cachedItems ?? [])
-            .filter((it) => it && it.active)
-            .map((it) => [it.installedId || it.id, it]),
+        activeCachedItems.map((it) => [it.installedId || it.id, it]),
     );
     // Iterate the union: cached catalog items (so we get version/priority
     // even when an installed preset provides nothing yet) + any presetIds
     // observed in stacks (so we don't miss anything).
     const ids = new Set();
-    for (const [, item] of cachedById) ids.add(item.installedId || item.id);
+    const orderedCachedItems = activeCachedItems
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) => {
+            const aOrder = Number.isInteger(a.item.cliOrder) ? a.item.cliOrder : Infinity;
+            const bOrder = Number.isInteger(b.item.cliOrder) ? b.item.cliOrder : Infinity;
+            return aOrder - bOrder || a.index - b.index;
+        });
+    for (const { item } of orderedCachedItems) ids.add(item.installedId || item.id);
     for (const [key, entry] of counts) {
         if (entry.layerKind !== kind) continue;
         ids.add(entry.providerId);
