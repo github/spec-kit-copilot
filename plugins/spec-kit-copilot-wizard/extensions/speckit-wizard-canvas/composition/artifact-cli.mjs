@@ -358,16 +358,9 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
     const filtered = artifacts.filter((artifact) => {
         if (artifact.kind !== "command") return true;
         const name = artifact.id.replace(/^commands\//, "");
-        // If any extension declares this name as a hook command AND that
-        // extension appears in the artifact's stack, drop the command row.
-        for (const [extensionId, names] of extensionHookCommandNames) {
-            if (!names.has(name)) continue;
-            const owns = artifact.stack.some(
-                (l) => l.layer === "extension" && l.presetId === extensionId,
-            );
-            if (owns) return false;
-        }
-        return true;
+        const active = artifact.stack.find((layer) => layer.active);
+        if (active?.layer !== "extension") return true;
+        return !extensionHookCommandNames.get(active.sourceId)?.has(name);
     });
 
     // Append hook artifacts.
