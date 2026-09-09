@@ -1,9 +1,9 @@
 // speckit-wizard — hook-metadata extraction.
 //
-// The `specify artifact` CLI doesn't emit hook metadata — hook attribution
-// is a wizard concern. This module reads extension manifests and
-// `.specify/extensions.yml` directly to feed the hook enrichment step in
-// composition/artifact-cli.mjs.
+// The `specify artifact` CLI doesn't yet emit hook metadata. Until it does,
+// this temporary wizard-owned enrichment reads extension manifests and
+// `.specify/extensions.yml` directly. Hook extraction should move to the CLI
+// contract once native hook rows are available.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import {

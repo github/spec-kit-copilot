@@ -4,6 +4,33 @@ import {
     normalizeHookArtifactsInComposition,
 } from "../canvas-runtime/composition-apply.mjs";
 
+test("preserves command and template artifacts with the same name", () => {
+    const composition = {
+        artifacts: [
+            {
+                id: "commands/speckit.shared",
+                kind: "command",
+                stack: [],
+            },
+            {
+                id: "speckit.shared",
+                kind: "template",
+                stack: [],
+            },
+        ],
+    };
+
+    const normalized = normalizeHookArtifactsInComposition(composition);
+
+    assert.deepEqual(
+        normalized.artifacts.map((artifact) => [artifact.kind, artifact.id]),
+        [
+            ["command", "commands/speckit.shared"],
+            ["template", "speckit.shared"],
+        ],
+    );
+});
+
 test("preserves a hook whose binding already identifies its command", () => {
     const hook = {
         id: "commands/speckit.audit.capture",

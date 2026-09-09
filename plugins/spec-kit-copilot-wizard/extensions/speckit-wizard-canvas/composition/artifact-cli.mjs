@@ -108,6 +108,9 @@ function normalizeCliStackLayer(layer) {
         layer: layer.layer == null ? "core" : layer.layer,
         presetId: layer.presetId ?? null,
         presetName: layer.presetName ?? null,
+        // Extension layers intentionally retain the CLI's sourceId-only
+        // identity. Stack labels may fall back to that ID because display-name
+        // enrichment is outside the artifact stack contract.
         sourceId: layer.sourceId ?? null,
         strategy,
         active: !!layer.active,
