@@ -103,6 +103,15 @@ export function normalizeHookArtifactsInComposition(composition) {
         })
         .map((artifact) => {
             if (artifact?.kind !== "hook") return artifact;
+            const ownCommand = String(artifact.id).replace(/^commands\//, "");
+            const existingBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+                ? artifact.hookBindings
+                : [artifact.hookBinding].filter(Boolean);
+            const hasAuthoritativeTarget = existingBindings.some((binding) =>
+                typeof binding?.targetCommand === "string"
+                && binding.targetCommand.replace(/^commands\//, "") === ownCommand);
+            if (hasAuthoritativeTarget) return artifact;
+
             const active = artifact.stack?.find((layer) => layer?.active);
             const provider = active?.layer === "extension"
                 ? active.sourceId
