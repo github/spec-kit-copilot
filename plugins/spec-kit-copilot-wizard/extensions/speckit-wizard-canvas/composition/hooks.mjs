@@ -59,12 +59,13 @@ export async function readExtensionManifest(root, id) {
     let doc;
     try { doc = yaml.load(raw); } catch { return { id, error: "yaml-parse" }; }
     if (!doc || typeof doc !== "object") return { id, error: "empty" };
+    const metadata = doc.extension && typeof doc.extension === "object" ? doc.extension : {};
     return {
         id,
         manifestPath: repoRelative(root, manifestPath),
-        name: doc.name ?? id,
-        description: doc.description ?? "",
-        version: doc.version ?? null,
+        name: metadata.name ?? doc.name ?? id,
+        description: metadata.description ?? doc.description ?? "",
+        version: metadata.version ?? doc.version ?? null,
         priority: typeof doc.priority === "number" ? doc.priority : null,
         category: doc.category ?? null,
         effect: doc.effect ?? null,
