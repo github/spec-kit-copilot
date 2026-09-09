@@ -1,7 +1,7 @@
 // speckit-wizard — CLI-backed composition source.
 //
-// Uses `specify artifact list --json` + `specify artifact info <id> --json`
-// as the sole source of truth for the composition slice.
+// Uses `specify artifact list --json` as the sole source of truth for the
+// command, template, and script composition slices.
 //
 // Shape mapping (CLI → wizard):
 //   • CLI id `command:<name>`   → wizard id `commands/<name>`
@@ -73,10 +73,10 @@ export async function specifyArtifactList(root, { runner = defaultAsyncRunner } 
 //      code needs to ask "does this layer have provenance?", check
 //      `sourceId != null` / `presetId != null` — not `layer !== "core"`.
 //
-//   2. The round-trip key back to the CLI is the top-level `id`
-//      (`command:X`, `template:X`, `script:X`) — never `lookupId`, which is
-//      null for built-in layers. `buildCompositionFromCli` below passes
-//      `row.id` from `artifact list` straight into `artifact info`.
+//   2. The CLI round-trip key is the top-level `id`
+//      (`command:X`, `template:X`, `script:X`) — never `lookupId`.
+//      `lookupId` describes layer provenance and may be null for built-in
+//      or legacy filesystem-derived layers.
 //
 //   3. Prefer exclusion filters over positive `layer === "core"` predicates.
 //      "User customized this" is `stack.some(l => l.layer === "project")`;
@@ -136,22 +136,29 @@ function shapeArtifact(cliArtifact) {
 // Preset/extension summary derivation
 // ---------------------------------------------------------------------------
 
+function providerIdForLayer(layer) {
+    if (layer.layer === "preset") return layer.presetId;
+    if (layer.layer === "extension") return layer.sourceId;
+    return null;
+}
+
 function accumulateProvidesCounts(artifacts) {
     // Map<sourceKey, { commands, templates, scripts, layerKind }>
-    // sourceKey = `${layer}:${presetId}` — distinguishes preset "foo" from
-    // extension "foo" if names ever collide.
+    // Presets use their installed presetId; extensions use the sourceId from
+    // their contribution lookupId because extension rows have presetId: null.
     const counts = new Map();
     for (const artifact of artifacts) {
         for (const layer of artifact.stack) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
-            if (!layer.presetId) continue;
-            const key = `${layer.layer}:${layer.presetId}`;
+            const providerId = providerIdForLayer(layer);
+            if (!providerId) continue;
+            const key = `${layer.layer}:${providerId}`;
             let entry = counts.get(key);
             if (!entry) {
                 entry = {
                     layerKind: layer.layer,
-                    presetId: layer.presetId,
-                    presetName: layer.presetName ?? layer.presetId,
+                    providerId,
+                    providerName: layer.presetName ?? providerId,
                     commands: 0,
                     templates: 0,
                     scripts: 0,
@@ -180,7 +187,7 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
     for (const [, item] of cachedById) ids.add(item.installedId || item.id);
     for (const [key, entry] of counts) {
         if (entry.layerKind !== kind) continue;
-        ids.add(entry.presetId);
+        ids.add(entry.providerId);
     }
     const out = [];
     for (const id of ids) {
@@ -190,7 +197,7 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
         if (!c && !cached) continue;
         const item = {
             id,
-            name: c?.presetName ?? cached?.name ?? id,
+            name: c?.providerName ?? cached?.name ?? id,
             version: cached?.version ?? undefined,
             priority: typeof cached?.priority === "number" ? cached.priority : 10,
             enabled: true,

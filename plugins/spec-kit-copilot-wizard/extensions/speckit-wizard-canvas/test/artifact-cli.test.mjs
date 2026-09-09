@@ -241,7 +241,7 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("preserves authoritative CLI source paths for every artifact kind", async () => {
+    test("preserves extension source paths and derives its summary from sourceId", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
             const comp = await buildCompositionFromCli({
@@ -259,6 +259,14 @@ describe("buildCompositionFromCli", () => {
                     ".specify/extensions/quality/scripts/quality-check.sh",
                 ],
             );
+            assert.equal(comp.extensions.length, 1);
+            assert.equal(comp.extensions[0].id, "quality");
+            assert.deepEqual(comp.extensions[0].provides, {
+                commands: 1,
+                templates: 1,
+                scripts: 1,
+                hooks: 0,
+            });
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
