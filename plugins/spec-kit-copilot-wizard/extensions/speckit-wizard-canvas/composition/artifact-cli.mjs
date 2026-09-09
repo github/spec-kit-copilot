@@ -336,12 +336,13 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
                 hookArtifact.hookBindings.push(binding);
             }
             hookArtifact.hookBinding = hookArtifact.hookBindings[0];
-            if (!hookArtifact.stack.some((l) => l.presetId === extensionId)) {
+            if (!hookArtifact.stack.some((l) => l.sourceId === extensionId)) {
                 hookArtifact.stack.push({
                     layer: "extension",
-                    presetId: extensionId,
-                    presetName: info.name,
+                    presetId: null,
+                    presetName: null,
                     sourceId: extensionId,
+                    extensionName: info.name,
                     strategy: "replace",
                     active: hookArtifact.stack.length === 0,
                     hidden: false,
@@ -414,8 +415,8 @@ export async function buildCompositionFromCli({
         ...new Set(
             artifactsRaw
                 .flatMap((a) => a.stack)
-                .filter((l) => l.layer === "extension" && l.presetId)
-                .map((l) => l.presetId),
+                .filter((l) => l.layer === "extension" && l.sourceId)
+                .map((l) => l.sourceId),
         ),
     ];
     // Also include any active extensions from the cached catalog that

@@ -493,7 +493,11 @@ export function resolveExtensionArtifact(pipelineId) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = orderedCompositionExtensions();
-    const ext = exts.find((e) => e.id === active.presetId) ?? { id: active.presetId, name: active.presetName || active.presetId, version: active.version || null };
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
+        version: active.version || null,
+    };
     const commandName = pipelineId.slice("commands/".length);
     // Human-facing short label: strip the "speckit.<ext-id>." prefix if present
     // so long namespaced ids collapse to a readable step name.
@@ -778,7 +782,7 @@ export function renderMoreCommandsPanel() {
             if (a.kind !== "command" && a.kind !== "hook") return false;
             const active = (a.stack ?? []).find((l) => l.active);
             return active?.layer === "extension"
-                && (active.extensionId === ext.id || active.presetId === ext.id);
+                && active.sourceId === ext.id;
         });
         // A single extension command can be the target of MULTIPLE hook
         // bindings (e.g. `speckit.agent-context.update` fires from both

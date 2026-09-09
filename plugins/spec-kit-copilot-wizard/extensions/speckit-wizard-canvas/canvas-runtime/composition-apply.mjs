@@ -84,7 +84,9 @@ export function normalizeHookArtifactsInComposition(composition) {
     for (const artifact of composition.artifacts) {
         if (artifact?.kind !== "command") continue;
         const active = artifact.stack?.find((layer) => layer?.active);
-        const provider = active?.extensionId ?? active?.presetId;
+        const provider = active?.layer === "extension"
+            ? active.sourceId
+            : active?.presetId;
         if (!provider || !String(artifact.id).startsWith("commands/speckit.")) continue;
         if (!commandByProvider.has(provider)) commandByProvider.set(provider, artifact);
     }
@@ -102,7 +104,9 @@ export function normalizeHookArtifactsInComposition(composition) {
         .map((artifact) => {
             if (artifact?.kind !== "hook") return artifact;
             const active = artifact.stack?.find((layer) => layer?.active);
-            const provider = active?.extensionId ?? active?.presetId;
+            const provider = active?.layer === "extension"
+                ? active.sourceId
+                : active?.presetId;
             const target = provider ? commandByProvider.get(provider) : null;
             if (!target) return artifact;
             const targetCommand = target.id.replace(/^commands\//, "");

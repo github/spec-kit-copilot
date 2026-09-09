@@ -169,10 +169,9 @@ export function computeProviderContributions(artifacts) {
         const seen = new Set();
         for (const layer of a.stack ?? []) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
-            const id = layer.presetId
-                || layer.extensionId
-                || layer.presetName
-                || layer.extensionName;
+            const id = layer.layer === "extension"
+                ? layer.sourceId
+                : layer.presetId;
             if (!id || seen.has(id)) continue;
             seen.add(id);
             let bucket = out.get(id);
@@ -321,11 +320,9 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     const isCore = layer.layer === "core";
     const isActive = !!layer.active;
     const layerLabel = LAYER_LABEL[layer.layer] ?? layer.layer;
-    const providerName = layer.presetName
-        || layer.extensionName
-        || layer.name
-        || layer.presetId
-        || layer.extensionId;
+    const providerName = layer.layer === "extension"
+        ? (layer.extensionName || layer.name || layer.sourceId)
+        : (layer.presetName || layer.name || layer.presetId);
     const nameParts = [];
     if (providerName && !isCore) {
         nameParts.push(`${layerLabel}:`);
@@ -641,4 +638,3 @@ export function renderComposition() {
     renderCompositionExtensionSidebar();
     renderCompositionCoreSidebar();
 }
-
