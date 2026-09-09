@@ -245,18 +245,18 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
  * Walks installed extensions on disk to collect hook metadata — the CLI's
  * artifact command doesn't emit hook bindings, so we still parse extension.yml.
  */
-async function collectHookMetadata(workspaceRoot, activeExtensionIds) {
+async function collectHookMetadata(workspaceRoot, activeExtensions) {
     const extensionHookInfo = new Map();
-    for (const id of activeExtensionIds) {
-        const manifest = await readExtensionManifest(workspaceRoot, id);
+    for (const { sourceId, manifestPath } of activeExtensions.values()) {
+        const manifest = await readExtensionManifest(workspaceRoot, sourceId, manifestPath);
         if (!manifest || manifest.error) continue;
-        extensionHookInfo.set(id, {
+        extensionHookInfo.set(sourceId, {
             hooks: manifest.hooks ?? [],
             category: manifest.category ?? null,
             effect: manifest.effect ?? null,
             hookCount: (manifest.hooks ?? []).length,
             manifestPath: manifest.manifestPath ?? null,
-            name: manifest.name ?? id,
+            name: manifest.name ?? sourceId,
             version: manifest.version ?? null,
         });
     }
@@ -420,25 +420,30 @@ export async function buildCompositionFromCli({
     }
 
     // 3. Enrich with hook metadata (extension.yml manifests).
-    const activeExtensionIds = [
-        ...new Set(
-            artifactsRaw
-                .flatMap((a) => a.stack)
-                .filter((l) => l.layer === "extension" && l.sourceId)
-                .map((l) => l.sourceId),
-        ),
-    ];
+    const activeExtensions = new Map();
+    for (const layer of artifactsRaw.flatMap((artifact) => artifact.stack)) {
+        if (layer.layer !== "extension" || !layer.sourceId) continue;
+        const existing = activeExtensions.get(layer.sourceId);
+        if (!existing || (!existing.manifestPath && layer.manifestPath)) {
+            activeExtensions.set(layer.sourceId, {
+                sourceId: layer.sourceId,
+                manifestPath: layer.manifestPath,
+            });
+        }
+    }
     // Also include any active extensions from the cached catalog that
     // didn't contribute an artifact (pure hook-only extensions).
     for (const ext of extensionItems ?? []) {
         if (ext?.active) {
             const id = ext.installedId || ext.id;
-            if (id && !activeExtensionIds.includes(id)) activeExtensionIds.push(id);
+            if (id && !activeExtensions.has(id)) {
+                activeExtensions.set(id, { sourceId: id, manifestPath: null });
+            }
         }
     }
     const { extensionHookInfo, hooksMap } = await collectHookMetadata(
         workspaceRoot,
-        activeExtensionIds,
+        activeExtensions,
     );
     const artifacts = applyHookAttributions(artifactsRaw, extensionHookInfo, hooksMap);
 

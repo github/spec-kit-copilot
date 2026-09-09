@@ -326,12 +326,13 @@ describe("buildCompositionFromCli", () => {
     test("enriches an extension command with its registered hook bindings", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
-            const extensionDir = join(root, ".specify", "extensions", "audit");
+            const extensionDir = join(root, ".specify", "extensions", "audit-installed");
             mkdirSync(extensionDir, { recursive: true });
             writeFileSync(
                 join(extensionDir, "extension.yml"),
                 [
                     "extension:",
+                    "  id: audit",
                     "  name: Audit Extension",
                     "  version: 1.0.0",
                     "category: process",
@@ -373,9 +374,9 @@ describe("buildCompositionFromCli", () => {
                         strategy: "replace",
                         active: true,
                         hidden: false,
-                        manifestPath: ".specify/extensions/audit/extension.yml",
+                        manifestPath: ".specify/extensions/audit-installed/extension.yml",
                         lookupId: "extension:audit:command:speckit.audit.capture",
-                        sourcePath: ".specify/extensions/audit/commands/capture.md",
+                        sourcePath: ".specify/extensions/audit-installed/commands/capture.md",
                     },
                 ],
             };
@@ -425,7 +426,7 @@ describe("buildCompositionFromCli", () => {
             assert.equal(hook.stack[0].presetId, null);
             assert.equal(
                 hook.stack[0].sourcePath,
-                ".specify/extensions/audit/commands/capture.md",
+                ".specify/extensions/audit-installed/commands/capture.md",
             );
 
             for (const phase of ["specify", "plan"]) {

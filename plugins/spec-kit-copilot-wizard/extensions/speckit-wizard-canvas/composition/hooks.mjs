@@ -6,7 +6,13 @@
 // composition/artifact-cli.mjs.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, sep as pathSep, resolve as pathResolve } from "node:path";
+import {
+    isAbsolute,
+    join,
+    relative as pathRelative,
+    sep as pathSep,
+    resolve as pathResolve,
+} from "node:path";
 import { platform } from "node:os";
 
 const IS_CASE_INSENSITIVE_FS = platform() === "win32" || platform() === "darwin";
@@ -47,13 +53,26 @@ function repoRelative(root, absPath) {
 }
 
 /**
- * Read one extension manifest at .specify/extensions/<id>/extension.yml.
+ * Read one extension manifest from its CLI-reported path, falling back to
+ * .specify/extensions/<id>/extension.yml when the path is unavailable.
  * Returns null on missing file, `{ id, error }` on parse failure, else the
  * parsed manifest with `hooks` normalized.
  */
-export async function readExtensionManifest(root, id) {
+export async function readExtensionManifest(root, id, manifestPathHint = null) {
     const yaml = await getYaml();
-    const manifestPath = join(root, ".specify", "extensions", id, "extension.yml");
+    const rootPath = pathResolve(root);
+    let manifestPath;
+    if (typeof manifestPathHint === "string" && manifestPathHint.length) {
+        manifestPath = pathResolve(rootPath, manifestPathHint);
+        const relativePath = pathRelative(rootPath, manifestPath);
+        if (relativePath === ".."
+            || relativePath.startsWith(`..${pathSep}`)
+            || isAbsolute(relativePath)) {
+            return null;
+        }
+    } else {
+        manifestPath = join(rootPath, ".specify", "extensions", id, "extension.yml");
+    }
     const raw = safeReadFile(manifestPath);
     if (!raw) return null;
     let doc;
