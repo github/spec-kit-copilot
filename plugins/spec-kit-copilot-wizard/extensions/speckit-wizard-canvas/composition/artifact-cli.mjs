@@ -194,11 +194,12 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
         const key = `${kind}:${id}`;
         const c = counts.get(key);
         const cached = cachedById.get(id);
+        const extra = extraExtensionData?.get(id);
         if (!c && !cached) continue;
         const item = {
             id,
-            name: c?.providerName ?? cached?.name ?? id,
-            version: cached?.version ?? undefined,
+            name: extra?.name ?? cached?.name ?? c?.providerName ?? id,
+            version: extra?.version ?? cached?.version ?? undefined,
             priority: typeof cached?.priority === "number" ? cached.priority : 10,
             enabled: true,
             description: cached?.description ?? "",
@@ -209,7 +210,6 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
             },
         };
         if (kind === "extension") {
-            const extra = extraExtensionData?.get(id);
             if (extra) {
                 if (extra.category) item.category = extra.category;
                 if (extra.effect) item.effect = extra.effect;

@@ -357,15 +357,7 @@ describe("buildCompositionFromCli", () => {
             const comp = await buildCompositionFromCli({
                 workspaceRoot: root,
                 presetItems: [],
-                extensionItems: [
-                    {
-                        id: "audit",
-                        installedId: "audit",
-                        active: true,
-                        name: "Audit Extension",
-                        version: "1.0.0",
-                    },
-                ],
+                extensionItems: [],
                 runner: fakeRunner([
                     ...canonicalCommandRows(),
                     extensionCommand,
@@ -427,6 +419,8 @@ describe("buildCompositionFromCli", () => {
                 );
             }
 
+            assert.equal(comp.extensions[0].name, "Audit Extension");
+            assert.equal(comp.extensions[0].version, "1.0.0");
             assert.equal(comp.extensions[0].provides.hooks, 2);
         } finally {
             rmSync(root, { recursive: true, force: true });
