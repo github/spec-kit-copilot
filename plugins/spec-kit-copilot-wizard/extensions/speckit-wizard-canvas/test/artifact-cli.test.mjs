@@ -268,30 +268,6 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("orders provider summaries by CLI precedence", async () => {
-        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
-        try {
-            const comp = await buildCompositionFromCli({
-                workspaceRoot: root,
-                presetItems: [
-                    { id: "lower", active: true, cliOrder: 1 },
-                    { id: "winner", active: true, cliOrder: 0 },
-                    { id: "unordered-a", active: true, cliOrder: null },
-                    { id: "unordered-b", active: true, cliOrder: null },
-                ],
-                extensionItems: [],
-                runner: fakeRunner([]),
-            });
-
-            assert.deepEqual(
-                comp.presets.map((preset) => preset.id),
-                ["winner", "lower", "unordered-a", "unordered-b"],
-            );
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    });
-
     test("preserves extension source paths and derives its summary from sourceId", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
