@@ -2,8 +2,11 @@
 //
 // The `specify artifact` CLI doesn't yet emit hook metadata. Until it does,
 // this temporary wizard-owned enrichment reads extension manifests and
-// `.specify/extensions.yml` directly. Hook extraction should move to the CLI
-// contract once native hook rows are available.
+// `.specify/extensions.yml` directly. It intentionally preserves the
+// wizard's pre-existing hook extraction behavior while command, template,
+// and script composition moves to the CLI. Expanding support for the full
+// hook manifest contract belongs with the later migration to native CLI hook
+// artifacts, which will replace this compatibility bridge.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import {
@@ -128,6 +131,9 @@ export async function readHooksMap(root) {
  * Normalize an extension manifest's `hooks` field. Accepts either the
  * array form (`[{ phase, command, ... }]`) or the object form
  * (`{ before_specify: { command: … } }`).
+ *
+ * Compatibility scope: this is the legacy wizard normalizer moved out of
+ * collect.mjs, not a new implementation of the evolving hook contract.
  */
 export function parseHookDeclarations(hooks) {
     if (hooks && typeof hooks === "object" && !Array.isArray(hooks)) {
