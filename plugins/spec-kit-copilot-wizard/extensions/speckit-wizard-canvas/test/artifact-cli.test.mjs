@@ -246,7 +246,6 @@ describe("buildCompositionFromCli", () => {
             assert.equal(winner.hidden, false);
             assert.equal(winner.manifestPath, ".specify/presets/compliance/preset.yml");
             assert.equal(winner.lookupId, "preset:compliance:command:speckit.plan");
-
             // Hidden built-in layer.
             const built = cmd.stack[1];
             assert.equal(built.layer, "core");
