@@ -96,12 +96,18 @@ function prependPathDirs(current, extras, platform = process.platform) {
         ? (value) => value.trim().toLowerCase()
         : (value) => value.trim();
     const preferred = (extras ?? []).filter(Boolean);
-    const preferredSet = new Set(preferred.map(normalize));
     const existing = String(current ?? "")
         .split(sep)
         .map((entry) => entry.trim())
-        .filter((entry) => entry && !preferredSet.has(normalize(entry)));
-    return [...preferred, ...existing].join(sep);
+        .filter(Boolean);
+    const seen = new Set(existing.map(normalize));
+    const missing = preferred.filter((entry) => {
+        const key = normalize(entry);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    return [...missing, ...existing].join(sep);
 }
 
 // Impure. Read fallback dirs from disk once and return an augmented PATH
