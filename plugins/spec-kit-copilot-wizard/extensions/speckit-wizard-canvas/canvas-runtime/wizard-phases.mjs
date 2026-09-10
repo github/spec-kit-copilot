@@ -91,7 +91,6 @@ export const PHASES = [
     canonical("taskstoissues", {
         tagline: "File the task list as GitHub issues.",
         artifact: null, // writes GH issues, no on-disk artifact
-        gated: true, // requires a preset that contributes speckit-taskstoissues
     }),
     canonical("implement", {
         tagline: "Execute all tasks and build according to the plan.",

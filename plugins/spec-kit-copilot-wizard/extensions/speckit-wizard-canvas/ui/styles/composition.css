@@ -728,7 +728,7 @@ a.comp-hook-chip-target:focus-visible code {
 }
 .comp-stack-layer {
     display: grid;
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto 1fr auto;
     gap: 0.5rem;
     align-items: center;
     padding: 0.4rem 0.6rem;
@@ -765,10 +765,6 @@ a.comp-hook-chip-target:focus-visible code {
    layer applies the "Replaces / Wraps / …" strategy. */
 .comp-stack-layer .comp-stack-layer-strategy {
     justify-self: start;
-}
-.comp-stack-layer .layer-version {
-    font-size: 11px;
-    color: var(--text-color-muted);
 }
 .comp-stack-layer .layer-marker {
     font-size: 11px;
@@ -1346,5 +1342,4 @@ a.comp-hook-chip-target:focus-visible code {
     border-bottom: 1px dotted var(--fgMuted, #6a737d);
 }
 .row-sub a:hover { border-bottom-style: solid; }
-
 

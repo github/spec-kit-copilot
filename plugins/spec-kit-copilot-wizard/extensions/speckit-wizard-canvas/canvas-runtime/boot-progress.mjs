@@ -34,6 +34,7 @@ export const BOOT_STEPS = [
     { id: "deps-install", label: "Installing js-yaml" },
     { id: "env-probe", label: "Probing environment" },
     { id: "catalog", label: "Loading catalogs" },
+    { id: "composition", label: "Building composition" },
     { id: "ready", label: "Ready" },
 ];
 

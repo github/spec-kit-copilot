@@ -298,9 +298,9 @@ function resolveExtensionArtifactFromSnapshot(pipelineId, snapshot) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = snapshot?.composition?.extensions ?? [];
-    const ext = exts.find((e) => e.id === active.presetId) ?? {
-        id: active.presetId,
-        name: active.presetName || active.presetId,
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
         version: active.version || null,
     };
     const commandName = artifactId.slice("commands/".length);
@@ -493,7 +493,11 @@ export function resolveExtensionArtifact(pipelineId) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = orderedCompositionExtensions();
-    const ext = exts.find((e) => e.id === active.presetId) ?? { id: active.presetId, name: active.presetName || active.presetId, version: active.version || null };
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
+        version: active.version || null,
+    };
     const commandName = pipelineId.slice("commands/".length);
     // Human-facing short label: strip the "speckit.<ext-id>." prefix if present
     // so long namespaced ids collapse to a readable step name.
@@ -695,12 +699,10 @@ export function renderMoreCommandsPanel() {
         if (!presetGroups.has(key)) presetGroups.set(key, []);
         presetGroups.get(key).push(p);
     }
-    // Precedence is owned by the Spec Kit CLI (`specify preset resolve`)
-    // and passed through in composition.presets[] by the speckit-preset
-    // skill. The UI does no ordering of its own — it iterates presets in
-    // payload order. Presets absent from the payload (e.g. an unknown
-    // seed source referencing an uninstalled preset) are appended after,
-    // in Map insertion order, so nothing silently disappears.
+    // Provider sections preserve composition payload order. Applied
+    // precedence is represented by each artifact's CLI-provided stack.
+    // Presets absent from the payload are appended in Map insertion order
+    // so nothing silently disappears.
     const compPresetList = orderedCompositionPresets();
     const presetById = new Map();
     for (const pr of compPresetList) if (pr?.id) presetById.set(pr.id, pr);
@@ -710,10 +712,8 @@ export function renderMoreCommandsPanel() {
     };
     const isSectionOpen = (key) => !(state.moreCollapsedSections instanceof Set) || !state.moreCollapsedSections.has(key);
 
-    // Build per-preset section HTML. Iterate composition.presets[] FIRST
-    // (payload order = CLI-derived precedence), then any leftover groups
-    // that reference unknown presets. Sections are appended in the order
-    // the CLI returns — no local sort, no tie-breaker.
+    // Build per-preset section HTML. Iterate composition.presets[] first,
+    // then append any leftover groups that reference unknown presets.
     const presetIdToSourceKey = new Map();
     for (const source of presetGroups.keys()) {
         presetIdToSourceKey.set(presetIdFromSource(source), source);
@@ -764,8 +764,7 @@ export function renderMoreCommandsPanel() {
         <div class="more-commands-grid">${coreCards}</div>
     </details>`;
 
-    // Extension groups. Emitted in composition.extensions[] payload order
-    // (CLI-derived precedence). No local sorting.
+    // Extension groups preserve composition.extensions[] payload order.
     const compExtensions = orderedCompositionExtensions();
     const compArtifactsAll = state.snapshot?.composition?.artifacts ?? [];
     const extensionSectionHtmlParts = compExtensions.map((ext) => {
@@ -778,7 +777,7 @@ export function renderMoreCommandsPanel() {
             if (a.kind !== "command" && a.kind !== "hook") return false;
             const active = (a.stack ?? []).find((l) => l.active);
             return active?.layer === "extension"
-                && (active.extensionId === ext.id || active.presetId === ext.id);
+                && active.sourceId === ext.id;
         });
         // A single extension command can be the target of MULTIPLE hook
         // bindings (e.g. `speckit.agent-context.update` fires from both
