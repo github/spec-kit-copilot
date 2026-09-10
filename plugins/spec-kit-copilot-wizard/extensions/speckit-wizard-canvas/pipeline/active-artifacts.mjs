@@ -180,7 +180,10 @@ export function resolveHooksForCommand(composition, commandRef) {
         const command = arts.find((a) => {
             if (a?.kind !== "command") return false;
             const active = Array.isArray(a.stack) ? a.stack.find((l) => l?.active) : null;
-            return (active?.extensionId ?? active?.presetId) === providerId;
+            const activeProvider = active?.layer === "extension"
+                ? active.sourceId
+                : active?.presetId;
+            return activeProvider === providerId;
         });
         return normalizeCommandRef(command?.id)?.qualified ?? null;
     };

@@ -53,11 +53,11 @@ export async function specifyRun(args, cwd, { timeoutMs = 20_000 } = {}) {
         let settled = false;
         const done = (val) => { if (!settled) { settled = true; resolve(val); } };
         // Hard cap so a wedged CLI (network hang, uv resolver stuck, etc.)
-        // can't freeze catalog hydration forever. On timeout we return the
-        // partial stdout — callers already tolerate empty/malformed output.
+        // can't freeze catalog hydration forever. Partial stdout is not safe
+        // to parse as a complete installed-provider inventory.
         const timer = setTimeout(() => {
             try { child.kill(); } catch { /* best-effort */ }
-            done(stdout || null);
+            done(null);
         }, timeoutMs);
         child.stdout?.on("data", (d) => { stdout += String(d); });
         child.on("error", () => { clearTimeout(timer); done(null); });

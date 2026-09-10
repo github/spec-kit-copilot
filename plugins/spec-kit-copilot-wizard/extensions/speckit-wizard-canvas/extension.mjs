@@ -20,12 +20,11 @@ import { readState } from "./state/store.mjs";
 import { startServer } from "./server.mjs";
 import { checkDeps, getExtensionDir, installDeps } from "./env/deps-check.mjs";
 import { createBootTracker } from "./canvas-runtime/boot-progress.mjs";
-// Composition retrieval is entirely LLM-driven via the `speckit-preset` +
-// `speckit-extension` skills — see the `composition.refresh` case in
-// prompts.mjs and the `applyComposition` helper in canvas-runtime/composition-apply.mjs.
-// There is deliberately no native import that parses `preset.yml` /
-// `extension.yml` / `.registry` here; catalog interpretation belongs to the
-// skills and scanner.
+// Command, template, and script composition comes from one
+// `specify artifact list --json` call in composition/artifact-cli.mjs.
+// Node does not parse provider manifests for those artifact stacks. Manifest
+// reads remain only for hook enrichment until the CLI exposes hook artifacts;
+// the LLM is used separately when pipeline ordering requires inference.
 import { fetchSessionRepoPath, resolveWorkspace } from "./env/workspace.mjs";
 import { fsDeps, sessionState, getInstance, allInstances, sessionAdapter, setSession, getSession } from "./canvas-runtime/instances.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
@@ -207,14 +206,15 @@ export async function bootAsync(inst) {
     // Step 6: composition build (single `specify artifact list --json` call).
     tracker.start("composition");
     try {
-        await runFastComposition(inst, { reason: "boot" });
+        const result = await runFastComposition(inst, { reason: "boot" });
+        if (!result?.ok) throw new Error(result?.reason ?? "composition build failed");
         await snapshot(inst);
         tracker.ok("composition");
     } catch (err) {
         tracker.fail("composition", { title: `composition build failed: ${err?.message ?? err}` });
     }
 
-    // Step 6: ready
+    // Step 7: ready
     tracker.ready();
     try {
         const snap = await snapshot(inst);
@@ -376,7 +376,6 @@ setSession(await joinSession({
         }),
     ],
 }));
-
 // Late-bind session on any instance opened during startup races.
 for (const inst of instances.values()) inst._session = getSession();
 

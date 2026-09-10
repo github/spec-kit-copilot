@@ -19,10 +19,9 @@ import {
     canonicalLabel,
     isCanonicalOptional,
 } from "../pipeline/canonical.mjs";
-import { CANONICAL_BY_FULL } from "../pipeline/effective-phases.mjs";
+import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
-import { findLayerByLookupId, parseLookupId } from "./lookup-id.mjs";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -44,6 +43,15 @@ export function queueClarification(commandName, question, answer) {
 
 export function clearClarifications(commandName) {
     pendingClarifications.set(commandName, []);
+}
+
+export function clearSubmittedClarifications(commandName, submitted) {
+    const remaining = getPendingClarifications(commandName).filter((current) => (
+        !submitted.some((snapshot) => (
+            snapshot.question === current.question && snapshot.answer === current.answer
+        ))
+    ));
+    pendingClarifications.set(commandName, remaining);
 }
 
 
@@ -102,13 +110,10 @@ export function setPhaseLastSubmitted(commandName, value) {
 }
 
 
-// -------- Section: phase/run-lock.js --------
+// -------- Section: phase/run-ack.js --------
 
-export const PHASE_RUN_SAFETY_MS = 5 * 60 * 1000;
+export const PHASE_RUN_ACK_MS = 15 * 1000;
 const _phaseRunTimers = new Map();
-const _phaseRunStartedAt = new Map();
-const _phaseRunBaselineLastRunAt = new Map();
-const TERMINAL_PHASE_STATUSES = new Set(["done", "skipped", "error"]);
 
 let __render = () => {};
 
@@ -116,56 +121,54 @@ export function setRunLockDeps({ render }) {
     if (typeof render === "function") __render = render;
 }
 
-function _phaseIdForCommand(commandName) {
-    if (typeof commandName !== "string") return null;
-    return commandName.startsWith("speckit.") ? commandName.slice("speckit.".length) : commandName;
-}
-
-export function markPhaseRunning(commandName) {
+// This is an acknowledgement animation, not authoritative execution state:
+// chat owns live progress and the scanner owns artifact availability.
+export function markPhaseRunning(commandName, { durationMs = PHASE_RUN_ACK_MS } = {}) {
     if (!commandName) return;
     state.phaseRunning.add(commandName);
-    _phaseRunStartedAt.set(commandName, Date.now());
-    const phaseId = _phaseIdForCommand(commandName);
-    const baselineLastRunAt = state.snapshot?.phases?.[phaseId]?.lastRunAt ?? null;
-    _phaseRunBaselineLastRunAt.set(commandName, baselineLastRunAt);
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-    }
-    const t = setTimeout(() => clearPhaseRunning(commandName), PHASE_RUN_SAFETY_MS);
-    _phaseRunTimers.set(commandName, t);
+    resetPhaseRunTimer(commandName, durationMs);
+    __render();
+}
+
+export function markPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.add(commandName);
+    __render();
+}
+
+export function clearPhaseSubmitted(commandName) {
+    if (!commandName) return;
+    state.phaseSubmitted.delete(commandName);
     __render();
 }
 
 export function clearPhaseRunning(commandName) {
     if (!commandName) return;
     state.phaseRunning.delete(commandName);
-    _phaseRunStartedAt.delete(commandName);
-    _phaseRunBaselineLastRunAt.delete(commandName);
-    if (_phaseRunTimers.has(commandName)) {
-        clearTimeout(_phaseRunTimers.get(commandName));
-        _phaseRunTimers.delete(commandName);
-    }
+    clearPhaseRunTimer(commandName);
     __render();
 }
 
-// Called after each state snapshot lands. Clears `phaseRunning` on the
-// first positive completion signal from EITHER of two consistent channels
-// that every phase produces via setPhaseStatus:
-//   1. `lastRunAt` advances past the click-time baseline, OR
-//   2. phase status transitions to a terminal value (done/skipped/error).
+export function isPhaseRunning(commandName) {
+    return !!commandName && state.phaseRunning.has(commandName);
+}
+
 export function observePhaseProgress() {
-    if (!state.phaseRunning.size) return;
-    for (const commandName of Array.from(state.phaseRunning)) {
-        const phaseId = _phaseIdForCommand(commandName);
-        const phase = state.snapshot?.phases?.[phaseId];
-        const baselineLastRunAt = _phaseRunBaselineLastRunAt.get(commandName) ?? null;
-        const currentLastRunAt = phase?.lastRunAt ?? null;
-        const lastRunAtAdvanced = currentLastRunAt && currentLastRunAt !== baselineLastRunAt;
-        const terminal = phase?.status && TERMINAL_PHASE_STATUSES.has(phase.status);
-        if (lastRunAtAdvanced || terminal) {
-            clearPhaseRunning(commandName);
-        }
-    }
+    // State snapshots refresh artifact/status data; running feedback is local.
+}
+
+function resetPhaseRunTimer(commandName, durationMs) {
+    clearPhaseRunTimer(commandName);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    const timer = setTimeout(() => clearPhaseRunning(commandName), durationMs);
+    _phaseRunTimers.set(commandName, timer);
+}
+
+function clearPhaseRunTimer(commandName) {
+    const timer = _phaseRunTimers.get(commandName);
+    if (!timer) return;
+    clearTimeout(timer);
+    _phaseRunTimers.delete(commandName);
 }
 
 
@@ -199,14 +202,15 @@ export function resolvePipelineEntry(id, snapshot) {
         // (state.json has status:"done", artifactPath set). Mirrors the
         // extension branch below.
         const scanned = snapshot?.phases?.[id] ?? null;
-        const active = lookupActiveLayerForCommand({ id, commandName: `speckit.${id}` }, snapshot);
+        const commandName = `speckit.${id}`;
+        const running = isPhaseRunning(commandName);
         return {
             kind: "core",
             id,
             phase: {
                 id,
                 name: canonicalLabel(id),
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: isCanonicalOptional(id),
                 locked: false,
                 // Required so the phase card's Run phase submit path can
@@ -216,10 +220,9 @@ export function resolvePipelineEntry(id, snapshot) {
                 // the server silently rejects — Run phase button appears
                 // to do nothing. Mirrors synthesizeCanonicalPhase() in
                 // app.js which uses the same `speckit.<id>` convention.
-                commandName: `speckit.${id}`,
+                commandName,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
-                lookupId: active?.lookupId ?? null,
                 ...(scanned?.folderPath ? { folderPath: scanned.folderPath } : {}),
             },
         };
@@ -236,8 +239,9 @@ export function resolvePipelineEntry(id, snapshot) {
         // is found on disk). Both `artifactPath` and `status` come from
         // there so the phase card renders a live "Writes to" link the same
         // way core phases do.
-        const scanned = snapshot?.phases?.[id] ?? null;
-        const active = lookupActiveLayerForCommand({ id, commandName: extResolved.commandName }, snapshot);
+        const phaseKey = id.startsWith("commands/") ? id : `commands/${id}`;
+        const scanned = snapshot?.phases?.[phaseKey] ?? snapshot?.phases?.[id] ?? null;
+        const running = isPhaseRunning(extResolved.commandName);
         return {
             kind: "extension",
             id,
@@ -247,14 +251,13 @@ export function resolvePipelineEntry(id, snapshot) {
             phase: {
                 id,
                 name: extResolved.shortLabel,
-                status: scanned?.status ?? "empty",
+                status: running ? "in_progress" : (scanned?.status ?? "empty"),
                 optional: false,
                 locked: false,
                 commandName: extResolved.commandName,
                 source: `extension:${extResolved.ext.id}`,
                 artifactPath: scanned?.artifactPath ?? null,
                 lastRunAt: scanned?.lastRunAt ?? null,
-                lookupId: active?.lookupId ?? null,
                 // LLM-inferred metadata from artifact-targets.json cache
                 // (via extension.inferArtifactTargets prompt). The phase
                 // card reads these to render the tagline under the header
@@ -295,9 +298,9 @@ function resolveExtensionArtifactFromSnapshot(pipelineId, snapshot) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = snapshot?.composition?.extensions ?? [];
-    const ext = exts.find((e) => e.id === active.presetId) ?? {
-        id: active.presetId,
-        name: active.presetName || active.presetId,
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
         version: active.version || null,
     };
     const commandName = artifactId.slice("commands/".length);
@@ -490,7 +493,11 @@ export function resolveExtensionArtifact(pipelineId) {
     const active = (art.stack ?? []).find((l) => l.active);
     if (active?.layer !== "extension") return null;
     const exts = orderedCompositionExtensions();
-    const ext = exts.find((e) => e.id === active.presetId) ?? { id: active.presetId, name: active.presetName || active.presetId, version: active.version || null };
+    const ext = exts.find((e) => e.id === active.sourceId) ?? {
+        id: active.sourceId,
+        name: active.sourceId,
+        version: active.version || null,
+    };
     const commandName = pipelineId.slice("commands/".length);
     // Human-facing short label: strip the "speckit.<ext-id>." prefix if present
     // so long namespaced ids collapse to a readable step name.
@@ -669,6 +676,11 @@ export function renderMoreCommandsPanel() {
         const canonicalAlias = CANONICAL_BY_FULL[bare];
         if (canonicalAlias) winnerByCmdId.set(canonicalAlias, active);
     }
+    const overriddenCanonicals = new Set();
+    for (const id of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
+        const winner = winnerByCmdId.get(id) || winnerByCmdId.get(`speckit.${id}`);
+        if (winner && winner.layer !== "core") overriddenCanonicals.add(id);
+    }
     const winnerSourceForPhase = (p) => {
         const cmd = p.commandName || p.id;
         const w = winnerByCmdId.get(cmd);
@@ -687,12 +699,10 @@ export function renderMoreCommandsPanel() {
         if (!presetGroups.has(key)) presetGroups.set(key, []);
         presetGroups.get(key).push(p);
     }
-    // Precedence is owned by the Spec Kit CLI (`specify preset resolve`)
-    // and passed through in composition.presets[] by the speckit-preset
-    // skill. The UI does no ordering of its own — it iterates presets in
-    // payload order. Presets absent from the payload (e.g. an unknown
-    // seed source referencing an uninstalled preset) are appended after,
-    // in Map insertion order, so nothing silently disappears.
+    // Provider sections preserve composition payload order. Applied
+    // precedence is represented by each artifact's CLI-provided stack.
+    // Presets absent from the payload are appended in Map insertion order
+    // so nothing silently disappears.
     const compPresetList = orderedCompositionPresets();
     const presetById = new Map();
     for (const pr of compPresetList) if (pr?.id) presetById.set(pr.id, pr);
@@ -702,10 +712,8 @@ export function renderMoreCommandsPanel() {
     };
     const isSectionOpen = (key) => !(state.moreCollapsedSections instanceof Set) || !state.moreCollapsedSections.has(key);
 
-    // Build per-preset section HTML. Iterate composition.presets[] FIRST
-    // (payload order = CLI-derived precedence), then any leftover groups
-    // that reference unknown presets. Sections are appended in the order
-    // the CLI returns — no local sort, no tie-breaker.
+    // Build per-preset section HTML. Iterate composition.presets[] first,
+    // then append any leftover groups that reference unknown presets.
     const presetIdToSourceKey = new Map();
     for (const source of presetGroups.keys()) {
         presetIdToSourceKey.set(presetIdFromSource(source), source);
@@ -735,41 +743,16 @@ export function renderMoreCommandsPanel() {
         presetSectionHtmlParts.push(emitPresetSection(source, items));
     }
 
-    // Ids customized by any preset — routed under the preset section
-    // instead of CORE. Uses the composition winner (not seed source) so
-    // an overridden command doesn't double-appear.
-    //
-    // Two sources feed this set:
-    //  1. Every `commands()` entry whose winner isn't core — catches
-    //     preset-only phases the scanner surfaced but that aren't in the
-    //     canonical spine.
-    //  2. Every canonical id whose winner map entry is layer=preset —
-    //     catches lean-replaced canonicals like `constitution`/`specify`
-    //     even if the scanner doesn't surface them as scanner-side phases.
-    //     Without this second pass, replaced canonicals appear under BOTH
-    //     the preset section AND CORE.
-    const customizedIds = new Set(
-        all
-            .filter((p) => {
-                const key = winnerSourceForPhase(p);
-                return key && key !== "core";
-            })
-            .map((p) => p.id),
-    );
-    for (const canonicalId of [...canonicalSpine(), ...CANONICAL_UNSEEDED]) {
-        const w = winnerByCmdId.get(canonicalId);
-        if (w && w.layer !== "core") customizedIds.add(canonicalId);
-    }
-
-    // CORE group: canonical Spec Kit phases NOT customized by any preset.
-    // Shown regardless of pipeline membership so users can always browse
-    // the full Spec Kit surface. Synthesize minimal card shapes since these
-    // often aren't in commands(). CANONICAL_UNSEEDED (e.g. converge) is
-    // included too — canonical add-on-demand commands outside the default flow.
+    // CORE group: canonical commands that are addable as true Core entries.
+    // Omit commands already in the pipeline and canonicals whose active
+    // composition winner comes from a preset/extension, because the current
+    // pipeline schema stores only the bare id and would dispatch the override
+    // rather than the stock Core implementation.
+    const pipelineIds = new Set(pipelineItems().map((item) => stripCommandsPrefix(item?.id)));
     const coreCandidates = [
-        ...canonicalSpine().filter((id) => !customizedIds.has(id)),
-        ...CANONICAL_UNSEEDED.filter((id) => !customizedIds.has(id)),
-    ];
+        ...canonicalSpine(),
+        ...CANONICAL_UNSEEDED,
+    ].filter((id) => !pipelineIds.has(id) && !overriddenCanonicals.has(id));
     const coreCards = coreCandidates
         .map((id) => __synthesizeCanonicalPhase(id))
         .sort((a, b) => collator.compare(a.shortLabel || a.id, b.shortLabel || b.id))
@@ -778,13 +761,10 @@ export function renderMoreCommandsPanel() {
     const coreOpen = isSectionOpen("core") ? " open" : "";
     const coreSection = `<details class="mc-group mc-group-core"${coreOpen} data-mc-section="core">
         <summary class="mc-group-title"><span class="mc-group-title-text">CORE</span> <span class="mc-group-count">${coreCandidates.length}</span></summary>
-        ${coreCandidates.length
-            ? `<div class="more-commands-grid">${coreCards}</div>`
-            : `<p class="mc-group-hint muted">All Core Spec Kit commands are customized by installed presets.</p>`}
+        <div class="more-commands-grid">${coreCards}</div>
     </details>`;
 
-    // Extension groups. Emitted in composition.extensions[] payload order
-    // (CLI-derived precedence). No local sorting.
+    // Extension groups preserve composition.extensions[] payload order.
     const compExtensions = orderedCompositionExtensions();
     const compArtifactsAll = state.snapshot?.composition?.artifacts ?? [];
     const extensionSectionHtmlParts = compExtensions.map((ext) => {
@@ -797,7 +777,7 @@ export function renderMoreCommandsPanel() {
             if (a.kind !== "command" && a.kind !== "hook") return false;
             const active = (a.stack ?? []).find((l) => l.active);
             return active?.layer === "extension"
-                && (active.extensionId === ext.id || active.presetId === ext.id);
+                && active.sourceId === ext.id;
         });
         // A single extension command can be the target of MULTIPLE hook
         // bindings (e.g. `speckit.agent-context.update` fires from both
@@ -893,37 +873,12 @@ export function renderMoreCommandsPanel() {
 }
 
 // Resolve the on-disk markdown path for a command tile, when known.
-// Priority:
-//   1. composition activeLayer.sourcePath (accurate — includes preset overrides).
-//   2. derived preset path from the `lookupId` provider id + `p.commandName`.
-//   3. derived preset path from the legacy `p.source` string ("preset:<id>") —
-//      still the ONLY provenance snapshot-builder.mjs::buildCommands attaches
-//      to preset-only command objects (it forwards `cmd.source` but not a
-//      `lookupId`; the composition-artifact lookupId pipeline is a separate
-//      producer). Keep this until that producer starts propagating lookupId.
-// Returns null when the file isn't on disk (e.g. synthesized core-only commands).
+// The artifact CLI supplies the winning layer's sourcePath. Returns null when
+// the command has no composition entry or no on-disk source.
 export function commandSourcePath(p) {
     if (!p) return null;
     const activeLayer = lookupActiveLayerForCommand(p);
-    if (activeLayer?.sourcePath) return activeLayer.sourcePath;
-    // Derive from the preset provider id for preset-only commands that
-    // don't have composition entries (game-narrative extras). Prefer the
-    // active composition layer's lookupId, falling back to the phase's own.
-    const parsedActive = parseLookupId(activeLayer?.lookupId);
-    const parsedPhase = parseLookupId(p.lookupId);
-    const parsed = parsedActive?.providerKind === "preset" ? parsedActive
-        : parsedPhase?.providerKind === "preset" ? parsedPhase
-        : null;
-    if (parsed && p.commandName) {
-        return `.specify/presets/${parsed.providerId}/commands/${p.commandName}.md`;
-    }
-    // Legacy fallback: derive from `source: "preset:<presetId>"` for
-    // preset-only commands that don't yet carry a `lookupId` at all.
-    if (typeof p.source === "string" && p.source.startsWith("preset:") && p.commandName) {
-        const presetId = p.source.slice("preset:".length).split(":")[0];
-        return `.specify/presets/${presetId}/commands/${p.commandName}.md`;
-    }
-    return null;
+    return activeLayer?.sourcePath ?? null;
 }
 
 // Look up the winning composition layer for a phase, using phase-discovery
@@ -942,17 +897,3 @@ export function lookupActiveLayerForCommand(p, snapshot = state.snapshot) {
         compArtifacts.find((a) => a.id === id);
     return (compArtifact?.stack ?? []).find((l) => l.active) || null;
 }
-
-// Look up a composition stack layer by its deterministic `lookupId`
-// (see ui/lookup-id.mjs). Returns `null` when no artifact/layer matches.
-export function lookupLayerByLookupId(lookupId) {
-    if (!lookupId) return null;
-    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
-    for (const compArtifact of compArtifacts) {
-        const layer = findLayerByLookupId(compArtifact, lookupId);
-        if (layer) return layer;
-    }
-    return null;
-}
-
-

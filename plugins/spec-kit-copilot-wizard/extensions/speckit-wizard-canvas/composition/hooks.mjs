@@ -1,12 +1,21 @@
 // speckit-wizard — hook-metadata extraction.
 //
-// The `specify artifact` CLI doesn't emit hook metadata — hook attribution
-// is a wizard concern. This module reads extension manifests and
-// `.specify/extensions.yml` directly to feed the hook enrichment step in
-// composition/artifact-cli.mjs.
+// The `specify artifact` CLI doesn't yet emit hook metadata. Until it does,
+// this temporary wizard-owned enrichment reads extension manifests and
+// `.specify/extensions.yml` directly. It intentionally preserves the
+// wizard's pre-existing hook extraction behavior while command, template,
+// and script composition moves to the CLI. Expanding support for the full
+// hook manifest contract belongs with the later migration to native CLI hook
+// artifacts, which will replace this compatibility bridge.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, sep as pathSep, resolve as pathResolve } from "node:path";
+import {
+    isAbsolute,
+    join,
+    relative as pathRelative,
+    sep as pathSep,
+    resolve as pathResolve,
+} from "node:path";
 import { platform } from "node:os";
 
 const IS_CASE_INSENSITIVE_FS = platform() === "win32" || platform() === "darwin";
@@ -47,24 +56,38 @@ function repoRelative(root, absPath) {
 }
 
 /**
- * Read one extension manifest at .specify/extensions/<id>/extension.yml.
+ * Read one extension manifest from its CLI-reported path, falling back to
+ * .specify/extensions/<id>/extension.yml when the path is unavailable.
  * Returns null on missing file, `{ id, error }` on parse failure, else the
  * parsed manifest with `hooks` normalized.
  */
-export async function readExtensionManifest(root, id) {
+export async function readExtensionManifest(root, id, manifestPathHint = null) {
     const yaml = await getYaml();
-    const manifestPath = join(root, ".specify", "extensions", id, "extension.yml");
+    const rootPath = pathResolve(root);
+    let manifestPath;
+    if (typeof manifestPathHint === "string" && manifestPathHint.length) {
+        manifestPath = pathResolve(rootPath, manifestPathHint);
+        const relativePath = pathRelative(rootPath, manifestPath);
+        if (relativePath === ".."
+            || relativePath.startsWith(`..${pathSep}`)
+            || isAbsolute(relativePath)) {
+            return null;
+        }
+    } else {
+        manifestPath = join(rootPath, ".specify", "extensions", id, "extension.yml");
+    }
     const raw = safeReadFile(manifestPath);
     if (!raw) return null;
     let doc;
     try { doc = yaml.load(raw); } catch { return { id, error: "yaml-parse" }; }
     if (!doc || typeof doc !== "object") return { id, error: "empty" };
+    const metadata = doc.extension && typeof doc.extension === "object" ? doc.extension : {};
     return {
         id,
         manifestPath: repoRelative(root, manifestPath),
-        name: doc.name ?? id,
-        description: doc.description ?? "",
-        version: doc.version ?? null,
+        name: metadata.name ?? doc.name ?? id,
+        description: metadata.description ?? doc.description ?? "",
+        version: metadata.version ?? doc.version ?? null,
         priority: typeof doc.priority === "number" ? doc.priority : null,
         category: doc.category ?? null,
         effect: doc.effect ?? null,
@@ -108,6 +131,9 @@ export async function readHooksMap(root) {
  * Normalize an extension manifest's `hooks` field. Accepts either the
  * array form (`[{ phase, command, ... }]`) or the object form
  * (`{ before_specify: { command: … } }`).
+ *
+ * Compatibility scope: this is the legacy wizard normalizer moved out of
+ * collect.mjs, not a new implementation of the evolving hook contract.
  */
 export function parseHookDeclarations(hooks) {
     if (hooks && typeof hooks === "object" && !Array.isArray(hooks)) {

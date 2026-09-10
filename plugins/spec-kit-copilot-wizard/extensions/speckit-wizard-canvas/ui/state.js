@@ -46,11 +46,16 @@ export const state = {
     // Each entry is { predicate, resolve, reject, timer }. Consumed by
     // handleServerMessage's "state" case; see waitForSnapshot().
     snapshotWaiters: [],
-    // Per-phase in-flight tracking. Populated when the user clicks Run phase
-    // or Rerun phase; consulted in the render pass so the "Running…" label
-    // survives SSE-driven re-renders. Cleared when the phase status changes,
-    // the dispatch handler finishes, or a safety timeout fires.
+    // Per-phase local dispatch acknowledgement. Populated when the user clicks
+    // Run phase or Rerun phase; consulted in the render pass so "Running…"
+    // survives SSE-driven re-renders until its short acknowledgement timer
+    // clears.
     phaseRunning: new Set(),
+    // Per-phase local evidence that the user has submitted the phase at least
+    // once in this panel. This lets the primary action become "Rerun phase"
+    // immediately after dispatch acknowledgement, without waiting for the
+    // scanner to observe a terminal status or artifact on disk.
+    phaseSubmitted: new Set(),
     // Currently-visible artifact-kind subtab on the Composition page.
     // Persists across renders so switching tabs isn't reset by an SSE update.
     compositionActiveKind: "command",
@@ -97,8 +102,8 @@ export const SETUP_TAB_PHASE_KEYS = new Set(["setup", "preset"]);
 // These are used all over render/composition/catalog code to fetch the active
 // command list, current selected phase card, and precedence-ordered
 // composition presets/extensions. They read `state.snapshot` verbatim — no
-// local sort, no tiebreak. The CLI (`specify preset resolve`) owns precedence;
-// the UI just trusts what the payload delivers.
+// local sort or tiebreak. Applied precedence lives in each artifact's
+// CLI-provided stack, not in these provider-summary arrays.
 
 /** Returns the flat command list emitted by snapshot-builder. */
 export function commands() {
@@ -106,20 +111,16 @@ export function commands() {
 }
 
 /**
- * Precedence-ordered presets from the composition payload.
- * The Spec Kit CLI (`specify preset resolve`) owns precedence. The
- * speckit-preset skill passes the resolved order through in
- * composition.presets[]. The UI must render in that order verbatim —
- * no local sort, no tiebreak. This helper is the single source of
- * that ordering so no call site can silently re-sort.
+ * Preset summaries from the composition payload. The UI preserves payload
+ * order; applied precedence is represented by each artifact's stack.
  */
 export function orderedCompositionPresets() {
     return state.snapshot?.composition?.presets ?? [];
 }
 
 /**
- * Precedence-ordered extensions from the composition payload. Same
- * contract as orderedCompositionPresets — trust the payload.
+ * Extension summaries from the composition payload. Same contract as
+ * orderedCompositionPresets — preserve payload order.
  */
 export function orderedCompositionExtensions() {
     return state.snapshot?.composition?.extensions ?? [];

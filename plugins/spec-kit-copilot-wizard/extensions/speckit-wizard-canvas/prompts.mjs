@@ -116,17 +116,18 @@ export function phaseIdForCommandName(commandName) {
     // an extension namespace rather than a canonical phase id.
     const bare = m[1];
     if (bare.includes("-")) return null;
-    return bare;
+    return CORE_COMMANDS.includes(`speckit.${bare}`) ? bare : null;
 }
 
 /**
- * Wizard-tracking preamble prepended to a raw `/speckit-<phase>` slash-command
- * dispatch. Tells the agent to run the skill normally, then call
- * `setPhaseStatus` when the artifact is written. The wizard itself observes
- * which templates/scripts/hooks actually ran via the deterministic witness
- * recorder (`witness/recorder.mjs`) — the agent no longer self-reports.
- * Kept as a short, plain-English preamble so it doesn't override the skill's
- * own scope guard or user-facing behavior.
+ * Wizard-tracking preamble prepended when the launcher sends a canonical
+ * `/speckit-<phase>` run into chat. Tells the agent to run the skill normally,
+ * then call `setPhaseStatus` with a terminal status before returning. The local
+ * Run button state is only a short acknowledgement animation: chat owns live
+ * progress, `setPhaseStatus` persists terminal phase state, and the scanner
+ * confirms files before artifact buttons become available. Kept as a short,
+ * plain-English preamble so it doesn't override the skill's own scope guard or
+ * user-facing behavior.
  *
  * The preamble is NOT sent for handoff-style workflow dispatches (those go
  * through a separate lane); only the wizard's Run phase / Rerun phase paths
@@ -137,20 +138,27 @@ export function phaseIdForCommandName(commandName) {
  *   derive the wizard phase id.
  * @param {string} [opts.artifactPath]  Optional expected artifact path
  *   (from the wizard phase spec) to pass to setPhaseStatus.
+ * @param {string} [opts.runId]  Optional run id to pass back so stale
+ *   callbacks cannot clear a newer run.
  * @returns {string|null}  Preamble text with a trailing blank line, or
  *   `null` when the command isn't a tracked canonical phase (caller should
  *   dispatch without wrapping).
  */
-export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null, expectedArtifacts = null } = {}) {
+export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null, expectedArtifacts = null, runId = null } = {}) {
     const phaseId = phaseIdForCommandName(commandName);
     if (!phaseId) return null;
     const artifactPathArg = artifactPath
         ? `, artifactPath: ${JSON.stringify(artifactPath)}`
         : "";
+    const runIdArg = runId ? `, runId: ${JSON.stringify(runId)}` : "";
     const lines = [
         `<!-- speckit-wizard tracking preamble — do NOT include in reply -->`,
         `Invoke the \`skill\` tool with name \`speckit-${phaseId}\` before running any other tool call. The bare \`/speckit-${phaseId}\` on the first line is a hint for humans reading the transcript, not an auto-intercepted slash command.`,
-        `You were dispatched by the Spec Kit Wizard's Run phase button. Complete the skill's normal work, then when the artifact has been written call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg} })\`.`,
+        `You were dispatched by the Spec Kit Wizard's Run phase button. Before you return, call \`setPhaseStatus\` exactly once with a terminal status for this phase:`,
+        `- Success: call \`setPhaseStatus({ phase: "${phaseId}", status: "done"${artifactPathArg}${runIdArg} })\` after the skill's normal work is complete.`,
+        `- Optional phase intentionally bypassed: call \`setPhaseStatus({ phase: "${phaseId}", status: "skipped"${runIdArg} })\`.`,
+        `- Declined checklist gate, checklist rejection, cancellation, validation failure, skill/tool failure, or any other blocker: call \`setPhaseStatus({ phase: "${phaseId}", status: "error"${runIdArg} })\`.`,
+        `Do not leave the phase in progress, and do not omit this terminal callback: it updates the wizard's saved phase status and lets stale callbacks be rejected. Chat remains the progress surface, and scanner-confirmed files control artifact buttons.`,
     ];
     // Attach the closed-list witness ask so the agent self-reports which of
     // the phase's expected templates / scripts / hooks it actually invoked.
@@ -161,7 +169,7 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
     const scripts   = expectedArtifacts?.scripts   ?? [];
     const hooks     = expectedArtifacts?.hooks     ?? [];
     const hasAny = templates.length || scripts.length || hooks.length;
-    if (hasAny) {
+    if (hasAny && runId) {
         const fmt = (arr) => arr.length ? `[${arr.map((s) => JSON.stringify(s)).join(", ")}]` : "[]";
         // Vocabulary is authoritative — pulled from state-store's
         // EXECUTION_STATES so the CLOSED list embedded in the prompt is
@@ -169,10 +177,11 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
         const statesInline = EXECUTION_STATES.map((s) => `"${s}"`).join(" or ");
         const statesArray = `[${EXECUTION_STATES.map((s) => `"${s}"`).join(", ")}]`;
         lines.push(
-            `After \`setPhaseStatus\` succeeds, call \`reportExecution\` ONCE to record which of the phase's expected artifacts you actually invoked during this run:`,
+            `If and only if \`setPhaseStatus\` returned \`{ ok: true }\` for status "done", call \`reportExecution\` ONCE with the same run id to record which of the phase's expected artifacts you actually invoked during this run:`,
             "```",
             `reportExecution({`,
             `  phase: "${phaseId}",`,
+            `  runId: ${JSON.stringify(runId)},`,
             `  artifacts: {`,
             `    templates: { /* one entry per expected id, value ${statesInline} */ },`,
             `    scripts:   { /* one entry per expected id, value ${statesInline} */ },`,
@@ -192,6 +201,8 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
             `- hook     "executed" = you dispatched the hook's slash-command during THIS run. Hooks are per-run side-effects; a prior run's hook dispatch does not count.`,
             `Any expected ID that doesn't meet the above → "omitted". Look at the artifact on disk (for templates) and this turn's tool calls (for scripts/hooks) to answer accurately; do not guess.`,
         );
+    } else if (hasAny) {
+        lines.push(`The wizard could not allocate a run id for this command, so no \`reportExecution\` call is needed.`);
     } else {
         lines.push(`The wizard has no expected-artifact list for this command, so no \`reportExecution\` call is needed.`);
     }

@@ -75,47 +75,44 @@ function normalizeCompositionCatalogItems(items, knownItems) {
 
 export function normalizeHookArtifactsInComposition(composition) {
     if (!composition || !Array.isArray(composition.artifacts)) return composition;
-    const commandIds = new Set(
-        composition.artifacts
-            .filter((artifact) => artifact?.kind === "command")
-            .map((artifact) => artifact.id),
-    );
     const commandByProvider = new Map();
     for (const artifact of composition.artifacts) {
         if (artifact?.kind !== "command") continue;
         const active = artifact.stack?.find((layer) => layer?.active);
-        const provider = active?.extensionId ?? active?.presetId;
+        const provider = active?.layer === "extension"
+            ? active.sourceId
+            : active?.presetId;
         if (!provider || !String(artifact.id).startsWith("commands/speckit.")) continue;
         if (!commandByProvider.has(provider)) commandByProvider.set(provider, artifact);
     }
-    const artifacts = composition.artifacts
-        .filter((artifact) => {
-            // Mixed preset manifests may be incorrectly echoed by the
-            // composition extractor as both a command and a template. The
-            // command artifact is authoritative when the IDs correspond.
-            if (artifact?.kind !== "template") {
-                return true;
-            }
-            const templateId = String(artifact.id).replace(/^templates\//, "");
-            return !commandIds.has(`commands/${templateId}`);
-        })
-        .map((artifact) => {
-            if (artifact?.kind !== "hook") return artifact;
-            const active = artifact.stack?.find((layer) => layer?.active);
-            const provider = active?.extensionId ?? active?.presetId;
-            const target = provider ? commandByProvider.get(provider) : null;
-            if (!target) return artifact;
-            const targetCommand = target.id.replace(/^commands\//, "");
-            const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
-                ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
-                : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
-            return {
-                ...artifact,
-                id: target.id,
-                hookBindings: bindings,
-                hookBinding: bindings[0],
-            };
-        });
+    const artifacts = composition.artifacts.map((artifact) => {
+        if (artifact?.kind !== "hook") return artifact;
+        const ownCommand = String(artifact.id).replace(/^commands\//, "");
+        const existingBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+            ? artifact.hookBindings
+            : [artifact.hookBinding].filter(Boolean);
+        const hasAuthoritativeTarget = existingBindings.some((binding) =>
+            typeof binding?.targetCommand === "string"
+            && binding.targetCommand.replace(/^commands\//, "") === ownCommand);
+        if (hasAuthoritativeTarget) return artifact;
+
+        const active = artifact.stack?.find((layer) => layer?.active);
+        const provider = active?.layer === "extension"
+            ? active.sourceId
+            : active?.presetId;
+        const target = provider ? commandByProvider.get(provider) : null;
+        if (!target) return artifact;
+        const targetCommand = target.id.replace(/^commands\//, "");
+        const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+            ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
+            : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
+        return {
+            ...artifact,
+            id: target.id,
+            hookBindings: bindings,
+            hookBinding: bindings[0],
+        };
+    });
     return { ...composition, artifacts };
 }
 
@@ -267,8 +264,8 @@ export async function applyComposition(inst, input) {
     };
 }
 
-// Deterministic composition refresh — uses `specify artifact list --json` +
-// `specify artifact info <id> --json` via composition/artifact-cli.mjs.
+// Deterministic composition refresh — uses the complete payload from a
+// single `specify artifact list --json` call via composition/artifact-cli.mjs.
 //
 // Purpose: after any catalog change (preset/extension install, remove,
 // swap, priority change) the composition needs to be rebuilt. This helper
@@ -299,7 +296,11 @@ export async function runFastComposition(inst, { reason } = {}) {
         }
 
         await applyComposition(inst, payload);
-        return { ok: true, reason, pipelineFastPath: fastPath.canSynthesize };
+        return {
+            ok: true,
+            reason,
+            pipelineFastPath: fastPath.canSynthesize,
+        };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
     }

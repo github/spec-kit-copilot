@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseLookupId, findLayerByLookupId } from "../ui/lookup-id.mjs";
+import { parseLookupId } from "../ui/lookup-id.mjs";
 
 describe("parseLookupId", () => {
     test("parses a preset command lookupId", () => {
@@ -31,32 +31,5 @@ describe("parseLookupId", () => {
         assert.equal(parseLookupId("core:x:y:z"), null);
         assert.equal(parseLookupId(undefined), null);
         assert.equal(parseLookupId("preset:x:y"), null);
-    });
-});
-
-describe("findLayerByLookupId", () => {
-    const artifact = {
-        id: "commands/speckit.plan",
-        stack: [
-            { lookupId: "preset:compliance:command:speckit.plan", active: true },
-            { lookupId: null, active: false },
-        ],
-    };
-
-    test("returns the matching layer", () => {
-        const layer = findLayerByLookupId(artifact, "preset:compliance:command:speckit.plan");
-        assert.equal(layer, artifact.stack[0]);
-    });
-
-    test("returns null when lookupId is null", () => {
-        assert.equal(findLayerByLookupId(artifact, null), null);
-    });
-
-    test("returns null when no layer matches", () => {
-        assert.equal(findLayerByLookupId(artifact, "preset:other:command:x"), null);
-    });
-
-    test("returns null when compArtifact is null", () => {
-        assert.equal(findLayerByLookupId(null, "preset:compliance:command:speckit.plan"), null);
     });
 });

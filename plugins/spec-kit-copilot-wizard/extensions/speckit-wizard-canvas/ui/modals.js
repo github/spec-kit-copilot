@@ -3,7 +3,17 @@
 import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
-import { queueClarification } from "./phase-runtime.js";
+import {
+    clearClarifications,
+    clearPhaseRunning,
+    clearSubmittedClarifications,
+    getPendingClarifications,
+    getPhaseLastSubmitted,
+    isPhaseRunning,
+    markPhaseRunning,
+    queueClarification,
+    setPhaseLastSubmitted,
+} from "./phase-runtime.js";
 
 // -------- Section: markdown.mjs --------
 
@@ -427,23 +437,41 @@ export function setViewersDeps({ postJson, HEADERS } = {}) {
     if (HEADERS) __HEADERS = HEADERS;
 }
 let activeArtifactPhase = null; // phase currently open in the viewer
+const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
+
+export function isClarificationFlushPending(commandName) {
+    return !!commandName && clarificationFlushes.has(commandName);
+}
 
 export async function flushClarifications(p) {
-    if (!p?.commandName) return false;
-    const list = getPendingClarifications(p.commandName);
+    const commandName = p?.commandName;
+    if (!commandName) return false;
+    if (isClarificationFlushPending(commandName)) return clarificationFlushes.get(commandName);
+    if (isPhaseRunning(commandName)) return false;
+
+    const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
     if (!list.length) return false;
-    const lastArgs = getPhaseLastSubmitted(p.commandName) || "";
+    const lastArgs = getPhaseLastSubmitted(commandName) || "";
     const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
     const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
-    setPhaseLastSubmitted(p.commandName, args);
-    clearClarifications(p.commandName);
-    try {
-        await __postJson("/api/phase/submit", { commandName: p.commandName, args });
-        return true;
-    } catch (err) {
-        console.error(`dispatch failed: ${err?.message ?? err}`);
-        return false;
-    }
+    const flush = (async () => {
+        try {
+            markPhaseRunning(commandName);
+            const result = await __postJson("/api/phase/submit", { commandName, args });
+            if (!result) throw new Error("phase submit did not return a queued response");
+            setPhaseLastSubmitted(commandName, args);
+            clearSubmittedClarifications(commandName, list);
+            return true;
+        } catch (err) {
+            console.error(`dispatch failed: ${err?.message ?? err}`);
+            clearPhaseRunning(commandName);
+            return false;
+        } finally {
+            clarificationFlushes.delete(commandName);
+        }
+    })();
+    clarificationFlushes.set(commandName, flush);
+    return flush;
 }
 
 export async function openArtifactViewer(p) {
@@ -501,12 +529,14 @@ export async function openArtifactViewer(p) {
     if (body) body.innerHTML = `<div class="artifact-viewer-md">${rendered}</div>`;
 
     const totalMarks = marks.length;
-    const refreshPillState = () => {
+    const refreshPillState = (errorMessage = "") => {
         const answered = getPendingClarifications(p.commandName);
+        const submitting = isClarificationFlushPending(p.commandName);
         body?.querySelectorAll(".clarify-pill").forEach((btn) => {
             const idx = Number(btn.getAttribute("data-clarify-idx"));
             const q = marks[idx]?.question ?? "";
             const match = answered.find((c) => c.question === q);
+            btn.disabled = submitting;
             if (match) {
                 btn.textContent = "Answered ✓";
                 btn.classList.add("clarify-pill-answered");
@@ -524,12 +554,22 @@ export async function openArtifactViewer(p) {
                 banner.hidden = false;
                 banner.innerHTML = `
                     <span>${pending} clarification${pending === 1 ? "" : "s"} queued
-                    ${totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— will apply on close"}.</span>
-                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now">Apply and Rerun</button>
+                    ${submitting ? "— applying now" : totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— ready to apply"}.</span>
+                    ${errorMessage ? `<p class="wizard-modal-error">${escapeHtml(errorMessage)}</p>` : ""}
+                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now" ${submitting ? "disabled" : ""}>${submitting ? "Applying…" : "Apply and Rerun"}</button>
                 `;
                 banner.querySelector('[data-clarify-action="apply-now"]')?.addEventListener("click", async () => {
-                    const dispatched = await flushClarifications(p);
-                    if (dispatched) closeArtifactViewer();
+                    const btn = banner.querySelector('[data-clarify-action="apply-now"]');
+                    if (btn?.disabled) return;
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.textContent = "Applying…";
+                    }
+                    const pendingFlush = flushClarifications(p);
+                    refreshPillState();
+                    const dispatched = await pendingFlush;
+                    if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
+                    else refreshPillState(dispatched ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
                 });
             } else {
                 banner.hidden = true;
@@ -545,8 +585,11 @@ export async function openArtifactViewer(p) {
             refreshPillState();
             const pending = getPendingClarifications(p.commandName).length;
             if (pending >= totalMarks && totalMarks > 0) {
-                const dispatched = await flushClarifications(p);
-                if (dispatched) closeArtifactViewer();
+                const pendingFlush = flushClarifications(p);
+                refreshPillState();
+                const dispatched = await pendingFlush;
+                if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
+                else refreshPillState();
             }
         }));
     });
@@ -556,6 +599,14 @@ export async function openArtifactViewer(p) {
 export async function closeArtifactViewer() {
     const root = document.getElementById("phase-artifact-viewer");
     const p = activeArtifactPhase;
+    if (p?.commandName && isClarificationFlushPending(p.commandName)) {
+        const banner = root?.querySelector(".artifact-viewer-clarify-banner");
+        if (banner) {
+            banner.hidden = false;
+            banner.innerHTML = `<span>Applying clarification rerun. Wait for it to finish before closing.</span>`;
+        }
+        return false;
+    }
     activeArtifactPhase = null;
     if (p?.commandName) {
         // Back-to-Wizard discards any queued clarifications — the
@@ -704,9 +755,8 @@ export async function openCatalogViewer(remoteUrl, title) {
 // Redo confirm modal (screenshot 2)
 // -----------------------------------------------------------------------
 export function openRedoModal(p, draftOverride) {
-    // Deprecated: the "Run again" flow now uses a small anchored yes/no
-    // popover (see wireGraphPhaseCard). Kept as a thin shim for any
-    // legacy caller, but no longer used by the phase-card UI.
+    // Thin shim for callers that still target the modal-style redo API.
+    // The phase-card UI uses an anchored yes/no popover.
     void p; void draftOverride;
 }
 
@@ -739,4 +789,3 @@ export function openClarifyModal(p, question, onAnswered) {
         },
     });
 }
-

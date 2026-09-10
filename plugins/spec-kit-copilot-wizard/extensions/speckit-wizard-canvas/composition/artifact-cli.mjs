@@ -1,7 +1,7 @@
 // speckit-wizard — CLI-backed composition source.
 //
-// Uses `specify artifact list --json` + `specify artifact info <id> --json`
-// as the sole source of truth for the composition slice.
+// Uses `specify artifact list --json` as the sole source of truth for the
+// command, template, and script composition slices.
 //
 // Shape mapping (CLI → wizard):
 //   • CLI id `command:<name>`   → wizard id `commands/<name>`
@@ -26,6 +26,9 @@ const execFileP = promisify(execFile);
 // shell-out is in flight. Returns a string (stdout). Tests inject a
 // synchronous runner that returns a Buffer/string — we `await` its
 // return, which unwraps both sync and Promise values transparently.
+// Keep this as a bounded one-shot read for the wizard's current inventory
+// scope. An oversized payload should fail the refresh rather than introducing
+// streaming complexity or allowing partial JSON to be treated as complete.
 const defaultAsyncRunner = async (cmd, args, opts) => {
     const augmentedPath = await buildAugmentedPath();
     const { stdout } = await execFileP(cmd, args, { ...opts, env: { ...process.env, PATH: augmentedPath } });
@@ -73,10 +76,10 @@ export async function specifyArtifactList(root, { runner = defaultAsyncRunner } 
 //      code needs to ask "does this layer have provenance?", check
 //      `sourceId != null` / `presetId != null` — not `layer !== "core"`.
 //
-//   2. The round-trip key back to the CLI is the top-level `id`
-//      (`command:X`, `template:X`, `script:X`) — never `lookupId`, which is
-//      null for built-in layers. `buildCompositionFromCli` below passes
-//      `row.id` from `artifact list` straight into `artifact info`.
+//   2. The CLI round-trip key is the top-level `id`
+//      (`command:X`, `template:X`, `script:X`) — never `lookupId`.
+//      `lookupId` describes layer provenance and may be null for built-in
+//      or legacy filesystem-derived layers.
 //
 //   3. Prefer exclusion filters over positive `layer === "core"` predicates.
 //      "User customized this" is `stack.some(l => l.layer === "project")`;
@@ -105,12 +108,19 @@ function normalizeCliStackLayer(layer) {
         layer: layer.layer == null ? "core" : layer.layer,
         presetId: layer.presetId ?? null,
         presetName: layer.presetName ?? null,
+        // Extension layers intentionally retain the CLI's sourceId-only
+        // identity. Stack labels may fall back to that ID because display-name
+        // enrichment is outside the artifact stack contract.
         sourceId: layer.sourceId ?? null,
         strategy,
         active: !!layer.active,
         hidden: !!layer.hidden,
         manifestPath: layer.manifestPath ?? null,
         lookupId: layer.lookupId ?? null,
+        // Preserve project layers for CLI contract fidelity, but the wizard
+        // does not currently support project-override workflows or source
+        // navigation. Their sourcePath may therefore intentionally be null.
+        sourcePath: layer.sourcePath ?? null,
     };
 }
 
@@ -135,22 +145,29 @@ function shapeArtifact(cliArtifact) {
 // Preset/extension summary derivation
 // ---------------------------------------------------------------------------
 
+function providerIdForLayer(layer) {
+    if (layer.layer === "preset") return layer.presetId;
+    if (layer.layer === "extension") return layer.sourceId;
+    return null;
+}
+
 function accumulateProvidesCounts(artifacts) {
     // Map<sourceKey, { commands, templates, scripts, layerKind }>
-    // sourceKey = `${layer}:${presetId}` — distinguishes preset "foo" from
-    // extension "foo" if names ever collide.
+    // Presets use their installed presetId; extensions use the sourceId from
+    // their contribution lookupId because extension rows have presetId: null.
     const counts = new Map();
     for (const artifact of artifacts) {
         for (const layer of artifact.stack) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
-            if (!layer.presetId) continue;
-            const key = `${layer.layer}:${layer.presetId}`;
+            const providerId = providerIdForLayer(layer);
+            if (!providerId) continue;
+            const key = `${layer.layer}:${providerId}`;
             let entry = counts.get(key);
             if (!entry) {
                 entry = {
                     layerKind: layer.layer,
-                    presetId: layer.presetId,
-                    presetName: layer.presetName ?? layer.presetId,
+                    providerId,
+                    providerName: layer.presetName ?? providerId,
                     commands: 0,
                     templates: 0,
                     scripts: 0,
@@ -172,25 +189,28 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
             .filter((it) => it && it.active)
             .map((it) => [it.installedId || it.id, it]),
     );
-    // Iterate the union: cached catalog items (so we get version/priority
-    // even when an installed preset provides nothing yet) + any presetIds
-    // observed in stacks (so we don't miss anything).
+    // The wizard supports providers from its built-in and community catalog
+    // caches, so preserve that existing order. Providers observed only in
+    // artifact stacks are appended for best-effort visibility; the wizard
+    // does not install or manage them and must not infer global precedence
+    // from artifact enumeration.
     const ids = new Set();
     for (const [, item] of cachedById) ids.add(item.installedId || item.id);
     for (const [key, entry] of counts) {
         if (entry.layerKind !== kind) continue;
-        ids.add(entry.presetId);
+        ids.add(entry.providerId);
     }
     const out = [];
     for (const id of ids) {
         const key = `${kind}:${id}`;
         const c = counts.get(key);
         const cached = cachedById.get(id);
+        const extra = extraExtensionData?.get(id);
         if (!c && !cached) continue;
         const item = {
             id,
-            name: c?.presetName ?? cached?.name ?? id,
-            version: cached?.version ?? undefined,
+            name: extra?.name ?? cached?.name ?? c?.providerName ?? id,
+            version: extra?.version ?? cached?.version ?? undefined,
             priority: typeof cached?.priority === "number" ? cached.priority : 10,
             enabled: true,
             description: cached?.description ?? "",
@@ -201,7 +221,6 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
             },
         };
         if (kind === "extension") {
-            const extra = extraExtensionData?.get(id);
             if (extra) {
                 if (extra.category) item.category = extra.category;
                 if (extra.effect) item.effect = extra.effect;
@@ -231,18 +250,18 @@ function summarizeInstalled(kind, artifacts, cachedItems, extraExtensionData) {
  * Walks installed extensions on disk to collect hook metadata — the CLI's
  * artifact command doesn't emit hook bindings, so we still parse extension.yml.
  */
-async function collectHookMetadata(workspaceRoot, activeExtensionIds) {
+async function collectHookMetadata(workspaceRoot, activeExtensions) {
     const extensionHookInfo = new Map();
-    for (const id of activeExtensionIds) {
-        const manifest = await readExtensionManifest(workspaceRoot, id);
+    for (const { sourceId, manifestPath } of activeExtensions.values()) {
+        const manifest = await readExtensionManifest(workspaceRoot, sourceId, manifestPath);
         if (!manifest || manifest.error) continue;
-        extensionHookInfo.set(id, {
+        extensionHookInfo.set(sourceId, {
             hooks: manifest.hooks ?? [],
             category: manifest.category ?? null,
             effect: manifest.effect ?? null,
             hookCount: (manifest.hooks ?? []).length,
             manifestPath: manifest.manifestPath ?? null,
-            name: manifest.name ?? id,
+            name: manifest.name ?? sourceId,
             version: manifest.version ?? null,
         });
     }
@@ -307,13 +326,16 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
             const hookArtifactId = `commands/${hookCommand}`;
             let hookArtifact = hookArtifactsById.get(hookArtifactId);
             if (!hookArtifact) {
-                hookArtifact = {
-                    id: hookArtifactId,
-                    kind: "hook",
-                    description: "",
-                    stack: [],
-                    hookBindings: [],
-                };
+                const commandArtifact = byId.get(hookArtifactId);
+                hookArtifact = commandArtifact
+                    ? { ...commandArtifact, kind: "hook", hookBindings: [] }
+                    : {
+                        id: hookArtifactId,
+                        kind: "hook",
+                        description: "",
+                        stack: [],
+                        hookBindings: [],
+                    };
                 hookArtifactsById.set(hookArtifactId, hookArtifact);
             }
             const binding = {
@@ -328,12 +350,13 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
                 hookArtifact.hookBindings.push(binding);
             }
             hookArtifact.hookBinding = hookArtifact.hookBindings[0];
-            if (!hookArtifact.stack.some((l) => l.presetId === extensionId)) {
+            if (!hookArtifact.stack.some((l) => l.sourceId === extensionId)) {
                 hookArtifact.stack.push({
                     layer: "extension",
-                    presetId: extensionId,
-                    presetName: info.name,
+                    presetId: null,
+                    presetName: null,
                     sourceId: extensionId,
+                    extensionName: info.name,
                     strategy: "replace",
                     active: hookArtifact.stack.length === 0,
                     hidden: false,
@@ -350,16 +373,9 @@ function applyHookAttributions(artifacts, extensionHookInfo, hooksMap) {
     const filtered = artifacts.filter((artifact) => {
         if (artifact.kind !== "command") return true;
         const name = artifact.id.replace(/^commands\//, "");
-        // If any extension declares this name as a hook command AND that
-        // extension appears in the artifact's stack, drop the command row.
-        for (const [extensionId, names] of extensionHookCommandNames) {
-            if (!names.has(name)) continue;
-            const owns = artifact.stack.some(
-                (l) => l.layer === "extension" && l.presetId === extensionId,
-            );
-            if (owns) return false;
-        }
-        return true;
+        const active = artifact.stack.find((layer) => layer.active);
+        if (active?.layer !== "extension") return true;
+        return !extensionHookCommandNames.get(active.sourceId)?.has(name);
     });
 
     // Append hook artifacts.
@@ -409,25 +425,30 @@ export async function buildCompositionFromCli({
     }
 
     // 3. Enrich with hook metadata (extension.yml manifests).
-    const activeExtensionIds = [
-        ...new Set(
-            artifactsRaw
-                .flatMap((a) => a.stack)
-                .filter((l) => l.layer === "extension" && l.presetId)
-                .map((l) => l.presetId),
-        ),
-    ];
+    const activeExtensions = new Map();
+    for (const layer of artifactsRaw.flatMap((artifact) => artifact.stack)) {
+        if (layer.layer !== "extension" || !layer.sourceId) continue;
+        const existing = activeExtensions.get(layer.sourceId);
+        if (!existing || (!existing.manifestPath && layer.manifestPath)) {
+            activeExtensions.set(layer.sourceId, {
+                sourceId: layer.sourceId,
+                manifestPath: layer.manifestPath,
+            });
+        }
+    }
     // Also include any active extensions from the cached catalog that
     // didn't contribute an artifact (pure hook-only extensions).
     for (const ext of extensionItems ?? []) {
         if (ext?.active) {
             const id = ext.installedId || ext.id;
-            if (id && !activeExtensionIds.includes(id)) activeExtensionIds.push(id);
+            if (id && !activeExtensions.has(id)) {
+                activeExtensions.set(id, { sourceId: id, manifestPath: null });
+            }
         }
     }
     const { extensionHookInfo, hooksMap } = await collectHookMetadata(
         workspaceRoot,
-        activeExtensionIds,
+        activeExtensions,
     );
     const artifacts = applyHookAttributions(artifactsRaw, extensionHookInfo, hooksMap);
 
@@ -438,10 +459,10 @@ export async function buildCompositionFromCli({
     //    Living with that in exchange for a single-shell-out boot; if
     //    upstream ever ships `preset list --json` / `extension list --json`
     //    with active detail, switch the summary to a direct query.
-    const presetsOut = summarizeInstalled("preset", artifacts, presetItems);
+    const presetsOut = summarizeInstalled("preset", artifactsRaw, presetItems);
     const extensionsOut = summarizeInstalled(
         "extension",
-        artifacts,
+        artifactsRaw,
         extensionItems,
         extensionHookInfo,
     );

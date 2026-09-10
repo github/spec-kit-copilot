@@ -4,8 +4,7 @@ import {
     buildCompositionFromCli,
 } from "../composition/artifact-cli.mjs";
 import { computePipelineFastPath } from "../composition/pipeline-fast-path.mjs";
-import { findLayerByLookupId } from "../ui/lookup-id.mjs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -126,6 +125,59 @@ const PRESET_OVERRIDE_FIXTURE = [
     },
 ];
 
+const EXTENSION_SOURCE_PATH_FIXTURE = [
+    ["command", "speckit.quality", "commands/speckit.quality.md"],
+    ["template", "quality-checklist", "templates/quality-checklist.md"],
+    ["script", "quality-check", "scripts/quality-check.sh"],
+].map(([kind, name, file]) => ({
+    id: `${kind}:${name}`,
+    name,
+    kind,
+    description: "",
+    stack: [
+        {
+            id: `${kind}:${name}`,
+            layer: "extension",
+            sourceId: "quality",
+            presetId: null,
+            presetName: null,
+            strategy: "replace",
+            active: true,
+            hidden: false,
+            manifestPath: ".specify/extensions/quality/extension.yml",
+            lookupId: `extension:quality:${kind}:${name}`,
+            sourcePath: `.specify/extensions/quality/${file}`,
+        },
+    ],
+}));
+
+function canonicalCommandRows() {
+    return ["constitution", "specify", "plan", "tasks", "implement"].map((phase) => {
+        const name = `speckit.${phase}`;
+        const id = `command:${name}`;
+        return {
+            id,
+            name,
+            kind: "command",
+            description: "",
+            stack: [
+                {
+                    id,
+                    layer: null,
+                    sourceId: null,
+                    presetId: null,
+                    presetName: null,
+                    strategy: "replace",
+                    active: true,
+                    hidden: false,
+                    manifestPath: null,
+                    lookupId: null,
+                },
+            ],
+        };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -194,12 +246,6 @@ describe("buildCompositionFromCli", () => {
             assert.equal(winner.hidden, false);
             assert.equal(winner.manifestPath, ".specify/presets/compliance/preset.yml");
             assert.equal(winner.lookupId, "preset:compliance:command:speckit.plan");
-            // Behavioral coverage: the CLI-shaped composition artifact
-            // round-trips through findLayerByLookupId back to this winner
-            // (parseLookupId's own shape/edge-case behavior is covered by
-            // test/lookup-id.test.mjs — no need to re-assert it here).
-            assert.equal(findLayerByLookupId(cmd, winner.lookupId), winner);
-
             // Hidden built-in layer.
             const built = cmd.stack[1];
             assert.equal(built.layer, "core");
@@ -221,29 +267,180 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("stage2 synthesizes canonical pipeline when no directives/new commands", async () => {
+    test("preserves extension source paths and derives its summary from sourceId", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
-            // Build a fixture containing every REQUIRED canonical command.
-            const requiredNames = ["speckit.constitution", "speckit.specify", "speckit.plan", "speckit.tasks", "speckit.implement"];
-            const rows = [];
-            for (const name of requiredNames) {
-                const id = `command:${name}`;
-                rows.push({
-                    id, name, kind: "command", description: "",
-                    stack: [
-                        {
-                            id, layer: null, sourceId: null, presetId: null, presetName: null,
-                            strategy: "replace", active: true, hidden: false, manifestPath: null, lookupId: null,
-                        },
-                    ],
-                });
-            }
             const comp = await buildCompositionFromCli({
                 workspaceRoot: root,
                 presetItems: [],
                 extensionItems: [],
-                runner: fakeRunner(rows),
+                runner: fakeRunner(EXTENSION_SOURCE_PATH_FIXTURE),
+            });
+
+            assert.deepEqual(
+                comp.artifacts.map((artifact) => artifact.stack[0].sourcePath),
+                [
+                    ".specify/extensions/quality/commands/speckit.quality.md",
+                    ".specify/extensions/quality/templates/quality-checklist.md",
+                    ".specify/extensions/quality/scripts/quality-check.sh",
+                ],
+            );
+            assert.equal(comp.extensions.length, 1);
+            assert.equal(comp.extensions[0].id, "quality");
+            assert.deepEqual(comp.extensions[0].provides, {
+                commands: 1,
+                templates: 1,
+                scripts: 1,
+                hooks: 0,
+            });
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("enriches an extension command with its registered hook bindings", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const extensionDir = join(root, ".specify", "extensions", "audit-installed");
+            mkdirSync(extensionDir, { recursive: true });
+            writeFileSync(
+                join(extensionDir, "extension.yml"),
+                [
+                    "extension:",
+                    "  id: audit",
+                    "  name: Audit Extension",
+                    "  version: 1.0.0",
+                    "category: process",
+                    "effect: read-only",
+                    "hooks:",
+                    "  after_specify:",
+                    "    command: speckit.audit.capture",
+                    "  after_plan:",
+                    "    command: speckit.audit.capture",
+                    "",
+                ].join("\n"),
+            );
+            writeFileSync(
+                join(root, ".specify", "extensions.yml"),
+                [
+                    "hooks:",
+                    "  after_specify:",
+                    "    - extension: audit",
+                    "      command: speckit.audit.capture",
+                    "  after_plan:",
+                    "    - extension: audit",
+                    "      command: speckit.audit.capture",
+                    "",
+                ].join("\n"),
+            );
+
+            const extensionCommand = {
+                id: "command:speckit.audit.capture",
+                name: "speckit.audit.capture",
+                kind: "command",
+                description: "Capture an audit record.",
+                stack: [
+                    {
+                        id: "command:speckit.audit.capture",
+                        layer: "extension",
+                        sourceId: "audit",
+                        presetId: null,
+                        presetName: null,
+                        strategy: "replace",
+                        active: true,
+                        hidden: false,
+                        manifestPath: ".specify/extensions/audit-installed/extension.yml",
+                        lookupId: "extension:audit:command:speckit.audit.capture",
+                        sourcePath: ".specify/extensions/audit-installed/commands/capture.md",
+                    },
+                ],
+            };
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [],
+                runner: fakeRunner([
+                    ...canonicalCommandRows(),
+                    extensionCommand,
+                ]),
+            });
+
+            assert.equal(
+                comp.artifacts.some(
+                    (artifact) => artifact.kind === "command"
+                        && artifact.id === "commands/speckit.audit.capture",
+                ),
+                false,
+            );
+
+            const hook = comp.artifacts.find(
+                (artifact) => artifact.kind === "hook"
+                    && artifact.id === "commands/speckit.audit.capture",
+            );
+            assert.ok(hook);
+            assert.deepEqual(
+                hook.hookBindings.map(({ phase, extensionId, targetCommand }) => ({
+                    phase,
+                    extensionId,
+                    targetCommand,
+                })),
+                [
+                    {
+                        phase: "after_specify",
+                        extensionId: "audit",
+                        targetCommand: "speckit.audit.capture",
+                    },
+                    {
+                        phase: "after_plan",
+                        extensionId: "audit",
+                        targetCommand: "speckit.audit.capture",
+                    },
+                ],
+            );
+            assert.equal(hook.stack[0].sourceId, "audit");
+            assert.equal(hook.stack[0].presetId, null);
+            assert.equal(
+                hook.stack[0].sourcePath,
+                ".specify/extensions/audit-installed/commands/capture.md",
+            );
+
+            for (const phase of ["specify", "plan"]) {
+                const parent = comp.artifacts.find(
+                    (artifact) => artifact.id === `commands/speckit.${phase}`,
+                );
+                assert.deepEqual(
+                    parent.hooks.map(({ phase: hookPhase, extensionId, registered }) => ({
+                        phase: hookPhase,
+                        extensionId,
+                        registered,
+                    })),
+                    [
+                        {
+                            phase: `after_${phase}`,
+                            extensionId: "audit",
+                            registered: true,
+                        },
+                    ],
+                );
+            }
+
+            assert.equal(comp.extensions[0].name, "Audit Extension");
+            assert.equal(comp.extensions[0].version, "1.0.0");
+            assert.equal(comp.extensions[0].provides.commands, 1);
+            assert.equal(comp.extensions[0].provides.hooks, 2);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("synthesizes a canonical pipeline when no inference is needed", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [],
+                runner: fakeRunner(canonicalCommandRows()),
             });
             const fp = computePipelineFastPath(comp);
             assert.equal(fp.canSynthesize, true);
@@ -256,7 +453,7 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("stage2 detects wrap/prepend/append directives on canonical commands", async () => {
+    test("requires inference for stack directives on canonical commands", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {
             const rows = [
@@ -288,6 +485,48 @@ describe("buildCompositionFromCli", () => {
             assert.equal(fp.hasStackDirectives, true);
             assert.equal(fp.canSynthesize, false);
             assert.equal(fp.syntheticPipeline, null);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test("requires inference when the CLI payload contains a non-canonical command", async () => {
+        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
+        try {
+            const rows = [
+                ...canonicalCommandRows(),
+                {
+                    id: "command:speckit.review",
+                    name: "speckit.review",
+                    kind: "command",
+                    description: "Review the implementation.",
+                    stack: [
+                        {
+                            id: "command:speckit.review",
+                            layer: "preset",
+                            sourceId: "review",
+                            presetId: "review",
+                            presetName: "Review",
+                            strategy: "replace",
+                            active: true,
+                            hidden: false,
+                            manifestPath: ".specify/presets/review/preset.yml",
+                            lookupId: "preset:review:command:speckit.review",
+                        },
+                    ],
+                },
+            ];
+            const comp = await buildCompositionFromCli({
+                workspaceRoot: root,
+                presetItems: [],
+                extensionItems: [],
+                runner: fakeRunner(rows),
+            });
+
+            const fastPath = computePipelineFastPath(comp);
+            assert.equal(fastPath.canSynthesize, false);
+            assert.deepEqual(fastPath.newCommands, ["commands/speckit.review"]);
+            assert.equal(fastPath.syntheticPipeline, null);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

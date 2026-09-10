@@ -24,11 +24,3 @@ export function parseLookupId(lookupId) {
     if (!name) return null;
     return { providerKind, providerId, kind, name };
 }
-
-// Find the stack layer within a composition artifact whose `lookupId`
-// matches. Returns `null` when `lookupId` is falsy or no layer matches.
-export function findLayerByLookupId(compArtifact, lookupId) {
-    if (!lookupId || !compArtifact) return null;
-    const stack = compArtifact.stack ?? [];
-    return stack.find((layer) => layer?.lookupId === lookupId) ?? null;
-}
