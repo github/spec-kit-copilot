@@ -595,6 +595,11 @@ export function renderArtifactRow(artifact, opts = {}) {
  * chip can link to the underlying file. Prefers the winning layer's
  * `sourcePath` (what `specify preset resolve` reported); falls back to
  * conventional core locations when only kind + id are known.
+ *
+ * The wizard does not currently support project-override source navigation.
+ * If the CLI reports a project layer without a sourcePath, the conventional
+ * fallback intentionally opens the materialized artifact the wizard executes.
+ * Revisit this fallback when project overrides become a supported UI surface.
  */
 export function artifactSourcePath(artifact, activeLayer) {
     if (activeLayer?.sourcePath) return activeLayer.sourcePath;
