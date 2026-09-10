@@ -827,15 +827,12 @@ test("S7: buildStateSnapshot derives per-phase locked from durable setup complet
         if (id === "setup") continue;
         assert.equal(phase.locked, false, `phase ${id} must be unlocked when setup complete`);
     }
-    // Case C: taskstoissues stays gated until a provider is in composition.
-    assert.equal(snapB.phases.taskstoissues?.gated, true, "no taskstoissues provider → gated=true");
-    // Add a matching layer, re-snapshot: gated flips.
-    const scanWithProvider = {
-        ...scanComplete,
-        composition: { presets: [], extensions: [{ name: "speckit-taskstoissues", source: "catalog" }] },
-    };
-    const snapC = buildStateSnapshot(scanWithProvider);
-    assert.equal(snapC.phases.taskstoissues?.gated, false, "taskstoissues provider in composition → gated=false");
+    // taskstoissues behaves like every other optional canonical command:
+    // setup unlocks it and no provider-specific gate is applied.
+    for (const id of ["clarify", "checklist", "analyze", "taskstoissues"]) {
+        assert.equal(snapB.phases[id]?.optional, true, `${id} must remain optional`);
+        assert.equal(snapB.phases[id]?.gated, false, `${id} must not have a special gate`);
+    }
 });
 
 // -------- S8: env-probe → state-store setup slice → derived phase ---------
