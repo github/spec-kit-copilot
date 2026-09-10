@@ -117,6 +117,9 @@ function normalizeCliStackLayer(layer) {
         hidden: !!layer.hidden,
         manifestPath: layer.manifestPath ?? null,
         lookupId: layer.lookupId ?? null,
+        // Preserve project layers for CLI contract fidelity, but the wizard
+        // does not currently support project-override workflows or source
+        // navigation. Their sourcePath may therefore intentionally be null.
         sourcePath: layer.sourcePath ?? null,
     };
 }
