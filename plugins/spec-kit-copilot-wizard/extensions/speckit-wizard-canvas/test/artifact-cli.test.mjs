@@ -389,6 +389,49 @@ describe("buildCompositionFromCli", () => {
         assert.equal(comp.extensions[0].provides.hooks, 2);
     });
 
+    test("carries the active layer's optional flag into the parent command's inline hooks[] entry", async () => {
+        const root = tmpdir();
+        const hookArtifact = {
+            id: "hook:after_specify:speckit.agent-context.update",
+            name: "after_specify:speckit.agent-context.update",
+            kind: "hook",
+            event: "after_specify",
+            targetCommand: "speckit.agent-context.update",
+            registered: true,
+            description: "Refresh agent context after specification.",
+            stack: [
+                {
+                    id: "hook:after_specify:speckit.agent-context.update",
+                    layer: "extension",
+                    sourceId: "agent-context",
+                    presetId: null,
+                    presetName: "Coding Agent Context",
+                    strategy: "additive",
+                    active: true,
+                    priority: 10,
+                    optional: true,
+                    hidden: false,
+                    manifestPath: ".specify/extensions/agent-context/extension.yml",
+                    lookupId: "extension:agent-context:hook:after_specify:speckit.agent-context.update",
+                },
+            ],
+        };
+
+        const comp = await buildCompositionFromCli({
+            workspaceRoot: root,
+            presetItems: [],
+            extensionItems: [],
+            runner: fakeRunner([
+                ...canonicalCommandRows(),
+                hookArtifact,
+            ]),
+        });
+
+        const parent = comp.artifacts.find((artifact) => artifact.id === "commands/speckit.specify");
+        assert.equal(parent.hooks.length, 1);
+        assert.equal(parent.hooks[0].optional, true);
+    });
+
     test("synthesizes a canonical pipeline when no inference is needed", async () => {
         const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
         try {

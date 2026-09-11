@@ -242,6 +242,12 @@ function applyNativeHookAttributions(artifacts) {
                     extensionId: providerId,
                     extensionName: providerName,
                     targetCommand,
+                    // Mirror the active layer's optionality — omitting this
+                    // makes resolveHooksForCommand()'s de-duped inline entry
+                    // (which wins over the standalone hook artifact's
+                    // hookBindings[].optional) render as Required even when
+                    // the hook is declared optional.
+                    optional: !!activeLayer?.optional,
                     declared: true,
                     registered: artifact.registered ?? true,
                 });
