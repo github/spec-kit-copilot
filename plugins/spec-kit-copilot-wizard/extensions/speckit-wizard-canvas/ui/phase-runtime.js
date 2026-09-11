@@ -769,10 +769,15 @@ export function renderMoreCommandsPanel() {
     const compArtifactsAll = state.snapshot?.composition?.artifacts ?? [];
     const extensionSectionHtmlParts = compExtensions.map((ext) => {
         // Extension items in the More-Commands panel: only user-invokable
-        // commands render as cards. Hook artifacts share the same id as
-        // the command they dispatch — we merge their `hookBinding` onto
-        // the matching command card (auto-run pill + Triggered-by footer)
-        // instead of surfacing them as a second card.
+        // commands render as cards. Hook artifacts are a distinct kind
+        // whose id is shaped `hooks/<event>:<target>` — NOT the same id
+        // as the command they dispatch (see cliIdToWizardId). We merge
+        // their `hookBinding` onto the matching command card (auto-run
+        // pill + Triggered-by footer) by joining on `targetCommand`, and
+        // NEVER surface a hook artifact as its own card: every hook's
+        // `targetCommand` is guaranteed to have a corresponding `command`
+        // artifact (confirmed against the CLI's artifact list), so a
+        // hook's own id must never leak into a rendered card.
         const rawItems = compArtifactsAll.filter((a) => {
             if (a.kind !== "command" && a.kind !== "hook") return false;
             const active = (a.stack ?? []).find((l) => l.active);
@@ -782,32 +787,25 @@ export function renderMoreCommandsPanel() {
         // A single extension command can be the target of MULTIPLE hook
         // bindings (e.g. `speckit.agent-context.update` fires from both
         // `after_specify` AND `after_plan`). Collect every binding per
-        // target command id so the card can render every parent phase in
-        // its "Triggered by" footer — not just the last one seen.
+        // target command id (normalized to the command's own `commands/`
+        // shape) so the card can render every parent phase in its
+        // "Triggered by" footer — not just the last one seen.
         const hookBindingsByCommandId = new Map();
         for (const a of rawItems) {
-            if (a.kind !== "hook") continue;
+            if (a.kind !== "hook" || !a.targetCommand) continue;
             const bindings = Array.isArray(a.hookBindings) && a.hookBindings.length
                 ? a.hookBindings
                 : (a.hookBinding ? [a.hookBinding] : []);
             if (!bindings.length) continue;
-            const list = hookBindingsByCommandId.get(a.id) || [];
+            const targetId = `commands/${a.targetCommand}`;
+            const list = hookBindingsByCommandId.get(targetId) || [];
             for (const b of bindings) list.push(b);
-            hookBindingsByCommandId.set(a.id, list);
+            hookBindingsByCommandId.set(targetId, list);
         }
-        const items = rawItems.filter((a) => {
-            if (a.kind === "command") return true;
-            // Include hook artifacts too, so extensions whose only
-            // user-visible entry point is a hook target (e.g.
-            // `agent-context.update`, which the assembler excludes from
-            // the command kind because it's declared under `hooks:`) still
-            // get a card — rendered as a passive hook tile with an
-            // "Auto-runs" indicator and no + Add affordance. Skip any
-            // hook whose id is already covered by a command in rawItems
-            // (defensive; the assembler prevents this collision today).
-            if (a.kind !== "hook") return false;
-            return !rawItems.some((c) => c.kind === "command" && c.id === a.id);
-        });
+        // Hook artifacts never render as their own card — only commands
+        // do. Their bindings are looked up via `hookBindingsByCommandId`
+        // (keyed by target command id) when rendering the command card.
+        const items = rawItems.filter((a) => a.kind === "command");
         items.sort((a, b) => collator.compare(a.id, b.id));
         const cards = items.map((art) => renderExtensionCommandCard(art, ext, hookBindingsByCommandId.get(art.id) || null)).join("");
         const openAttr = isSectionOpen(`extension:${ext.id}`) ? " open" : "";
