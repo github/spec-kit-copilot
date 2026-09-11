@@ -102,7 +102,7 @@ async function onOpen(ctx) {
     startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }).catch(() => { /* best-effort */ });
     startArtifactWatcher(inst, { snapshot }).catch(() => { /* best-effort */ });
     return {
-        title: "Spec Kit Wizard (Hook Artifacts)",
+        title: "Spec Kit Wizard",
         url: inst.url,
     };
 }
@@ -361,7 +361,7 @@ setSession(await joinSession({
     canvases: [
         createCanvas({
             id: "speckit-wizard",
-            displayName: "Spec Kit Wizard (Hook Artifacts)",
+            displayName: "Spec Kit Wizard",
             description:
                 "Wizard UX driving the Spec-Driven Development lifecycle (setup → constitution → specify → clarify → plan → tasks → implement) via the spec-kit-copilot skills plugin.",
             inputSchema: {
