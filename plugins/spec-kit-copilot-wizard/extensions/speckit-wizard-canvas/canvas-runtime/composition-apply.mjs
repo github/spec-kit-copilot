@@ -87,7 +87,15 @@ export function normalizeHookArtifactsInComposition(composition) {
     }
     const artifacts = composition.artifacts.map((artifact) => {
         if (artifact?.kind !== "hook") return artifact;
-        const ownCommand = String(artifact.id).replace(/^commands\//, "");
+        // Native hook artifact ids are shaped as `hooks/<event>:<target>`
+        // (see cliIdToWizardId), not `commands/<target>`, so stripping a
+        // `commands/` prefix off `artifact.id` never actually recovers the
+        // target command. Prefer the artifact's own authoritative
+        // `targetCommand` field (set at shape time from the CLI) and only
+        // fall back to the id-derived guess when it's missing.
+        const ownCommand = typeof artifact.targetCommand === "string"
+            ? artifact.targetCommand.replace(/^commands\//, "")
+            : String(artifact.id).replace(/^commands\//, "");
         const existingBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
             ? artifact.hookBindings
             : [artifact.hookBinding].filter(Boolean);
