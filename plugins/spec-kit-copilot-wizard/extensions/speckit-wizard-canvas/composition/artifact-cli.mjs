@@ -213,6 +213,12 @@ function summarizeInstalled(kind, artifacts, cachedItems) {
                 if (cached.category) item.category = cached.category;
                 if (cached.effect) item.effect = cached.effect;
             }
+            // Hooks are always extension-provided auto-run wiring — presets
+            // cannot declare them (see artifactOrigin() in ui/composition.js,
+            // which hardcodes "extension" for kind === "hook"). So
+            // provides.hooks is intentionally only surfaced for extension
+            // summaries, even though accumulateProvidesCounts() tallies hook
+            // counts generically for any layer kind.
             item.provides.hooks = c?.hooks ?? 0;
         }
         out.push(item);
@@ -227,6 +233,16 @@ function applyNativeHookAttributions(artifacts) {
         const event = artifact.event;
         const targetCommand = artifact.targetCommand;
         if (!event) continue;
+        // Known limitation: only the first active stack layer is attributed
+        // here. A hook artifact's id is keyed on (event, targetCommand), so
+        // 2+ active layers only occur when a *different* extension declares
+        // a hook for the exact same event/target — e.g. it intentionally
+        // piggybacks on another extension's existing command rather than
+        // colliding on a command name (which is already deduped/rejected
+        // elsewhere). That's legitimate per the data model but uncommon and
+        // not exercised by any extension in this repo today, so this is
+        // deliberately left as a single-attribution readout for now rather
+        // than iterating every active layer. See PR #28 discussion.
         const activeLayer = artifact.stack.find((l) => l.active) ?? artifact.stack[0];
         const providerId = activeLayer?.sourceId ?? activeLayer?.presetId;
         const providerName = activeLayer?.presetName ?? providerId;
