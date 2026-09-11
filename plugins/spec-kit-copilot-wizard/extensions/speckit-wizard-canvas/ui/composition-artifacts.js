@@ -151,22 +151,29 @@ export function renderCompositionArtifacts() {
     // "Dispatched after /X" subline) even when we're viewing the Commands
     // subtab. The Hooks subtab is unaffected — hook artifacts still render
     // as their own rows there.
-    // Hook-target lookup: every kind:"hook" artifact carries the id of the
-    // command it dispatches. A command can be the target of MULTIPLE hooks
-    // (e.g. `speckit.agent-context.update` fires from BOTH `after_specify`
-    // AND `after_plan`) so we store an ARRAY of hook artifacts per target
-    // id — collapsing to a single value here would silently drop trigger
-    // rows on the target command's "Dispatched after /X" subline.
+    // Hook-target lookup: every kind:"hook" artifact carries its
+    // `targetCommand` (the command it dispatches) — NOT its own id.
+    // Native hook ids are shaped `hooks/<event>:<target>` (see
+    // cliIdToWizardId), distinct from the target command's own
+    // `commands/<target>` id, so keying this map by the hook's `a.id`
+    // never matches the command row it's meant to annotate. Key by the
+    // normalized target command id instead. A command can be the target
+    // of MULTIPLE hooks (e.g. `speckit.agent-context.update` fires from
+    // BOTH `after_specify` AND `after_plan`) so we store an ARRAY of hook
+    // artifacts per target id — collapsing to a single value here would
+    // silently drop trigger rows on the target command's "Dispatched
+    // after /X" subline.
     const hookByTargetId = new Map();
     const sourceByCommandId = new Map();
     for (const a of visible) {
         if (a.kind === "hook") {
             const hasBindings = (Array.isArray(a.hookBindings) && a.hookBindings.length)
                 || !!a.hookBinding;
-            if (hasBindings) {
-                const list = hookByTargetId.get(a.id) || [];
+            if (hasBindings && a.targetCommand) {
+                const targetId = `commands/${a.targetCommand}`;
+                const list = hookByTargetId.get(targetId) || [];
                 list.push(a);
-                hookByTargetId.set(a.id, list);
+                hookByTargetId.set(targetId, list);
             }
         }
         if (a.kind === "command") {
@@ -381,18 +388,22 @@ export function renderArtifactRow(artifact, opts = {}) {
     // opening the `extension.yml` wiring declaration.
     let sourcePath = artifactSourcePath(artifact, activeLayer);
     const _isHookHere = artifact.kind === "hook";
-    // For hook artifacts, the artifact.id is already the target command
-    // id (e.g. "commands/speckit.companion.capture"). Prefer opening that
-    // command's .md rather than the extension.yml wiring declaration.
+    // For hook artifacts, `artifact.id` is shaped `hooks/<event>:<target>`
+    // (see cliIdToWizardId) — it is NOT the target command's id, despite
+    // that having been true pre-migration. Use the hook's authoritative
+    // `targetCommand` field to resolve the command it dispatches, so we
+    // can open that command's .md rather than the extension.yml wiring
+    // declaration.
     let _hookTargetLabel = "";
     if (_isHookHere) {
         const sourceByCommandId = opts?.sourceByCommandId;
-        const targetSrc = sourceByCommandId
-            ? (sourceByCommandId.get(artifact.id) || sourceByCommandId.get(bareCommandId(artifact.id)))
+        const targetCommandId = artifact.targetCommand ? `commands/${artifact.targetCommand}` : null;
+        const targetSrc = sourceByCommandId && targetCommandId
+            ? (sourceByCommandId.get(targetCommandId) || sourceByCommandId.get(artifact.targetCommand))
             : "";
         if (targetSrc) {
             sourcePath = targetSrc;
-            _hookTargetLabel = `/${bareCommandId(artifact.id)}`;
+            _hookTargetLabel = `/${artifact.targetCommand}`;
         }
     }
     const idTitle = _hookTargetLabel

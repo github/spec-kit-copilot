@@ -298,139 +298,138 @@ describe("buildCompositionFromCli", () => {
         }
     });
 
-    test("enriches an extension command with its registered hook bindings", async () => {
-        const root = mkdtempSync(join(tmpdir(), "speckit-cli-test-"));
-        try {
-            const extensionDir = join(root, ".specify", "extensions", "audit-installed");
-            mkdirSync(extensionDir, { recursive: true });
-            writeFileSync(
-                join(extensionDir, "extension.yml"),
-                [
-                    "extension:",
-                    "  id: audit",
-                    "  name: Audit Extension",
-                    "  version: 1.0.0",
-                    "category: process",
-                    "effect: read-only",
-                    "hooks:",
-                    "  after_specify:",
-                    "    command: speckit.audit.capture",
-                    "  after_plan:",
-                    "    command: speckit.audit.capture",
-                    "",
-                ].join("\n"),
-            );
-            writeFileSync(
-                join(root, ".specify", "extensions.yml"),
-                [
-                    "hooks:",
-                    "  after_specify:",
-                    "    - extension: audit",
-                    "      command: speckit.audit.capture",
-                    "  after_plan:",
-                    "    - extension: audit",
-                    "      command: speckit.audit.capture",
-                    "",
-                ].join("\n"),
-            );
+    test("processes native CLI hook artifacts and enriches parent phase commands", async () => {
+        const root = tmpdir();
+        const hookArtifact1 = {
+            id: "hook:after_specify:speckit.audit.capture",
+            name: "after_specify:speckit.audit.capture",
+            kind: "hook",
+            event: "after_specify",
+            targetCommand: "speckit.audit.capture",
+            registered: true,
+            description: "Capture an audit record after specify.",
+            stack: [
+                {
+                    id: "hook:after_specify:speckit.audit.capture",
+                    layer: "extension",
+                    sourceId: "audit",
+                    presetId: null,
+                    presetName: "Audit Extension",
+                    strategy: "additive",
+                    active: true,
+                    priority: 10,
+                    optional: false,
+                    hidden: false,
+                    manifestPath: ".specify/extensions/audit-installed/extension.yml",
+                    lookupId: "extension:audit:hook:after_specify:speckit.audit.capture",
+                },
+            ],
+        };
+        const hookArtifact2 = {
+            id: "hook:after_plan:speckit.audit.capture",
+            name: "after_plan:speckit.audit.capture",
+            kind: "hook",
+            event: "after_plan",
+            targetCommand: "speckit.audit.capture",
+            registered: true,
+            description: "Capture an audit record after plan.",
+            stack: [
+                {
+                    id: "hook:after_plan:speckit.audit.capture",
+                    layer: "extension",
+                    sourceId: "audit",
+                    presetId: null,
+                    presetName: "Audit Extension",
+                    strategy: "additive",
+                    active: true,
+                    priority: 10,
+                    optional: false,
+                    hidden: false,
+                    manifestPath: ".specify/extensions/audit-installed/extension.yml",
+                    lookupId: "extension:audit:hook:after_plan:speckit.audit.capture",
+                },
+            ],
+        };
 
-            const extensionCommand = {
-                id: "command:speckit.audit.capture",
-                name: "speckit.audit.capture",
-                kind: "command",
-                description: "Capture an audit record.",
-                stack: [
-                    {
-                        id: "command:speckit.audit.capture",
-                        layer: "extension",
-                        sourceId: "audit",
-                        presetId: null,
-                        presetName: null,
-                        strategy: "replace",
-                        active: true,
-                        hidden: false,
-                        manifestPath: ".specify/extensions/audit-installed/extension.yml",
-                        lookupId: "extension:audit:command:speckit.audit.capture",
-                        sourcePath: ".specify/extensions/audit-installed/commands/capture.md",
-                    },
-                ],
-            };
-            const comp = await buildCompositionFromCli({
-                workspaceRoot: root,
-                presetItems: [],
-                extensionItems: [],
-                runner: fakeRunner([
-                    ...canonicalCommandRows(),
-                    extensionCommand,
-                ]),
-            });
+        const comp = await buildCompositionFromCli({
+            workspaceRoot: root,
+            presetItems: [],
+            extensionItems: [],
+            runner: fakeRunner([
+                ...canonicalCommandRows(),
+                hookArtifact1,
+                hookArtifact2,
+            ]),
+        });
 
-            assert.equal(
-                comp.artifacts.some(
-                    (artifact) => artifact.kind === "command"
-                        && artifact.id === "commands/speckit.audit.capture",
-                ),
-                false,
-            );
+        const hooks = comp.artifacts.filter((a) => a.kind === "hook");
+        assert.equal(hooks.length, 2);
 
-            const hook = comp.artifacts.find(
-                (artifact) => artifact.kind === "hook"
-                    && artifact.id === "commands/speckit.audit.capture",
+        for (const phase of ["specify", "plan"]) {
+            const parent = comp.artifacts.find(
+                (artifact) => artifact.id === `commands/speckit.${phase}`,
             );
-            assert.ok(hook);
             assert.deepEqual(
-                hook.hookBindings.map(({ phase, extensionId, targetCommand }) => ({
-                    phase,
+                parent.hooks.map(({ phase: hookPhase, extensionId, registered }) => ({
+                    phase: hookPhase,
                     extensionId,
-                    targetCommand,
+                    registered,
                 })),
                 [
                     {
-                        phase: "after_specify",
+                        phase: `after_${phase}`,
                         extensionId: "audit",
-                        targetCommand: "speckit.audit.capture",
-                    },
-                    {
-                        phase: "after_plan",
-                        extensionId: "audit",
-                        targetCommand: "speckit.audit.capture",
+                        registered: true,
                     },
                 ],
             );
-            assert.equal(hook.stack[0].sourceId, "audit");
-            assert.equal(hook.stack[0].presetId, null);
-            assert.equal(
-                hook.stack[0].sourcePath,
-                ".specify/extensions/audit-installed/commands/capture.md",
-            );
-
-            for (const phase of ["specify", "plan"]) {
-                const parent = comp.artifacts.find(
-                    (artifact) => artifact.id === `commands/speckit.${phase}`,
-                );
-                assert.deepEqual(
-                    parent.hooks.map(({ phase: hookPhase, extensionId, registered }) => ({
-                        phase: hookPhase,
-                        extensionId,
-                        registered,
-                    })),
-                    [
-                        {
-                            phase: `after_${phase}`,
-                            extensionId: "audit",
-                            registered: true,
-                        },
-                    ],
-                );
-            }
-
-            assert.equal(comp.extensions[0].name, "Audit Extension");
-            assert.equal(comp.extensions[0].version, "1.0.0");
-            assert.equal(comp.extensions[0].provides.commands, 1);
-            assert.equal(comp.extensions[0].provides.hooks, 2);
-        } finally {
-            rmSync(root, { recursive: true, force: true });
         }
+
+        assert.equal(comp.extensions[0].id, "audit");
+        assert.equal(comp.extensions[0].provides.hooks, 2);
+    });
+
+    test("carries the active layer's optional flag into the parent command's inline hooks[] entry", async () => {
+        const root = tmpdir();
+        const hookArtifact = {
+            id: "hook:after_specify:speckit.agent-context.update",
+            name: "after_specify:speckit.agent-context.update",
+            kind: "hook",
+            event: "after_specify",
+            targetCommand: "speckit.agent-context.update",
+            registered: true,
+            description: "Refresh agent context after specification.",
+            stack: [
+                {
+                    id: "hook:after_specify:speckit.agent-context.update",
+                    layer: "extension",
+                    sourceId: "agent-context",
+                    presetId: null,
+                    presetName: "Coding Agent Context",
+                    strategy: "additive",
+                    active: true,
+                    priority: 10,
+                    optional: true,
+                    hidden: false,
+                    manifestPath: ".specify/extensions/agent-context/extension.yml",
+                    lookupId: "extension:agent-context:hook:after_specify:speckit.agent-context.update",
+                },
+            ],
+        };
+
+        const comp = await buildCompositionFromCli({
+            workspaceRoot: root,
+            presetItems: [],
+            extensionItems: [],
+            runner: fakeRunner([
+                ...canonicalCommandRows(),
+                hookArtifact,
+            ]),
+        });
+
+        const parent = comp.artifacts.find((artifact) => artifact.id === "commands/speckit.specify");
+        assert.equal(parent.hooks.length, 1);
+        assert.equal(parent.hooks[0].optional, true);
     });
 
     test("synthesizes a canonical pipeline when no inference is needed", async () => {

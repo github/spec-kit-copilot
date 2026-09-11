@@ -87,7 +87,15 @@ export function normalizeHookArtifactsInComposition(composition) {
     }
     const artifacts = composition.artifacts.map((artifact) => {
         if (artifact?.kind !== "hook") return artifact;
-        const ownCommand = String(artifact.id).replace(/^commands\//, "");
+        // Native hook artifact ids are shaped as `hooks/<event>:<target>`
+        // (see cliIdToWizardId), not `commands/<target>`, so stripping a
+        // `commands/` prefix off `artifact.id` never actually recovers the
+        // target command. Prefer the artifact's own authoritative
+        // `targetCommand` field (set at shape time from the CLI) and only
+        // fall back to the id-derived guess when it's missing.
+        const ownCommand = typeof artifact.targetCommand === "string"
+            ? artifact.targetCommand.replace(/^commands\//, "")
+            : String(artifact.id).replace(/^commands\//, "");
         const existingBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
             ? artifact.hookBindings
             : [artifact.hookBinding].filter(Boolean);
@@ -140,7 +148,12 @@ export async function applyComposition(inst, input) {
     //     provide commands. If an extension truly declares templates or
     //     scripts (rare), the prompt still emits them and this scrub
     //     leaves them alone.
-    const VALID_STRATEGIES = new Set(["replace", "wrap", "prepend", "append"]);
+    // Must stay in sync with artifact-cli.mjs's VALID_STRATEGIES — that's
+    // where the CLI's hook layers are shaped with "additive" (hooks stack
+    // alongside a command rather than replace/wrap/prepend/append it).
+    // Omitting it here would silently coerce every native hook layer to
+    // "replace", contradicting what the CLI actually reported.
+    const VALID_STRATEGIES = new Set(["replace", "wrap", "prepend", "append", "additive"]);
     const normalizeArtifact = (a) => {
         if (!a || typeof a !== "object") return a;
         const stack = Array.isArray(a.stack) ? a.stack : [];

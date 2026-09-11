@@ -164,6 +164,15 @@ export function computeProviderContributions(artifacts) {
         // fired from both `after_specify` AND `after_plan`) into a single
         // artifact. Count each binding as its own contribution so the
         // per-extension totals match the Hooks subtab.
+        // NOTE: this weight is applied per stack layer below, so a hook
+        // artifact with bindings owned by more than one provider currently
+        // over-counts (every provider in the stack gets the full weight,
+        // not just its own share). This derivation is a stand-in for
+        // provider-scoped hook counts the CLI should eventually expose
+        // directly (e.g. via a JSON-capable extension/preset list command);
+        // once that lands, this local aggregation should be replaced with
+        // reading the provider's own reported hook count instead of
+        // recomputing it from the artifact stack here.
         const weight = kind === "hook"
             ? Math.max(1, Array.isArray(a.hookBindings) ? a.hookBindings.length : 0)
             : 1;
@@ -223,6 +232,10 @@ export function computeCompositionKindCounts(artifacts) {
         // fired from both `after_specify` AND `after_plan`) into a single
         // artifact. Count each binding as its own row so the header
         // summary matches the per-binding rows the Hooks subtab renders.
+        // NOTE: like the per-provider tally above, this is a local
+        // derivation from the artifact stack and should eventually be
+        // replaced with hook counts reported directly by the CLI once a
+        // JSON-capable extension/preset list command exposes them.
         const weight = kind === "hook"
             ? Math.max(1, Array.isArray(a.hookBindings) ? a.hookBindings.length : 0)
             : 1;
