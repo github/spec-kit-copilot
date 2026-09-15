@@ -21,6 +21,7 @@ export function createArtifactReview({
     let returnTarget;
     let returnScroll;
     let activeContext;
+    let contextSelection;
     let currentDocument;
     let artifacts = [];
     let history = [];
@@ -32,6 +33,7 @@ export function createArtifactReview({
     let connectionState = "connected";
     let refreshing = false;
     let refreshAgain = false;
+    let renewContextQueued = false;
 
     function urlFor(route, parameters = {}) {
         const url = new URL(route, document.location.href);
@@ -92,7 +94,7 @@ export function createArtifactReview({
             onNavigateReference: (target) => navigateReference(target),
             onNavigateHistory: (direction) => navigateHistory(direction),
             onReturnToWorkflow: () => { if (onReturn) onReturn(); else close(); },
-            onRefresh: () => refresh(),
+            onRefresh: () => refresh({ renewContext: true }),
             onRendered: (event) => {
                 if (renderGeneration !== generation || event.artifactId !== selectedArtifactId || event.revision !== currentDocument?.revision) return;
                 if (["ready", "no-heading", "empty"].includes(baseState)) {
@@ -217,10 +219,10 @@ export function createArtifactReview({
         }
     }
 
-    async function refresh() {
+    async function refresh({ renewContext = false } = {}) {
         if (canNavigate?.() === false) return false;
         if (!activeContext || !selectedArtifactId || baseState === "loading") return false;
-        if (refreshing) { refreshAgain = true; return false; }
+        if (refreshing) { refreshAgain = true; renewContextQueued ||= renewContext; return false; }
         refreshing = true;
         savePosition();
         const context = activeContext;
@@ -261,12 +263,20 @@ export function createArtifactReview({
             }
             return await present(content, requestGeneration, { targetIndex: historyIndex >= 0 ? historyIndex : undefined, fragment: currentFragment });
         } catch (error) {
+            if (error.code === "invalid_context" && renewContext && requestGeneration === generation && contextSelection) {
+                return await review.open(contextSelection, { relativePath: priorArtifact?.relativePath, fragment: currentFragment });
+            }
             await showState(failureState(error, Boolean(previousDocument)), requestGeneration,
                 error.code === "changed_source" ? previousDocument : null);
             return false;
         } finally {
             refreshing = false;
-            if (refreshAgain) { refreshAgain = false; if (activeContext === context) void refresh(); }
+            if (refreshAgain) {
+                const retry = { renewContext: renewContextQueued };
+                refreshAgain = false;
+                renewContextQueued = false;
+                if (activeContext === context) void refresh(retry);
+            }
         }
     }
 
@@ -314,6 +324,7 @@ export function createArtifactReview({
         mounted?.unmount();
         mounted = null;
         activeContext = null;
+        contextSelection = null;
         currentDocument = null;
         artifacts = [];
         history = [];
@@ -323,6 +334,7 @@ export function createArtifactReview({
         selectedArtifactId = undefined;
         baseState = "idle";
         refreshAgain = false;
+        renewContextQueued = false;
         container.replaceChildren();
         delete container.dataset.reviewContext;
         delete container.dataset.reviewState;
@@ -336,16 +348,27 @@ export function createArtifactReview({
         returnScroll = null;
     }
 
-    return {
-        async open(selection) {
+    const review = {
+        async open(selection, recovery = {}) {
             if (canNavigate?.() === false) return false;
             rememberReturn();
+            contextSelection = { ...selection };
             const requestGeneration = ++generation;
             controller?.abort();
             controller = new AbortController();
             const signal = controller.signal;
             mounted?.unmount();
             mounted = null;
+            activeContext = null;
+            currentDocument = null;
+            artifacts = [];
+            history = [];
+            historyIndex = -1;
+            selectedArtifactId = undefined;
+            currentFragment = "";
+            pendingRestore = null;
+            baseState = "loading";
+            delete container.dataset.reviewContext;
             container.textContent = "Loading artifact...";
             container.dataset.reviewState = "loading";
             try {
@@ -361,8 +384,12 @@ export function createArtifactReview({
                     artifacts.push(...page.items);
                     cursor = page.nextCursor;
                 }
-                const content = await json("/api/review/content", { context: context.contextId, artifactId: context.primaryArtifactId }, signal);
-                return await present(content, requestGeneration);
+                if (recovery.relativePath) {
+                    selectedArtifactId = artifacts.find((artifact) => artifact.relativePath === recovery.relativePath)?.id;
+                    if (!selectedArtifactId) return showState("missing", requestGeneration);
+                }
+                const content = await json("/api/review/content", { context: context.contextId, artifactId: selectedArtifactId }, signal);
+                return await present(content, requestGeneration, { fragment: recovery.fragment });
             } catch (error) {
                 if (requestGeneration !== generation || signal.aborted) return false;
                 await showState(failureState(error), requestGeneration);
@@ -387,4 +414,5 @@ export function createArtifactReview({
         get document() { return currentDocument; },
         get context() { return activeContext; },
     };
+    return review;
 }

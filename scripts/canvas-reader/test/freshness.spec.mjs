@@ -15,6 +15,34 @@ async function openReader(page, canvas, fixture) {
 }
 
 for (const canvas of ["wizard", "sdd"]) {
+    test(`${canvas} explicit Refresh recovers an evicted context in the actual shell`, async ({ page }) => {
+        const fixture = await startFixture({ canvas });
+        try {
+            const reader = await openReader(page, canvas, fixture);
+            await reader.getByRole("combobox", { name: "Artifacts" }).selectOption({ label: "research.md" });
+            await expect(reader.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
+            const context = page.locator("[data-review-context]");
+            const originalContext = await context.getAttribute("data-review-context");
+            await page.evaluate(async (host) => {
+                const url = new URL("/api/review/context", location.href);
+                const parameters = new URL(location.href).searchParams;
+                for (const key of ["token", "cap"]) if (parameters.has(key)) url.searchParams.set(key, parameters.get(key));
+                url.searchParams.set("stage", "specify");
+                if (host === "sdd") url.searchParams.set("feature", "999-canvas-preview-fixture");
+                for (let index = 0; index < 21; index++) {
+                    const response = await fetch(url);
+                    if (!response.ok || !(await response.json()).ok) throw new Error("Synthetic context allocation failed.");
+                }
+            }, canvas);
+            await reader.getByRole("button", { name: "Refresh artifact", exact: true }).click();
+            await expect(context).not.toHaveAttribute("data-review-context", originalContext);
+            await expect(reader.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
+            await expect(reader.getByRole("button", { name: "Previous artifact", exact: true })).toBeDisabled();
+            expect(fixture.dispatchCount()).toBe(0);
+            expect(fixture.workspaceChanged()).toBe(false);
+        } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
+    });
+
     test(`${canvas} scoped invalidations refresh changed and deleted artifacts without stealing selection`, async ({ page }) => {
         const fixture = await startFixture({ canvas, allowMutations: true });
         try {

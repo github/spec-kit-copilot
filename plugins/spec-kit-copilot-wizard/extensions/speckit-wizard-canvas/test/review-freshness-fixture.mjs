@@ -19,7 +19,10 @@ async function withReview(adapterUrl, run) {
     const renders = [];
     let deferred;
     let failure;
+    let contextGeneration = 0;
+    let expired = false;
     const remote = {
+        expireContext() { expired = true; },
         deferNextRead() {
             let started;
             let release;
@@ -35,8 +38,12 @@ async function withReview(adapterUrl, run) {
         const url = new URL(input);
         calls.push({ route: url.pathname, expectedRevision: url.searchParams.get("expectedRevision"), method: options?.method ?? "GET" });
         let data;
-        if (url.pathname.endsWith("/context")) data = { contextId: "ctx_fixture", generation: 1, items: items(), primaryArtifactId: "primary", nextCursor: null };
-        else if (url.pathname.endsWith("/artifacts")) data = { contextId: "ctx_fixture", generation: 1, items: items(), nextCursor: null };
+        if (url.pathname.endsWith("/context")) {
+            expired = false;
+            contextGeneration++;
+            data = { contextId: `ctx_fixture_${contextGeneration}`, generation: 1, items: items(), primaryArtifactId: "primary", nextCursor: null };
+        } else if (expired) return { ok: false, json: async () => ({ ok: false, error: { code: "invalid_context" } }) };
+        else if (url.pathname.endsWith("/artifacts")) data = { contextId: `ctx_fixture_${contextGeneration}`, generation: 1, items: items(), nextCursor: null };
         else {
             const id = url.searchParams.get("artifactId");
             let code = failure;
@@ -137,5 +144,36 @@ export function reviewFreshnessTests(canvas, adapterUrl) {
         await review.selectArtifact("related");
         assert.equal(container.dataset.reviewState, "unsupported");
         assert.equal(review.document, null);
+    }));
+
+    test(`${canvas} explicit refresh renews an expired context without reusing its history`, () => withReview(adapterUrl, async ({ review, renders, remote, calls, container }) => {
+        const trigger = container.ownerDocument.getElementById("trigger");
+        trigger.focus();
+        await review.open({ stage: "specify" });
+        await review.selectArtifact("related");
+        const expiredContext = review.context.contextId;
+        remote.expireContext();
+        await review.refresh();
+        assert.equal(container.dataset.reviewState, "error");
+        assert.equal(calls.filter((call) => call.route.endsWith("/context")).length, 1);
+        await renders.at(-1).onRefresh();
+        assert.notEqual(review.context.contextId, expiredContext);
+        assert.equal(review.document.artifact.relativePath, "specs/001-fixture/research.md");
+        assert.equal(review.history.length, 1);
+        assert.equal(review.navigateHistory("back"), false);
+        review.close();
+        assert.equal(container.ownerDocument.activeElement, trigger);
+    }));
+
+    test(`${canvas} expired-context recovery refuses a document outside refreshed membership`, () => withReview(adapterUrl, async ({ review, renders, remote, descriptors, container }) => {
+        await review.open({ stage: "specify" });
+        await review.selectArtifact("related");
+        remote.expireContext();
+        descriptors.delete("related");
+        await renders.at(-1).onRefresh();
+        assert.equal(container.dataset.reviewState, "missing");
+        assert.equal(review.document, null);
+        assert.deepEqual(review.history, []);
+        assert.equal(review.context.contextId, "ctx_fixture_2");
     }));
 }

@@ -23,6 +23,10 @@ The source label identifies working-tree content. Existing canvas change
 notifications refresh artifact membership and mark changed content; **Refresh**
 loads the current revision. Missing, unavailable, oversized, or invalid text
 produces an in-preview state without closing the canvas.
+If a review context expires, explicit **Refresh** revalidates its scope and
+selected document in a new context. Context-bound history starts afresh, and
+old clarification bindings are not reused. A document that is no longer in
+the authorized scope remains unavailable.
 
 ## Existing Workflows
 
