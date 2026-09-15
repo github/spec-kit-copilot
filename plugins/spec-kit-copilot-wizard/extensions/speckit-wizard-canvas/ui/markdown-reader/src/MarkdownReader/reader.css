@@ -12,7 +12,6 @@
     letter-spacing: 0;
     min-width: 0;
     max-width: 100%;
-    isolation: isolate;
 }
 
 .md-reader *, .md-reader *::before, .md-reader *::after { box-sizing: border-box; letter-spacing: 0; }

@@ -59,6 +59,11 @@ for (const canvas of ["wizard", "sdd"]) {
                     await reader.getByRole("button", { name: "Table of contents", exact: true }).click();
                     const dialog = reader.getByRole("dialog", { name: "Table of contents", exact: true });
                     await expect(dialog).toBeVisible();
+                    const close = dialog.getByRole("button", { name: "Close table of contents", exact: true });
+                    await expect.poll(() => close.evaluate((element) => {
+                        const bounds = element.getBoundingClientRect();
+                        return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+                    })).toBe(true);
                     const target = dialog.getByRole("button", { name: "Details", exact: true });
                     await target.focus();
                     await target.press("Enter");
