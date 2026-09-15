@@ -1,6 +1,11 @@
 .DS_Store
 node_modules/
 .playwright-mcp/
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
 
 # Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)
 .speckit-wizard/

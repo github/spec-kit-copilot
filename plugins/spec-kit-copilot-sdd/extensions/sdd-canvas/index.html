@@ -32,9 +32,11 @@
   aside.open { display: block; }
   body.artifact-view header, body.artifact-view main { display: none; }
   body.artifact-view aside {
-    display: block; width: 100%; max-width: none; min-height: 100vh;
-    border-left: 0; padding: 24px clamp(20px, 6vw, 80px);
+    display: flex; flex-direction: column; width: 100%; max-width: none; height: 100dvh; min-height: 0;
+    border-left: 0; padding: 16px 20px; overflow: hidden;
   }
+  body.artifact-view #artBody { flex: 1; min-height: 0; overflow: auto; padding: 20px 4px; scrollbar-gutter: stable; }
+  body.artifact-view .art-head { flex: 0 0 auto; }
   body.artifact-view .art-head {
     position: sticky; top: 0; z-index: 2;
     background: var(--background-color-default, #ffffff);
@@ -210,9 +212,16 @@ const PREVIEWABLE = new Set(["specify", "plan", "tasks", "constitution"]);
 const OVERWRITE_KEYS = new Set(["plan", "tasks"]);
 const PAGE_PARAMS = new URLSearchParams(window.location.search);
 const CAP = PAGE_PARAMS.get("cap") || "";
+let artifactReviewGeneration = 0;
+let artifactReviewReturn = null;
+let artifactReview = null;
+let reviewConnected = true;
+let renderedDashboard = "";
+let dashboardRefreshPending = false;
 let STATE = null;
 let PENDING_STAGE = null;
 let PENDING_CLARIFICATION = null;
+let clarificationSubmitting = false;
 
 function toast(msg) {
   const t = document.getElementById("toast");
@@ -229,6 +238,13 @@ function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<"
 
 function render(state) {
   STATE = state;
+  const signature = JSON.stringify(state);
+  if (artifactReviewReturn && document.body.classList.contains("artifact-view")) {
+    dashboardRefreshPending = signature !== renderedDashboard;
+    return;
+  }
+  renderedDashboard = signature;
+  dashboardRefreshPending = false;
   const prereq = state.prerequisites || {};
   const setupRequired = Boolean(prereq.setupRequired);
   document.getElementById("root").textContent = setupRequired
@@ -236,7 +252,7 @@ function render(state) {
     : (state.exists ? state.specsDir : "No features yet — describe your first feature below.");
   document.getElementById("setup").hidden = !setupRequired;
   document.getElementById("newFeature").hidden = setupRequired;
-  document.getElementById("constitution").hidden = setupRequired;
+  document.getElementById("constitution").hidden = setupRequired && !state.constitution?.exists;
   document.getElementById("setupText").textContent = prereq.initialized
     ? "Spec Kit is initialized, but the core spec-driven skills are not all installed."
     : "Initialize Spec Kit in Copilot skills mode so the core spec-driven commands are available.";
@@ -257,7 +273,7 @@ function render(state) {
     e.textContent = "No features yet — describe your first feature below.";
     c.appendChild(e);
   }
-  if (!setupRequired) state.features.forEach((feature) => c.appendChild(card(feature)));
+  state.features.forEach((feature) => c.appendChild(card(feature)));
 }
 
 function renderConstitution(constitution) {
@@ -279,6 +295,7 @@ function renderConstitution(constitution) {
 
 function card(feature) {
   const el = document.createElement("div"); el.className = "card" + (feature.active ? " active" : "");
+  el.dataset.feature = feature.slug;
   const head = document.createElement("div"); head.className = "row";
   const left = document.createElement("div");
   left.innerHTML = "<h3>" + esc(feature.title) + "</h3><span class=\"slug muted\">" + esc(feature.slug) + "</span>";
@@ -325,6 +342,7 @@ function card(feature) {
 function pill(key, feature) {
   const st = feature.stages[key];
   const p = document.createElement("button");
+  p.dataset.stage = key;
   let kind = "pending";
   if (key === "implement") {
     kind = feature.implement.done ? "done" : (feature.implement.started ? "next" : (canRun(key, feature) ? "available" : "pending"));
@@ -481,38 +499,58 @@ document.getElementById("specifyBtn").onclick = async () => {
   if (sent) descEl.value = "";
 };
 
+function disposeArtifactReview() {
+  artifactReviewGeneration++;
+  artifactReview?.close({ restore: false });
+  artifactReview = null;
+}
+
 async function viewArtifact(feature, stage, title) {
+  disposeArtifactReview();
+  const generation = artifactReviewGeneration;
   const aside = document.getElementById("aside"); aside.classList.add("open");
   document.getElementById("artTitle").textContent = title;
   document.getElementById("artBody").textContent = "Loading…";
   try {
-    const query = new URLSearchParams({ stage });
-    if (feature) query.set("feature", feature);
-    const requests = [fetch(endpoint("/api/artifact", query))];
-    if (stage === "specify") {
-      const clarifyQuery = new URLSearchParams({ feature });
-      requests.push(fetch(endpoint("/api/clarifications", clarifyQuery)));
-    }
-    const responses = await Promise.all(requests);
-    const j = await responses[0].json();
-    let clarifications = [];
-    if (responses[1]) {
-      const cr = await responses[1].json();
-      if (cr.ok) clarifications = cr.clarifications;
-    }
-    if (j.ok) {
-      renderMarkdown(document.getElementById("artBody"), j.content, { feature, stage, clarifications });
-    } else {
-      document.getElementById("artBody").textContent = "Error: " + (j.error || "failed");
-    }
-  } catch (e) { document.getElementById("artBody").textContent = "Error: " + e.message; }
+    const { createArtifactReview } = await import(endpoint("/ui/artifact-review.js"));
+    if (generation !== artifactReviewGeneration) return;
+    artifactReview = createArtifactReview({
+      container: document.getElementById("artBody"), scrollElement: document.getElementById("artBody"),
+      readerId: "sdd-review-" + generation,
+      onReturn: () => document.getElementById("closeArt").click(),
+      canNavigate: () => !clarificationSubmitting,
+      getClarifications: (document) => STATE?.prerequisites?.setupRequired ? []
+        : (document.clarifications || []).filter((binding) => binding.mode === "sdd-immediate"),
+      onClarification: (id) => {
+        const current = artifactReview?.document;
+        const binding = current?.clarifications?.find((item) => item.id === id);
+        if (!binding || STATE?.prerequisites?.setupRequired || clarificationSubmitting) return;
+        openClarificationDialog(feature, { ...binding, contextId: artifactReview.context.contextId, expectedRevision: current.revision });
+      },
+      onDocument: (document) => {
+        window.document.getElementById("artTitle").textContent = document.artifact.label;
+        return false;
+      },
+    });
+    await artifactReview.open({ feature, stage });
+    artifactReview?.setConnected(reviewConnected);
+  } catch (e) {
+    if (generation !== artifactReviewGeneration) return;
+    document.getElementById("artBody").textContent = "The artifact preview could not be loaded. Try refreshing it.";
+  }
 }
 
 function openArtifactView(feature, stage, title) {
-  const params = new URLSearchParams({ stage, title });
-  if (feature) params.set("artifact", feature);
-  else params.set("artifact", "__constitution__");
-  window.location.assign(endpoint("/", params));
+  if (clarificationSubmitting) return;
+  if (!artifactReviewReturn) {
+    const trigger = document.activeElement;
+    const scroll = [];
+    for (let element = trigger; element; element = element.parentElement) scroll.push({ element, top: element.scrollTop, left: element.scrollLeft });
+    artifactReviewReturn = { trigger, scroll, feature, stage };
+  }
+  document.body.classList.add("artifact-view");
+  document.getElementById("closeArt").textContent = "Back to dashboard";
+  return viewArtifact(feature, stage, title);
 }
 
 function renderMarkdown(container, markdown, context) {
@@ -650,7 +688,9 @@ function appendClarificationActions(node, text, context, queues) {
 }
 
 function openClarificationDialog(feature, clarification) {
-  PENDING_CLARIFICATION = { feature, index: clarification.index, question: clarification.question };
+  PENDING_CLARIFICATION = { feature, index: clarification.index, question: clarification.question,
+    ...(clarification.contextId ? { contextId: clarification.contextId, artifactId: clarification.artifactId,
+      expectedRevision: clarification.expectedRevision, questionId: clarification.questionId } : {}) };
   document.getElementById("clarifyHelp").textContent =
     "Submitting this answer runs clarify for this feature and records it under a Clarifications session in spec.md.";
   document.getElementById("clarifyQuestion").textContent = clarification.question;
@@ -659,15 +699,23 @@ function openClarificationDialog(feature, clarification) {
 }
 
 document.getElementById("cancelClarify").onclick = () => {
+  if (clarificationSubmitting) return;
   PENDING_CLARIFICATION = null;
   document.getElementById("clarifyDialog").close();
 };
 document.getElementById("confirmClarify").onclick = async () => {
-  if (!PENDING_CLARIFICATION) return;
+  if (!PENDING_CLARIFICATION || clarificationSubmitting) return;
   const answer = document.getElementById("clarifyAnswer").value.trim();
   if (!answer) { toast("Enter a clarification answer"); return; }
   const pending = PENDING_CLARIFICATION;
+  clarificationSubmitting = true;
+  document.getElementById("confirmClarify").disabled = true;
+  document.getElementById("cancelClarify").disabled = true;
   try {
+    if (pending.contextId) {
+      if (artifactReview?.context?.contextId !== pending.contextId || artifactReview?.document?.revision !== pending.expectedRevision) throw new Error("Source changed");
+      await artifactReview.validateClarifications([{ questionId: pending.questionId, index: pending.index, question: pending.question, answer }], "speckit-clarify");
+    }
     const response = await fetch(endpoint("/api/clarify"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -677,11 +725,20 @@ document.getElementById("confirmClarify").onclick = async () => {
     if (!result.ok) { toast("Error: " + (result.error || "failed")); return; }
     PENDING_CLARIFICATION = null;
     document.getElementById("clarifyDialog").close();
-    window.location.assign(endpoint("/"));
+    clarificationSubmitting = false;
+    document.getElementById("closeArt").click();
   } catch (error) {
-    toast("Error: " + error.message);
+    toast("The clarification could not be submitted. Refresh the source before retrying.");
+  } finally {
+    clarificationSubmitting = false;
+    document.getElementById("confirmClarify").disabled = false;
+    document.getElementById("cancelClarify").disabled = false;
   }
 };
+document.getElementById("clarifyDialog").addEventListener("cancel", (event) => {
+  if (clarificationSubmitting) event.preventDefault();
+  else PENDING_CLARIFICATION = null;
+});
 
 function startsMarkdownBlock(lines, index) {
   const line = lines[index];
@@ -720,9 +777,37 @@ function appendInline(parent, text) {
   if (cursor < text.length) parent.appendChild(document.createTextNode(text.slice(cursor)));
 }
 document.getElementById("closeArt").onclick = () => {
+  if (clarificationSubmitting) { toast("Wait for the clarification submission to finish."); return; }
+  if (artifactReview || artifactReviewReturn) {
+    disposeArtifactReview();
+    document.getElementById("artBody").replaceChildren();
+    if (!artifactReviewReturn) {
+      window.location.assign(endpoint("/"));
+      return;
+    }
+    document.body.classList.remove("artifact-view");
+    document.getElementById("aside").classList.remove("open");
+    const { trigger, scroll, feature, stage } = artifactReviewReturn;
+    artifactReviewReturn = null;
+    if (dashboardRefreshPending && STATE) render(STATE);
+    for (const entry of scroll) {
+      if (!entry.element.isConnected) continue;
+      entry.element.scrollTop = entry.top;
+      entry.element.scrollLeft = entry.left;
+    }
+    let target = trigger;
+    if (!target?.isConnected) {
+      const featureCard = [...document.querySelectorAll(".card")].find((element) => element.dataset.feature === feature);
+      target = stage === "constitution" ? document.getElementById("constView")
+        : [...featureCard?.querySelectorAll("[data-stage]") ?? []].find((element) => element.dataset.stage === stage);
+    }
+    if (target?.isConnected) target.focus({ preventScroll: true });
+    return;
+  }
   if (document.body.classList.contains("artifact-view")) window.location.assign(endpoint("/"));
   else document.getElementById("aside").classList.remove("open");
 };
+window.addEventListener("pagehide", disposeArtifactReview);
 
 async function initializeArtifactView(feature, stage, title) {
   try {
@@ -748,7 +833,14 @@ if (artifactParam && PREVIEWABLE.has(artifactStage)) {
   try {
     const es = new EventSource(endpoint("/events"));
     es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
-    es.onerror = () => {};
+    es.addEventListener("review", (event) => {
+      try {
+        const review = JSON.parse(event.data);
+        if (!review.contextHint || review.contextHint === artifactReview?.context?.contextId) void artifactReview?.refresh();
+      } catch (_) {}
+    });
+    es.onopen = () => { reviewConnected = true; artifactReview?.setConnected(true); void artifactReview?.refresh(); };
+    es.onerror = () => { reviewConnected = false; artifactReview?.setConnected(false); };
   } catch (e) { /* fall back to one-shot fetch */ }
   fetch(endpoint("/api/state")).then((r) => r.json()).then(render).catch(() => {});
 }
