@@ -39,7 +39,7 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 
 | Plugin | Version | Surface | Purpose |
 | --- | --- | --- | --- |
-| `spec-kit-copilot` | 0.15.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
+| `spec-kit-copilot` | 0.16.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 | `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
@@ -78,6 +78,7 @@ the agent knows when and how to drive the CLI on your behalf.
 | `speckit-check` | `specify check`, `specify version` | Verify tools, report version/features |
 | `speckit-extension` | `specify extension …` | Install/update/search spec-kit extensions (+ catalogs) |
 | `speckit-preset` | `specify preset …` | Install/search/resolve presets (+ catalogs) |
+| `speckit-artifact` | `specify artifact …` | Inspect commands, templates, scripts, hooks, and their composition stacks |
 | `speckit-bundle` | `specify bundle …` | Discover, install, update, and author bundles (+ catalogs) |
 | `speckit-workflow` | `specify workflow …` | Run/resume/inspect automation workflows (+ catalogs) |
 | `speckit-workflow-step` | `specify workflow step …` | Manage workflow step types (+ catalogs) |
@@ -127,7 +128,8 @@ own README for full details.
 > **Versioning:** each plugin has an independent version and is not pinned to a
 > specific Specify CLI version. The core plugin targets the **latest** `specify`
 > published on PyPI (package `specify-cli`), with a
-> minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills. Install or
+> minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills and
+> **>= 1.0.7** for the `artifact` skill and preset/extension JSON inventory. Install or
 > upgrade with `uv tool install specify-cli` / `uv tool upgrade specify-cli` (or the
 > `pipx` equivalents), or `specify self upgrade`. Each plugin's own `version` is
 > independent of the CLI version.
@@ -252,6 +254,7 @@ spec-kit-copilot/
     ├── speckit-check/SKILL.md
     ├── speckit-extension/SKILL.md
     ├── speckit-preset/SKILL.md
+    ├── speckit-artifact/SKILL.md
     ├── speckit-bundle/SKILL.md
     ├── speckit-workflow/SKILL.md
     ├── speckit-workflow-step/SKILL.md
