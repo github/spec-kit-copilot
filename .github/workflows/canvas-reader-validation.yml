@@ -1,0 +1,111 @@
+name: Canvas Reader Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "plugins/spec-kit-copilot-wizard/**"
+      - "plugins/spec-kit-copilot-sdd/**"
+      - "scripts/canvas-reader/**"
+      - "docs/markdown-artifact-review.md"
+      - ".github/workflows/canvas-reader-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Automated checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader/package-lock.json
+
+      - name: Install locked build dependencies without lifecycle scripts
+        run: |
+          npm ci --ignore-scripts --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install existing Wizard runtime from its lockfile
+        run: |
+          npm ci --prefix ../.. --ignore-scripts --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Audit dependencies
+        run: |
+          npm audit --audit-level=low --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Typecheck configuration
+        run: |
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Lint implemented surfaces
+        run: |
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build without repairing committed payload copies
+        run: |
+          npm run build:reader
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:parser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run verify:package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Reader rendering and security tests
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Wizard and SDD regression and security suites
+        env:
+          CANVAS_READER_REQUIRE_WINDOWS: ${{ runner.os == 'Windows' && '1' || '0' }}
+        run: |
+          node --test "../../test/*.test.mjs" "../../../../../spec-kit-copilot-sdd/extensions/sdd-canvas/tests/*.test.mjs"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Independent payload and read-only security tests
+        run: |
+          npm run test:tools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install isolated Chromium on Linux
+        if: runner.os == 'Linux'
+        run: |
+          npm exec -- playwright install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Actual-shell browser journeys
+        run: |
+          npm run test:browser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload only synthetic preview screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-reader-${{ matrix.os }}-screenshots
+          path: test-results/canvas-reader/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14

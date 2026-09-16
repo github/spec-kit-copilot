@@ -965,9 +965,9 @@ test("splitLines handles LF + CRLF + missing input", () => {
 });
 
 test("repoRelative always emits forward-slashes (JSON-portable)", () => {
-    // Windows-style
-    const winRel = repoRelative("C:\\repo", "C:\\repo\\.specify\\presets\\p\\preset.yml");
-    assert.equal(winRel.includes("\\"), false, `should not contain backslashes: ${winRel}`);
+    const root = join(tmpdir(), "repo");
+    const nativeRelative = repoRelative(root, join(root, ".specify", "presets", "p", "preset.yml"));
+    assert.equal(nativeRelative, ".specify/presets/p/preset.yml");
     // POSIX-style
     const posixRel = repoRelative("/repo", "/repo/.specify/presets/p/preset.yml");
     assert.equal(posixRel, ".specify/presets/p/preset.yml");

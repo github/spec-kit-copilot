@@ -81,6 +81,10 @@ The agent opens the wizard in a side panel. See
   phase in your lifecycle. Each phase corresponds to a command you
   execute — customize the commands in the pipeline, provide input to
   execute them, and view each artifact produced.
+- **Markdown artifact review** — the existing preview includes a heading
+  outline, related-artifact selection, history, and revision-aware refresh.
+  See [Markdown Artifact Review](../../../../docs/markdown-artifact-review.md)
+  for behavior, safety boundaries, and maintainer checks.
 
 ## Opening the dashboard
 

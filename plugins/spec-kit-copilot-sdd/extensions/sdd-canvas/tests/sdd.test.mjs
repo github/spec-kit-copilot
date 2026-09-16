@@ -1,3 +1,15 @@
+test("clarification controls ignore inline code, indented code, tilde fences, and comments", () => {
+    const markdown = [
+        "# Specification", "[NEEDS CLARIFICATION: Real question?]",
+        "`[NEEDS CLARIFICATION: Inline example?]`",
+        "    [NEEDS CLARIFICATION: Indented example?]",
+        "~~~markdown\n[NEEDS CLARIFICATION: Fenced example?]\n~~~",
+        "<!-- [NEEDS CLARIFICATION: Comment example?] -->",
+        "<!--\n[NEEDS CLARIFICATION: Multiline comment?]\n-->",
+    ].join("\n\n");
+    assert.deepEqual(extractClarifications(markdown).map((item) => item.question), ["Real question?"]);
+});
+
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,10 +73,11 @@ test("clarifications retain stable indices across supported markdown blocks", ()
     ]);
 });
 
-test("dashboard gates setup controls and exposes stage status names", () => {
+test("dashboard keeps artifacts visible while setup gates execution and exposes stage status names", () => {
     const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-    assert.match(html, /if \(!setupRequired\) state\.features\.forEach/);
+    assert.match(html, /\n  state\.features\.forEach/);
+    assert.doesNotMatch(html, /if \(!setupRequired\) state\.features\.forEach/);
     assert.match(html, /if \(STATE\?\.prerequisites\?\.setupRequired\) return false/);
     assert.match(html, /p\.setAttribute\("aria-label", text \+ ": " \+ kind\)/);
     assert.match(html, /button\.disabled = Boolean\(STATE\?\.prerequisites\?\.setupRequired\)/);
