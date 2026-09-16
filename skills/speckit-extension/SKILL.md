@@ -1,6 +1,6 @@
 ---
 name: speckit-extension
-description: 'Manage Spec Kit extensions via `specify extension`. USE FOR: installing/removing/updating spec-kit extensions, searching the extension catalog, showing extension info, enabling/disabling extensions, setting extension resolution priority, managing extension catalogs. DO NOT USE FOR: presets (use speckit-preset), bundles (use speckit-bundle), or workflows (use speckit-workflow).'
+description: 'Manage Spec Kit extensions via `specify extension`. USE FOR: listing installed extensions as text or JSON, installing/removing/updating extensions, searching the extension catalog, showing extension info, enabling/disabling extensions, setting resolution priority, or managing extension catalogs. DO NOT USE FOR: artifact composition stacks (use speckit-artifact), presets (use speckit-preset), bundles (use speckit-bundle), or workflows (use speckit-workflow).'
 argument-hint: '<list|add|remove|search|info|update|enable|disable|set-priority|catalog> [extension]'
 ---
 
@@ -23,6 +23,7 @@ group. Extensions add reusable commands/hooks to a spec-kit project.
 ```bash
 # Discover
 specify extension list
+specify extension list --json                 # machine-readable installed inventory (CLI >= 1.0.7)
 specify extension search <query>
 specify extension info <name>
 
@@ -52,6 +53,11 @@ specify extension catalog remove <name>
 ## Notes
 
 - Resolution priority: **lower number = higher precedence** (default `10`).
+- `specify extension list --json` requires Specify CLI **>= 1.0.7** and returns
+  installed extensions only, even when combined with `--available` or `--all`.
+  Each item includes `id`, `name`, `description`, `version`, nullable `author`,
+  `priority`, `enabled`, normalized `source`, and `provides` counts for commands,
+  templates, scripts, and hooks.
 - Prefer `specify extension search` first so you install the correct extension ID.
 - `--dev` is for local development of an extension; point it at the extension's
   source directory.

@@ -37,6 +37,7 @@ runs the CLI.
    - `speckit-cli-setup` → detect/install the `specify` CLI (bootstrap; prerequisite for all others)
    - `speckit-init`    → `specify init` (Copilot only)
    - `speckit-check`   → `specify check`, `specify version`
+   - `speckit-artifact` → `specify artifact …`
    - `speckit-extension` → `specify extension …` (+ `catalog`)
    - `speckit-preset`  → `specify preset …` (+ `catalog`)
    - `speckit-bundle`  → `specify bundle …` (+ `catalog`)
@@ -53,7 +54,8 @@ runs the CLI.
 3. **Plugins are independently versioned and are not pinned to Specify CLI.** The
    core `spec-kit-copilot` plugin targets the
    **latest** `specify` published on PyPI (package `specify-cli`), with a minimum floor
-   of **>= 0.11** for the `bundle` / `workflow step` skills — do **not** hard-pin an
+   of **>= 0.11** for the `bundle` / `workflow step` skills and **>= 1.0.7** for the
+   `artifact` skill and preset/extension JSON inventory — do **not** hard-pin an
    `@vX.Y.Z` install tag in the skills. The plugin's own `version` in `plugin.json` and
    `.github/plugin/marketplace.json` is an **independent** semver that tracks changes to
    the plugin/skills themselves, not the CLI release. Marketplace metadata and each
@@ -124,7 +126,7 @@ toolchains:
    `spec-kit-copilot-assess` unless that plugin changes. Update the README "Versioning"
    note. Keep the `speckit-cli-setup` skill installing the
    **latest** `specify-cli` from PyPI (no `@vX.Y.Z` pin); only touch the `>= 0.11`
-   minimum notes if the floor actually changes.
+   and `>= 1.0.7` minimum notes if the floors actually change.
 4. Reinstall and verify. `copilot plugin install` takes a `plugin@marketplace`,
    `owner/repo`, `owner/repo:path`, or git URL — it does **not** accept a local path.
    After the change is pushed and the marketplace catalog is refreshed
