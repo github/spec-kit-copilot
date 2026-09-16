@@ -873,26 +873,24 @@ export function renderMoreCommandsPanel() {
 }
 
 // Resolve the on-disk markdown path for a command tile, when known.
-// Priority:
-//   1. composition activeLayer.sourcePath (accurate — includes preset overrides).
-//   2. derived preset path from `p.source` + `p.commandName`.
-// Returns null when the file isn't on disk (e.g. synthesized core-only commands).
+// The artifact CLI supplies the winning layer's sourcePath. Returns null when
+// the command has no composition entry or no on-disk source.
 export function commandSourcePath(p) {
     if (!p) return null;
-    const activeLayer = lookupActiveLayer(p.id, p.commandName);
-    if (activeLayer?.sourcePath) return activeLayer.sourcePath;
-    // Derive from `source: "preset:<presetId>"` for preset-only commands
-    // that don't have composition entries (game-narrative extras).
-    if (typeof p.source === "string" && p.source.startsWith("preset:") && p.commandName) {
-        const presetId = p.source.slice("preset:".length).split(":")[0];
-        return `.specify/presets/${presetId}/commands/${p.commandName}.md`;
-    }
-    return null;
+    const activeLayer = lookupActiveLayerForCommand(p);
+    return activeLayer?.sourcePath ?? null;
 }
 
-// Look up the winning composition layer for a command id (either "commands/<name>" or a phase id).
-export function lookupActiveLayer(id, commandName) {
-    const compArtifacts = state.snapshot?.composition?.artifacts ?? [];
+// Look up the winning composition layer for a phase, using phase-discovery
+// semantics: prefer the "commands/<commandName>" artifact, falling back to
+// the phase `id` (either "commands/<name>" or a bare phase id).
+// `snapshot` defaults to the global state snapshot for UI-only callers;
+// snapshot-pure callers (e.g. resolvePipelineEntry) must pass their own so
+// the resolved layer comes from the same snapshot as the rest of the data.
+export function lookupActiveLayerForCommand(p, snapshot = state.snapshot) {
+    const id = p?.id;
+    const commandName = p?.commandName;
+    const compArtifacts = snapshot?.composition?.artifacts ?? [];
     const cmdLookupId = commandName ? `commands/${commandName}` : null;
     const compArtifact =
         (cmdLookupId && compArtifacts.find((a) => a.id === cmdLookupId)) ||

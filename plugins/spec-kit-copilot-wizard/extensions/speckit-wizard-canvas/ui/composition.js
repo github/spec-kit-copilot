@@ -13,6 +13,7 @@ import {
     renderCompositionArtifacts,
     setArtifactRowsDeps,
 } from "./composition-artifacts.js";
+import { parseLookupId } from "./lookup-id.mjs";
 
 // -------- Section: composition/layers.mjs --------
 // Single source of truth for the composition layer-stack order.
@@ -169,9 +170,9 @@ export function computeProviderContributions(artifacts) {
         const seen = new Set();
         for (const layer of a.stack ?? []) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
-            const id = layer.layer === "extension"
-                ? layer.sourceId
-                : layer.presetId;
+            // Hook layers are synthesized locally and have no CLI lookupId.
+            const id = parseLookupId(layer.lookupId)?.providerId
+                ?? layer.sourceId;
             if (!id || seen.has(id)) continue;
             seen.add(id);
             let bucket = out.get(id);
