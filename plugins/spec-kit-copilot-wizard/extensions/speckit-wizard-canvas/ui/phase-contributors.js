@@ -123,8 +123,14 @@ export const buildRow = (kindLabel, parts, extraClass = "", pill = "") => `
         <span class="phase-cust-detail">${joinParts(parts)}${pill ? ` <span class="phase-cust-pill-wrap">${pill}</span>` : ""}</span>
     </div>`;
 
-export const layerOwnerName = (layer) =>
-    layer?.presetName || layer?.extensionName || layer?.presetId || layer?.extensionId || "";
+// Project layers remain in the upstream stack for fidelity, but this UI
+// intentionally scopes contributor ownership to Core, presets, and extensions.
+export const layerOwnerName = (layer) => {
+    if (layer?.layer === "extension") {
+        return layer.extensionName || layer.sourceId || "";
+    }
+    return layer?.presetName || layer?.presetId || "";
+};
 
 // Chain-key builder for the expand/collapse state. Keyed per-phase +
 // kind + bareId so different artifacts don't share state.
@@ -151,7 +157,7 @@ export const contributorPart = (active, bareId, sourcePath, deps) => {
         if (active.layer === "preset") {
             return `<span class="phase-cust-part-label">PRESET:</span> ${contributorLinkHtml("preset", active.presetId)}`;
         }
-        return `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", active.presetId, active.presetName)}`;
+        return `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", active.sourceId, layerOwnerName(active))}`;
     }
     const path = sourcePath || active.sourcePath || "";
     const nameHtml = path
@@ -186,7 +192,7 @@ export const commandContributorPartsFor = (active, bareCommand, skillPath, deps)
     if (active.layer === "extension") {
         return [
             skillChip,
-            `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", active.presetId, active.presetName)}`,
+            `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", active.sourceId, layerOwnerName(active))}`,
         ];
     }
     return [skillChip];
@@ -213,7 +219,7 @@ export const layerRowPartsFor = (layer, { sourcePath, bareId, sourceLabel = "SOU
     if (layer?.layer === "preset") {
         contributorChip = `<span class="phase-cust-part-label">PRESET:</span> ${contributorLinkHtml("preset", layer.presetId, layer.presetName)}`;
     } else if (layer?.layer === "extension") {
-        contributorChip = `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", layer.presetId, layer.presetName)}`;
+        contributorChip = `<span class="phase-cust-part-label">EXTENSION:</span> ${contributorLinkHtml("extension", layer.sourceId, layerOwnerName(layer))}`;
     } else if (layer?.layer === "core") {
         contributorChip = `<span class="phase-cust-part-label">CORE</span>`;
     }

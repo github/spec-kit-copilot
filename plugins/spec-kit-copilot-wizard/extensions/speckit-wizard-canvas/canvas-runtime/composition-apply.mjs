@@ -10,7 +10,8 @@
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { applyPatch, writeState, readState, validateInferredPipeline, activeFingerprint, normalizeExecutionReports } from "../state/store.mjs";
-import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { buildCompositionFromCli } from "../composition/artifact-cli.mjs";
+import { computePipelineFastPath } from "../composition/pipeline-fast-path.mjs";
 import { fsDeps } from "./instances.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -74,47 +75,44 @@ function normalizeCompositionCatalogItems(items, knownItems) {
 
 export function normalizeHookArtifactsInComposition(composition) {
     if (!composition || !Array.isArray(composition.artifacts)) return composition;
-    const commandIds = new Set(
-        composition.artifacts
-            .filter((artifact) => artifact?.kind === "command")
-            .map((artifact) => artifact.id),
-    );
     const commandByProvider = new Map();
     for (const artifact of composition.artifacts) {
         if (artifact?.kind !== "command") continue;
         const active = artifact.stack?.find((layer) => layer?.active);
-        const provider = active?.extensionId ?? active?.presetId;
+        const provider = active?.layer === "extension"
+            ? active.sourceId
+            : active?.presetId;
         if (!provider || !String(artifact.id).startsWith("commands/speckit.")) continue;
         if (!commandByProvider.has(provider)) commandByProvider.set(provider, artifact);
     }
-    const artifacts = composition.artifacts
-        .filter((artifact) => {
-            // Mixed preset manifests may be incorrectly echoed by the
-            // composition extractor as both a command and a template. The
-            // command artifact is authoritative when the IDs correspond.
-            if (artifact?.kind !== "template") {
-                return true;
-            }
-            const templateId = String(artifact.id).replace(/^templates\//, "");
-            return !commandIds.has(`commands/${templateId}`);
-        })
-        .map((artifact) => {
-            if (artifact?.kind !== "hook") return artifact;
-            const active = artifact.stack?.find((layer) => layer?.active);
-            const provider = active?.extensionId ?? active?.presetId;
-            const target = provider ? commandByProvider.get(provider) : null;
-            if (!target) return artifact;
-            const targetCommand = target.id.replace(/^commands\//, "");
-            const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
-                ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
-                : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
-            return {
-                ...artifact,
-                id: target.id,
-                hookBindings: bindings,
-                hookBinding: bindings[0],
-            };
-        });
+    const artifacts = composition.artifacts.map((artifact) => {
+        if (artifact?.kind !== "hook") return artifact;
+        const ownCommand = String(artifact.id).replace(/^commands\//, "");
+        const existingBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+            ? artifact.hookBindings
+            : [artifact.hookBinding].filter(Boolean);
+        const hasAuthoritativeTarget = existingBindings.some((binding) =>
+            typeof binding?.targetCommand === "string"
+            && binding.targetCommand.replace(/^commands\//, "") === ownCommand);
+        if (hasAuthoritativeTarget) return artifact;
+
+        const active = artifact.stack?.find((layer) => layer?.active);
+        const provider = active?.layer === "extension"
+            ? active.sourceId
+            : active?.presetId;
+        const target = provider ? commandByProvider.get(provider) : null;
+        if (!target) return artifact;
+        const targetCommand = target.id.replace(/^commands\//, "");
+        const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+            ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
+            : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
+        return {
+            ...artifact,
+            id: target.id,
+            hookBindings: bindings,
+            hookBinding: bindings[0],
+        };
+    });
     return { ...composition, artifacts };
 }
 
@@ -266,50 +264,43 @@ export async function applyComposition(inst, input) {
     };
 }
 
-// Deterministic composition refresh from local filesystem — no LLM.
-//
-// TEMPORARY. Delete this helper + every call site once `specify composition
-// list --json` returns fully-resolved artifact stacks with per-layer
-// `active: true` markers. At that point the LLM `composition.refresh`
-// collapses to a single-line CLI call and the "slow LLM path" this helper
-// works around ceases to exist.
+// Deterministic composition refresh — uses the complete payload from a
+// single `specify artifact list --json` call via composition/artifact-cli.mjs.
 //
 // Purpose: after any catalog change (preset/extension install, remove,
-// swap, priority change) the composition needs to be rebuilt. This
-// helper rebuilds `{ presets, extensions, artifacts }` locally in
-// milliseconds by reading manifests directly — the LLM Stage 1 turn is
-// retired entirely.
+// swap, priority change) the composition needs to be rebuilt. This helper
+// rebuilds `{ presets, extensions, artifacts }` from the CLI in
+// milliseconds — no LLM Stage 1 turn required.
 //
-// Trivial Stage 2 shortcut: `computeStage2Necessity` inspects the freshly
-// assembled composition and decides whether the LLM Stage 2 pipeline
-// inference is actually needed. When it isn't (no new commands, no
-// wraps/prepends/appends directives), we synthesize `inferredPipeline`
-// from the canonical spine here. When it IS needed, we skip pipeline
-// synthesis and the prior `inferredPipeline` carries forward until the
-// user clicks Refresh Now on the Composition tab to invoke the LLM path.
+// Trivial pipeline shortcut: `computePipelineFastPath` inspects the freshly
+// assembled composition and decides whether an LLM pipeline-inference turn
+// is needed. When it isn't (no new commands, no wrap/prepend/append
+// directives), we synthesize `inferredPipeline` from the canonical
+// spine here. When we can't fast-path, we skip pipeline synthesis and the
+// prior `inferredPipeline` carries forward until the user clicks Refresh
+// Now on the Composition tab to invoke the LLM path.
 //
 // Runs silently on catalog changes — failures degrade to a warn log and
 // leave the composition slice alone.
 export async function runFastComposition(inst, { reason } = {}) {
     if (!inst?.workspacePath) return { ok: false, reason: "no-workspace" };
     try {
-        const payload = await assembleComposition({
+        const payload = await buildCompositionFromCli({
             workspaceRoot: inst.workspacePath,
             presetItems: inst.cachedPresetItems ?? [],
             extensionItems: inst.cachedExtensionItems ?? [],
         });
-        // `_presetManifests` is a side channel used only for Stage 2
-        // necessity detection — never persisted.
-        const presetManifests = payload._presetManifests ?? [];
-        delete payload._presetManifests;
-
-        const stage2 = computeStage2Necessity(payload, presetManifests);
-        if (!stage2.needed && stage2.syntheticPipeline) {
-            payload.inferredPipeline = stage2.syntheticPipeline;
+        const fastPath = computePipelineFastPath(payload);
+        if (fastPath.canSynthesize) {
+            payload.inferredPipeline = fastPath.syntheticPipeline;
         }
 
         await applyComposition(inst, payload);
-        return { ok: true, reason, stage2Needed: stage2.needed };
+        return {
+            ok: true,
+            reason,
+            pipelineFastPath: fastPath.canSynthesize,
+        };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
     }

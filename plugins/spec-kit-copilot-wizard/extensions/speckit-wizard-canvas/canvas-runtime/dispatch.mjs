@@ -105,7 +105,7 @@ export async function dispatchKindPrompt(inst, kind, payload) {
     // (novel commands, wraps/prepends/appends directives, etc.).
     if (kind === "composition.refresh") {
         const fast = await runFastComposition(inst, { reason: "refresh-button" });
-        if (fast?.ok && !fast.stage2Needed) {
+        if (fast?.ok && fast.pipelineFastPath) {
             return { kind, fastComposition: true };
         }
         // Stage 2 needed — fall through and dispatch the LLM prompt below.

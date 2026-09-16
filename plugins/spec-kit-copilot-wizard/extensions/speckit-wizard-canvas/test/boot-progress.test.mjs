@@ -18,7 +18,7 @@ function harness() {
 test("BOOT_STEPS enumerates the expected ordered steps", () => {
     assert.deepEqual(
         BOOT_STEPS.map((s) => s.id),
-        ["workspace", "deps-check", "deps-install", "env-probe", "catalog", "ready"],
+        ["workspace", "deps-check", "deps-install", "env-probe", "catalog", "composition", "ready"],
     );
 });
 

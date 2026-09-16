@@ -75,6 +75,14 @@
     pointer-events: none;
 }
 
+/* Hide the app body from the very first paint so the overlay owns the
+   screen until the boot module explicitly restores visibility. Without
+   this, a slow JS parse can flash the (empty) app body before the
+   overlay sits on top. */
+main.app-body {
+    visibility: hidden;
+}
+
 .boot-panel {
     width: 100%;
     max-width: 520px;

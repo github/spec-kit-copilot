@@ -46,8 +46,15 @@ export const BUNDLE_CATALOG_URL = {
     community: "https://raw.githubusercontent.com/github/spec-kit/main/bundles/catalog.community.json",
 };
 
-export async function fetchCatalogJson(url) {
-    const res = await fetch(url, { redirect: "follow" });
+export async function fetchCatalogJson(url, { timeoutMs = 15_000 } = {}) {
+    // Guard against indefinite hangs. Without a signal, a stalled socket
+    // (slow DNS, TCP RST loss, CDN outage) blocks the caller forever —
+    // which is fatal for boot because hydrateCatalogs awaits each fetch
+    // before continuing. 15s is generous for a static GitHub raw file.
+    const res = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(timeoutMs),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return res.json();
 }
