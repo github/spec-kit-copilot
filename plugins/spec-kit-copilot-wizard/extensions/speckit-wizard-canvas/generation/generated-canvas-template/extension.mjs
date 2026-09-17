@@ -1,5 +1,5 @@
 // speckit-generated-workflow-template v1
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile, readdir, lstat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -307,6 +307,7 @@ async function snapshot(inst) {
     const phaseInputs = Object.fromEntries(pipeline.pipeline.steps.map((phase) => [phase.instanceKey, adapter.phaseInput(phase)]));
     const constitution = commands.constitution ? await inspectConstitution(inst.cwd, pipeline) : null;
     return {
+        clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup: await setupStatus(inst),
         ...(constitution ? { projectArtifacts: { constitution } } : {}),
     };

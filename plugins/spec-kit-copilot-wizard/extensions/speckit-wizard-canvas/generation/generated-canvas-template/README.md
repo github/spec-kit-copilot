@@ -74,7 +74,7 @@ Unavailable or oversized artifacts retain HTTP status 413; other failed requests
 
 ## Project Constitution (when selected)
 
-Template version 10 supports optional `projectArtifacts.constitution`, referencing
+Template version 11 supports optional `projectArtifacts.constitution`, referencing
 the exact selected `speckit.constitution` instance key with `required: true`.
 The complete source command remains in `pipeline.steps`, setup's required skills,
 and `workflow-config.json` phase input keys. The shared protected
@@ -119,9 +119,35 @@ pipeline. When the descriptor is absent, there is no Constitution surface, read,
 or gate—even if an existing Constitution file is present. Legacy snapshots are
 not retrofitted implicitly.
 
+## Artifact clarifications
+
+The Markdown viewer recognizes the Wizard's case-insensitive
+`[NEEDS CLARIFICATION: question]` markers, including multiline questions.
+**Clarify** opens an answer editor; **Queue answer** stages the answer and
+**Answered ✓** lets you edit it. Code examples and links stay non-interactive,
+and artifact HTML remains escaped.
+
+Only **Apply and Rerun**, followed by the normal rerun confirmation, submits
+answers through `/api/run` using the exact captured phase and workflow item.
+The request includes the artifact path and question/answer pairs in phase input,
+preserving previous submitted guidance. Constitution uses its captured project
+phase with no workflow item or slug. Installation approval, setup and Constitution
+prerequisites are unchanged.
+
+Viewing, polling, queuing the last answer and going Back never dispatch a phase.
+Back retains answers. Browser-local drafts are keyed by workspace/canvas, item
+(or project), exact phase key and artifact path, not the currently selected item.
+They survive viewer navigation and same-origin page reloads; browser storage
+restrictions or a new loopback origin can limit persistence.
+Cancellation, gate rejection and failed sends keep answers. Setup-queued responses
+also retain a draft because later setup or prerequisite checks may fail; the
+normal runtime owns any queued execution. A successful direct submission removes
+only the answer revisions actually sent, preserving edits/additions made in flight.
+
 ## Files
 
 - `pipeline.json` — immutable generated workflow definition.
+- `ui/clarifications.mjs` — protected marker parsing and scoped answer queue.
 - `workflow-config.json` — validated workflow labels, fixed phase arguments, and input guidance inferred from effective installed skills.
 - `workflow-adapter.mjs` — protected interpretation of that configuration; never generated executable logic.
 - `setup-runtime.mjs` — deterministic read-only readiness checks and agent setup prompt.

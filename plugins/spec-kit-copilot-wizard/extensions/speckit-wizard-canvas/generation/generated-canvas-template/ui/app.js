@@ -1,5 +1,6 @@
 import { renderMarkdown } from "./markdown.mjs";
 import { commandViews } from "./command-views.mjs";
+import { createClarificationQueue } from "./clarifications.mjs";
 
 const RUN_ACK_MS = 15 * 1000;
 const state = {
@@ -15,7 +16,10 @@ const state = {
     installationSources: new Set(),
     phaseDrafts: new Map(),
     constitutionDraft: "",
+    lastSubmitted: new Map(),
+    artifactView: null,
 };
+const clarifications = createClarificationQueue(globalThis.localStorage);
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
@@ -168,7 +172,7 @@ function renderConstitution() {
         : "Define the project principles before running workflow phases.");
     panel.innerHTML = `<div class="constitution-summary"><h2>Constitution <span class="muted">${esc(label)}</span></h2><p id="constitution-prerequisite" ${status?.state === "error" ? 'role="alert"' : 'role="status"'}>${esc(message)}</p></div>
         <div class="constitution-actions"><button class="btn btn-secondary" id="view-constitution" type="button" ${status?.viewable ? "" : "disabled"}>View</button><button class="btn btn-secondary" id="run-constitution" type="button">Create / update</button></div>`;
-    $("view-constitution")?.addEventListener("click", () => openArtifact(status.path));
+    $("view-constitution")?.addEventListener("click", () => openArtifact(status.path, constitution));
     $("run-constitution")?.addEventListener("click", () => openConstitutionDialog(constitution));
 }
 
@@ -213,6 +217,7 @@ function openConstitutionDialog(step) {
                 body: JSON.stringify({ phase: step.instanceKey, args: input.value }),
             });
             if (result.ok === false) throw new Error(result.error || "Constitution could not run.");
+            state.lastSubmitted.set(`project:${step.instanceKey}`, input.value);
             close();
             await refresh();
         } catch (error) {
@@ -314,7 +319,7 @@ function renderPhaseCard() {
         updateWritesTo(step, item);
     });
     $("run-phase")?.addEventListener("click", () => runPhase(step, completed));
-    $("view-artifact")?.addEventListener("click", () => openArtifact(artifact));
+    $("view-artifact")?.addEventListener("click", () => openArtifact(artifact, step, item));
     $("browse-output-folder")?.addEventListener("click", revealOutputFolder);
     $("previous-phase")?.addEventListener("click", () => {
         if (state.current > 0) {
@@ -374,6 +379,7 @@ async function runPhase(step, completed) {
             return;
         }
         if (result.ok === false) throw new Error(result.error || "Workflow could not run.");
+        state.lastSubmitted.set(runKey, args);
         if (phaseRunKey(step) !== runKey) {
             if (state.runningPhase === runKey) state.runningPhase = null;
             return;
@@ -391,20 +397,30 @@ async function runPhase(step, completed) {
         renderPhaseCard();
         $("phase-message").innerHTML = `<div class="workflow-error">${esc(error.message)}</div>`;
     }
+}
 
-    function confirmRerun(step) {
-        return new Promise((resolve) => {
-            const root = $("modal-root");
-            root.innerHTML = `<div class="wizard-modal-backdrop"><section class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="rerun-title">
-                <header class="wizard-modal-head"><h3 id="rerun-title">Run ${esc(step.label)} again?</h3></header>
-                <div class="wizard-modal-body"><p>Existing output may be replaced and completed downstream phases will be marked stale.</p></div>
-                <footer class="wizard-modal-foot"><button class="btn btn-secondary" data-answer="cancel" type="button">Cancel</button><button class="btn btn-primary" data-answer="confirm" type="button">Run again</button></footer>
-            </section></div>`;
-            const finish = (value) => { root.innerHTML = ""; resolve(value); };
-            root.querySelector('[data-answer="cancel"]').addEventListener("click", () => finish(false));
-            root.querySelector('[data-answer="confirm"]').addEventListener("click", () => finish(true));
-        });
-    }
+function confirmRerun(step, projectScoped = false) {
+    return new Promise((resolve) => {
+        const root = $("modal-root");
+        root.innerHTML = `<div class="wizard-modal-backdrop"><section class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="rerun-title">
+            <header class="wizard-modal-head"><h3 id="rerun-title">Run ${esc(step.label)} again?</h3></header>
+            <div class="wizard-modal-body"><p>${projectScoped ? "Existing project Constitution content may be replaced." : "Existing output may be replaced and completed downstream phases will be marked stale."}</p></div>
+            <footer class="wizard-modal-foot"><button class="btn btn-secondary" data-answer="cancel" type="button">Cancel</button><button class="btn btn-primary" data-answer="confirm" type="button">Run again</button></footer>
+        </section></div>`;
+        const cancel = root.querySelector('[data-answer="cancel"]');
+        const confirm = root.querySelector('[data-answer="confirm"]');
+        const finish = (value) => { root.innerHTML = ""; root.onkeydown = null; resolve(value); };
+        cancel.addEventListener("click", () => finish(false));
+        confirm.addEventListener("click", () => finish(true));
+        cancel.focus?.();
+        root.onkeydown = (event) => {
+            if (event.key === "Escape") { event.preventDefault(); finish(false); }
+            if (event.key === "Tab") {
+                if (event.shiftKey && document.activeElement === cancel) { event.preventDefault(); confirm.focus?.(); }
+                else if (!event.shiftKey && document.activeElement === confirm) { event.preventDefault(); cancel.focus?.(); }
+            }
+        };
+    });
 }
 
 function confirmWorkflowDeletion(item) {
@@ -454,14 +470,125 @@ async function revealOutputFolder(event) {
     }
 }
 
-async function openArtifact(path) {
+async function openArtifact(path, step, item = selectedItem()) {
+    const projectScoped = step === commandViews(state.snapshot?.pipeline).constitution;
+    const context = Object.freeze({
+        scope: state.snapshot?.clarificationScope,
+        phase: step.instanceKey,
+        artifact: path,
+        ...(!projectScoped ? { itemId: item?.id ?? null } : {}),
+    });
+    const view = {
+        context, step, projectScoped, marks: [],
+        runKey: projectScoped ? `project:${step.instanceKey}` : phaseRunKey(step, item),
+    };
+    state.artifactView = view;
     try {
         const result = await json(`/api/artifact?path=${encodeURIComponent(path)}`);
-        $("artifact-viewer").innerHTML = `<header class="artifact-viewer-header"><button class="btn btn-secondary" id="close-artifact" type="button">Back</button><strong>${esc(path)}</strong></header><div class="artifact-viewer-body"><div class="artifact-viewer-md">${renderMarkdown(result.content)}</div></div>`;
+        if (state.artifactView !== view) return;
+        $("artifact-viewer").innerHTML = `<header class="artifact-viewer-header"><button class="btn btn-secondary" id="close-artifact" type="button">Back</button><strong>${esc(path)}</strong></header><div class="artifact-viewer-clarify-banner" id="clarification-banner" hidden></div><div class="artifact-viewer-body"><div class="artifact-viewer-md">${renderMarkdown(result.content, { clarifications: view.marks })}</div></div>`;
         $("artifact-viewer").hidden = false;
-        $("close-artifact").addEventListener("click", () => { $("artifact-viewer").hidden = true; });
+        $("close-artifact").addEventListener("click", () => {
+            state.artifactView = null;
+            $("artifact-viewer").hidden = true;
+        });
+        $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
+            button.addEventListener("click", () => openClarification(view, view.marks[Number(button.dataset.clarifyIdx)].question, button));
+        });
+        refreshClarifications(view);
     } catch (error) {
-        globalThis.alert(error.message);
+        if (state.artifactView === view) globalThis.alert(error.message);
+    }
+}
+
+function refreshClarifications(view, message = "") {
+    if (state.artifactView !== view) return;
+    const answers = clarifications.list(view.context);
+    const pending = clarifications.isPending(view.context) || state.runningPhase === view.runKey;
+    $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
+        const answer = answers.find((entry) => entry.question === view.marks[Number(button.dataset.clarifyIdx)].question);
+        button.textContent = answer ? "Answered ✓" : "Clarify";
+        button.title = answer?.answer ?? "";
+    });
+    const banner = $("clarification-banner");
+    banner.hidden = !answers.length && !message;
+    banner.innerHTML = `<span role="status">${esc(message || `${answers.length} clarification${answers.length === 1 ? "" : "s"} queued. Answers stay here until you apply them.`)}</span>${answers.length ? `<button class="btn btn-primary btn-sm" id="apply-clarifications" type="button" ${pending ? "disabled" : ""}>${pending ? "Applying…" : "Apply and Rerun"}</button>` : ""}`;
+    $("apply-clarifications")?.addEventListener("click", () => applyClarifications(view));
+}
+
+function openClarification(view, question, trigger) {
+    const root = $("modal-root");
+    root.innerHTML = `<div class="wizard-modal-backdrop"><section class="wizard-modal constitution-dialog" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
+        <header class="wizard-modal-head"><h3 id="clarification-title">Resolve clarification</h3></header>
+        <div class="wizard-modal-body"><p id="clarification-question">${esc(question)}</p>
+        <label class="field" for="clarification-answer"><span class="field-label">Answer</span><textarea class="phase-input-control" id="clarification-answer" aria-describedby="clarification-question"></textarea></label><p class="muted">Queue your answer, then choose Apply and Rerun when ready.</p></div>
+        <footer class="wizard-modal-foot"><button class="btn btn-secondary" id="cancel-clarification" type="button">Cancel</button><button class="btn btn-primary" id="queue-clarification" type="button">Queue answer</button></footer>
+        </section></div>`;
+    const input = $("clarification-answer");
+    const queue = $("queue-clarification");
+    input.value = clarifications.list(view.context).find((entry) => entry.question === question)?.answer ?? "";
+    const update = () => { queue.disabled = !input.value.trim(); };
+    input.addEventListener("input", update);
+    update();
+    input.focus?.();
+    const close = () => {
+        root.innerHTML = "";
+        root.onkeydown = null;
+        if (state.artifactView === view) trigger.focus?.();
+    };
+    $("cancel-clarification").addEventListener("click", close);
+    root.onkeydown = (event) => {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+        if (event.key === "Tab") {
+            const controls = [input, $("cancel-clarification"), queue].filter((element) => !element.disabled);
+            if (event.shiftKey && document.activeElement === controls[0]) {
+                event.preventDefault(); controls.at(-1).focus?.();
+            } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+                event.preventDefault(); controls[0].focus?.();
+            }
+        }
+    };
+    queue.addEventListener("click", () => {
+        if (!input.value.trim()) return;
+        clarifications.queue(view.context, question, input.value.trim());
+        close();
+        refreshClarifications(view);
+    });
+}
+
+async function applyClarifications(view) {
+    if (state.runningPhase === view.runKey || clarifications.isPending(view.context)) return;
+    try {
+        const submission = clarifications.flush(view.context, {
+            confirm: () => confirmRerun(view.step, view.projectScoped),
+            baseArgs: state.lastSubmitted.get(view.runKey),
+            dispatch: (input) => json("/api/run", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(input),
+            }),
+        });
+        refreshClarifications(view);
+        const outcome = await submission;
+        if (!outcome.accepted) {
+            if (outcome.result?.approvalRequired || outcome.result?.code === "constitution_required") await refresh();
+            refreshClarifications(view, outcome.cancelled ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
+            return;
+        }
+        state.submitted.add(view.runKey);
+        if (!outcome.result.queued) state.lastSubmitted.set(view.runKey, outcome.args);
+        state.runningPhase = view.runKey;
+        if (state.runTimer) clearTimeout(state.runTimer);
+        state.runTimer = setTimeout(() => {
+            if (state.runningPhase === view.runKey) state.runningPhase = null;
+            state.runTimer = null;
+            renderPhaseCard();
+            if (state.artifactView) refreshClarifications(state.artifactView);
+        }, RUN_ACK_MS);
+        state.runTimer.unref?.();
+        renderPhaseCard();
+        refreshClarifications(view, outcome.result.queued ? "Clarification rerun queued for setup. Answers retained as a draft." : "Clarification rerun submitted.");
+    } catch (error) {
+        refreshClarifications(view, `${error.message} Your queued answers were preserved.`);
     }
 }
 

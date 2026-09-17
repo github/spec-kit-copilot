@@ -168,7 +168,17 @@ Traversal and symlink/junction paths are rejected. Named Markdown artifacts such
 SDD checklists use a deterministic newest-file selection within their declared folder.
 Configuration validation rejects unsupported behavior instead of executing generated
 JavaScript or silently substituting defaults. These rules ship in new template
-snapshots (version 10); existing generated apps are not rewritten automatically.
+snapshots (version 11); existing generated apps are not rewritten automatically.
+
+Generated Markdown artifacts now expose the Wizard's **Clarify** / **Answered ✓**
+controls for `[NEEDS CLARIFICATION: …]` markers outside code examples and links.
+Answers are staged per workspace/canvas, workflow item (or project Constitution),
+exact phase and artifact. Only **Apply and Rerun** plus confirmation dispatches the
+captured phase through the normal approval/setup/Constitution gates. Viewing,
+polling, answering and Back never dispatch. Back, cancellation, failed/gated sends
+and setup-queued responses retain drafts; direct success clears only unchanged
+submitted revisions, keeping concurrent edits. Browser-local draft persistence is
+limited to the same loopback origin. The existing viewer and modal theme is retained.
 
 Generation automatically supports multiple workflow instances when the pipeline
 has a shared slug-scoped artifact root. The popup no longer offers an instance-mode

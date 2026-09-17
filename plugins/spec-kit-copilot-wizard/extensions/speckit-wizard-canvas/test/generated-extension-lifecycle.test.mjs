@@ -97,6 +97,35 @@ async function loadGeneratedExtension(root, sdk, {
 }
 
 describe("generated extension setup lifecycle", () => {
+    test("clarification draft scope is stable across panels and isolated by workspace and canvas", async () => {
+        const root = await mkdtemp(join(here, ".generated-lifecycle-"));
+        roots.push(root);
+        const first = join(root, "first"), second = join(root, "second");
+        await Promise.all([mkdir(first), mkdir(second)]);
+        let canvas;
+        const sent = [];
+        await loadGeneratedExtension(root, {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async (input) => sent.push(input),
+                rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                log: async () => {},
+            }),
+        }, { setup: { requiresSpecKit: false, requiredSkills: [], presets: [], extensions: [] } });
+        const readScope = async (instanceId, cwd, extensionId = "project:clarification-scope") => {
+            const opened = await canvas.open({ instanceId, extensionId, canvasId: "scope", input: { cwd } });
+            const url = new URL(opened.url);
+            url.pathname = "/api/state";
+            return (await (await fetch(url)).json()).clarificationScope;
+        };
+        const scope = await readScope("first-panel", first);
+        assert.match(scope, /^[a-f0-9]{64}$/);
+        assert.equal(await readScope("second-panel", first), scope);
+        assert.notEqual(await readScope("other-workspace", second), scope);
+        assert.notEqual(await readScope("other-canvas", first, "project:other-canvas"), scope);
+        assert.equal(sent.filter(({ prompt }) => prompt.startsWith("/skill:")).length, 0, "snapshot reads do not dispatch phases");
+    });
+
     test("HTTP dispatch and reload failures never expose thrown SDK details", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);

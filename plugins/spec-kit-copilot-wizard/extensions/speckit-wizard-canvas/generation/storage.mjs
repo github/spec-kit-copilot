@@ -20,7 +20,7 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 10;
+const TEMPLATE_VERSION = 11;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
@@ -33,6 +33,7 @@ const TEMPLATE_FILES = [
     ["generated-canvas-template/ui/index.html", "template/ui/index.html"],
     ["generated-canvas-template/ui/app.js", "template/ui/app.js"],
     ["generated-canvas-template/ui/markdown.mjs", "template/ui/markdown.mjs"],
+    ["generated-canvas-template/ui/clarifications.mjs", "template/ui/clarifications.mjs"],
     ["generated-canvas-template/ui/command-views.mjs", "template/ui/command-views.mjs"],
     ["../workflow-ui/workflow-theme.css", "template/ui/workflow-theme.css"],
     ["../workflow-ui/stepper.mjs", "template/ui/stepper.mjs"],
@@ -46,6 +47,7 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "workspace-files.mjs",
     "ui/app.js",
     "ui/markdown.mjs",
+    "ui/clarifications.mjs",
     "ui/command-views.mjs",
     "ui/workflow-theme.css",
     "ui/stepper.mjs",
@@ -193,6 +195,7 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
         "ui/index.html",
         "ui/app.js",
         "ui/markdown.mjs",
+        "ui/clarifications.mjs",
         "ui/command-views.mjs",
         "ui/workflow-theme.css",
         "ui/stepper.mjs",

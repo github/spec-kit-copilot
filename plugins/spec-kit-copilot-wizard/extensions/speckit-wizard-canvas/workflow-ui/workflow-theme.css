@@ -412,6 +412,9 @@ code, pre { font-family: var(--font-mono); }
 }
 .artifact-viewer-header { display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.5rem; background: var(--background-color-elevated); border-bottom: 1px solid var(--border-color-default); }
 .artifact-viewer-body { flex: 1; overflow: auto; padding: 1.25rem 2rem; }
+#artifact-viewer .artifact-viewer-clarify-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--border-color-default); }
+#artifact-viewer .clarify-marker { color: inherit; background: var(--background-color-secondary); }
+#artifact-viewer .clarify-pill { vertical-align: baseline; }
 .artifact-viewer-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .artifact-viewer-md { max-width: 75ch; margin: 0 auto; line-height: 1.6; }
 .artifact-viewer-md > :first-child { margin-top: 0; }
