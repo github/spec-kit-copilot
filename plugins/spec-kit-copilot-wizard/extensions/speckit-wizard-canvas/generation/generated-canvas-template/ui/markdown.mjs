@@ -9,7 +9,8 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
 export function renderMarkdown(source) {
     const lines = String(source ?? "")
         .replace(/\r\n?/g, "\n")
-        .replace(/<!--[\s\S]*?-->/g, "")
+        // Separate fragments so hiding comments cannot recreate markup; esc still handles HTML safety.
+        .replace(/<!--[\s\S]*?-->/g, " ")
         .split("\n");
     const html = [];
     let index = 0;
