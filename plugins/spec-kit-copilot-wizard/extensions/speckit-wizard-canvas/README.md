@@ -119,9 +119,10 @@ pipeline data are deterministic rather than LLM-authored. Before extension reloa
 the request-local materializer's `--validate` mode verifies code hashes, metadata
 substitutions, blueprint equality, and the configuration schema; the result callback
 also validates the output. These are static integrity checks, not workflow tests.
-Production generation does not open the generated canvas, run test suites or browser
-automation, probe actions, install components, or execute/queue phases. Opening the
-canvas can trigger setup, so first open and workflow execution are left to the user.
+Production generation does not run test suites or browser automation, probe actions,
+install components, or execute/queue phases. After reporting success, the agent opens
+the generated canvas once as the final user handoff and stops without interacting
+with it. The canvas's normal automatic setup-on-open behavior is unchanged.
 The provider is inspected only for load status after reload. The result is
 written to:
 

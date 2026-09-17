@@ -13,6 +13,11 @@ export function buildGenerationPrompt({ request, callbackUrl }) {
         instanceId: callbackInstanceId,
         input: { cwd: request.workspacePath },
     });
+    const generatedOpen = JSON.stringify({
+        canvasId: request.metadata.extensionId,
+        instanceId: `generated-handoff-${request.requestId}`,
+        input: { cwd: request.workspacePath },
+    });
     return [
         "Generate the project-scoped Copilot canvas described by the deterministic Spec Kit Wizard request.",
         `Request file: ${request.requestFile}`,
@@ -21,7 +26,7 @@ export function buildGenerationPrompt({ request, callbackUrl }) {
         "",
         "Required workflow (do not skip or substitute steps):",
         "1. Invoke /create-canvas for authoring guidance only. This production generation task does not authorize its runtime validation checklist or any testing.",
-        "Generation boundary: create and statically check the extension, load it, and report the result. Do not run tests, browser automation, smoke tests, action probes, invalid-input checks, or reserved-action checks. Do not invoke any workflow skill, execute or queue any phase (including Constitution), install components, change consent, or create sample workflow artifacts.",
+        "Generation boundary: create and statically check the extension, load it, report the result, then open the generated canvas once as the final user handoff and stop. Do not run tests, browser automation, smoke tests, action probes, invalid-input checks, or reserved-action checks. Do not invoke any workflow skill, execute or queue any phase (including Constitution), install components, change consent, or create sample workflow artifacts.",
         "2. Call extensions_manage with operation \"guide\" before writing extension code.",
         request.overwrite
             ? `3. Overwrite was explicitly authorized. Remove only the existing \"${request.target.relativeDirectory}\" directory, then scaffold a project canvas extension named \"${request.metadata.extensionId}\" with extensions_manage operation \"scaffold\", kind \"canvas\", location \"project\".`
@@ -52,9 +57,10 @@ export function buildGenerationPrompt({ request, callbackUrl }) {
         "   Keep command order and skill invocations byte-for-byte as specified. The deterministic app exposes list_items, setup_workflow, reloadSessionSkills, run_phase, and blueprint-gated delete_workflow.",
         `6. Before loading any generated code, validate the output: node "${request.requestFile.replace(/request\.json$/, "materialize-template.mjs")}" --request "${request.requestFile}" --target "${request.target.relativeDirectory}" --validate. This checks protected code hashes, blueprint equality, and configuration schema. On failure stop and report failed; do not reload the extension. Only after validation succeeds, reload extensions with extensions_reload.`,
         `7. Inspect the extension with extensions_manage operation \"inspect\", name \"${request.metadata.extensionId}\".`,
-        "8. Do not open the generated canvas during generation: opening it can trigger automatic setup. Do not call its actions or HTTP endpoints, including list_items, setup_workflow, reloadSessionSkills, run_phase, or delete_workflow. Leave first open, installation approval, setup, and workflow execution to the user after generation. Read-only provider inspection in step 7 is a load-status check, not a runtime test; report a failed provider instead of exercising it.",
+        "8. Do not exercise the generated canvas. Do not call its actions or HTTP endpoints, including list_items, setup_workflow, reloadSessionSkills, run_phase, or delete_workflow. Read-only provider inspection in step 7 is a load-status check, not a runtime test; report a failed provider instead of exercising it. The only generated-canvas interaction permitted is the final open in step 11. Normal runtime setup-on-open behavior is unchanged, but this generation task must not drive setup, approve installation, or execute phases.",
         `9. Because reload may replace the Wizard server URL, call open_canvas with ${callbackOpen}, use the returned URL's origin and token to POST /api/generation/report. If the Wizard URL did not change, ${callbackUrl} is also valid.`,
         `10. Send JSON {\"requestId\":\"${request.requestId}\",\"state\":\"succeeded\",\"message\":\"...\"}. Success is valid only after the deterministic template, pipeline.json, workflow-config.json, and validation passed. On any failure send state \"failed\" and an \"error\" string.`,
+        `11. Only after successful generation reporting, call open_canvas with ${generatedOpen} to present the new canvas to the user, then stop. Do not click controls, inspect rendered content, invoke actions, run tests, or execute phases afterward. If opening fails, report that the canvas was generated but could not be opened, include the error without credentials, and stop; do not regenerate or troubleshoot by running workflow actions.`,
         "",
         "Pipeline:",
         steps,

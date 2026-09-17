@@ -89,7 +89,15 @@ describe("generation server lifecycle", () => {
             assert.match(prompt, /does not authorize its runtime validation checklist or any testing/);
             assert.match(prompt, /Do not run tests, browser automation, smoke tests, action probes/);
             assert.match(prompt, /Do not invoke any workflow skill, execute or queue any phase/);
-            assert.match(prompt, /Do not open the generated canvas during generation/);
+            assert.match(prompt, /open the generated canvas once as the final user handoff and stop/);
+            const handoff = prompt.slice(prompt.indexOf("11. Only after successful generation reporting"));
+            assert.ok(prompt.indexOf("11. Only after successful generation reporting") > prompt.indexOf("10. Send JSON"));
+            const openInput = JSON.parse(handoff.match(/call open_canvas with (\{.*\}) to present/)[1]);
+            assert.equal(openInput.canvasId, request.metadata.extensionId);
+            assert.equal(openInput.input.cwd, request.workspacePath);
+            assert.equal(openInput.instanceId, `generated-handoff-${request.requestId}`);
+            assert.match(handoff, /then stop/);
+            assert.match(handoff, /Do not click controls/);
             assert.match(prompt, /Do not call its actions or HTTP endpoints/);
             assert.match(prompt, /--validate/);
             assert.match(prompt, /protected code hashes, blueprint equality, and configuration schema/);
