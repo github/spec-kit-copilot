@@ -19,11 +19,16 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 // still functional, just missing the "added" badge.
 export async function listInstalledExtensions(workspacePath) {
     const stdout = await specifyRun(["extension", "list"], workspacePath);
+    return parseExtensionListOutput(stdout);
+}
+
+export function parseExtensionListOutput(stdout) {
     const ids = new Set();
     const names = new Set();
+    const byId = new Map();
     const byName = new Map();
     const orderedIds = [];
-    if (stdout == null) return { ids, names, byName, orderedIds };
+    if (typeof stdout !== "string") return { ids, names, byId, byName, orderedIds };
     // `specify extension list` prints two-line entries:
     //     ✓ <Display Name> (v<version>)
     //        <extension-id>
@@ -31,27 +36,31 @@ export async function listInstalledExtensions(workspacePath) {
     // We parse the header + following non-empty line as the id.
     const lines = stdout.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
-        const header = lines[i].match(/^\s*[✓✗x]\s+(.+?)\s+\(v[^)]+\)\s*$/);
+        const header = lines[i].match(/^\s*([✓✗x])\s+(.+?)\s+\(v[^)]+\)\s*$/);
         if (!header) continue;
-        const name = header[1].trim();
+        const enabled = header[1] === "✓";
+        const name = header[2].trim();
         // Find the next non-empty line — that's the id.
         let id = null;
+        let priority = null;
         for (let j = i + 1; j < lines.length; j++) {
             const t = lines[j].trim();
             if (!t) continue;
             // Stop if we've reached the next header row.
             if (/^[✓✗x]\s+.+\(v[^)]+\)\s*$/.test(t)) break;
-            id = t.split(/\s+/)[0];
-            break;
+            if (!id) id = t.split(/\s+/)[0];
+            const priorityMatch = t.match(/\bpriority\s*:?\s*(\d+)\b/i);
+            if (priorityMatch) priority = Number(priorityMatch[1]);
         }
         if (id) {
             names.add(name.toLowerCase());
             ids.add(id);
+            byId.set(id, { id, name, enabled, priority });
             byName.set(name.toLowerCase(), id);
             orderedIds.push(id);
         }
     }
-    return { ids, names, byName, orderedIds };
+    return { ids, names, byId, byName, orderedIds };
 }
 
 // Given extension catalog sources, fetch each source's JSON directly to
@@ -65,6 +74,8 @@ export async function hydrateExtensionsForSources(inst, sources) {
         outputField: "cachedExtensionItems",
         listInstalled: listInstalledExtensions,
         extraFields: (_raw, { installedId, installed }) => ({
+            enabled: installedId ? installed.byId?.get(installedId)?.enabled ?? null : null,
+            priority: installedId ? installed.byId?.get(installedId)?.priority ?? null : null,
             // CLI precedence position from `specify extension list` (0 = first
             // line = winner). null when the extension isn't installed. See
             // the same field on preset items for the rationale — the wizard

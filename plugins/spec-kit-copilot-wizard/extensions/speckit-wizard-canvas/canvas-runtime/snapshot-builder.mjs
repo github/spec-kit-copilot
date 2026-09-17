@@ -33,6 +33,7 @@ export function buildStateSnapshot(scan) {
             environment: null,
             boot: null,
             depsError: null,
+            generation: null,
             warnings: [],
         };
     }
@@ -68,6 +69,7 @@ export function buildStateSnapshot(scan) {
                 id,
                 status: slice?.status ?? "empty",
                 artifactPath: slice?.artifactPath ?? null,
+                artifactTemplatePath: slice?.artifactTemplatePath ?? null,
                 lastRunAt: slice?.lastRunAt ?? null,
                 formValues: slice?.formValues ?? {},
                 // LLM-inferred metadata from artifact-targets.json cache (via
@@ -146,6 +148,7 @@ export function buildStateSnapshot(scan) {
         environment: scan.environment ?? null,
         boot: scan.boot ?? null,
         depsError: scan.depsError ?? null,
+        generation: scan.generation ?? null,
         scaffoldedSkills: Array.isArray(scan.scaffoldedSkills) ? scan.scaffoldedSkills : [],
         warnings: Array.isArray(scan.warnings) ? scan.warnings.slice(0, 20) : [],
     };
@@ -178,8 +181,9 @@ function buildCommands(scan, statusPhases) {
         // phase (constitution, specify, plan, tasks, analyze, checklist).
         // Otherwise default to "empty" — the runtime interaction loop will
         // mark it done via /api/phase/status when Copilot writes the artifact.
-        const status = statusPhases?.[cmd.id]?.status ?? "empty";
-        let artifactPath = statusPhases?.[cmd.id]?.artifactPath ?? cmd.artifact ?? null;
+        const phaseSlice = commandPhaseSlice(statusPhases, cmd);
+        const status = phaseSlice?.status ?? "empty";
+        let artifactPath = phaseSlice?.artifactPath ?? cmd.artifact ?? null;
         if (typeof artifactPath === "string" && artifactPath.includes("<slug>") && scan.slug) {
             artifactPath = artifactPath.replace(/<slug>/g, scan.slug);
         }
@@ -197,18 +201,36 @@ function buildCommands(scan, statusPhases) {
             id: cmd.id,
             commandName: cmd.name,
             shortLabel: deriveShortLabel(cmd.name, cmd.id),
-            title: cmd.description || cmd.name,
-            helpText: cmd.description || "",
+            title: phaseSlice?.description || cmd.description || cmd.name,
+            helpText: phaseSlice?.description || cmd.description || "",
             handoffs,
             optional: !!cmd.optional,
             artifact: cmd.artifact ?? null,
             artifactPath,
+            ...(phaseSlice?.artifactTemplatePath ? { artifactTemplatePath: phaseSlice.artifactTemplatePath } : {}),
+            ...(phaseSlice?.argsHint ? { argsHint: phaseSlice.argsHint } : {}),
+            ...(phaseSlice?.argsWhenEmpty ? { argsWhenEmpty: phaseSlice.argsWhenEmpty } : {}),
             status,
             locked: !setupGateOpen,
             source: cmd.source ?? "core",
         });
     }
     return out;
+}
+
+function commandPhaseSlice(statusPhases, command) {
+    if (!statusPhases || typeof statusPhases !== "object") return null;
+    const candidates = [command?.id, command?.name];
+    for (const candidate of candidates) {
+        if (typeof candidate !== "string" || !candidate) continue;
+        const bare = candidate.startsWith("commands/")
+            ? candidate.slice("commands/".length)
+            : candidate;
+        for (const key of [candidate, bare, `commands/${bare}`]) {
+            if (statusPhases[key]) return statusPhases[key];
+        }
+    }
+    return null;
 }
 
 /**

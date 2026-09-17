@@ -58,7 +58,7 @@
  * @param {string} stdout
  * @returns {{
  *   orderedIds: string[],
- *   byId: Map<string, { id: string, name: string, version: string|null, enabled: boolean }>,
+ *   byId: Map<string, { id: string, name: string, version: string|null, enabled: boolean, priority: number|null }>,
  *   byName: Map<string, string>,
  * }}
  */
@@ -75,7 +75,9 @@ export function parsePresetListOutput(stdout) {
     // The name may itself contain parentheses (e.g. "Some Preset (Full)"),
     // so we match the LAST "(<id>) v<version>" pair on the line, then treat
     // everything before it as the display name.
-    for (const raw of stdout.split(/\r?\n/)) {
+    const lines = stdout.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+        const raw = lines[index];
         const m = raw.match(/^\s+(.+?)\s+\(([^()]+)\)\s+v([\d.]+)(?:\s+[—-]\s+(enabled|disabled))?/i);
         if (!m) continue;
         const name = m[1].trim();
@@ -87,12 +89,26 @@ export function parsePresetListOutput(stdout) {
         // (which only lists installed presets and prints "disabled" only
         // when explicitly disabled).
         const enabled = enabledToken === "" || enabledToken === "enabled";
+        let priority = priorityFromLine(raw);
+        if (priority === null) {
+            for (let cursor = index + 1; cursor < lines.length; cursor++) {
+                const next = lines[cursor];
+                if (/^\s+.+?\s+\([^()]+\)\s+v[\d.]+/i.test(next)) break;
+                priority = priorityFromLine(`${raw} ${next.trim()}`);
+                if (priority !== null) break;
+            }
+        }
         if (byId.has(id)) continue; // defensive against duplicate parses
         orderedIds.push(id);
-        byId.set(id, { id, name, version, enabled });
+        byId.set(id, { id, name, version, enabled, priority });
         byName.set(name.toLowerCase(), id);
     }
     return { orderedIds, byId, byName };
+}
+
+function priorityFromLine(line) {
+    const match = String(line ?? "").match(/\bpriority\s*:?\s*(\d+)\b/i);
+    return match ? Number(match[1]) : null;
 }
 
 /**

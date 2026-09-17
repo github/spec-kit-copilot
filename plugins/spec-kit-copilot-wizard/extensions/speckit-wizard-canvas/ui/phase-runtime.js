@@ -22,6 +22,11 @@ import {
 import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import {
+    generationAvailability,
+    generationStatus,
+    openGenerationDialog,
+} from "./generation.js";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -350,6 +355,9 @@ export function renderPipelineBanner() {
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
     const items = pipelineItems();
     const edited = pipelineIsEdited();
+    const generation = generationStatus();
+    const generate = generationAvailability();
+    const generating = generation?.state === "queued" || generation?.state === "generating";
     // Nothing to show when the inferred spine is empty AND user hasn't taken control.
     if (!items.length && !edited) {
         el.hidden = true; el.innerHTML = "";
@@ -381,12 +389,19 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
+                <button type="button" class="btn btn-primary pipeline-generate"
+                    ${generate.enabled && !generating ? "" : " disabled"}
+                    ${generating ? 'aria-busy="true"' : ""}
+                    title="${escapeHtml(generate.reason || "Generate a project canvas from this pipeline")}">
+                    ${generating ? "Generating…" : "Generate canvas"}
+                </button>
                 ${items.length ? `<button type="button" class="btn btn-ghost pipeline-clear" data-action="clear">Clear</button>` : ""}
                 ${`<button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>`}
             </div>
         </header>
     `;
     wireInfoPopover("pipeline-info-btn", "pipeline-info-popover");
+    el.querySelector(".pipeline-generate")?.addEventListener("click", openGenerationDialog);
     const clearBtn = el.querySelector(".pipeline-clear");
     if (clearBtn) {
         clearBtn.addEventListener("click", async () => {

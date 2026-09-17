@@ -22,6 +22,7 @@
 .pipeline-hint { font-size: 0.8rem; flex: 1; min-width: 12rem; }
 .pipeline-actions { display: inline-flex; gap: 0.35rem; }
 .pipeline-actions .btn { font-size: 0.78rem; padding: 0.15rem 0.55rem; }
+.pipeline-generate { margin-right: 0.15rem; }
 .pipeline-standalone-hint {
     font-size: 0.78rem;
     margin: 0 0 0.25rem 0;
@@ -331,4 +332,3 @@
     border-bottom: 1px solid var(--border-color-default);
     border-right: 1px solid var(--border-color-default);
 }
-

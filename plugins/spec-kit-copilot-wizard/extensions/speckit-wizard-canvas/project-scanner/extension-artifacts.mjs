@@ -65,7 +65,7 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
         // Only prune when we successfully enumerated installed commands
         // (installedCommandKeys is a Set). If it's null we couldn't scan,
         // so leave the entry alone.
-        if (installedCommandKeys && !installedCommandKeys.has(key)) {
+        if (installedCommandKeys && !isInstalledCommandKey(key, installedCommandKeys)) {
             prunedAny = true;
             continue;
         }
@@ -104,6 +104,7 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
         if (argsWhenEmpty) next.argsWhenEmpty = argsWhenEmpty;
 
         if (writesTo) {
+            next.artifactTemplatePath = toPortable(writesTo);
             // Cache uses `<slug>` as a placeholder for the current assessment /
             // feature / run slug. Resolution strategy:
             //   1) If the spec-kit slug substitutes to an existing file, use it.
@@ -181,6 +182,13 @@ export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, de
     }
 }
 
+function isInstalledCommandKey(cacheKey, installedCommandKeys) {
+    if (installedCommandKeys.has(cacheKey)) return true;
+    const commandName = cacheKey.slice("commands/".length);
+    const skillName = commandName.replace(/[._]+/g, "-");
+    return installedCommandKeys.has(`skills/${skillName}`);
+}
+
 async function secureExistingPath(absPath, cwd, deps) {
     const safePath = await securePathWithin(absPath, cwd, cwd, deps);
     if (!safePath) return null;
@@ -217,32 +225,49 @@ async function newestMarkdownMtimeIso(dirAbs, cwd, deps) {
     }
 }
 
-// Enumerate `.specify/extensions/*/commands/*.md` and return the set of
-// `commands/<basename>` keys that map to actually-installed command
-// files. Returns an empty Set (NOT null) when the extensions root
-// doesn't exist, so an uninstall-all scenario correctly prunes every
-// `commands/*` entry from the cache. Returns `null` only when the
-// directory exists but can't be enumerated (permissions, race with a
-// concurrent write) — in that case callers should skip pruning rather
-// than risk wiping valid entries on a transient read failure.
+// Enumerate both Specify's extension-command files and Copilot skills-mode
+// output. `specify init --integration copilot --integration-options="--skills"`
+// installs runnable commands under `.github/skills/`, so treating
+// `.specify/extensions/*/commands/*.md` as the only source of truth drops
+// valid cache entries after a Wizard reload.
+//
+// Returns an empty Set when neither install surface exists, so a genuine
+// uninstall-all scenario still prunes every `commands/*` entry. Returns null
+// when an existing surface cannot be enumerated; callers then skip pruning
+// rather than risk wiping valid entries on a transient read failure.
 async function discoverInstalledCommandKeys(cwd, deps) {
     const extRoot = join(cwd, ".specify", "extensions");
-    if (!(await deps.pathExists(extRoot))) return new Set();
-    const extEntries = await safeReaddir(extRoot, deps).catch(() => null);
-    if (!extEntries) return null;
-
     const keys = new Set();
-    for (const ext of extEntries) {
-        if (!ext?.isDirectory?.()) continue;
-        const cmdDir = join(extRoot, ext.name, "commands");
-        if (!(await deps.pathExists(cmdDir))) continue;
-        const files = await safeReaddir(cmdDir, deps).catch(() => []);
-        for (const f of files) {
-            const name = typeof f?.name === "string" ? f.name : null;
-            if (!name || !name.endsWith(".md")) continue;
-            const stem = name.slice(0, -3);
-            keys.add(`commands/${stem}`);
+    if (await deps.pathExists(extRoot)) {
+        const extEntries = await safeReaddir(extRoot, deps).catch(() => null);
+        if (!extEntries) return null;
+        for (const ext of extEntries) {
+            if (!ext?.isDirectory?.()) continue;
+            const cmdDir = join(extRoot, ext.name, "commands");
+            if (!(await deps.pathExists(cmdDir))) continue;
+            const files = await safeReaddir(cmdDir, deps).catch(() => null);
+            if (!files) return null;
+            for (const f of files) {
+                const name = typeof f?.name === "string" ? f.name : null;
+                if (!name || !name.endsWith(".md")) continue;
+                const stem = name.slice(0, -3);
+                keys.add(`commands/${stem}`);
+            }
         }
     }
+
+    const skillsRoot = join(cwd, ".github", "skills");
+    if (await deps.pathExists(skillsRoot)) {
+        const skillEntries = await safeReaddir(skillsRoot, deps).catch(() => null);
+        if (!skillEntries) return null;
+        for (const skill of skillEntries) {
+            if (!skill?.isDirectory?.()) continue;
+            const skillName = typeof skill.name === "string" ? skill.name : "";
+            if (!skillName.startsWith("speckit-")) continue;
+            if (!(await deps.pathExists(join(skillsRoot, skillName, "SKILL.md")))) continue;
+            keys.add(`skills/${skillName}`);
+        }
+    }
+
     return keys;
 }

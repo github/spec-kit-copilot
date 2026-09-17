@@ -16,7 +16,7 @@ import { fetchCatalogJson } from "./sources.mjs";
 import { spawn } from "node:child_process";
 import { buildAugmentedPath } from "../env/resolve-path.mjs";
 
-const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] });
+const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byId: new Map(), byName: new Map(), orderedIds: [] });
 
 // Memoize the augmented PATH lookup. This runs on every `specify` invocation
 // (list installed, etc.), so scanning SDK/uv/pipx dirs once per process is

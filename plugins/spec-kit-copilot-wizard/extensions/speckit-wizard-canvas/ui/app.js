@@ -67,6 +67,7 @@ import {
     setInferenceDeps,
     observePhaseProgress,
 } from "./phase-runtime.js";
+import { setGenerationDeps } from "./generation.js";
 
 // -------- Section: app.js --------
 
@@ -91,6 +92,7 @@ setRunLockDeps({ render });
 setPipelineDeps({ postJson });
 setExtensionCardDeps({ openCommandViewer, renderCommandCardHintsHtml, synthesizeCanonicalPhase });
 setInferenceDeps({ TOKEN });
+setGenerationDeps({ postJson, render });
 setCompositionMetaDeps({ postJson, renderComposition });
 setSetupActionsDeps({ render, postJson });
 setStepperDeps({ renderPhaseCard });

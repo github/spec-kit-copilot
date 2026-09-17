@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 import { PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
+import { compileBlueprint } from "../generation/compiler.mjs";
 import { _internal as scannerInternal, readMarkdownArtifact, scanWorkspace } from "../project-scanner.mjs";
 import {
     buildPrompt,
@@ -1332,6 +1334,159 @@ test("scanWorkspace keeps entries that match installed extension commands, prune
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/<slug>/intake.md");
     assert.equal(scan.phases["commands/speckit.assess.research"], undefined);
+});
+
+test("scanWorkspace rehydrates artifact targets from Copilot skills-mode installs", async () => {
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.github/skills/speckit-assess-intake/SKILL.md": "# intake skill",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.intake": {
+                    writesTo: ".specify/assessments/<slug>/intake.md",
+                    description: "Capture and normalize a raw idea.",
+                    argsHint: "Describe the idea.",
+                    argsWhenEmpty: "Ask for the idea.",
+                    source: "llm",
+                },
+            },
+        }),
+    });
+
+    const scan = await scanWorkspace("/proj", fs);
+    assert.deepEqual(
+        {
+            artifactPath: scan.phases["commands/speckit.assess.intake"]?.artifactPath,
+            artifactTemplatePath: scan.phases["commands/speckit.assess.intake"]?.artifactTemplatePath,
+            description: scan.phases["commands/speckit.assess.intake"]?.description,
+            argsHint: scan.phases["commands/speckit.assess.intake"]?.argsHint,
+            argsWhenEmpty: scan.phases["commands/speckit.assess.intake"]?.argsWhenEmpty,
+        },
+        {
+            artifactPath: ".specify/assessments/<slug>/intake.md",
+            artifactTemplatePath: ".specify/assessments/<slug>/intake.md",
+            description: "Capture and normalize a raw idea.",
+            argsHint: "Describe the idea.",
+            argsWhenEmpty: "Ask for the idea.",
+        },
+    );
+});
+
+test("buildStateSnapshot projects commands-prefixed artifact metadata onto active commands", () => {
+    const snapshot = buildStateSnapshot({
+        workspacePath: "/proj",
+        projectInitialized: true,
+        setup: {
+            pluginInstalled: true,
+            cliInstalled: true,
+            projectInitialized: true,
+            skillsReloaded: true,
+        },
+        phases: {
+            "commands/speckit.assess.intake": {
+                artifactPath: ".specify/assessments/existing/intake.md",
+                artifactTemplatePath: ".specify/assessments/<slug>/intake.md",
+                description: "Capture and normalize a raw idea.",
+                argsHint: "Describe the idea.",
+                argsWhenEmpty: "Ask for the idea.",
+            },
+        },
+        phaseGraph: {
+            commands: [{
+                id: "speckit.assess.intake",
+                name: "speckit.assess.intake",
+                description: "Fallback description",
+                source: "extension:assess",
+            }],
+        },
+    });
+
+    assert.deepEqual(
+        {
+            artifactPath: snapshot.commands[0]?.artifactPath,
+            artifactTemplatePath: snapshot.commands[0]?.artifactTemplatePath,
+            helpText: snapshot.commands[0]?.helpText,
+            argsHint: snapshot.commands[0]?.argsHint,
+            argsWhenEmpty: snapshot.commands[0]?.argsWhenEmpty,
+        },
+        {
+            artifactPath: ".specify/assessments/existing/intake.md",
+            artifactTemplatePath: ".specify/assessments/<slug>/intake.md",
+            helpText: "Capture and normalize a raw idea.",
+            argsHint: "Describe the idea.",
+            argsWhenEmpty: "Ask for the idea.",
+        },
+    );
+});
+
+test("skills-mode reload metadata compiles a shared multi-workflow assessment root", async () => {
+    const phaseFiles = {
+        intake: "intake.md",
+        research: "research.md",
+        define: "problem.md",
+        shape: "concept.md",
+        decide: "decision.md",
+    };
+    const files = {
+        "/proj/.specify": "__DIR__",
+    };
+    const entries = {};
+    for (const [phase, filename] of Object.entries(phaseFiles)) {
+        files[`/proj/.github/skills/speckit-assess-${phase}/SKILL.md`] = `# ${phase} skill`;
+        files[`/proj/.specify/assessments/venus-oregon-trail/${filename}`] = `${phase} artifact`;
+        entries[`commands/speckit.assess.${phase}`] = {
+            writesTo: `.specify/assessments/<slug>/${filename}`,
+            description: `${phase} description`,
+            argsHint: `${phase} hint`,
+            argsWhenEmpty: `${phase} empty`,
+            source: "llm",
+        };
+    }
+    files["/proj/.speckit-wizard/artifact-targets.json"] = JSON.stringify({ version: 1, entries });
+
+    const scan = await scanWorkspace("/proj", makeFs(files));
+    for (const [phase, filename] of Object.entries(phaseFiles)) {
+        const slice = scan.phases[`commands/speckit.assess.${phase}`];
+        assert.equal(slice?.artifactPath, `.specify/assessments/venus-oregon-trail/${filename}`);
+        assert.equal(slice?.artifactTemplatePath, `.specify/assessments/<slug>/${filename}`);
+    }
+    const snapshot = buildStateSnapshot(scan);
+    snapshot.pipeline = Object.keys(phaseFiles).map((phase) => ({ id: `speckit.assess.${phase}` }));
+    snapshot.composition = {
+        presets: [],
+        extensions: [{ id: "assess", enabled: true }],
+        artifacts: Object.keys(phaseFiles).map((phase) => ({
+            id: `commands/speckit.assess.${phase}`,
+            kind: "command",
+            stack: [{ layer: "extension", extensionId: "assess", active: true }],
+        })),
+    };
+
+    const blueprint = compileBlueprint(snapshot, {
+        extensionId: "generated-assess",
+        displayName: "Generated Assess",
+        description: "Generated assessment workflow.",
+    }, {
+        userProvidesSlug: true,
+        multiInstance: true,
+    });
+
+    assert.equal(blueprint.runtime.itemRoot, ".specify/assessments/<slug>");
+    assert.deepEqual(
+        blueprint.pipeline.steps.map((step) => ({
+            artifact: step.artifact.pathTemplate,
+            description: step.description,
+            argsHint: step.arguments.hint,
+            argsWhenEmpty: step.arguments.whenEmpty,
+        })),
+        Object.entries(phaseFiles).map(([phase, filename]) => ({
+            artifact: `.specify/assessments/<slug>/${filename}`,
+            description: `${phase} description`,
+            argsHint: `${phase} hint`,
+            argsWhenEmpty: `${phase} empty`,
+        })),
+    );
 });
 
 test("scanWorkspace: empty workspace (no extensions, no cache) doesn't create phase entries or errors", async () => {

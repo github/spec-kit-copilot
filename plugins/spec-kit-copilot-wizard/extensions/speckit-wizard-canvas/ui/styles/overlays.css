@@ -99,6 +99,59 @@
     border-color: var(--accent-color);
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
 }
+.wizard-modal-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--background-color-default);
+    color: var(--text-color-default);
+    border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 13px;
+}
+.wizard-modal-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+}
+.generation-modal { width: min(680px, 100%); }
+.generation-description { min-height: 72px; }
+.wizard-modal-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--text-color-default);
+    cursor: pointer;
+}
+.wizard-modal-check input {
+    margin-top: 3px;
+    accent-color: var(--accent-color);
+}
+.wizard-modal-check span {
+    display: grid;
+    gap: 3px;
+}
+.wizard-modal-check small {
+    color: var(--text-color-muted);
+    line-height: 1.4;
+}
+.generation-message {
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    line-height: 1.4;
+}
+.generation-message + .generation-message { margin-top: 6px; }
+.generation-warning {
+    color: var(--warn-color);
+    background: color-mix(in srgb, var(--warn-color) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn-color) 35%, transparent);
+}
+.generation-error {
+    color: var(--danger-color);
+    background: color-mix(in srgb, var(--danger-color) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger-color) 35%, transparent);
+}
 .wizard-modal-foot {
     display: flex;
     align-items: center;

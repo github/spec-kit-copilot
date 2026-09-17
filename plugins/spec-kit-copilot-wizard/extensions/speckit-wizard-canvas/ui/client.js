@@ -297,6 +297,11 @@ export function handleServerMessage(msg) {
             renderPhaseCard();
             renderPipelineBanner();
             break;
+        case "generation":
+            if (state.snapshot) state.snapshot.generation = msg.generation ?? null;
+            state.generation = msg.generation ?? null;
+            __render();
+            break;
         case "preset-catalog":
             if (state.snapshot) {
                 const prev = state.snapshot.catalog ?? {};
@@ -376,4 +381,3 @@ export function handleServerMessage(msg) {
             break;
     }
 }
-

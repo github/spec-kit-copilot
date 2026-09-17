@@ -1,0 +1,32 @@
+{
+  "snapshot": {
+    "pipeline": [
+      { "id": "speckit.assess.intake" },
+      { "id": "speckit.assess.research" },
+      { "id": "speckit.assess.define" },
+      { "id": "speckit.assess.shape" },
+      { "id": "speckit.assess.decide" }
+    ],
+    "commands": [
+      { "id": "speckit.assess.intake", "commandName": "speckit.assess.intake", "shortLabel": "Intake", "helpText": "Capture the raw idea.", "source": "extension:assess", "artifact": ".specify/assessments/<slug>/intake.md" },
+      { "id": "speckit.assess.research", "commandName": "speckit.assess.research", "shortLabel": "Research", "helpText": "Gather and challenge evidence.", "source": "extension:assess", "artifact": ".specify/assessments/<slug>/research.md" },
+      { "id": "speckit.assess.define", "commandName": "speckit.assess.define", "shortLabel": "Define", "helpText": "Define the problem and success measures.", "source": "extension:assess", "artifact": ".specify/assessments/<slug>/problem.md" },
+      { "id": "speckit.assess.shape", "commandName": "speckit.assess.shape", "shortLabel": "Shape", "helpText": "Shape solution options and appetite.", "source": "extension:assess", "artifact": ".specify/assessments/<slug>/concept.md" },
+      { "id": "speckit.assess.decide", "commandName": "speckit.assess.decide", "shortLabel": "Decide", "helpText": "Record the assessment decision.", "source": "extension:assess", "artifact": ".specify/assessments/<slug>/decision.md" }
+    ]
+  },
+  "expectedSkills": [
+    "speckit-assess-intake",
+    "speckit-assess-research",
+    "speckit-assess-define",
+    "speckit-assess-shape",
+    "speckit-assess-decide"
+  ],
+  "expectedArtifacts": [
+    ".specify/assessments/<slug>/intake.md",
+    ".specify/assessments/<slug>/research.md",
+    ".specify/assessments/<slug>/problem.md",
+    ".specify/assessments/<slug>/concept.md",
+    ".specify/assessments/<slug>/decision.md"
+  ]
+}

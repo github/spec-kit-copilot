@@ -22,6 +22,11 @@ CLI) and gives you three complementary ways to work with them:
 3. **Execute the lifecycle.** Drive every phase from the **Phases** tab —
    click a phase in the pipeline, fill its form, watch the agent produce
    the artifact via the matching `speckit-*` skill.
+4. **Generate a dedicated canvas.** Turn the current, user-shaped phase
+   pipeline into a project canvas extension under `.github/extensions/`.
+   The wizard compiles the selected commands into a validated blueprint,
+   then asks Copilot's `/create-canvas` skill to scaffold, author, reload,
+   and verify the generated canvas.
 
 Everything under the hood routes through the `spec-kit-copilot` plugin's
 skills, so the same guardrails and behaviors apply whether you drive
@@ -46,7 +51,9 @@ Core, presets, and extensions, plus a Layers sidebar in precedence order.
 ![Setup → Composition page](../../../../docs/images/wizard-composition.png)
 
 **Phases** — the executable pipeline. Click any phase to see its active
-artifacts, provide input, and run the matching `speckit-*` skill.
+artifacts, provide input, and run the matching `speckit-*` skill. Use
+**Generate canvas** to create a dedicated, Wizard-styled canvas from the
+current phase sequence.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
@@ -81,6 +88,206 @@ The agent opens the wizard in a side panel. See
   phase in your lifecycle. Each phase corresponds to a command you
   execute — customize the commands in the pipeline, provide input to
   execute them, and view each artifact produced.
+- **Canvas generation** — generate a project-scoped canvas extension from
+  the exact effective pipeline shown on the Phases page. The dialog lets
+  you edit the extension id, display name, and description, previews the
+  output path, and warns before replacing an existing target.
+
+## Generating a canvas from a pipeline
+
+Complete Setup, install the presets/extensions you want, and shape the
+pipeline on the **Phases** page. Click **Generate canvas**, review the
+ordered commands and inferred artifact targets, then choose the generated
+extension id and canvas name.
+
+The wizard stores a deterministic generation request and a versioned
+canvas-template snapshot under `.speckit-wizard/generated-canvases/`.
+The agent invokes `/create-canvas`, scaffolds the extension, runs the
+request-scoped materializer, reads the selected commands' skill files, and
+customizes only the validated `workflow-config.json` (item labels, fixed phase
+argument prefixes/suffixes, and concise per-phase input labels/helpers derived from
+the effective installed skills, including preset overrides). Phase input guidance
+appears inside the empty textarea as placeholder text that disappears when typing
+and returns when cleared; it is never prefilled or submitted as input.
+The field label remains visible, and a screen-reader description retains the guidance
+without a visible helper paragraph. It describes content only,
+without slug, workflow-ID, or location instructions; Workflow slug and Writes to
+remain separate. Input is labelled optional only when supported by the skill,
+otherwise neutral; empty input never blocks Run. `workflow-adapter.mjs` is protected template code,
+not an executable customization point. The renderer, secure runtime, and
+pipeline data are deterministic rather than LLM-authored. Before extension reload,
+the request-local materializer's `--validate` mode verifies code hashes, metadata
+substitutions, blueprint equality, and the configuration schema; the result callback
+also validates the output. The result is
+written to:
+
+```text
+.github/extensions/<extension-id>/
+```
+
+Generation is intentionally **one-way**. The Wizard does not import edits
+from generated files. If the target directory already exists, the Wizard
+requires a second explicit confirmation before generating and replacing
+it. After the initial generation, treat the output as repository-owned
+code that your team maintains normally.
+
+The Wizard Phases surface and generated canvases share the same canonical
+workflow UI package. Generated canvases vendor that package, so they remain
+self-contained while preserving the Wizard header, horizontal stepper,
+phase-card language, artifact viewer, responsive layout, and light/dark
+themes. Their pipeline is immutable: they do not expose Add, Remove, Clear,
+Reset, reorder, or recursive Generate canvas controls.
+
+The generated `pipeline.json` also carries a portable setup contract: the
+presets/extensions installed in the Wizard workspace and full required skill
+records derived dynamically from the selected phases. By default, when an incomplete
+generated workflow first opens, that generated canvas—not the Wizard—sends a
+setup prompt to the coding agent. The agent initializes Spec Kit and reconciles
+the recorded contributions, then invokes the generated canvas's
+`reloadSessionSkills` action, backed by `session.rpc.skills.reload()`. The
+generated runtime verifies files and contribution state through read-only filesystem
+checks and cached `specify preset list` / `specify extension list` queries, and does
+not mark contribution-dependent workflows ready until that agent reconciliation
+and session reload complete. Contribution readiness is verified from observed
+installed/enabled state, exact priorities, and recorded relative precedence;
+changes invalidate cached readiness. CLI queries are coalesced, expire after 30 seconds,
+and are forcibly refreshed by `reloadSessionSkills`. By default, community acceptance
+belongs to the admin's Wizard configuration step and setup remains automatic.
+The optional **Require installation approval** setting adds the recipient gate
+described below. Platform/tool permissions remain in effect, and unrelated
+destination contributions are not removed.
+
+Generated artifact reads are limited to declared artifact paths, reveal actions to
+their containing directories, and deletion to an exact workflow item directory.
+Traversal and symlink/junction paths are rejected. Named Markdown artifacts such as
+SDD checklists use a deterministic newest-file selection within their declared folder.
+Configuration validation rejects unsupported behavior instead of executing generated
+JavaScript or silently substituting defaults. These rules ship in new template
+snapshots (version 10); existing generated apps are not rewritten automatically.
+
+Generation automatically supports multiple workflow instances when the pipeline
+has a shared slug-scoped artifact root. The popup no longer offers an instance-mode
+toggle; all such canvases include the workflow collection and New action.
+Project-only pipelines retain a single project view because they have no separate
+workflow folders. Existing single-instance generated canvases remain compatible.
+
+The Generate popup shows Target first as a read-only textbox styled like the other
+fields. Each textbox has its label and a concise description above the control.
+Target is still derived from Extension ID, not editable or submitted independently.
+The popup provides one **Canvas workflow header** field, described as
+"Heading shown to users above the grouped workflows, such as Assessments or Bugs."
+(default **Workflows**). The admin's single-line name (1-80 characters) is captured
+in immutable `pipeline.json` metadata and used as the collection heading exactly,
+without singular/plural conversion. Other copy stays neutral: **New**,
+**Current selection**, **Search…**, and deletion by the selected item's actual name.
+The New button is also available in empty collections. This presentation setting
+does not change slugs, artifact locations, phase names, or commands.
+
+The optional user-provided slug setting lets users specify the directory name for
+generated workflow artifacts. When disabled, no slug field or `slug=` argument is
+added: Spec Kit chooses a default, or Copilot may ask the user in the chat session.
+This does not affect the project-scoped Constitution.
+
+The toolbar shows generation activity on the Generate button itself, without
+adjacent status, output-path, or error text. The generation prompt directs the agent
+to explain failures in chat, including when the callback cannot be delivered.
+Generation results remain recorded; field-validation feedback stays in the popup.
+
+### Optional project Constitution
+
+When the selected commands include canonical `speckit.constitution`, generation
+retains its exact command, source/provider, stable instance key and required skill,
+and adds the template-owned `projectArtifacts.constitution` reference. The complete
+ordered `pipeline.steps` remains provenance; a shared command-view helper excludes
+only that referenced record from the numbered workflow, per-item artifacts, item
+root derivation and first slug-input placement. Select one Constitution command;
+duplicates or outputs without a safe, fixed, persistent project Markdown path
+fail generation explicitly. Effective preset overrides keep their captured path
+and skill semantics rather than assuming `.specify/memory/constitution.md`.
+
+Generated canvases display one compact **Constitution** card above the workflow
+collection, with **View** and **Create / update**. There is no Constitution section
+below the pipeline. Create / update opens **Run Constitution**, with **Guidance**,
+an empty native placeholder, and **Cancel** / **Run**. The standard skill uses
+“Optional: principles to emphasize (e.g. testing, performance, UX)”; effective
+overrides supply their own content-only guidance. Configuration must still include
+the Constitution's exact `phaseInputs` key. The dialog has no item picker or slug,
+never pre-fills/submits its placeholder, and runs the captured skill in chat.
+Viewing or updating keeps the selected workflow, phase and input draft.
+
+Execution ordering is installation approval (when required), observed setup and
+session skills, then verified Constitution, then normal phases. The server checks
+the prerequisite on HTTP/action runs, reruns, and setup-queue draining. An unready
+Constitution returns `constitution_required` without phase dispatch or requeueing;
+the user can still browse, select phases, and draft inputs. Constitution itself
+remains runnable after setup, without creating/binding an item or reserving a slug.
+It never runs automatically or triggers downstream reruns.
+
+Status comes from bounded (512 KiB), allowlisted, regular-file reads: missing/empty
+is **Not created**, unresolved uppercase `[PLACEHOLDER]` tokens mean **Template**,
+nonempty completed content is **Ready**, and unreadable/unsafe/oversized output is
+an explicit blocking error. Ready is a completion heuristic, not policy-quality
+validation, formal ratification, or human approval. Every panel observes the same
+project artifact on refresh and through the existing one-second polling/SSE path;
+neither dispatch acknowledgement nor elapsed time can establish readiness.
+Removing the content or reintroducing placeholders blocks subsequent phase runs.
+
+Constitution-only selections show the usable card without a dummy workflow or
+empty stepper. If the descriptor is absent, no Constitution card, status read or
+gate is added—even when the file exists. Older generated snapshots keep their
+previous numbered-phase behavior until explicitly regenerated.
+
+### Optional installation approval
+
+**Require installation approval** defaults to off: the app automatically installs
+missing included components without asking for its own installation approval.
+Normal host/platform tool permission checks still apply; this UI consent setting
+does not bypass them. When enabled, the generated
+canvas first checks the current project's actual registry, manifests, and
+read-only CLI inventory. If every required component is already installed,
+including installations performed directly through the CLI, no installation
+approval panel or consent record is needed. Configuration and session-skill
+readiness remain separate; existing components are not reinstalled.
+When one or more required components are missing, the canvas shows an inline
+panel containing only its captured `setup.presets` and
+`setup.extensions`, never unrelated catalog entries or destination-installed
+components. Known community contributions need a recorded HTTPS installation
+source before an approval-enabled request can be generated. Source references
+are shown as recorded, not presented as a trust or safety endorsement.
+The review section uses separated component rows with type badges and expandable
+**View source** links. It does not display priority, precedence, enabled state,
+or installed-state labels. Community badges
+appear only for recorded community sources. Missing source information is
+explicit; no example descriptions or source links are invented. Actions stack
+at narrow widths, and the rest of the canvas retains its existing layout.
+
+**Approve and install** approves the complete configuration. **Not now** installs
+nothing and leaves a compact notice with **Review installation**. Before approval,
+the runtime blocks automatic/manual setup, session-skill reload, and phase execution
+while required components are missing;
+it does not secretly queue an attempted phase. Existing read-only previews,
+navigation, and input drafting remain available. Empty contribution lists do not
+show a misleading approval panel.
+
+Approval is remembered per canvas, workspace, and installation contract, separately
+from actual readiness. A changed contract requires renewed approval only if
+installation is needed. Already-installed components are retained. External
+installations are detected on refresh without requiring the user to approve
+again. Unreadable or ambiguous evidence reports a verification error, never an
+assumption that installation is required. Setup errors remain
+visible for retry, and partial installation failures are not rolled back as a
+transaction. The installation section disappears when the required components
+are verified as installed; phase execution still waits for setup and session-skill
+readiness. It uses the existing theme; the rest of the generated canvas UI remains
+unchanged. Missing/false settings retain the original automatic behavior.
+
+The first version supports linear project workflows and linear workflows
+with one primary item/slug type, text arguments, and Markdown artifacts.
+Unsupported branching, parallel, multi-item, specialized-editor, or
+non-text-artifact workflows fail preflight with an explicit visualization
+error instead of receiving a misleading best-effort canvas. Transient or
+optional phases remain supported and are represented without fabricated
+artifact or progress state.
 
 ## Opening the dashboard
 
@@ -223,6 +430,11 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 `specs/<slug>/{spec,plan,tasks,analysis}.md` plus
 `specs/<slug>/checklists/`.
 
+Generated-canvas requests and terminal results live under
+`.speckit-wizard/generated-canvases/<request-id>/`. These records contain
+the exact pipeline blueprint and generation outcome; secrets used for the
+temporary loopback callback are not copied into generated source files.
+
 ## Troubleshooting
 
 **First open shows "Spec Kit Wizard cannot start" or an npm error like
@@ -277,11 +489,13 @@ change and doesn't require any org-wide npm reconfiguration.
 | `prompts.mjs` | Pure `(kind, payload, context) → string` slash-command builder. |
 | `canvas-runtime/` | Long-lived per-instance state: `instances.mjs`, `snapshot-builder.mjs` (pure state → snapshot), `snapshot.mjs` (broadcast), `watchers.mjs` (fs), `dispatch.mjs` (SDK action router), `wizard-phases.mjs` (phase list + `SKILL_BY_KIND`), `composition-apply.mjs`. |
 | `pipeline/` | Pipeline math: `canonical.mjs` (canonical phase vocabulary), `effective-phases.mjs`, `active-artifacts.mjs` (per-phase resolved artifacts), `validate.mjs`. |
+| `generation/` | Deterministic blueprint/applicability validation, request-scoped template materialization, integrity checking, and declarative-configuration-only `/create-canvas` prompt construction. |
+| `workflow-ui/` | Canonical workflow presentation shared by the Wizard Phases surface and vendored into generated canvases. |
 | `composition/` | Composition graph: `assembler.mjs` (composes preset/extension/bundle layers), `preset-loader.mjs`, `preset-order.mjs`, `collect.mjs` (companion CLI). |
 | `catalog/` | Catalog hydration for the Setup → Catalogs page: `sources.mjs` (hardcoded catalog URL table + `fetchCatalogJson`), `presets.mjs`, `extensions.mjs`, `bundles.mjs`, `shared.mjs`. |
 | `env/` | Environment probe + PATH resolution: `probe.mjs`, `probe-cache.mjs`, `resolve-path.mjs` (locates `copilot`/`specify` binaries when the SDK dir isn't on `PATH`), `deps-check.mjs`, `workspace.mjs`. |
 | `state/` | `.speckit-wizard/state.json` read / write / normalize: `store.mjs`, `normalize.mjs`, `execution-reports.mjs`. |
-| `ui/` | Dashboard UI served to the canvas iframe: `index.html`, `app.js`, `client.js`, plus per-page modules (`setup.js`, `catalog.js`, `composition.js`, `composition-artifacts.js`, `phase-card.js`, `phase-contributors.js`, `phase-runtime.js`, `state.js`, `modals.js`). |
+| `ui/` | Dashboard UI served to the canvas iframe: `index.html`, `app.js`, `client.js`, plus per-page modules (`setup.js`, `catalog.js`, `composition.js`, `composition-artifacts.js`, `phase-card.js`, `phase-contributors.js`, `phase-runtime.js`, `generation.js`, `state.js`, `modals.js`). |
 | `test/` | 5 consolidated `node --test` files (`composition`, `catalog`, `env`, `state-and-scanner`, `server-integration`) — zero SDK, zero network, zero real subprocess spawns. |
 | `copilot-extension.json` | Manifest for gist share/install. |
 | `package.json`, `package-lock.json` | `js-yaml` runtime dependency. |
