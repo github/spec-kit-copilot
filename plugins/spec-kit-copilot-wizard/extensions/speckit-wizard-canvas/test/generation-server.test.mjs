@@ -11,6 +11,7 @@ import { afterEach, describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { recoverGenerationStatus } from "../generation/storage.mjs";
 import { materialize } from "../generation/materialize-template.mjs";
+import { buildGenerationPrompt } from "../generation/prompt.mjs";
 import { createHandler } from "../server.mjs";
 
 const roots = [];
@@ -72,6 +73,30 @@ async function setup({ snapshot = {} } = {}) {
 }
 
 describe("generation server lifecycle", () => {
+    test("production prompts prohibit live testing with approval on or off", async () => {
+        const ctx = await setup();
+        const started = res();
+        await ctx.handler(req("/api/generation/start", {
+            extensionId: "prompt-only", displayName: "Prompt only", description: "Generation boundary.",
+        }), started);
+        assert.equal(started.statusCode, 202);
+        const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", JSON.parse(started.body).requestId, "request.json");
+        const request = JSON.parse(await readFile(requestPath, "utf8"));
+        for (const approval of [false, true]) {
+            request.blueprint.setup.requireInstallationApproval = approval;
+            request.blueprint.setup.extensions = [{ id: "assess" }];
+            const prompt = buildGenerationPrompt({ request, callbackUrl: "http://127.0.0.1:4321/report" });
+            assert.match(prompt, /does not authorize its runtime validation checklist or any testing/);
+            assert.match(prompt, /Do not run tests, browser automation, smoke tests, action probes/);
+            assert.match(prompt, /Do not invoke any workflow skill, execute or queue any phase/);
+            assert.match(prompt, /Do not open the generated canvas during generation/);
+            assert.match(prompt, /Do not call its actions or HTTP endpoints/);
+            assert.match(prompt, /--validate/);
+            assert.match(prompt, /protected code hashes, blueprint equality, and configuration schema/);
+            assert.doesNotMatch(prompt, /8\. Validate discovery|verify Not now|using list_canvas_capabilities, open_canvas, and invoke_canvas_action/);
+        }
+    });
+
     test("selected Constitution survives materialization with full input keys and protected prerequisite code", async () => {
         const ctx = await setup({ snapshot: { pipeline: [{ id: "specify" }, { id: "constitution" }] } });
         const started = res();
@@ -219,7 +244,7 @@ describe("generation server lifecycle", () => {
         const startBody = JSON.parse(started.body);
         await new Promise((resolve) => setImmediate(resolve));
         assert.equal(ctx.calls.length, 1);
-        for (const required of ["/create-canvas", "guide", "scaffold", "materialize-template.mjs", "workflow-adapter.mjs", "id=\"__new__\"", "isNew=true", "reloadSessionSkills", "implicit setup UX", "queues the requested phase", "Running…", "highest-priority active preset or extension", "slug=<user-value>", "aggregate collection", "extensions_reload", "inspect", "list_canvas_capabilities", "open_canvas", "invoke_canvas_action", "/api/generation/report"]) {
+        for (const required of ["/create-canvas", "guide", "scaffold", "materialize-template.mjs", "workflow-adapter.mjs", "id=\"__new__\"", "isNew=true", "reloadSessionSkills", "implicit setup UX", "queues the requested phase", "Running…", "highest-priority active preset or extension", "slug=<user-value>", "aggregate collection", "extensions_reload", "inspect", "open_canvas", "/api/generation/report"]) {
             assert.match(ctx.calls[0].prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");

@@ -118,7 +118,11 @@ not an executable customization point. The renderer, secure runtime, and
 pipeline data are deterministic rather than LLM-authored. Before extension reload,
 the request-local materializer's `--validate` mode verifies code hashes, metadata
 substitutions, blueprint equality, and the configuration schema; the result callback
-also validates the output. The result is
+also validates the output. These are static integrity checks, not workflow tests.
+Production generation does not open the generated canvas, run test suites or browser
+automation, probe actions, install components, or execute/queue phases. Opening the
+canvas can trigger setup, so first open and workflow execution are left to the user.
+The provider is inspected only for load status after reload. The result is
 written to:
 
 ```text
