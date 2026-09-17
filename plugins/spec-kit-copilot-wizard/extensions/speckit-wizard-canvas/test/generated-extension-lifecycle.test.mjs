@@ -97,6 +97,53 @@ async function loadGeneratedExtension(root, sdk, {
 }
 
 describe("generated extension setup lifecycle", () => {
+    test("HTTP dispatch and reload failures never expose thrown SDK details", async () => {
+        const root = await mkdtemp(join(here, ".generated-lifecycle-"));
+        roots.push(root);
+        const workspace = join(root, "workspace");
+        await mkdir(join(workspace, ".specify"), { recursive: true });
+        await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+        let canvas;
+        let failure;
+        let reloadFails = false;
+        await loadGeneratedExtension(root, {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async () => { throw failure; },
+                rpc: { skills: { reload: async () => {
+                    if (reloadFails) throw failure;
+                    return { errors: [], warnings: [] };
+                } } },
+                log: async () => {},
+            }),
+        });
+        const opened = await canvas.open({ instanceId: "private-errors", input: { cwd: workspace } });
+        const url = new URL(opened.url);
+        url.pathname = "/api/run";
+        for (failure of [
+            new Error("PRIVATE_SDK_DETAIL\n    at private-sdk.mjs:42:1"),
+            "PRIVATE_STRING_DETAIL\n    at private-sdk.mjs:42:1",
+            null,
+        ]) {
+            const response = await fetch(url, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ phase: "speckit.specify#0" }),
+            });
+            assert.equal(response.status, 400);
+            assert.deepEqual(await response.json(), { error: "invalid request or unavailable workflow resource" });
+        }
+        failure = new Error("PRIVATE_RELOAD_DETAIL\n    at private-sdk.mjs:42:1");
+        reloadFails = true;
+        const result = await canvas.actions.find((action) => action.name === "reloadSessionSkills")
+            .handler({ instanceId: "private-errors", input: {} });
+        assert.equal(result.ok, false);
+        assert.equal(result.error, "Session skills could not be reloaded. Retry the skill reload.");
+        url.pathname = "/api/state";
+        const state = await (await fetch(url)).json();
+        assert.equal(state.setup.state, "failed");
+        assert.doesNotMatch(JSON.stringify(state), /PRIVATE_|private-sdk/);
+    });
+
     test("selected Constitution gates setup queue, HTTP, actions and reruns without item side effects", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);
@@ -390,7 +437,7 @@ describe("generated extension setup lifecycle", () => {
         await loadGeneratedExtension(root, {
             createCanvas: (definition) => (canvas = definition),
             joinSession: async () => ({
-                send: async () => { calls++; if (calls === 1) throw new Error("Setup permission denied"); },
+                send: async () => { calls++; if (calls === 1) throw new Error("PRIVATE_SETUP_DETAIL\n    at private-sdk.mjs:42:1"); },
                 log: async () => {},
             }),
         }, { setup: {
@@ -412,7 +459,8 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(accepted.setup.approval.approved, true);
         assert.equal(accepted.setup.ready, false);
         assert.equal(accepted.setup.state, "failed");
-        assert.equal(accepted.setup.message, "Setup permission denied");
+        assert.equal(accepted.setup.message, "Setup could not be started. Retry setup.");
+        assert.doesNotMatch(JSON.stringify(accepted), /PRIVATE_SETUP_DETAIL|private-sdk/);
         const retried = await canvas.actions.find((action) => action.name === "setup_workflow").handler({ instanceId: "retry-review", input: {} });
         assert.equal(retried.ok, true);
         assert.equal(calls, 2);
@@ -898,6 +946,13 @@ describe("generated extension setup lifecycle", () => {
         });
         assert.equal(deleteDenied.status, 400);
         assert.equal(await readFile(join(directory, "spec.md"), "utf8"), "# Alpha");
+        const missing = await fetch(endpoint("/ui/private-missing-file.js"));
+        assert.equal(missing.status, 400);
+        assert.deepEqual(await missing.json(), { error: "invalid request or unavailable workflow resource" });
+        await writeFile(join(directory, "spec.md"), "x".repeat(512 * 1024 + 1));
+        const oversized = await fetch(endpoint("/api/artifact", ".specify/items/alpha/spec.md"));
+        assert.equal(oversized.status, 413);
+        assert.deepEqual(await oversized.json(), { error: "Artifact is unavailable or exceeds the 512 KiB limit." });
         await canvas.onClose({ instanceId: "paths" });
     });
 });

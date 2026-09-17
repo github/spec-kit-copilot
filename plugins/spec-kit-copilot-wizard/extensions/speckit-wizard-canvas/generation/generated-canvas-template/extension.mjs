@@ -88,9 +88,9 @@ async function installationApproval(inst) {
             state: approval.approved ? "approved" : (inst.approvalDeferred ? "deferred" : "pending"),
             ...(approval.required ? { challenge: inst.approvalChallenge } : {}),
         };
-    } catch (error) {
+    } catch {
         return {
-            required: true, approved: false, state: "error", error: error.message,
+            required: true, approved: false, state: "error", error: "Cannot verify installation approval. Check the required components and approval metadata.",
             components: approvalComponents(pipeline.setup),
         };
     }
@@ -508,10 +508,10 @@ async function setupWorkflow(inst, guidance = "", { automatic = false, readiness
         }
         inst.broadcast?.();
         return { ok: true };
-    } catch (error) {
+    } catch {
         Object.assign(inst.setupDispatch, {
             state: "failed",
-            error: error?.message ?? String(error),
+            error: "Setup could not be started. Retry setup.",
             at: new Date().toISOString(),
         });
         for (const candidate of instances.values()) {
@@ -611,13 +611,13 @@ async function performSkillsReload(inst) {
             }
         }
         return result;
-    } catch (error) {
+    } catch {
         const result = {
             ok: false,
             errors: 1,
             warnings: 0,
             at,
-            error: error?.message ?? String(error),
+            error: "Session skills could not be reloaded. Retry the skill reload.",
         };
         for (const candidate of instances.values()) {
             if (sameExecutionScope(candidate, inst)) {
@@ -734,7 +734,11 @@ async function startHttp(inst) {
             }
             return send(res, 404, { error: "not found" });
         } catch (error) {
-            return send(res, error.code === "ARTIFACT_UNAVAILABLE" ? 413 : 400, { error: error?.message ?? String(error) });
+            // Never serialize caught exceptions: filesystem and SDK errors can contain private details.
+            if (error?.code === "ARTIFACT_UNAVAILABLE") {
+                return send(res, 413, { error: "Artifact is unavailable or exceeds the 512 KiB limit." });
+            }
+            return send(res, 400, { error: "invalid request or unavailable workflow resource" });
         }
     });
     await new Promise((resolveListen, reject) => {
@@ -753,8 +757,8 @@ async function startHttp(inst) {
             const current = JSON.stringify(state);
             if (previous && current !== previous) inst.broadcast();
             previous = current;
-        } catch (error) {
-            inst.setupDispatch = { state: "failed", error: error.message, at: new Date().toISOString() };
+        } catch {
+            inst.setupDispatch = { state: "failed", error: "Canvas state could not be refreshed. Check the workspace and retry.", at: new Date().toISOString() };
             inst.broadcast?.();
         }
     }, 1000);
@@ -840,8 +844,8 @@ async function open(ctx) {
     };
     instances.set(ctx.instanceId, inst);
     await startHttp(inst);
-    await beginSetup(inst).catch((error) => {
-        inst.setupDispatch = { state: "failed", error: error.message, at: new Date().toISOString() };
+    await beginSetup(inst).catch(() => {
+        inst.setupDispatch = { state: "failed", error: "Setup could not be initialized. Check the workspace and retry setup.", at: new Date().toISOString() };
         inst.broadcast?.();
     });
     return { title: __DISPLAY_NAME_JSON__, url: inst.url };

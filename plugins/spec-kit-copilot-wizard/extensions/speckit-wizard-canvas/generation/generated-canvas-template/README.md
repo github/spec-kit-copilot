@@ -68,6 +68,10 @@ Once setup evidence matches, the generated canvas reloads the current Copilot se
 its `reloadSessionSkills` action, backed by `session.rpc.skills.reload()`. Failed or
 interrupted setup exposes a retry action; default first-run setup requires no user click.
 
+Caught runtime exceptions are reported through fixed, operation-specific messages in
+HTTP responses and canvas state, rather than exposing exception text or stack traces.
+Unavailable or oversized artifacts retain HTTP status 413; other failed requests return 400.
+
 ## Project Constitution (when selected)
 
 Template version 10 supports optional `projectArtifacts.constitution`, referencing
