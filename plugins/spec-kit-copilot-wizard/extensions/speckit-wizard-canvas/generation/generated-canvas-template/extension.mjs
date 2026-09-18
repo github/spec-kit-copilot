@@ -49,7 +49,7 @@ const workspaceSetupReadiness = new Map();
 const singleInstanceBindings = new Map();
 const workflowSlugReservations = new Map();
 const approvedSetupDispatches = new Map();
-const approvedReloads = new Map();
+const skillsReloads = new Map();
 const BODY_CAP = 256 * 1024;
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8" };
 let session;
@@ -60,7 +60,7 @@ const amendArtifact = createAmendmentRuntime({
     gate: async (inst) => {
         const blocked = await executionGate(inst);
         if (blocked) return blocked;
-        const setup = await setupStatus(inst);
+        const setup = await executionSetupStatus(inst);
         return setup.ready ? null : {
             ok: false, code: "setup_required",
             error: "Setup and session skills must be ready before applying answers. Complete setup, then retry; nothing was queued.",
@@ -76,11 +76,11 @@ function executionKey(inst) {
     return `${inst.cwd}:${inst.identity}:${setupContractFingerprint(pipeline.setup)}`;
 }
 
-async function installationApproval(inst) {
+async function installationApproval(inst, disk) {
     try {
         let components;
         if (requiresInstallationApproval(pipeline.setup)) {
-            const observed = await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
+            const observed = disk ?? await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
             components = approvalComponents(pipeline.setup).map((entry) => ({
                 ...entry,
                 installed: observed.contributions.find((candidate) => candidate.kind === entry.kind && candidate.id === entry.id)?.installed === true,
@@ -112,12 +112,14 @@ async function installationApproval(inst) {
     }
 }
 
-async function executionGate(inst, reveal = true) {
-    const approval = await installationApproval(inst);
+async function executionGate(inst, reveal = true, disk) {
+    const approval = await installationApproval(inst, disk);
     if (approval.approved) return null;
     inst.awaitingInstallation = true;
     inst.pendingRuns.clear();
     inst.skillsReload = null;
+    inst.setupSnapshot = null;
+    workspaceSetupReadiness.delete(executionKey(inst));
     if (reveal) {
         inst.approvalDeferred = false;
         inst.broadcast?.();
@@ -141,11 +143,6 @@ function instanceFor(instanceId) {
         resolvedId = instanceAliases.get(resolvedId);
     }
     return instances.get(resolvedId);
-}
-
-function requiresContributionReconciliation() {
-    return (pipeline.setup?.presets?.length ?? 0) > 0
-        || (pipeline.setup?.extensions?.length ?? 0) > 0;
 }
 
 function inside(root, child) {
@@ -259,17 +256,25 @@ async function listItems(inst) {
     return adapter.listItems({ defaults: () => defaultItems(inst) });
 }
 
-async function setupStatus(inst) {
-    const approval = await installationApproval(inst);
+async function setupStatus(inst, { refresh = false, disk } = {}) {
+    // Ready UI snapshots are read-only. Execution and explicit setup actions recheck disk.
+    // Unresolved setup keeps observing out-of-band installations and agent repairs.
+    if (!refresh && (inst.setupSnapshot?.ready
+        || (inst.setupSnapshot?.diskReady && inst.setupSnapshot.reload?.ok === false))) return inst.setupSnapshot;
+    disk ??= await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
+    const approval = await installationApproval(inst, disk);
     if (!approval.approved) {
         inst.awaitingInstallation = true;
-        return {
+        return inst.setupSnapshot = {
             ready: false, state: approval.error ? "failed" : "approval-required",
             message: approval.error ?? "Required installation has not been approved",
             checks: [], reload: null, approval,
         };
     }
-    const disk = await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
+    if (!disk.diskReady) {
+        inst.skillsReload = null;
+        workspaceSetupReadiness.delete(executionKey(inst));
+    }
     const reloadReady = inst.skillsReload?.ok === true
         && inst.skillsReload.fingerprint === disk.diskFingerprint;
     const ready = disk.diskReady && reloadReady;
@@ -285,8 +290,9 @@ async function setupStatus(inst) {
             ? "Required skills are available to the current Copilot session."
             : "The current Copilot session must reload the generated workflow skills.",
     };
-    return {
+    return inst.setupSnapshot = {
         ready,
+        diskReady: disk.diskReady,
         state,
         message: ready
             ? null
@@ -298,6 +304,15 @@ async function setupStatus(inst) {
         reload: inst.skillsReload ?? null,
         ...(approval.required ? { approval } : {}),
     };
+}
+
+async function executionSetupStatus(inst) {
+    let status = await setupStatus(inst, { refresh: true });
+    if (status.diskReady && !status.ready) {
+        await reloadSessionSkills(inst);
+        status = await setupStatus(inst, { refresh: true });
+    }
+    return status;
 }
 
 async function snapshot(inst) {
@@ -349,8 +364,9 @@ async function runPhase(inst, input) {
     let requestedSlug = pipeline.runtime?.userProvidesSlug === true ? validation.slug : "";
     const blocked = await executionGate(inst);
     if (blocked) return blocked;
-    const setup = await setupStatus(inst);
+    const setup = await executionSetupStatus(inst);
     if (!setup.ready) {
+        if (setup.diskReady) return { ok: false, queued: false, code: "skills_reload_failed", error: setup.message };
         const key = `${input?.itemId ?? ""}:${step.instanceKey}`;
         inst.pendingRuns.set(key, {
             phase: step.instanceKey,
@@ -484,6 +500,10 @@ async function drainPendingRuns(inst) {
 async function setupWorkflow(inst, guidance = "", { automatic = false, readinessFingerprint = null } = {}) {
     const blocked = await executionGate(inst);
     if (blocked) return blocked;
+    const status = await setupStatus(inst, { refresh: true });
+    if (status.diskReady) {
+        return status.ready ? { ok: true, skipped: true, reason: "setup already matches" } : reloadSessionSkills(inst);
+    }
     const approval = await installationApproval(inst);
     if (!approval.approved) return executionGate(inst);
     const approvalEnabled = requiresInstallationApproval(pipeline.setup);
@@ -502,6 +522,7 @@ async function setupWorkflow(inst, guidance = "", { automatic = false, readiness
     }
     inst.autoSetupFingerprint = contractFingerprint;
     inst.setupDispatch = { state: "dispatching", error: null, at: new Date().toISOString() };
+    inst.setupSnapshot = null;
     if (approvalEnabled) approvedSetupDispatches.set(approvedKey, inst.setupDispatch);
     if (automatic) {
         automaticSetupDispatches.set(dispatchKey, {
@@ -553,16 +574,16 @@ async function setupWorkflow(inst, guidance = "", { automatic = false, readiness
 }
 
 async function reloadSessionSkills(inst) {
-    const blocked = await executionGate(inst);
-    if (blocked) return blocked;
-    if (!requiresInstallationApproval(pipeline.setup)) return performSkillsReload(inst);
     const key = executionKey(inst);
-    if (approvedReloads.has(key)) return approvedReloads.get(key);
-    const pending = performSkillsReload(inst);
-    approvedReloads.set(key, pending);
+    if (skillsReloads.has(key)) return skillsReloads.get(key);
+    const pending = (async () => {
+        const blocked = await executionGate(inst);
+        return blocked ?? performSkillsReload(inst);
+    })();
+    skillsReloads.set(key, pending);
     try { return await pending; }
     finally {
-        approvedReloads.delete(key);
+        skillsReloads.delete(key);
         approvedSetupDispatches.delete(key);
     }
 }
@@ -581,38 +602,45 @@ async function performSkillsReload(inst) {
         for (const candidate of instances.values()) {
             if (sameExecutionScope(candidate, inst)) {
                 candidate.skillsReload = result;
+                candidate.setupSnapshot = null;
                 candidate.setupDispatch = { state: "failed", error: result.error, at };
                 candidate.broadcast?.();
             }
         }
+        workspaceSetupReadiness.delete(executionKey(inst));
         return result;
     }
     try {
         const disk = await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup, refresh: true });
-        const blocked = await executionGate(inst);
+        const blocked = await executionGate(inst, true, disk);
         if (blocked) return blocked;
         const diagnostics = await session.rpc.skills.reload();
+        const verified = await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
         const errors = Array.isArray(diagnostics?.errors) ? diagnostics.errors.length : 0;
         const warnings = Array.isArray(diagnostics?.warnings) ? diagnostics.warnings.length : 0;
-        const ok = disk.diskReady && errors === 0;
+        const stable = disk.diskFingerprint === verified.diskFingerprint;
+        const ok = disk.diskReady && verified.diskReady && stable && errors === 0;
         const result = {
             ok,
-            errors: errors + (disk.diskReady ? 0 : 1),
+            errors: errors + (verified.diskReady && stable ? 0 : 1),
             warnings,
             at,
-            fingerprint: disk.diskFingerprint,
-            ...(!disk.diskReady ? { error: disk.checks.filter((check) => !check.ready).map((check) => check.message).join(" ") } : {}),
+            fingerprint: verified.diskFingerprint,
+            ...(!verified.diskReady ? { error: verified.checks.filter((check) => !check.ready).map((check) => check.message).join(" ") }
+                : !stable ? { error: "Setup changed while skills were reloading. Retry the skill reload." } : {}),
         };
         const matchingInstances = [];
         for (const candidate of instances.values()) {
-            if (sameExecutionScope(candidate, inst) && !await executionGate(candidate, false)) matchingInstances.push(candidate);
+            if (sameExecutionScope(candidate, inst) && !await executionGate(candidate, false, verified)) matchingInstances.push(candidate);
         }
         for (const candidate of matchingInstances) {
             candidate.skillsReload = result;
+            candidate.setupSnapshot = null;
         }
         if (ok) {
             for (const candidate of matchingInstances) {
                 candidate.setupDispatch = { state: "ready", error: null, at };
+                await setupStatus(candidate, { refresh: true, disk: verified });
                 candidate.broadcast?.();
                 if (candidate.pendingRuns.size) void drainPendingRuns(candidate);
             }
@@ -621,7 +649,7 @@ async function performSkillsReload(inst) {
                 if (key.startsWith(prefix)) automaticSetupDispatches.delete(key);
             }
             workspaceSetupReadiness.set(executionKey(inst), {
-                diskFingerprint: disk.diskFingerprint,
+                diskFingerprint: verified.diskFingerprint,
                 skillsReload: result,
             });
         } else {
@@ -643,6 +671,7 @@ async function performSkillsReload(inst) {
         for (const candidate of instances.values()) {
             if (sameExecutionScope(candidate, inst)) {
                 candidate.skillsReload = result;
+                candidate.setupSnapshot = null;
                 candidate.setupDispatch = { state: "failed", error: result.error, at };
                 candidate.broadcast?.();
             }
@@ -653,15 +682,16 @@ async function performSkillsReload(inst) {
 }
 
 async function beginSetup(inst, waitForDispatch = false) {
-    if (await executionGate(inst, false)) return;
-    inst.awaitingInstallation = false;
     const disk = await inspectSetup({ cwd: inst.cwd, setup: pipeline.setup });
-    if (await executionGate(inst, false)) return;
+    if (await executionGate(inst, false, disk)) return;
+    inst.awaitingInstallation = false;
     const cached = workspaceSetupReadiness.get(executionKey(inst));
     if (cached?.diskFingerprint === disk.diskFingerprint && cached.skillsReload?.ok === true) {
         inst.skillsReload = cached.skillsReload;
         inst.setupDispatch = { state: "ready", error: null, at: cached.skillsReload.at };
-    } else if (disk.diskReady && (requiresInstallationApproval(pipeline.setup) || !requiresContributionReconciliation())) {
+        await setupStatus(inst, { refresh: true, disk });
+        if (inst.pendingRuns.size) void drainPendingRuns(inst);
+    } else if (disk.diskReady) {
         const pending = reloadSessionSkills(inst);
         if (waitForDispatch) await pending;
     } else {
@@ -692,7 +722,7 @@ async function approvalRequest(inst, input) {
         inst.approvalDeferred = input.action === "defer";
         inst.broadcast?.();
     }
-    return { ok: true, setup: await setupStatus(inst) };
+    return { ok: true, setup: await setupStatus(inst, { refresh: true }) };
 }
 
 async function startHttp(inst) {
@@ -779,7 +809,8 @@ async function startHttp(inst) {
     inst.poller = setInterval(async () => {
         try {
             const state = await snapshot(inst);
-            if (inst.awaitingInstallation && !state.setup.approval?.required) {
+            if ((inst.awaitingInstallation && !state.setup.approval?.required)
+                || (state.setup.diskReady && !state.setup.reload)) {
                 await beginSetup(inst);
             }
             const current = JSON.stringify(state);
@@ -866,6 +897,7 @@ async function open(ctx) {
         approvalChallenge: randomBytes(24).toString("hex"),
         autoSetupFingerprint: null,
         setupDispatch: null,
+        setupSnapshot: null,
         skillsReload: null,
         pendingRuns: new Map(),
         pendingWorkflowSlug: null,

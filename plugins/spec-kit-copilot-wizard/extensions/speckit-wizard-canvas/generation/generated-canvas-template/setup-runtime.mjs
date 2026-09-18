@@ -264,7 +264,7 @@ export function setupContractFingerprint(setup) {
     return hash(setup ?? {});
 }
 
-// Polls read bounded local evidence, not the CLI every time. List results expire
+// Setup boundaries and unresolved-setup polls read bounded local evidence. List results expire
 // after 30s (or immediately on registry/required-manifest content changes).
 // refresh bypasses that cache after setup; this is disk/list evidence, not proof
 // that the current Copilot session has reloaded its skills.
@@ -359,8 +359,8 @@ export function buildSetupPrompt({ setup, instanceId, guidance = "", installatio
         "Directory presence alone is not verification. Missing, unreadable, unsupported, or ambiguous registry/CLI evidence must be reported as a blocking error. Canvas list evidence is cached for at most 30 seconds and invalidated by registry/required-manifest content changes; it does not establish loaded-session skill readiness.",
         `6. Verify these dynamically selected skill files exist under \`.github/skills/<name>/SKILL.md\`: ${requiredNames.join(", ") || "none"}.`,
         `7. Invoke the generated canvas action \`reloadSessionSkills\` on instance \`${instanceId}\` with \`invoke_canvas_action\`. Do not emit \`/skills reload\` as plain text.`,
-        "8. Run `copilot skill list` once and confirm every required skill name is loaded.",
-        "9. Report explicit errors for failed initialization, contribution reconciliation, missing skill files, reload diagnostics, or loaded-skill verification.",
+        "8. Treat the current session's reloadSessionSkills result as the loaded-registry authority. An external CLI process cannot verify this session's loaded skills.",
+        "9. Report explicit errors for failed initialization, contribution reconciliation, missing skill files, or reload diagnostics.",
         guidance ? `Additional retry guidance: ${guidance}` : "",
     ].filter(Boolean).join("\n");
 }

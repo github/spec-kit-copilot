@@ -147,6 +147,34 @@ phase-card language, artifact viewer, responsive layout, and light/dark
 themes. Their pipeline is immutable: they do not expose Add, Remove, Clear,
 Reset, reorder, or recursive Generate canvas controls.
 
+Both artifact viewers use the available panel width with left-aligned content,
+24px side padding on wider panels and 16px on narrow panels, rather than a
+centered reading column (generated template version 16).
+
+### Same-workspace reuse and standalone first use
+
+**The Wizard creates the canvas; the generated canvas handles its own destination
+setup.** The recipient can run the generated canvas standalone in a fresh workspace,
+without opening or running the Wizard.
+
+- **In the Wizard's configured workspace:** existing `.specify/` scaffolding,
+  installed presets/extensions, and `.github/skills/` files are reused when they
+  match the captured setup contract. They are not copied into the generated app
+  or reinstalled merely because a canvas was generated.
+- **Standalone in a fresh workspace:** the generated canvas detects missing setup
+  and asks Copilot to use the Spec Kit setup skills to run `specify init` in Copilot
+  skills mode, install/configure the required presets and extensions, and reload
+  session skills. Spec Kit creates the destination's `.specify/` scaffolding and
+  applicable `.github/skills/` files; the app does not clone the creator's folders.
+  If **Require installation approval** is enabled, missing contributions require
+  the recipient's approval before installation. Otherwise setup is automatic,
+  subject to normal tool/platform permissions.
+
+Standalone means no Wizard runtime is needed, not that Spec Kit's setup skills
+and CLI are bundled into the app. Generation copies the canvas implementation and
+records its requirements in `pipeline.json`; destination setup occurs when the
+generated app opens, not as a separate generation-time installation step.
+
 The generated `pipeline.json` also carries a portable setup contract: the
 presets/extensions installed in the Wizard workspace and full required skill
 records derived dynamically from the selected phases. By default, when an incomplete
@@ -155,13 +183,19 @@ setup prompt to the coding agent. The agent initializes Spec Kit and reconciles
 the recorded contributions, then invokes the generated canvas's
 `reloadSessionSkills` action, backed by `session.rpc.skills.reload()`. The
 generated runtime verifies files and contribution state through read-only filesystem
-checks and cached `specify preset list` / `specify extension list` queries, and does
-not mark contribution-dependent workflows ready until that agent reconciliation
-and session reload complete. Contribution readiness is verified from observed
+checks and cached `specify preset list` / `specify extension list` queries, and
+does not require an agent-led audit when destination initialization, contributions
+and skill files already match. Template versions 14+ reload current-session skills
+directly in that case, including when installation approval is disabled.
+Contribution readiness is verified from observed
 installed/enabled state, exact priorities, and recorded relative precedence;
 changes invalidate cached readiness. CLI queries are coalesced, expire after 30 seconds,
 and are forcibly refreshed by `reloadSessionSkills`. By default, community acceptance
 belongs to the admin's Wizard configuration step and setup remains automatic.
+Ready UI polls reuse a provider-memory status snapshot without setup inspections.
+Startup, execution, explicit setup/retry, installation review and reload boundaries
+check current evidence; unresolved setup keeps checking for repairs or manual installs.
+There is no persisted readiness cache, file watcher or extra generation step.
 The optional **Require installation approval** setting adds the recipient gate
 described below. Platform/tool permissions remain in effect, and unrelated
 destination contributions are not removed.
@@ -174,15 +208,25 @@ Configuration validation rejects unsupported behavior instead of executing gener
 JavaScript or silently substituting defaults. These rules ship in new template
 snapshots (version 12); existing generated apps are not rewritten automatically.
 
-Generated Markdown artifacts now expose the Wizard's **Clarify** / **Answered ✓**
-controls for `[NEEDS CLARIFICATION: …]` markers outside code examples and links.
-Answers are staged per workspace/canvas, workflow item (or project Constitution),
-exact phase and artifact. Only **Apply and Rerun** plus confirmation dispatches the
-captured phase through the normal approval/setup/Constitution gates. Viewing,
-polling, answering and Back never dispatch. Back, cancellation, failed/gated sends
-and setup-queued responses retain drafts; direct success clears only unchanged
-submitted revisions, keeping concurrent edits. Browser-local draft persistence is
-limited to the same loopback origin. The existing viewer and modal theme is retained.
+Template version **15** and the Wizard share artifact-scoped clarification drafts,
+neutral **Draft saved** / **Edit draft** controls and a focused amendment prompt.
+Visible `[NEEDS CLARIFICATION: …]` markers in the current artifact are the only
+authority for open questions; drafts never show answered badges or affect phase status.
+**Apply answers** sends the checked subset (even one answer) through
+`/api/artifact/amend`, not the original phase skill. The adapters authorize the
+effective phase artifact, reject stale/ambiguous batches, and preserve existing
+path/setup/approval safeguards. Insufficient answers retain their exact markers
+with a concise nearby explanation of what is missing. Ordinary **Run/Rerun** is unchanged.
+
+Drafts are isolated by workspace/canvas, item or project, phase and artifact.
+Back, navigation, failed sends and request acknowledgements do not clear them.
+Only draft text/revisions persist in same-origin browser storage; submissions are
+transient. Bounded polling re-reads the file and requires stable nonempty observations
+before retiring unchanged submitted revisions. Newer unmatched drafts remain available
+for review/discard, never automatically retargeted. Empty/truncated observations
+retain drafts; timeouts permit explicit retry, not inferred completion or rejection.
+Marker disappearance is structural evidence, not proof of a correct edit. Existing
+generated apps must be regenerated to receive these changes; they are not rewritten.
 
 Generation automatically supports multiple workflow instances when the pipeline
 has a shared slug-scoped artifact root. The popup no longer offers an instance-mode
@@ -218,11 +262,11 @@ validation message and status 400; actions return `invalid_workflow_slug` with
 `ok: false` and `queued: false`, before approval, setup queues, or phase dispatch.
 Unexpected runtime errors still use generic messages without exposing exception text.
 
-The **Generated canvas source tests** GitHub Actions workflow runs the focused
-renderer, lifecycle, setup, workspace-policy, and template-generation tests on
-`windows-latest` and `macos-latest`. SDK calls and folder-opening processes are
-mocked; it never runs live generated phases. Tests cover both `explorer.exe` and
-`open` argument arrays and workspace paths containing spaces.
+Focused source tests cover renderer, lifecycle, setup, workspace-policy, and
+template-generation behavior. SDK calls and folder-opening processes are mocked;
+these tests never run live generated phases. They cover both `explorer.exe` and
+`open` argument arrays and workspace paths containing spaces. Automated
+Windows/macOS CI is deferred.
 
 The toolbar shows generation activity on the Generate button itself, without
 adjacent status, output-path, or error text. The generation prompt directs the agent

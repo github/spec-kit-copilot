@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, test } from "node:test";
@@ -27,7 +27,7 @@ async function settle() {
 
 async function waitFor(predicate, timeoutMs = 2000) {
     const deadline = Date.now() + timeoutMs;
-    while (!predicate()) {
+    while (!await predicate()) {
         if (Date.now() >= deadline) throw new Error("timed out waiting for generated canvas lifecycle");
         await settle();
     }
@@ -50,10 +50,20 @@ async function loadGeneratedExtension(root, sdk, {
     const extensionRoot = join(root, "extension");
     await mkdir(join(extensionRoot, "ui"), { recursive: true });
     await copyFile(join(template, "setup-runtime.mjs"), join(extensionRoot, "setup-runtime.mjs"));
+    if (sdk.onSetupRead) {
+        const path = join(extensionRoot, "setup-runtime.mjs");
+        const source = (await readFile(path, "utf8")).replace(
+            'import { lstat, readFile, realpath } from "node:fs/promises";',
+            'import { lstat, readFile as readFileImpl, realpath } from "node:fs/promises";\nconst onSetupRead = globalThis.__generatedCanvasSdk.onSetupRead;\nconst readFile = (...args) => { onSetupRead(args[0]); return readFileImpl(...args); };',
+        );
+        await writeFile(path, source);
+    }
     await copyFile(join(template, "approval-runtime.mjs"), join(extensionRoot, "approval-runtime.mjs"));
     await copyFile(join(template, "amendment-runtime.mjs"), join(extensionRoot, "amendment-runtime.mjs"));
     await copyFile(join(here, "..", "workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
-    await copyFile(join(template, "ui", "clarifications.mjs"), join(extensionRoot, "ui", "clarifications.mjs"));
+    for (const file of ["clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"]) {
+        await copyFile(join(here, "..", "workflow-ui", file), join(extensionRoot, "ui", file));
+    }
     await copyFile(join(template, "workspace-files.mjs"), join(extensionRoot, "workspace-files.mjs"));
     await copyFile(join(template, "workflow-adapter.mjs"), join(extensionRoot, "workflow-adapter.mjs"));
     await copyFile(join(template, "project-artifacts.mjs"), join(extensionRoot, "project-artifacts.mjs"));
@@ -77,9 +87,9 @@ async function loadGeneratedExtension(root, sdk, {
     let source = await readFile(join(template, "extension.mjs"), "utf8");
     source = source
         .replace('import { joinSession, createCanvas } from "@github/copilot-sdk/extension";',
-            "const { joinSession, createCanvas, runSpecify } = globalThis.__generatedCanvasSdk;")
+            "const { joinSession, createCanvas, runSpecify, onInspectSetup } = globalThis.__generatedCanvasSdk;")
         .replace("    inspectSetup,", "    inspectSetup as inspectSetupImpl,")
-        .replace("const here =", "const inspectSetup = (options) => inspectSetupImpl({ ...options, ...(runSpecify ? { runSpecify } : {}) });\nconst here =")
+        .replace("const here =", "const inspectSetup = (options) => { onInspectSetup?.(options); return inspectSetupImpl({ ...options, ...(runSpecify ? { runSpecify } : {}) }); };\nconst here =")
         .replaceAll("__EXTENSION_ID_JSON__", JSON.stringify(extensionId))
         .replaceAll("__DISPLAY_NAME_JSON__", JSON.stringify("Generated Lifecycle"))
         .replaceAll("__DESCRIPTION_JSON__", JSON.stringify("Lifecycle test"));
@@ -100,7 +110,212 @@ async function loadGeneratedExtension(root, sdk, {
     return extensionRoot;
 }
 
+async function matchedSetupFixture() {
+    const root = await mkdtemp(join(here, ".setup-boundary-"));
+    roots.push(root);
+    const workspace = join(root, "workspace");
+    const setup = {
+        requiresSpecKit: true, requireInstallationApproval: false,
+        integration: { id: "copilot", skillsMode: true },
+        requiredSkills: [{ name: "speckit-specify" }],
+        presets: [{ kind: "preset", id: "copilot-sub-agents", enabled: true, priority: 1, precedence: 0 }],
+        extensions: [{ kind: "extension", id: "assess", enabled: false, priority: 10, precedence: 0 }],
+    };
+    await mkdir(join(workspace, ".specify"), { recursive: true });
+    const init = join(workspace, ".specify", "init-options.json");
+    const initContent = '{"integration":"copilot","ai_skills":true}';
+    await writeFile(init, initContent);
+    for (const kind of ["preset", "extension"]) {
+        const [entry] = setup[`${kind}s`];
+        await mkdir(join(workspace, ".specify", `${kind}s`, entry.id), { recursive: true });
+        await writeFile(join(workspace, ".specify", `${kind}s`, entry.id, `${kind}.yml`), `${kind}:\n  id: ${entry.id}\n`);
+        await writeFile(join(workspace, ".specify", `${kind}s`, ".registry"), JSON.stringify({
+            schema_version: "1.0",
+            [`${kind}s`]: { [entry.id]: { enabled: entry.enabled, priority: entry.priority }, unrelated: { enabled: false, priority: 99 } },
+        }));
+    }
+    const skill = join(workspace, ".github", "skills", "speckit-specify", "SKILL.md");
+    await mkdir(dirname(skill), { recursive: true });
+    await writeFile(skill, "# Specify\nCurrent effective instructions.\n");
+    const counts = { inspect: 0, reads: 0, cli: 0, reload: 0 };
+    const sent = [];
+    let canvas;
+    let reload = async () => ({ errors: [], warnings: [] });
+    const sdk = {
+        onInspectSetup: () => { counts.inspect++; },
+        onSetupRead: () => { counts.reads++; },
+        runSpecify: async ([kind, command], cwd) => {
+            assert.equal(command, "list");
+            counts.cli++;
+            const entries = JSON.parse(await readFile(join(cwd, ".specify", `${kind}s`, ".registry"), "utf8"))[`${kind}s`];
+            return Object.entries(entries).map(([id, entry]) => kind === "preset"
+                ? `  ${id} (${id}) v1.0.0 — ${entry.enabled ? "enabled" : "disabled"} — priority ${entry.priority}\n`
+                : `  ${entry.enabled ? "✓" : "✗"} ${id} (v1.0.0)\n     ${id}\n     Commands: 1 | Hooks: 0 | Priority: ${entry.priority} | Status: ${entry.enabled ? "Enabled" : "Disabled"}\n`).join("\n");
+        },
+        createCanvas: (definition) => (canvas = definition),
+        joinSession: async () => ({
+            send: async ({ prompt }) => { sent.push(prompt); },
+            rpc: { skills: { reload: async () => { counts.reload++; return reload(); } } },
+            log: async () => {},
+        }),
+    };
+    await loadGeneratedExtension(root, sdk, { setup, artifact: { pathTemplate: ".specify/spec.md" } });
+    const action = (name, instanceId = "ready", input = {}) =>
+        canvas.actions.find((entry) => entry.name === name).handler({ instanceId, input });
+    const settledSetup = async (instanceId = "ready", target = canvas) => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const { setup: state } = await target.actions.find((entry) => entry.name === "list_items").handler({ instanceId, input: {} });
+            if (state.ready || state.reload?.ok === false) return state;
+            await settle();
+        }
+        assert.fail("setup did not settle");
+    };
+    return { root, workspace, setup, sdk, canvas, action, settledSetup, counts, sent, skill, init, initContent,
+        setReload: (callback) => { reload = callback; } };
+}
+
 describe("generated extension setup lifecycle", () => {
+    test("matched presets/extensions skip chat and coalesce reloads; ready UI polling does no setup work", async () => {
+        const f = await matchedSetupFixture();
+        let release;
+        f.setReload(() => new Promise((resolve) => { release = resolve; }));
+        const opened = await Promise.all(["ready", "other-panel"].map((instanceId) => f.canvas.open({
+            instanceId, input: { cwd: f.workspace },
+        })));
+        await waitFor(() => Boolean(release));
+        assert.equal(f.counts.reload, 1);
+        assert.equal(f.sent.length, 0, "matching installed contributions never require an agent-led audit");
+        release({ errors: [], warnings: [] });
+        assert.equal((await f.settledSetup()).ready, true);
+        assert.equal((await f.settledSetup("other-panel")).ready, true);
+        const before = { ...f.counts };
+        for (const view of opened) {
+            const url = new URL(view.url);
+            url.pathname = "/api/state";
+            for (let i = 0; i < 3; i++) assert.equal((await (await fetch(url)).json()).setup.ready, true);
+        }
+        await f.action("list_items");
+        await new Promise((resolve) => setTimeout(resolve, 1200)); // Exercise the actual one-second provider poller.
+        assert.deepEqual(f.counts, before, "no inspectSetup, CLI inventory, required-file reads, or reloads after readiness");
+        await f.action("run_phase", "ready", { phase: "speckit.specify#0", itemId: "project" });
+        assert.ok(f.counts.inspect > before.inspect, "execution performs a fresh disk check");
+        assert.equal(f.counts.reload, before.reload, "unchanged evidence does not reload");
+        assert.deepEqual(f.sent, ["/skill:speckit-specify"]);
+        assert.equal((await f.action("setup_workflow")).skipped, true);
+        assert.equal(f.sent.length, 1, "explicit setup also skips an unnecessary audit");
+    });
+
+    test("execution reloads changed skills and blocks changed init or contribution evidence before dispatch", async () => {
+        const f = await matchedSetupFixture();
+        await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        await f.settledSetup();
+        const run = () => f.action("run_phase", "ready", { phase: "speckit.specify#0", itemId: "project" });
+        await writeFile(f.skill, "# Specify\nChanged effective instructions.\n");
+        assert.equal((await run()).ok, true);
+        assert.equal(f.counts.reload, 2);
+        assert.equal(f.sent.length, 1);
+        await writeFile(f.init, '{"integration":"copilot","ai_skills":false}');
+        assert.equal((await run()).queued, true);
+        await waitFor(() => f.sent.some((prompt) => prompt.startsWith("Set up the destination")));
+        assert.equal(f.sent.filter((prompt) => prompt.startsWith("/skill:")).length, 1);
+        await writeFile(f.init, f.initContent);
+        await f.action("reloadSessionSkills");
+        await waitFor(() => f.sent.filter((prompt) => prompt.startsWith("/skill:")).length === 2);
+        const registry = join(f.workspace, ".specify", "extensions", ".registry");
+        const entries = JSON.parse(await readFile(registry, "utf8"));
+        entries.extensions.assess.enabled = true;
+        await writeFile(registry, JSON.stringify(entries));
+        const cliBefore = f.counts.cli;
+        assert.equal((await run()).queued, true);
+        await waitFor(() => f.sent.filter((prompt) => prompt.startsWith("Set up the destination")).length === 2);
+        assert.ok(f.counts.cli > cliBefore, "registry changes invalidate the inventory cache");
+        assert.deepEqual(JSON.parse(await readFile(registry, "utf8")).extensions.unrelated, { enabled: false, priority: 99 });
+    });
+
+    test("amendments recheck missing skills and never dispatch with a stale ready UI snapshot", async () => {
+        const f = await matchedSetupFixture();
+        const opened = await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        await f.settledSetup();
+        await writeFile(join(f.workspace, ".specify", "spec.md"), "[NEEDS CLARIFICATION: Scope?]");
+        await rm(f.skill);
+        const url = new URL(opened.url);
+        url.pathname = "/api/artifact/amend";
+        const response = await fetch(url, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: "speckit.specify#0", itemId: "project", artifact: ".specify/spec.md",
+                answers: [{ question: "Scope?", marker: "[NEEDS CLARIFICATION: Scope?]", answer: "Core" }] }),
+        });
+        const result = await response.json();
+        assert.equal(result.code, "setup_required");
+        assert.equal(f.sent.length, 0, "amendments do not queue phases or ask an agent to audit setup");
+        assert.equal((await f.action("list_items")).setup.ready, false);
+    });
+
+    test("new workspaces and provider restarts recheck and reload; no readiness is persisted", async () => {
+        const f = await matchedSetupFixture();
+        await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        await f.settledSetup();
+        const other = join(f.root, "other-workspace");
+        await cp(f.workspace, other, { recursive: true });
+        const before = f.counts.inspect;
+        await f.canvas.open({ instanceId: "other", input: { cwd: other } });
+        await f.settledSetup("other");
+        assert.ok(f.counts.inspect > before);
+        assert.equal(f.counts.reload, 2);
+        await f.canvas.onClose({ instanceId: "ready" });
+        await f.canvas.onClose({ instanceId: "other" });
+        const restartedRoot = await mkdtemp(join(here, ".setup-restart-"));
+        roots.push(restartedRoot);
+        let restarted;
+        await loadGeneratedExtension(restartedRoot, { ...f.sdk, createCanvas: (definition) => (restarted = definition) }, { setup: f.setup });
+        await restarted.open({ instanceId: "restarted", input: { cwd: f.workspace } });
+        assert.equal((await f.settledSetup("restarted", restarted)).ready, true);
+        assert.equal(f.counts.reload, 3);
+        assert.equal(f.sent.length, 0);
+        await assert.rejects(lstat(join(f.workspace, ".speckit-wizard")), { code: "ENOENT" });
+    });
+
+    test("reload failures block execution and retry reload directly, never asking for an audit of matching files", async () => {
+        const f = await matchedSetupFixture();
+        f.setReload(async () => { throw new Error("private reload detail"); });
+        await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        assert.equal((await f.settledSetup()).ready, false);
+        const failedSnapshotCounts = { ...f.counts };
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        assert.deepEqual(f.counts, failedSnapshotCounts, "reload failure alone does not require continued disk audits");
+        const failed = await f.action("run_phase", "ready", { phase: "speckit.specify#0" });
+        assert.equal(failed.code, "skills_reload_failed");
+        assert.equal(failed.queued, false);
+        assert.doesNotMatch(failed.error, /private/);
+        assert.equal(f.sent.length, 0);
+        f.setReload(async () => ({ errors: ["registry unavailable"], warnings: [] }));
+        assert.equal((await f.action("setup_workflow")).ok, false);
+        assert.equal((await f.action("list_items")).setup.ready, false);
+        f.setReload(async () => ({ errors: [], warnings: [] }));
+        assert.equal((await f.action("setup_workflow")).ok, true);
+        assert.equal((await f.action("list_items")).setup.ready, true);
+        assert.equal(f.sent.length, 0);
+        f.setReload(async () => {
+            await writeFile(f.skill, "# Changed during reload\n");
+            return { errors: [], warnings: [] };
+        });
+        assert.equal((await f.action("reloadSessionSkills")).ok, false);
+        assert.equal((await f.action("list_items")).setup.ready, false);
+    });
+
+    test("unresolved setup observes an out-of-band repair and reloads without another agent audit", async () => {
+        const f = await matchedSetupFixture();
+        await rm(f.skill);
+        await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        await waitFor(() => f.sent.length === 1);
+        assert.match(f.sent[0], /Set up the destination project/);
+        assert.equal(f.counts.reload, 0);
+        await writeFile(f.skill, "# Restored by an external setup command\n");
+        await waitFor(() => f.counts.reload === 1, 5000);
+        assert.equal((await f.settledSetup()).ready, true);
+        assert.equal(f.sent.length, 1);
+    });
+
     test("HTTP Apply answers amends an observed artifact without dispatching the original skill", async () => {
         const root = await mkdtemp(join(here, ".generated-amendment-http-"));
         roots.push(root);
@@ -127,6 +342,14 @@ describe("generated extension setup lifecycle", () => {
             }),
         }, { blueprint });
         const opened = await canvas.open({ instanceId: "amend-http", input: { cwd: workspace } });
+        for (const file of ["clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"]) {
+            const assetUrl = new URL(opened.url);
+            assetUrl.pathname = `/ui/${file}`;
+            const asset = await fetch(assetUrl);
+            assert.equal(asset.status, 200);
+            assert.match(asset.headers.get("content-type"), /application\/javascript/);
+            assert.doesNotMatch(await asset.text(), /\.\.\/\.\.\/\.\.\/workflow-ui/);
+        }
         await canvas.actions.find((action) => action.name === "reloadSessionSkills").handler({ instanceId: "amend-http", input: {} });
         const url = new URL(opened.url);
         url.pathname = "/api/artifact/amend";
@@ -761,7 +984,7 @@ describe("generated extension setup lifecycle", () => {
         await canvas.onClose({ instanceId: "second" });
     });
 
-    test("requires agent reconciliation and reuses contribution readiness across instances", async () => {
+    test("matching disabled contributions reload directly and explicit reload detects later mismatches", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);
         const workspace = join(root, "workspace");
@@ -805,18 +1028,15 @@ describe("generated extension setup lifecycle", () => {
         });
 
         await canvas.open({ instanceId: "contributions", input: { cwd: workspace } });
-        await settle();
-        assert.equal(sent.length, 1);
-        assert.equal(reloadCalls, 0);
-        assert.match(sent[0], /Preserve it as disabled/);
-
         const listItems = canvas.actions.find((action) => action.name === "list_items");
-        const reload = canvas.actions.find((action) => action.name === "reloadSessionSkills");
-        assert.equal((await reload.handler({ instanceId: "contributions", input: {} })).ok, true);
+        await waitFor(async () => (await listItems.handler({ instanceId: "contributions", input: {} })).setup.ready);
+        assert.equal(sent.length, 0);
         assert.equal(reloadCalls, 1);
+
+        const reload = canvas.actions.find((action) => action.name === "reloadSessionSkills");
         await canvas.open({ instanceId: "contributions-second", input: { cwd: workspace } });
-        await settle();
-        assert.equal(sent.length, 1);
+        await waitFor(async () => (await listItems.handler({ instanceId: "contributions-second", input: {} })).setup.ready);
+        assert.equal(sent.length, 0);
         assert.equal(reloadCalls, 1);
         const readyState = await listItems.handler({ instanceId: "contributions-second", input: {} });
         assert.equal(readyState.setup.ready, true);
@@ -824,9 +1044,11 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(repeatedReload.ok, true);
         assert.equal(reloadCalls, 2);
         await writeRegistry(true);
-        assert.equal((await listItems.handler({ instanceId: "contributions-second", input: {} })).setup.ready, false);
+        assert.equal((await listItems.handler({ instanceId: "contributions-second", input: {} })).setup.ready, true,
+            "read-only UI snapshots do not re-audit setup");
         const mismatchedReload = await reload.handler({ instanceId: "contributions-second", input: {} });
         assert.equal(mismatchedReload.ok, false);
+        assert.equal((await listItems.handler({ instanceId: "contributions-second", input: {} })).setup.ready, false);
         assert.match(mismatchedReload.error, /enabled|disabled/i);
         await writeRegistry(false);
         assert.equal((await reload.handler({ instanceId: "contributions-second", input: {} })).ok, true);

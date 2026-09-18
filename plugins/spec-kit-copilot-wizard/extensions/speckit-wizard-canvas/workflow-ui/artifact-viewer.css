@@ -158,18 +158,22 @@
     line-height: 1.4;
 }
 .clarify-pill:hover { background: var(--accent-color-hover, var(--artifact-viewer-accent-hover, #4493f8)); }
-.clarify-pill-answered { background: var(--success-color, #2da44e); cursor: default; }
-.clarify-pill-answered:hover { background: var(--success-color, #2da44e); }
+.clarify-draft-list { display: grid; gap: 6px; flex-basis: 100%; max-height: 160px; overflow: auto; }
+.clarify-draft-list label { display: flex; align-items: baseline; gap: 6px; }
+.clarify-retained-draft { white-space: pre-wrap; overflow-wrap: anywhere; }
 .artifact-viewer-clarify-banner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     padding: 8px 12px;
     margin: 8px 0;
-    background: #fff8e1;
-    border: 1px solid #f5c754;
+    background: var(--background-color-secondary);
+    color: var(--text-color-default);
+    border: 1px solid var(--border-color-default);
     border-radius: 6px;
     font-size: 13px;
 }
 .artifact-viewer-clarify-banner[hidden] { display: none; }
+.artifact-viewer-clarify-banner details { flex-basis: 100%; min-width: 0; }

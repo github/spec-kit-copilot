@@ -363,7 +363,8 @@ describe("generated setup runtime", () => {
         assert.match(prompt, /\/skill:speckit-preset/);
         assert.match(prompt, /\/skill:speckit-extension/);
         assert.match(prompt, /reloadSessionSkills/);
-        assert.match(prompt, /copilot skill list/);
+        assert.doesNotMatch(prompt, /copilot skill list/);
+        assert.match(prompt, /current session's reloadSessionSkills result as the loaded-registry authority/);
         assert.match(prompt, /speckit-assess-intake/);
         assert.match(prompt, /listed precedence order \(highest precedence first\)/);
         assert.match(prompt, /Set its resolution priority to 1/);

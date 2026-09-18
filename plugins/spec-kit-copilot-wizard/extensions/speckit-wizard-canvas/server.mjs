@@ -54,6 +54,8 @@ import {
     handleGenerationStart,
 } from "./server/handlers-generation.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
+import { createWizardAmendment } from "./server/handlers-amendment.mjs";
+import { wizardClarificationScope } from "./workflow-ui/clarifications.mjs";
 
 function generationCallbackUrl(req, token) {
     const host = typeof req.headers?.host === "string" && /^(?:127\.0\.0\.1|localhost):\d+$/.test(req.headers.host)
@@ -173,6 +175,10 @@ export function createHandler(deps) {
             }
 
             if (method === "GET" && url.pathname === "/api/artifact") {
+                const scope = url.searchParams.get("scope");
+                if (scope && scope !== wizardClarificationScope(getInstance()?.workspacePath)) {
+                    return jsonError(res, 409, "Workspace changed. Reopen the artifact.");
+                }
                 const p = url.searchParams.get("p");
                 if (!p) return jsonError(res, 400, "missing ?p=");
                 const safe = resolveWorkspacePath(res, getInstance()?.workspacePath, p);
@@ -325,6 +331,10 @@ export function createHandler(deps) {
                 const postRoutes = {
                     "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance }),
                     "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
+                    "/api/artifact/amend": async () => {
+                        const result = await createWizardAmendment({ getState, getInstance })(body);
+                        return jsonRes(res, result.ok ? 202 : 400, result);
+                    },
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),

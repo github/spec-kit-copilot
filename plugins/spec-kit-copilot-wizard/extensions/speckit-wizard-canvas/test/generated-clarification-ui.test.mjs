@@ -17,6 +17,9 @@ afterEach(async () => {
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const realNow = Date.now;
+let resolveSelector = () => null;
+afterEach(() => { Date.now = realNow; resolveSelector = () => null; });
 
 function element() {
     const listeners = new Map(), selectors = new Map();
@@ -40,6 +43,8 @@ function element() {
         emit(type, event = {}) { return listeners.get(type)?.(event); },
         focus() { globalThis.document.activeElement = this; },
         querySelector(selector) {
+            const found = resolveSelector(selector);
+            if (found) return found;
             if (!selectors.has(selector)) selectors.set(selector, element());
             return selectors.get(selector);
         },
@@ -49,6 +54,8 @@ function element() {
 }
 
 async function fixture() {
+    let time = 100;
+    Date.now = () => time;
     const polls = [];
     globalThis.setTimeout = (...args) => {
         const timer = realTimeout(...args);
@@ -61,6 +68,8 @@ async function fixture() {
         if (!elements.has(id)) elements.set(id, element());
         return elements.get(id);
     };
+    resolveSelector = (selector) => selector.startsWith("#") ? get(selector.slice(1))
+        : selector === ".artifact-viewer-clarify-banner" ? get("clarification-banner") : null;
     globalThis.document = { documentElement: { dataset: {} }, getElementById: get };
     globalThis.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
     let events;
@@ -95,8 +104,8 @@ async function fixture() {
     const directory = join(dirname(fileURLToPath(import.meta.url)), `.clarification-ui-${randomUUID()}`);
     directories.push(directory);
     await mkdir(directory);
-    await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "command-views.mjs", "workflow-slug.mjs"].map((name) => (
-        copyFile(new URL(name === "markdown.mjs" ? "../workflow-ui/markdown.mjs" : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
+    await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "command-views.mjs", "workflow-slug.mjs"].map((name) => (
+        copyFile(new URL(["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs"].includes(name) ? `../workflow-ui/${name}` : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
     )));
     await import(pathToFileURL(join(directory, "app.mjs")).href);
     await tick();
@@ -112,7 +121,7 @@ async function fixture() {
         target: { closest: (selector) => selector === "[data-instance]" ? { dataset: { instance: id } } : null },
     });
     return { get, snapshot, specify, plan, constitution, posts, buttons, answer, decide, select,
-        poll: async () => { const poll = polls.pop(); assert.ok(poll, "amendment schedules observation polling"); clearTimeout(poll.timer); await poll.callback(); },
+        poll: async () => { time += 2000; const poll = polls.pop(); assert.ok(poll, "amendment schedules observation polling"); clearTimeout(poll.timer); await poll.callback(); },
         refresh: async () => { events.onmessage(); await tick(); },
         setSend: (callback) => { send = callback; },
         setRead: (callback) => { readArtifact = callback; },
@@ -130,7 +139,8 @@ test("viewer stages, edits and cancels answers without dispatch; Back, workflows
     assert.equal(f.get("clarification-banner").hidden, true);
     await f.answer("Alpha only");
     await f.answer("Focused tests", 1);
-    assert.equal(f.buttons()[0].textContent, "Answered ✓");
+    assert.equal(f.buttons()[0].textContent, "Edit draft");
+    assert.doesNotMatch(f.get("artifact-viewer").innerHTML, /Answered|clarify-pill-answered/);
     assert.equal(f.posts.length, 0, "even answering all markers must not dispatch");
     await f.refresh();
     assert.equal(f.posts.length, 0, "polling must not dispatch");
@@ -208,7 +218,7 @@ test("failed/gated sends keep answers and Constitution dispatch stays project-sc
     const queued = f.get("apply-clarifications").emit("click");
     await queued;
     assert.equal(f.buttons()[0].title, "Project testing rules");
-    assert.match(f.get("clarification-banner").innerHTML, /unresolved/);
+    assert.match(f.get("clarification-banner").innerHTML, /waiting for an artifact update/);
     for (const { url, input } of f.posts) {
         assert.equal(url, "/api/artifact/amend");
         assert.equal(input.phase, f.constitution.instanceKey);
@@ -241,8 +251,10 @@ test("fresh artifact observations update only changed content, preserve scroll/m
     await f.get("queue-clarification").emit("click");
     f.setRead(async () => ({ content: "# Artifact\nCore is selected. Focused tests are required." }));
     await f.refresh();
-    assert.match(f.get("clarification-banner").innerHTML, /Submitted markers disappeared/);
-    assert.match(f.get("clarification-banner").innerHTML, /Apply answers/, "edited answer remains a draft even after its original marker disappears");
+    await f.poll();
+    assert.match(f.get("clarification-banner").innerHTML, /Selected markers are no longer visible/);
+    assert.match(f.get("clarification-banner").innerHTML, /retained draft.*need review/);
+    assert.doesNotMatch(f.get("clarification-banner").innerHTML, /Apply answers/, "unmatched drafts cannot be submitted to another marker");
     assert.equal(f.posts.length, 1);
 });
 
@@ -258,4 +270,20 @@ test("late artifact reads cannot replace the newly selected artifact context", a
     assert.match(f.get("artifact-viewer").innerHTML, /Beta\?/);
     assert.doesNotMatch(f.get("artifact-viewer").innerHTML, /Alpha\?/);
     assert.equal(f.posts.length, 0);
+});
+
+test("a failed request reports to a reopened same-artifact viewer without losing its draft", async () => {
+    const f = await fixture();
+    await f.get("view-artifact").emit("click");
+    await f.answer("Retain me");
+    let reject;
+    f.setSend(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const sending = f.get("apply-clarifications").emit("click");
+    await tick();
+    await f.get("close-artifact").emit("click");
+    await f.get("view-artifact").emit("click");
+    reject(new Error("offline"));
+    await sending;
+    assert.match(f.get("clarification-banner").innerHTML, /offline.*preserved/);
+    assert.equal(f.buttons()[0].title, "Retain me");
 });

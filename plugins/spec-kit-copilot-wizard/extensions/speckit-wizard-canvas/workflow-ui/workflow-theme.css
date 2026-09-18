@@ -411,9 +411,12 @@ code, pre { font-family: var(--font-mono); }
     background: var(--background-color-default);
 }
 .artifact-viewer-header { display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.5rem; background: var(--background-color-elevated); border-bottom: 1px solid var(--border-color-default); }
-.artifact-viewer-body { flex: 1; overflow: auto; padding: 1.25rem 2rem; }
+.artifact-viewer-body { flex: 1; overflow: auto; padding: 1.25rem 1.5rem; }
 .artifact-viewer-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.artifact-viewer-md { max-width: 75ch; margin: 0 auto; line-height: 1.6; }
+.artifact-viewer-md { max-width: none; margin: 0; line-height: 1.6; text-align: left; }
+@media (max-width: 640px) {
+    .artifact-viewer-body { padding-inline: 1rem; }
+}
 .artifact-viewer-md > :first-child { margin-top: 0; }
 .artifact-viewer-md h1,
 .artifact-viewer-md h2,

@@ -20,7 +20,7 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 13;
+const TEMPLATE_VERSION = 16;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
@@ -34,7 +34,9 @@ const TEMPLATE_FILES = [
     ["generated-canvas-template/ui/index.html", "template/ui/index.html"],
     ["generated-canvas-template/ui/app.js", "template/ui/app.js"],
     ["../workflow-ui/markdown.mjs", "template/ui/markdown.mjs"],
-    ["generated-canvas-template/ui/clarifications.mjs", "template/ui/clarifications.mjs"],
+    ["../workflow-ui/clarifications.mjs", "template/ui/clarifications.mjs"],
+    ["../workflow-ui/clarification-controls.mjs", "template/ui/clarification-controls.mjs"],
+    ["../workflow-ui/amendment.mjs", "template/ui/amendment.mjs"],
     ["generated-canvas-template/ui/command-views.mjs", "template/ui/command-views.mjs"],
     ["generated-canvas-template/ui/workflow-slug.mjs", "template/ui/workflow-slug.mjs"],
     ["../workflow-ui/workflow-theme.css", "template/ui/workflow-theme.css"],
@@ -52,6 +54,8 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "ui/app.js",
     "ui/markdown.mjs",
     "ui/clarifications.mjs",
+    "ui/clarification-controls.mjs",
+    "ui/amendment.mjs",
     "ui/command-views.mjs",
     "ui/workflow-slug.mjs",
     "ui/workflow-theme.css",
@@ -203,6 +207,8 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
         "ui/app.js",
         "ui/markdown.mjs",
         "ui/clarifications.mjs",
+        "ui/clarification-controls.mjs",
+        "ui/amendment.mjs",
         "ui/command-views.mjs",
         "ui/workflow-theme.css",
         "ui/artifact-viewer.css",

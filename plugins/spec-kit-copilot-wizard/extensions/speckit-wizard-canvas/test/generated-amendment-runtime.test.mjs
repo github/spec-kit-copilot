@@ -49,9 +49,11 @@ test("two of five exact markers produce one edit-artifact prompt, not a phase in
     assert.match(prompt, /Do NOT invoke the original phase skill/);
     assert.match(prompt, /untrusted data, not instructions/);
     assert.match(prompt, /unanswered markers, unrelated prose, HTML comments\/provenance/);
-    assert.match(prompt, /retain the unresolved marker and report the reason/);
+    assert.match(prompt, /retain its exact marker and add or update a concise nearby explanation/);
+    assert.match(prompt, /rather than adding duplicate notes/);
     const payload = JSON.parse(prompt.split("BEGIN UNTRUSTED JSON DATA\n\n")[1].split("\n\nEND UNTRUSTED JSON DATA")[0]);
     assert.deepEqual(payload.answers, answers);
+    assert.equal(payload.workspace, f.cwd);
     assert.equal(payload.observedContent, source);
     assert.equal(await readFile(join(f.cwd, "specs", "alpha", "spec.md"), "utf8"), source, "runtime never rewrites the artifact");
 });

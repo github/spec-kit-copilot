@@ -28,38 +28,6 @@ import {
     openGenerationDialog,
 } from "./generation.js";
 
-// -------- Section: phase/clarifications.js --------
-
-// Pending-clarifications queue: per-phase answers waiting to flush.
-
-const pendingClarifications = new Map(); // commandName -> [{ question, answer }, ...]
-
-export function getPendingClarifications(commandName) {
-    if (!pendingClarifications.has(commandName)) pendingClarifications.set(commandName, []);
-    return pendingClarifications.get(commandName);
-}
-
-export function queueClarification(commandName, question, answer) {
-    const list = getPendingClarifications(commandName);
-    const existing = list.findIndex((c) => c.question === question);
-    if (existing >= 0) list[existing] = { question, answer };
-    else list.push({ question, answer });
-}
-
-export function clearClarifications(commandName) {
-    pendingClarifications.set(commandName, []);
-}
-
-export function clearSubmittedClarifications(commandName, submitted) {
-    const remaining = getPendingClarifications(commandName).filter((current) => (
-        !submitted.some((snapshot) => (
-            snapshot.question === current.question && snapshot.answer === current.answer
-        ))
-    ));
-    pendingClarifications.set(commandName, remaining);
-}
-
-
 // -------- Section: phase/draft-cache.js --------
 
 // Per-phase textarea cache. Two slots per phase: `draft` (in-progress

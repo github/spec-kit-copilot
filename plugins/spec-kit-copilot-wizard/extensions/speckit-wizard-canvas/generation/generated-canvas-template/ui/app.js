@@ -1,6 +1,7 @@
 import { renderMarkdown } from "./markdown.mjs";
 import { commandViews } from "./command-views.mjs";
 import { clarificationKey, createClarificationQueue } from "./clarifications.mjs";
+import { observationMessage, refreshDraftControls, selectedDrafts } from "./clarification-controls.mjs";
 import { validateWorkflowSlug } from "./workflow-slug.mjs";
 
 const RUN_ACK_MS = 15 * 1000;
@@ -519,7 +520,7 @@ function renderArtifactContent(view, content) {
     body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(content, { clarifications: view.marks })}</div>`;
     body.scrollTop = scroll;
     $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
-        button.addEventListener("click", () => openClarification(view, view.marks[Number(button.dataset.clarifyIdx)].question, button));
+        button.addEventListener("click", () => openClarification(view, view.marks[Number(button.dataset.clarifyIdx)], button));
     });
     refreshClarifications(view);
 }
@@ -531,15 +532,9 @@ async function refreshArtifact(view) {
         try {
             const result = await json(`/api/artifact?path=${encodeURIComponent(view.context.artifact)}`);
             const observed = clarifications.observe(view.context, result.content, token);
-            if (observed) {
-                view.message = observed.complete
-                    ? "Submitted markers disappeared. Review the artifact to verify the answers were incorporated correctly."
-                    : observed.timedOut
-                        ? "Timed out waiting for unresolved markers to disappear. Answers retained. The agent may still be editing; review the artifact before retrying."
-                        : `${observed.remaining} submitted clarification${observed.remaining === 1 ? "" : "s"} still unresolved. Waiting for artifact changes; answers retained.`;
-            }
+            if (observed) view.message = observationMessage(observed);
             if (state.artifactView === view) {
-                renderArtifactContent(view, result.content);
+                if (result.content.trim()) renderArtifactContent(view, result.content);
                 refreshClarifications(view);
             }
         } catch {
@@ -568,33 +563,22 @@ function pollAmendment(view) {
 function refreshClarifications(view, message = view.message) {
     if (state.artifactView !== view) return;
     view.message = message;
-    const answers = clarifications.list(view.context);
-    const pending = clarifications.isPending(view.context);
-    $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
-        const answer = answers.find((entry) => entry.question === view.marks[Number(button.dataset.clarifyIdx)].question);
-        button.textContent = answer ? "Answered ✓" : "Clarify";
-        if (answer) button.title = answer.answer;
-        else button.removeAttribute("title");
-        button.classList.toggle("clarify-pill-answered", Boolean(answer));
+    refreshDraftControls($("artifact-viewer"), view, clarifications, {
+        apply: () => applyClarifications(view), refresh: () => refreshArtifact(view),
     });
-    const banner = $("clarification-banner");
-    banner.hidden = !answers.length && !message;
-    banner.innerHTML = `<span role="status">${esc(message || `${answers.length} clarification${answers.length === 1 ? "" : "s"} queued. Apply answers edits this artifact only.`)}</span>${answers.length ? `<button class="btn btn-primary btn-sm" id="apply-clarifications" type="button" ${pending ? "disabled" : ""}>${pending ? "Applying…" : "Apply answers"}</button>` : ""}`;
-    $("apply-clarifications")?.addEventListener("click", () => applyClarifications(view));
 }
 
-function openClarification(view, question, trigger) {
-    const marker = view.marks.find((entry) => entry.question === question)?.marker;
+function openClarification(view, { question, marker }, trigger) {
     const root = $("modal-root");
     root.innerHTML = `<div class="wizard-modal-backdrop"><section class="wizard-modal constitution-dialog" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
         <header class="wizard-modal-head"><h3 id="clarification-title">Resolve clarification</h3></header>
         <div class="wizard-modal-body"><p id="clarification-question">${esc(question)}</p>
-        <label class="field" for="clarification-answer"><span class="field-label">Answer</span><textarea class="phase-input-control" id="clarification-answer" aria-describedby="clarification-question"></textarea></label><p class="muted">Queue your answer, then choose Apply answers to amend this artifact without rerunning the phase.</p></div>
-        <footer class="wizard-modal-foot"><button class="btn btn-secondary" id="cancel-clarification" type="button">Cancel</button><button class="btn btn-primary" id="queue-clarification" type="button">Queue answer</button></footer>
+        <label class="field" for="clarification-answer"><span class="field-label">Answer</span><textarea class="phase-input-control" id="clarification-answer" aria-describedby="clarification-question"></textarea></label><p class="muted">Save a draft, then choose Apply answers to amend this artifact without rerunning the phase.</p></div>
+        <footer class="wizard-modal-foot"><button class="btn btn-secondary" id="cancel-clarification" type="button">Cancel</button><button class="btn btn-primary" id="queue-clarification" type="button">Save draft</button></footer>
         </section></div>`;
     const input = $("clarification-answer");
     const queue = $("queue-clarification");
-    input.value = clarifications.list(view.context).find((entry) => entry.question === question)?.answer ?? "";
+    input.value = clarifications.list(view.context).find((entry) => entry.marker === marker)?.answer ?? "";
     const update = () => { queue.disabled = !input.value.trim(); };
     input.addEventListener("input", update);
     update();
@@ -628,6 +612,8 @@ async function applyClarifications(view) {
     if (clarifications.isPending(view.context)) return;
     try {
         const submission = clarifications.flush(view.context, {
+            content: view.content,
+            markers: selectedDrafts(view, clarifications).map((entry) => entry.marker),
             dispatch: (input) => json("/api/artifact/amend", {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(input),
@@ -635,19 +621,26 @@ async function applyClarifications(view) {
         });
         refreshClarifications(view);
         const outcome = await submission;
+        view = currentArtifactView(view);
         if (!outcome.accepted) {
             if (outcome.result?.approvalRequired || outcome.result?.code === "setup_required") await refresh();
             if (outcome.result?.code === "stale_markers") await refreshArtifact(view);
             refreshClarifications(view, `${outcome.result?.error || "Could not submit the amendment."} Your queued answers were preserved.`);
             return;
         }
-        refreshClarifications(view, "Amendment submitted. Answers retained until a fresh artifact read observes the selected markers disappearing.");
+        refreshClarifications(view, "Submitted; waiting for an artifact update. Drafts remain editable.");
         const currentView = state.artifactView;
         await refreshArtifact(currentView && clarificationKey(currentView.context) === clarificationKey(view.context) ? currentView : view);
         pollAmendment(view);
     } catch (error) {
+        view = currentArtifactView(view);
         refreshClarifications(view, `${error.message} Your queued answers were preserved.`);
     }
+}
+
+function currentArtifactView(view) {
+    return state.artifactView && clarificationKey(state.artifactView.context) === clarificationKey(view.context)
+        ? state.artifactView : view;
 }
 
 function render() {

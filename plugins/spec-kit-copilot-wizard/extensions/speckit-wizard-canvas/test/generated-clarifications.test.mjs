@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClarifications as wizardParse } from "../pipeline/canonical.mjs";
-import { createClarificationQueue, parseClarifications } from "../generation/generated-canvas-template/ui/clarifications.mjs";
+import { applicableDrafts, clarificationKey, createClarificationQueue, parseClarifications } from "../generation/generated-canvas-template/ui/clarifications.mjs";
 import { renderMarkdown } from "../workflow-ui/markdown.mjs";
 
 const context = Object.freeze({ scope: "workspace-and-canvas", itemId: "alpha", phase: "2:custom-plan", artifact: "specs/alpha/plan.md" });
@@ -74,7 +74,8 @@ test("queue isolates workspace/canvas, item, exact phase, artifact and project s
 });
 
 test("two of five answers dispatch a dedicated amendment payload and remain until observed", async () => {
-    const queue = createClarificationQueue(memoryStorage());
+    let time = 0;
+    const queue = createClarificationQueue(memoryStorage(), { now: () => time });
     queue.queue(context, "Which scope?", "Core only");
     queue.queue(context, "Tests?", "Focused");
     let input;
@@ -94,9 +95,14 @@ test("two of five answers dispatch a dedicated amendment payload and remain unti
     assert.equal(queue.isPending(context), true);
     const unchanged = "[NEEDS CLARIFICATION: Which scope?]\n[NEEDS CLARIFICATION: Tests?]\n[NEEDS CLARIFICATION: Third?]\n[NEEDS CLARIFICATION: Fourth?]\n[NEEDS CLARIFICATION: Fifth?]";
     assert.equal(queue.observe(context, unchanged).resolved, 0);
-    assert.equal(queue.observe(context, unchanged.replace("[NEEDS CLARIFICATION: Which scope?]", "Core only")).resolved, 1);
+    const partial = unchanged.replace("[NEEDS CLARIFICATION: Which scope?]", "Core only");
+    assert.equal(queue.observe(context, partial).resolved, 0);
+    time += 1001;
+    assert.equal(queue.observe(context, partial).resolved, 1);
     assert.equal(queue.list(context)[0].question, "Tests?");
     assert.equal(queue.isPending(context), true);
+    queue.observe(context, "[NEEDS CLARIFICATION: Third?]");
+    time += 1001;
     assert.equal(queue.observe(context, "[NEEDS CLARIFICATION: Third?]").complete, true);
     assert.equal(queue.isPending(context), false);
     assert.deepEqual(queue.list(context), []);
@@ -111,7 +117,8 @@ test("CRLF multiline markers remain pending until their actual disappearance", a
 });
 
 test("Constitution clarification uses its exact captured project phase without item or slug", async () => {
-    const queue = createClarificationQueue();
+    let time = 0;
+    const queue = createClarificationQueue(undefined, { now: () => time });
     const project = { scope: "project-canvas", phase: "7:constitution-override", artifact: ".specify/memory/constitution.md" };
     queue.queue(project, "Testing?", "Required");
     await queue.flush(project, { dispatch: async (input) => {
@@ -120,6 +127,8 @@ test("Constitution clarification uses its exact captured project phase without i
         return { ok: true, phase: input.phase, artifact: input.artifact };
     } });
     assert.equal(queue.list(project).length, 1);
+    queue.observe(project, "Testing is required");
+    time += 1001;
     queue.observe(project, "Testing is required");
     assert.deepEqual(queue.list(project), []);
 });
@@ -141,7 +150,8 @@ test("failed dispatch, gates, stale markers and unexpected setup queues retain a
 });
 
 test("in-flight additions and changed revisions survive, including edit away and back", async () => {
-    const queue = createClarificationQueue();
+    let time = 0;
+    const queue = createClarificationQueue(undefined, { now: () => time });
     queue.queue(context, "Scope?", "Initial");
     queue.queue(context, "Unchanged?", "Remove on success");
     let release;
@@ -156,13 +166,15 @@ test("in-flight additions and changed revisions survive, including edit away and
     await sending;
     assert.equal(queue.list(context).length, 3, "dispatch acknowledgement must not clear answers");
     queue.observe(context, "All submitted markers were incorporated.");
+    time += 1001;
+    queue.observe(context, "All submitted markers were incorporated.");
     assert.deepEqual(queue.list(context).map(({ question, answer }) => ({ question, answer })), [
         { question: "Scope?", answer: "Initial" }, { question: "Added?", answer: "Keep" },
     ]);
     assert.equal(queue.isPending(context), false);
 });
 
-test("observation snapshots survive reload; timeout is retryable and stale reads cannot complete a new submission", async () => {
+test("only drafts survive reload; timeout is retryable and stale reads cannot complete a new submission", async () => {
     const storage = memoryStorage();
     let time = 100;
     let queue = createClarificationQueue(storage, { now: () => time });
@@ -170,8 +182,10 @@ test("observation snapshots survive reload; timeout is retryable and stale reads
     const beforeDispatch = queue.observationToken(context);
     await queue.flush(context, { dispatch: async () => accepted });
     assert.equal(queue.observe(context, "old read without markers", beforeDispatch), null);
-    queue = createClarificationQueue(storage, { now: () => time });
-    assert.equal(queue.isPending(context), true);
+    const restored = createClarificationQueue(storage, { now: () => time });
+    assert.equal(restored.isPending(context), false);
+    assert.equal(restored.hasSubmission(context), false);
+    assert.equal(restored.list(context)[0].answer, "Core");
     time += 120_001;
     assert.equal(queue.observe(context, "[NEEDS CLARIFICATION: Scope?]").timedOut, true);
     assert.equal(queue.list(context).length, 1);
@@ -180,6 +194,29 @@ test("observation snapshots survive reload; timeout is retryable and stale reads
     await queue.flush(context, { dispatch: async () => accepted });
     assert.equal(queue.observe(context, "stale content", oldToken), null);
     assert.equal(queue.list(context).length, 1);
+});
+
+test("subset selection and empty/truncated/unstable writes never erase drafts", async () => {
+    let time = 0;
+    const storage = memoryStorage();
+    const queue = createClarificationQueue(storage, { now: () => time });
+    queue.queue(context, "First?", "First");
+    queue.queue(context, "Second?", "Second");
+    const source = "[NEEDS CLARIFICATION: First?]\n[NEEDS CLARIFICATION: Second?]";
+    let sent;
+    await queue.flush(context, { content: source, markers: ["[NEEDS CLARIFICATION: First?]"],
+        dispatch: async (input) => { sent = input; return accepted; } });
+    assert.equal(sent.answers.length, 1);
+    for (const text of ["", "", "# Truncated", "# Truncated", "First.\n[NEEDS CLARIFICATION: Second?]", ""]) {
+        time += 1001;
+        assert.equal(queue.observe(context, text).resolved, 0);
+        assert.equal(queue.list(context).length, 2);
+    }
+    const final = "First.\n[NEEDS CLARIFICATION: Second?]";
+    queue.observe(context, final);
+    time += 1001;
+    assert.equal(queue.observe(context, final).resolved, 1);
+    assert.equal(queue.list(context)[0].answer, "Second");
 });
 
 test("unavailable or malformed browser storage never prevents staging or preserves corrupt entries", () => {
@@ -193,4 +230,19 @@ test("unavailable or malformed browser storage never prevents staging or preserv
         queue.queue(context, "Q", "A");
         assert.equal(queue.list(context)[0].answer, "A");
     }
+});
+
+test("legacy submission metadata is ignored, only drafts persist and changed markers cannot inherit them", () => {
+    const storage = memoryStorage();
+    const key = `speckit-clarifications.v1:${clarificationKey(context)}`;
+    const entry = { question: "Scope?", marker: "[NEEDS CLARIFICATION: Scope?]", answer: "Keep", revision: 1 };
+    storage.setItem(key, JSON.stringify({ answers: [entry], submitted: { startedAt: Date.now(), answers: [entry] } }));
+    const queue = createClarificationQueue(storage);
+    assert.equal(queue.isPending(context), false);
+    assert.equal(queue.hasSubmission(context), false);
+    assert.equal(queue.observe(context, "No markers."), null);
+    assert.equal(queue.list(context)[0].answer, "Keep");
+    assert.deepEqual(applicableDrafts(queue.list(context), [{ question: "Scope?", marker: "[needs clarification: Scope?]" }]), []);
+    queue.queue(context, "Scope?", "Edited");
+    assert.deepEqual(Object.keys(JSON.parse(storage.getItem(key))), ["answers"]);
 });

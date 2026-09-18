@@ -42,7 +42,8 @@ import {
 // instead of waiting for the agent turn to finish. Agent-side errors still
 // surface in chat; transport/session failures are observed asynchronously so
 // local tracking state can be cleaned up without blocking the caller.
-export function dispatchPromptToSession({ prompt, onError } = {}) {
+export function dispatchPromptToSession({ prompt, onError, waitForAcceptance = false } = {}) {
+    if (waitForAcceptance) return sessionAdapter().send({ prompt });
     setImmediate(() => {
         let completion;
         try {

@@ -13,12 +13,16 @@ heading hierarchy, lists, code, tables, quotes, links, clarification pills and h
 The generated back button returns to the workflow; no installed Wizard assets are
 needed at runtime.
 
+Template version 16 keeps document content left-aligned across the available
+viewer width instead of centering a narrow column. Side padding is 24px on wider
+panels and 16px on narrow panels; the Wizard uses the same shared layout.
+
 The shared renderer escapes HTML and strips complete comments with a separating
 space. It tokenizes inline code and links before clarification markers, and keeps
 fenced code inert; marker-looking text in code, links or comments is not interactive.
 Unsafe link schemes resolve to `#`. Generated canvases use **Apply answers** to
 amend artifacts, separately from normal phase reruns (see below). The existing
-Wizard's clarification submission behavior is unchanged.
+Wizard uses the same focused amendment behavior as of template version 15.
 
 Maintainers can run `node --test test/artifact-viewer-parity.test.mjs` in the Wizard
 extension source tree with Playwright available (or `PLAYWRIGHT_MODULE` pointing to
@@ -31,11 +35,36 @@ after normalizing only application-specific navigation and queue copy. No phase 
 
 ## Automatic setup
 
-On open, the generated canvas reads the portable setup contract in `pipeline.json`.
-If Spec Kit or dynamically selected skills are missing, the canvas automatically sends
-a setup prompt to the coding agent. A canvas with recorded presets or extensions also
-sends that prompt when their directories already exist so the agent can reconcile their
-enabled states and numeric priorities instead of treating directory presence as sufficient.
+### Reusing the creator's workspace or running standalone
+
+**This app can run standalone in a fresh workspace. You do not need to open or run
+the Spec Kit Wizard to prepare that workspace.** The generated app drives its own
+setup using the requirements captured in `pipeline.json`.
+
+- **Same workspace used by the Wizard:** matching `.specify/` scaffolding,
+  installed presets/extensions, and `.github/skills/` files already exist and are
+  reused. Generating or opening this app does not copy or reinstall them.
+- **Fresh workspace with this standalone app:** on open, the app detects missing
+  setup and asks Copilot to use the Spec Kit setup skills to initialize the project
+  with `specify init` in Copilot skills mode and install/configure the captured
+  presets and extensions. Spec Kit scaffolds this workspace's `.specify/` and
+  applicable `.github/skills/` files, then the app reloads the session's skills.
+  If installation approval is enabled, the recipient must approve missing
+  contributions first; otherwise setup is automatic. Normal tool/platform
+  permissions still apply.
+
+The generated package contains canvas code and configuration, not a copy of the
+creator's `.specify/` directory, installed contributions, or skill files. The
+Spec Kit setup skills and CLI are separate prerequisites, not bundled Wizard
+assets. Matching installations and unrelated contributions are preserved.
+
+### Readiness and reconciliation
+
+Template version 14 checks the portable setup contract in `pipeline.json` on open.
+If initialization, recorded contributions and required skill files already match,
+the canvas skips agent-led setup—even with presets/extensions and installation
+approval disabled—and reloads the current session's skills directly when needed.
+Only missing or mismatched setup sends a setup prompt to the coding agent.
 Readiness requires independently observed contribution state and recorded relative precedence,
 not an agent acknowledgement. A mismatch or unreadable state reports expected versus observed
 details and invalidates cached readiness.
@@ -45,6 +74,23 @@ runtime only reads local setup files and runs read-only `specify preset list` /
 `specify extension list` queries. Those queries are coalesced and cached for up to
 30 seconds, invalidated by setup evidence changes, and forcibly refreshed during
 `reloadSessionSkills`. The runtime does not write setup files or install contributions.
+
+After readiness is established, routine `/api/state`, `list_items` and one-second
+UI polls use an in-memory status snapshot: no setup inspections, contribution CLI
+queries or required-skill file reads. Before phase execution or artifact amendments,
+the runtime inspects current evidence again. Unchanged evidence reuses loaded-session
+readiness; changed matching skill/setup evidence reloads skills directly. Missing or
+mismatched evidence uses the existing gated repair flow (amendments remain unqueued).
+Explicit setup/retry, installation-review actions and skill reloads also recheck.
+Reload failures remain failures and never trigger a full setup audit merely because
+the session registry needs reloading.
+
+Unresolved setup continues bounded local checks and cached inventory queries so
+agent repairs and out-of-band installations can become visible without new UI.
+Readiness and concurrent reload coalescing are scoped by workspace, canvas and setup
+contract in the provider's memory only. New workspaces/providers recheck; no loaded
+session readiness is persisted, no watchers are installed, and generation gains no
+extra setup or verification step.
 
 By default the canvas creator's selection in the Wizard permits automatic setup.
 With installation approval disabled, the app automatically installs missing
@@ -81,7 +127,8 @@ setup/run actions and caller-supplied flags cannot approve installation.
 
 After approval the panel shows actual setup verification or a failure with **Retry
 setup**, disappearing once all required components are verified as installed.
-External installations are detected on refresh; no acceptance record is written
+External installations are detected while setup is unresolved or at the next explicit
+setup/execution check; no acceptance record is written
 for already-installed components. Phase execution still requires actual
 configuration/skill readiness and session reload. Installed components are
 retained without reinstalling, even when their settings need reconciliation.
@@ -92,6 +139,8 @@ not sandbox enforcement, a package-safety guarantee, or immutable remote-content
 Once setup evidence matches, the generated canvas reloads the current Copilot session through
 its `reloadSessionSkills` action, backed by `session.rpc.skills.reload()`. Failed or
 interrupted setup exposes a retry action; default first-run setup requires no user click.
+The runtime reload result is the current-session registry authority; running
+`copilot skill list` in another CLI process is not an additional verification step.
 
 Caught runtime exceptions are reported through fixed, operation-specific messages in
 HTTP responses and canvas state, rather than exposing exception text or stack traces.
@@ -162,15 +211,17 @@ not retrofitted implicitly.
 
 The Markdown viewer recognizes the Wizard's case-insensitive
 `[NEEDS CLARIFICATION: question]` markers, including multiline questions.
-**Clarify** opens an answer editor; **Queue answer** stages the answer and
-**Answered ✓** lets you edit it. Code examples and links stay non-interactive,
+**Clarify** opens an answer editor; **Save draft** saves the answer and
+**Edit draft** remains available while the marker exists. Neutral **Draft saved**
+labels and a separate draft count are not resolution indicators. Code examples and links stay non-interactive,
 and artifact HTML remains escaped.
 
-**Apply answers** submits the queued subset through `/api/artifact/amend`, not
+**Apply answers** submits the checked subset (including a single draft) through `/api/artifact/amend`, not
 `/api/run`. Answering two of five questions amends just those two; the remaining
 markers are preserved. The endpoint validates the exact phase, existing workflow
 item, declared regular artifact and selected marker text against a fresh bounded
-read. Constitution uses its project phase without a workflow item or slug.
+read. Any stale or ambiguous duplicate marker rejects the whole batch before
+dispatch. Constitution uses its project phase without a workflow item or slug.
 Installation approval and setup/session readiness must be satisfied; amendments
 are never queued for later setup execution.
 
@@ -179,7 +230,8 @@ relevant sections and remove only resolved exact markers. It treats the JSON
 artifact/answer payload as untrusted data and preserves unrelated prose,
 unanswered markers and provenance. It forbids invoking the original skill,
 research, phase reruns or downstream changes. Insufficient/conflicting answers
-keep their markers and the agent reports a reason in chat. The normal **Rerun**
+keep their exact markers; the agent adds or updates a concise nearby explanation
+of what is missing, without duplicate notes. The normal **Rerun**
 phase action and its confirmation remain unchanged.
 
 Viewing, polling, queuing the last answer and going Back never dispatch a phase.
@@ -189,8 +241,12 @@ They survive viewer navigation and same-origin page reloads; browser storage
 restrictions or a new loopback origin can limit persistence.
 Gate rejection, stale markers and failed sends keep answers with an explicit
 message. Dispatch acknowledgement never clears drafts or marks completion.
-Submitted snapshots survive same-origin reloads. Only a fresh artifact read removes
-submitted answer revisions whose exact markers disappeared; in-flight edits and
+Only drafts persist; legacy submitted metadata is ignored on reload.
+Submission snapshots are transient and revision-aware. Two matching nonempty
+observations at least one second apart may remove unchanged submitted drafts
+whose visible markers disappeared. Empty/unstable reads, and truncated reads that
+also lose unanswered markers, retain drafts. This is conservative observation,
+not an agent completion or semantic correctness signal. In-flight edits and
 additions remain. This is structural verification, **not proof that an answer was
 correctly incorporated**—review the artifact.
 
@@ -207,7 +263,9 @@ before retrying. Closing a viewer does not discard drafts.
 ## Files
 
 - `pipeline.json` — immutable generated workflow definition.
-- `ui/clarifications.mjs` — protected marker parsing and scoped answer queue.
+- `ui/clarifications.mjs` — shared, protected artifact-scoped drafts and transient submission observations.
+- `ui/clarification-controls.mjs` — shared neutral draft controls, subset selection and retained-draft review.
+- `ui/amendment.mjs` — shared exact visible-marker validation and focused amendment prompt.
 - `amendment-runtime.mjs` — guarded, deduplicated edit-artifact dispatch; no phase execution.
 - `workflow-config.json` — validated workflow labels, fixed phase arguments, and input guidance inferred from effective installed skills.
 - `workflow-adapter.mjs` — protected interpretation of that configuration; never generated executable logic.
