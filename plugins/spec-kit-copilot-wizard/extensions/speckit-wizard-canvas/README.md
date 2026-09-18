@@ -104,6 +104,10 @@ The wizard stores a deterministic generation request and a versioned
 canvas-template snapshot under `.speckit-wizard/generated-canvases/`.
 The agent invokes `/create-canvas`, scaffolds the extension, runs the
 request-scoped materializer, reads the selected commands' skill files, and
+uses a concise generation prompt focused on procedure and configuration authoring.
+The request is authoritative; template-owned UI and runtime behavior are not
+repeated as implementation instructions. Skill files are reference data, not
+commands to execute during generation. The agent
 customizes only the validated `workflow-config.json` (item labels, fixed phase
 argument prefixes/suffixes, and concise per-phase input labels/helpers derived from
 the effective installed skills, including preset overrides). Phase input guidance
