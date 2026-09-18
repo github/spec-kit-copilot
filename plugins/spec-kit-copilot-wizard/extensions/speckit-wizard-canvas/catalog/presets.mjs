@@ -25,11 +25,12 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 export async function listInstalledPresets(workspacePath) {
     const stdout = await specifyRun(["preset", "list"], workspacePath);
     if (stdout == null) {
-        return { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
+        return { ids: new Set(), names: new Set(), byId: new Map(), byName: new Map(), orderedIds: [] };
     }
     const parsed = parsePresetListOutput(stdout);
     return {
         ids: new Set(parsed.orderedIds),
+        byId: parsed.byId,
         names: new Set(parsed.byName.keys()),
         byName: parsed.byName,
         // CLI precedence order (first = winner). Consumed by the
@@ -50,6 +51,8 @@ export async function hydratePresetsForSources(inst, sources) {
         outputField: "cachedPresetItems",
         listInstalled: listInstalledPresets,
         extraFields: (_raw, { installedId, installed }) => ({
+            enabled: installedId ? installed.byId?.get(installedId)?.enabled ?? null : null,
+            priority: installedId ? installed.byId?.get(installedId)?.priority ?? null : null,
             // CLI precedence position (0 = first line of `specify preset list`
             // = winner). null when the preset isn't installed, or when the CLI
             // list wasn't available. The assembler uses this as the primary

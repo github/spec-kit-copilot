@@ -21,6 +21,7 @@ import { installBootOverlay } from "./boot.js";
 import {
     setViewersDeps,
     openArtifactViewer,
+    refreshArtifactViewer,
     openCommandViewer,
     openCatalogViewer,
 } from "./modals.js";
@@ -67,6 +68,7 @@ import {
     setInferenceDeps,
     observePhaseProgress,
 } from "./phase-runtime.js";
+import { setGenerationDeps } from "./generation.js";
 
 // -------- Section: app.js --------
 
@@ -91,6 +93,7 @@ setRunLockDeps({ render });
 setPipelineDeps({ postJson });
 setExtensionCardDeps({ openCommandViewer, renderCommandCardHintsHtml, synthesizeCanonicalPhase });
 setInferenceDeps({ TOKEN });
+setGenerationDeps({ postJson, render });
 setCompositionMetaDeps({ postJson, renderComposition });
 setSetupActionsDeps({ render, postJson });
 setStepperDeps({ renderPhaseCard });
@@ -240,6 +243,7 @@ async function refreshState() {
         if (!res.ok) throw new Error(`state ${res.status}`);
         const snap = await res.json();
         state.snapshot = snap;
+        void refreshArtifactViewer();
         // Seed boot overlay from initial snapshot so the panel reflects
         // any progress the backend has made between server-start and
         // this first REST fetch (avoids a blank frame before SSE ticks).

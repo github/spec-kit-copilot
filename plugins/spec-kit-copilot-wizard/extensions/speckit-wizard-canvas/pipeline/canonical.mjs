@@ -163,6 +163,51 @@ export const CORE_CAPABILITIES = Object.freeze({
     }),
 });
 
+const DEFAULT_ARGUMENT_GUIDANCE = Object.freeze({
+    hint: "Provide guidance to focus or scope this phase.",
+    whenEmpty: "If left empty, the phase will run with default behavior using the existing artifacts.",
+});
+
+export const CANONICAL_ARGUMENT_GUIDANCE = Object.freeze({
+    constitution: Object.freeze({
+        hint: "Enter your project's governing principles and development guidelines that will guide all subsequent development.",
+        whenEmpty: "If left empty, a new constitution will be drafted from your repo context (README, docs) for review; otherwise, an existing constitution will be changed.",
+    }),
+    specify: Object.freeze({
+        hint: "Describe what you want to build — focus on the what and why, not the tech stack.",
+        whenEmpty: "A description is required.",
+    }),
+    clarify: Object.freeze({
+        hint: "Provide areas of concern to focus clarification pass.",
+        whenEmpty: "If left empty, the full spec will be scanned across categories of impact areas (scope, data model, UX, integration, etc.).",
+    }),
+    plan: Object.freeze({
+        hint: "Provide your tech stack and architecture choices.",
+        whenEmpty: "If left empty, the plan will be derived from the spec.md and constitution.md alone, marking missing technical decisions as needing clarification.",
+    }),
+    tasks: Object.freeze({
+        hint: "Add guidance for task generation like groupings, priorities, and areas to emphasize.",
+        whenEmpty: "If left empty, a full, dependency-ordered tasks.md will be generated directly from plan.md and spec.md (with constitution.md as governing constraints).",
+    }),
+    implement: Object.freeze({
+        hint: "Add guidance for the implementation.",
+        whenEmpty: "If left empty, all tasks in tasks.md will be implemented in dependency order, updating progress markers as each completes.",
+    }),
+    analyze: Object.freeze({
+        hint: "Add a specific concern for analysis to focus on.",
+        whenEmpty: "If left empty, a full consistency and quality analysis will be performed across spec.md, plan.md, and tasks.md (with constitution.md as governing authority).",
+    }),
+    taskstoissues: Object.freeze({
+        hint: "Add issue-creation guidance like labels, milestone, and assignees.",
+        whenEmpty: "If left empty, one GitHub issue per task will be created in tasks.md on the current repo's git remote.",
+    }),
+});
+
+export function canonicalArgumentGuidance(id) {
+    const bare = String(id ?? "").replace(/^speckit\./, "");
+    return CANONICAL_ARGUMENT_GUIDANCE[bare] ?? DEFAULT_ARGUMENT_GUIDANCE;
+}
+
 // Shared / library scripts — not invoked directly by any canonical command
 // body but sourced/imported by the other scripts. Renders in the UI as
 // "shared library" so users understand it exists but isn't per-phase.

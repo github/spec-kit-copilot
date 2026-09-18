@@ -1,0 +1,20 @@
+{
+  "snapshot": {
+    "pipeline": [
+      { "id": "speckit.bug.assess" },
+      { "id": "speckit.bug.fix" },
+      { "id": "speckit.bug.test" }
+    ],
+    "commands": [
+      { "id": "speckit.bug.assess", "commandName": "speckit.bug.assess", "shortLabel": "Assess", "source": "extension:bug", "artifact": ".specify/bugs/<slug>/assessment.md" },
+      { "id": "speckit.bug.fix", "commandName": "speckit.bug.fix", "shortLabel": "Fix", "source": "extension:bug", "artifact": ".specify/bugs/<slug>/fix.md" },
+      { "id": "speckit.bug.test", "commandName": "speckit.bug.test", "shortLabel": "Test", "source": "extension:bug", "artifact": ".specify/bugs/<slug>/test.md" }
+    ]
+  },
+  "expectedSkills": ["speckit-bug-assess", "speckit-bug-fix", "speckit-bug-test"],
+  "expectedArtifacts": [
+    ".specify/bugs/<slug>/assessment.md",
+    ".specify/bugs/<slug>/fix.md",
+    ".specify/bugs/<slug>/test.md"
+  ]
+}

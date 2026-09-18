@@ -2,179 +2,10 @@
 
 import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
-import { parseClarifications } from "../pipeline/canonical.mjs";
-import {
-    clearClarifications,
-    clearPhaseRunning,
-    clearSubmittedClarifications,
-    getPendingClarifications,
-    getPhaseLastSubmitted,
-    isPhaseRunning,
-    markPhaseRunning,
-    queueClarification,
-    setPhaseLastSubmitted,
-} from "./phase-runtime.js";
-
-// -------- Section: markdown.mjs --------
-
-export function renderMarkdown(src, placeholders = []) {
-    const raw = String(src ?? "")
-        .replace(/\r\n/g, "\n")
-        // Strip any remaining lone `\r` (e.g. CR-CR-LF files that leave a
-        // trailing `\r` on each line after the CRLF pass). Lone CRs break
-        // regex `$` anchors and cause the block-vs-paragraph loop to spin
-        // forever on lines like `# heading\r`.
-        .replace(/\r/g, "")
-        // Strip HTML comments — SpecKit skills use these as invisible
-        // provenance/version markers (e.g. `<!-- speckit:specify v1 -->`)
-        // that shouldn't render.
-        .replace(/<!--[\s\S]*?-->/g, "");
-    const PH_RE = /\uE000(\d+)\uE001/g;
-
-    const restorePlaceholders = (s) => s.replace(PH_RE, (_, i) => placeholders[Number(i)] ?? "");
-
-    // Inline: code first (so nothing inside backticks gets further rewrites),
-    // then bold, italic, links.
-    const renderInline = (text) => {
-        // Placeholders are preserved through inline rewrites — the token
-        // itself never contains characters the rewrites care about.
-        let out = escapeHtml(text);
-        // Inline code
-        out = out.replace(/`([^`\n]+)`/g, (_m, c) => `<code>${c}</code>`);
-        // Bold: **x** or __x__
-        out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-        out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-        // Italic: *x* or _x_  (avoid matching inside already-bolded strong tags)
-        out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-        out = out.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
-        // Links [text](url)
-        out = out.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, t, u) => {
-            const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
-            return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-        });
-        return restorePlaceholders(out);
-    };
-
-    const lines = raw.split("\n");
-    const html = [];
-    let i = 0;
-
-    const flushList = (listType, items) => {
-        if (!items.length) return;
-        html.push(`<${listType}>${items.map((it) => `<li>${renderInline(it)}</li>`).join("")}</${listType}>`);
-    };
-
-    while (i < lines.length) {
-        const line = lines[i];
-
-        // Fenced code block
-        if (/^```/.test(line)) {
-            const lang = line.replace(/^```/, "").trim();
-            i++;
-            const buf = [];
-            while (i < lines.length && !/^```/.test(lines[i])) {
-                buf.push(lines[i]);
-                i++;
-            }
-            if (i < lines.length) i++; // skip closing fence
-            const cls = lang ? ` class="language-${escapeHtml(lang)}"` : "";
-            html.push(`<pre><code${cls}>${restorePlaceholders(escapeHtml(buf.join("\n")))}</code></pre>`);
-            continue;
-        }
-
-        // ATX heading
-        const h = /^(#{1,6})\s+(.*)$/.exec(line);
-        if (h) {
-            const level = h[1].length;
-            html.push(`<h${level}>${renderInline(h[2].trim())}</h${level}>`);
-            i++;
-            continue;
-        }
-
-        // Horizontal rule
-        if (/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/.test(line)) {
-            html.push("<hr />");
-            i++;
-            continue;
-        }
-
-        // Blockquote (grouped)
-        if (/^>\s?/.test(line)) {
-            const buf = [];
-            while (i < lines.length && /^>\s?/.test(lines[i])) {
-                buf.push(lines[i].replace(/^>\s?/, ""));
-                i++;
-            }
-            html.push(`<blockquote>${renderInline(buf.join("\n"))}</blockquote>`);
-            continue;
-        }
-
-        // Unordered list
-        if (/^\s*[-*+]\s+/.test(line)) {
-            const items = [];
-            while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-                items.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
-                i++;
-            }
-            flushList("ul", items);
-            continue;
-        }
-
-        // Ordered list
-        if (/^\s*\d+\.\s+/.test(line)) {
-            const items = [];
-            while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-                items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
-                i++;
-            }
-            flushList("ol", items);
-            continue;
-        }
-
-        // Table: header | header | header  then --- | --- | ---  then rows
-        if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-+:?(\s*\|\s*:?-+:?)+\|?\s*$/.test(lines[i + 1])) {
-            const splitRow = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
-            const header = splitRow(line);
-            i += 2;
-            const rows = [];
-            while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
-                rows.push(splitRow(lines[i]));
-                i++;
-            }
-            html.push(
-                `<table><thead><tr>${header.map((c) => `<th>${renderInline(c)}</th>`).join("")}</tr></thead>` +
-                `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${renderInline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
-            );
-            continue;
-        }
-
-        // Blank line -> paragraph break
-        if (/^\s*$/.test(line)) {
-            i++;
-            continue;
-        }
-
-        // Paragraph: collapse contiguous non-blank, non-block lines.
-        const buf = [];
-        while (
-            i < lines.length &&
-            !/^\s*$/.test(lines[i]) &&
-            !/^(#{1,6})\s+/.test(lines[i]) &&
-            !/^```/.test(lines[i]) &&
-            !/^\s*[-*+]\s+/.test(lines[i]) &&
-            !/^\s*\d+\.\s+/.test(lines[i]) &&
-            !/^>\s?/.test(lines[i]) &&
-            !/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/.test(lines[i])
-        ) {
-            buf.push(lines[i]);
-            i++;
-        }
-        html.push(`<p>${renderInline(buf.join("\n"))}</p>`);
-    }
-
-    return html.join("\n");
-}
-
+import { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
+export { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
+import { clarificationKey, createClarificationQueue, wizardClarificationScope } from "../shared-workflow-ui/clarifications.mjs";
+import { observationMessage, refreshDraftControls, selectedDrafts } from "../shared-workflow-ui/clarification-controls.mjs";
 
 // -------- Section: modals/confirm.js --------
 
@@ -436,42 +267,100 @@ export function setViewersDeps({ postJson, HEADERS } = {}) {
     if (postJson) __postJson = postJson;
     if (HEADERS) __HEADERS = HEADERS;
 }
-let activeArtifactPhase = null; // phase currently open in the viewer
-const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
-
-export function isClarificationFlushPending(commandName) {
-    return !!commandName && clarificationFlushes.has(commandName);
+let activeArtifactView = null;
+const amendmentPolls = new Map();
+export const clarificationDrafts = createClarificationQueue({
+    getItem: (key) => globalThis.localStorage?.getItem(key),
+    setItem: (key, value) => globalThis.localStorage?.setItem(key, value),
+});
+export function artifactContext(p) {
+    return Object.freeze({
+        scope: wizardClarificationScope(state.snapshot?.workspacePath),
+        phase: p.commandName || `speckit.${p.id}`,
+        artifact: p.artifactPath,
+    });
+}
+export function flushClarifications(view) {
+    return clarificationDrafts.flush(view.context, {
+        content: view.content,
+        markers: selectedDrafts(view, clarificationDrafts).map((entry) => entry.marker),
+        dispatch: (input) => __postJson("/api/artifact/amend", { ...input, scope: view.context.scope }),
+    });
 }
 
-export async function flushClarifications(p) {
-    const commandName = p?.commandName;
-    if (!commandName) return false;
-    if (isClarificationFlushPending(commandName)) return clarificationFlushes.get(commandName);
-    if (isPhaseRunning(commandName)) return false;
+function currentArtifactView(view) {
+    return activeArtifactView && clarificationKey(activeArtifactView.context) === clarificationKey(view.context)
+        ? activeArtifactView : view;
+}
 
-    const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
-    if (!list.length) return false;
-    const lastArgs = getPhaseLastSubmitted(commandName) || "";
-    const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
-    const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
-    const flush = (async () => {
-        try {
-            markPhaseRunning(commandName);
-            const result = await __postJson("/api/phase/submit", { commandName, args });
-            if (!result) throw new Error("phase submit did not return a queued response");
-            setPhaseLastSubmitted(commandName, args);
-            clearSubmittedClarifications(commandName, list);
-            return true;
-        } catch (err) {
-            console.error(`dispatch failed: ${err?.message ?? err}`);
-            clearPhaseRunning(commandName);
-            return false;
-        } finally {
-            clarificationFlushes.delete(commandName);
+function refreshClarificationControls(view) {
+    if (activeArtifactView !== view) return;
+    refreshDraftControls(document.getElementById("phase-artifact-viewer"), view, clarificationDrafts, {
+        apply: async () => {
+            try {
+                const request = flushClarifications(view);
+                refreshClarificationControls(view);
+                const outcome = await request;
+                const current = currentArtifactView(view);
+                current.message = outcome.accepted
+                    ? "Submitted; waiting for an artifact update. Drafts remain editable."
+                    : `${outcome.result?.error || "Could not submit the amendment."} Drafts retained.`;
+                refreshClarificationControls(current);
+                await refreshArtifactViewer(current);
+                if (outcome.accepted) pollArtifactAmendment(current);
+            } catch (error) {
+                const current = currentArtifactView(view);
+                current.message = `${error.message} Drafts retained; retry when ready.`;
+                refreshClarificationControls(current);
+            }
+        },
+    });
+}
+
+export async function refreshArtifactViewer(view = activeArtifactView) {
+    if (!view || view.reading) return;
+    if (view.context.scope !== wizardClarificationScope(state.snapshot?.workspacePath)) return;
+    const token = clarificationDrafts.observationToken(view.context);
+    view.reading = true;
+    try {
+        const url = `/api/artifact?p=${encodeURIComponent(view.context.artifact)}&scope=${encodeURIComponent(view.context.scope)}&token=${encodeURIComponent(TOKEN)}`;
+        const res = await fetch(url, { headers: __HEADERS });
+        if (!res.ok) throw new Error(`${res.status} ${await res.text().catch(() => "")}`);
+        const text = await res.text();
+        if (view.context.scope !== wizardClarificationScope(state.snapshot?.workspacePath)) return;
+        const observed = clarificationDrafts.observe(view.context, text, token);
+        if (observed) view.message = observationMessage(observed);
+        if (activeArtifactView !== view) return;
+        const body = document.getElementById("phase-artifact-viewer").querySelector(".artifact-viewer-body");
+        if (text.trim() && view.content !== text) {
+            const scroll = body.scrollTop;
+            view.content = text;
+            view.marks = [];
+            body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(text, { clarifications: view.marks })}</div>`;
+            body.scrollTop = scroll;
+            body.querySelectorAll("[data-clarify-idx]").forEach((button) => {
+                button.addEventListener("click", () => openClarifyModal(view, view.marks[Number(button.dataset.clarifyIdx)]));
+            });
         }
-    })();
-    clarificationFlushes.set(commandName, flush);
-    return flush;
+        refreshClarificationControls(view);
+    } catch (error) {
+        view.message = `Could not refresh the artifact: ${error.message}. Drafts retained; automatic refresh will retry.`;
+        refreshClarificationControls(view);
+    } finally { view.reading = false; }
+}
+
+function pollArtifactAmendment(view) {
+    const key = clarificationKey(view.context);
+    if (activeArtifactView && clarificationKey(activeArtifactView.context) === key) view = activeArtifactView;
+    clearTimeout(amendmentPolls.get(key));
+    amendmentPolls.delete(key);
+    if (!clarificationDrafts.isPending(view.context) || view.context.scope !== wizardClarificationScope(state.snapshot?.workspacePath)) return;
+    const timer = setTimeout(async () => {
+        await refreshArtifactViewer(view);
+        pollArtifactAmendment(view);
+    }, 2000);
+    timer.unref?.();
+    amendmentPolls.set(key, timer);
 }
 
 export async function openArtifactViewer(p) {
@@ -479,7 +368,8 @@ export async function openArtifactViewer(p) {
     if (!root) return;
     if (!p?.artifactPath) return;
 
-    activeArtifactPhase = p;
+    const view = { context: artifactContext(p), content: null, marks: [], message: "" };
+    activeArtifactView = view;
     root.hidden = false;
     root.innerHTML = `
         <div class="artifact-viewer-header">
@@ -496,125 +386,12 @@ export async function openArtifactViewer(p) {
     `;
     root.querySelector(".artifact-viewer-back")?.addEventListener("click", closeArtifactViewer);
 
-    let text = "";
-    try {
-        const url = `/api/artifact?p=${encodeURIComponent(p.artifactPath)}&token=${encodeURIComponent(TOKEN)}`;
-        const res = await fetch(url, { headers: __HEADERS });
-        if (!res.ok) throw new Error(`${res.status} ${await res.text().catch(() => "")}`);
-        text = await res.text();
-    } catch (err) {
-        const body = root.querySelector(".artifact-viewer-body");
-        if (body) body.innerHTML = `<p class="wizard-modal-error">Failed to load artifact: ${escapeHtml(String(err?.message ?? err))}</p>`;
-        return;
-    }
-
-    const marks = parseClarifications(text);
-    const placeholders = [];
-    let processed = "";
-    let cursor = 0;
-    marks.forEach((m, idx) => {
-        processed += text.slice(cursor, m.startIdx);
-        const markerHtml =
-            `<mark class="clarify-marker">${escapeHtml(text.slice(m.startIdx, m.endIdx))}</mark>` +
-            ` <button type="button" class="clarify-pill" data-clarify-idx="${idx}">Clarify</button>`;
-        placeholders.push(markerHtml);
-        processed += `\uE000${idx}\uE001`;
-        cursor = m.endIdx;
-    });
-    processed += text.slice(cursor);
-
-    const rendered = renderMarkdown(processed, placeholders);
-
-    const body = root.querySelector(".artifact-viewer-body");
-    if (body) body.innerHTML = `<div class="artifact-viewer-md">${rendered}</div>`;
-
-    const totalMarks = marks.length;
-    const refreshPillState = (errorMessage = "") => {
-        const answered = getPendingClarifications(p.commandName);
-        const submitting = isClarificationFlushPending(p.commandName);
-        body?.querySelectorAll(".clarify-pill").forEach((btn) => {
-            const idx = Number(btn.getAttribute("data-clarify-idx"));
-            const q = marks[idx]?.question ?? "";
-            const match = answered.find((c) => c.question === q);
-            btn.disabled = submitting;
-            if (match) {
-                btn.textContent = "Answered ✓";
-                btn.classList.add("clarify-pill-answered");
-                btn.title = match.answer;
-            } else {
-                btn.textContent = "Clarify";
-                btn.classList.remove("clarify-pill-answered");
-                btn.removeAttribute("title");
-            }
-        });
-        const banner = root.querySelector(".artifact-viewer-clarify-banner");
-        const pending = getPendingClarifications(p.commandName).length;
-        if (banner) {
-            if (pending > 0) {
-                banner.hidden = false;
-                banner.innerHTML = `
-                    <span>${pending} clarification${pending === 1 ? "" : "s"} queued
-                    ${submitting ? "— applying now" : totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— ready to apply"}.</span>
-                    ${errorMessage ? `<p class="wizard-modal-error">${escapeHtml(errorMessage)}</p>` : ""}
-                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now" ${submitting ? "disabled" : ""}>${submitting ? "Applying…" : "Apply and Rerun"}</button>
-                `;
-                banner.querySelector('[data-clarify-action="apply-now"]')?.addEventListener("click", async () => {
-                    const btn = banner.querySelector('[data-clarify-action="apply-now"]');
-                    if (btn?.disabled) return;
-                    if (btn) {
-                        btn.disabled = true;
-                        btn.textContent = "Applying…";
-                    }
-                    const pendingFlush = flushClarifications(p);
-                    refreshPillState();
-                    const dispatched = await pendingFlush;
-                    if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
-                    else refreshPillState(dispatched ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
-                });
-            } else {
-                banner.hidden = true;
-                banner.innerHTML = "";
-            }
-        }
-    };
-
-    body?.querySelectorAll(".clarify-pill").forEach((btn) => {
-        const idx = Number(btn.getAttribute("data-clarify-idx"));
-        const question = marks[idx]?.question ?? "";
-        btn.addEventListener("click", () => openClarifyModal(p, question, async () => {
-            refreshPillState();
-            const pending = getPendingClarifications(p.commandName).length;
-            if (pending >= totalMarks && totalMarks > 0) {
-                const pendingFlush = flushClarifications(p);
-                refreshPillState();
-                const dispatched = await pendingFlush;
-                if (dispatched && getPendingClarifications(p.commandName).length === 0) closeArtifactViewer();
-                else refreshPillState();
-            }
-        }));
-    });
-
-    refreshPillState();
+    await refreshArtifactViewer(view);
+    pollArtifactAmendment(view);
 }
 export async function closeArtifactViewer() {
     const root = document.getElementById("phase-artifact-viewer");
-    const p = activeArtifactPhase;
-    if (p?.commandName && isClarificationFlushPending(p.commandName)) {
-        const banner = root?.querySelector(".artifact-viewer-clarify-banner");
-        if (banner) {
-            banner.hidden = false;
-            banner.innerHTML = `<span>Applying clarification rerun. Wait for it to finish before closing.</span>`;
-        }
-        return false;
-    }
-    activeArtifactPhase = null;
-    if (p?.commandName) {
-        // Back-to-Wizard discards any queued clarifications — the
-        // "Apply and Rerun" banner button is the only way to commit
-        // them. This prevents accidental reruns when the user just
-        // wants to close the viewer.
-        clearClarifications(p.commandName);
-    }
+    activeArtifactView = null;
     if (!root) return;
     root.hidden = true;
     root.innerHTML = "";
@@ -628,6 +405,7 @@ export async function closeArtifactViewer() {
 // row opens that file in the artifact viewer. Reuses the same overlay so
 // there's a single "Back to Wizard" affordance regardless of which mode.
 export async function openFolderBrowser(p, folderPath) {
+    activeArtifactView = null;
     const root = document.getElementById("phase-artifact-viewer");
     if (!root || !folderPath) return;
     root.hidden = false;
@@ -682,6 +460,7 @@ export async function openFolderBrowser(p, folderPath) {
 export async function openCommandViewer(sourcePath, title) {
     const root = document.getElementById("phase-artifact-viewer");
     if (!root || !sourcePath) return;
+    activeArtifactView = null;
     root.hidden = false;
     root.innerHTML = `
         <div class="artifact-viewer-header">
@@ -706,7 +485,7 @@ export async function openCommandViewer(sourcePath, title) {
         if (!res.ok) throw new Error(`${res.status} ${await res.text().catch(() => "")}`);
         const text = await res.text();
         const body = root.querySelector(".artifact-viewer-body");
-        if (body) body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(text, [])}</div>`;
+        if (body) body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(text)}</div>`;
     } catch (err) {
         const msg = err?.name === "AbortError" ? "request timed out after 10s" : String(err?.message ?? err);
         const body = root.querySelector(".artifact-viewer-body");
@@ -721,6 +500,7 @@ export async function openCommandViewer(sourcePath, title) {
 export async function openCatalogViewer(remoteUrl, title) {
     const root = document.getElementById("phase-artifact-viewer");
     if (!root || !remoteUrl) return;
+    activeArtifactView = null;
     root.hidden = false;
     root.innerHTML = `
         <div class="artifact-viewer-header">
@@ -763,29 +543,23 @@ export function openRedoModal(p, draftOverride) {
 // -----------------------------------------------------------------------
 // Resolve clarification modal (screenshot 4)
 //
-// The modal is purely a Q&A capture: it does NOT dispatch a stage rerun.
-// The caller (openArtifactViewer) queues the answer via
-// queueClarification() and decides when to flush (either when all markers
-// in the artifact are answered, or when the viewer closes with pending
-// answers). Every artifact that shows Clarify pills uses this same path,
-// so batching behavior is consistent across phases.
+// Saving a draft never dispatches work or changes phase status.
 // -----------------------------------------------------------------------
-export function openClarifyModal(p, question, onAnswered) {
+export function openClarifyModal(view, { question, marker }) {
     openWizardModal({
         title: "Resolve clarification",
-        description: "Answer the question. Your answer is queued locally and applied to the stage when you either finish all clarifications or close this artifact.",
+        description: "Save a draft, then choose Apply answers to amend this artifact without rerunning the phase.",
         questionBox: question,
         textareaLabel: "Your answer",
         required: true,
-        confirmLabel: "Save answer",
+        initialValue: clarificationDrafts.list(view.context).find((entry) => entry.marker === marker)?.answer ?? "",
+        confirmLabel: "Save draft",
         onConfirm: async (value, close) => {
             const answer = String(value ?? "").trim();
             if (!answer) return;
-            queueClarification(p.commandName, question, answer);
+            clarificationDrafts.queue(view.context, question, answer, marker);
             close();
-            if (typeof onAnswered === "function") {
-                try { await onAnswered(); } catch { /* logged elsewhere */ }
-            }
+            refreshClarificationControls(view);
         },
     });
 }

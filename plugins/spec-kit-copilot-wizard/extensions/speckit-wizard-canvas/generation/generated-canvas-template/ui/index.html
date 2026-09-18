@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Standalone workflow canvas shell, populated by app.js from its captured pipeline. -->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__DISPLAY_NAME__</title>
+    <link rel="stylesheet" href="/ui/artifact-viewer.css" />
+    <link rel="stylesheet" href="/ui/workflow-theme.css" />
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">◇</span><span class="brand-text">__DISPLAY_NAME__</span></div>
+        <div class="header-status">
+            <button id="theme-toggle" class="btn-icon" type="button" aria-label="Toggle theme">◐</button>
+            <span id="connection" class="conn conn-connecting">connecting…</span>
+        </div>
+    </header>
+    <main class="app-body workflow-surface">
+        <section id="installation-approval" class="installation-approval" aria-label="Installation review" hidden></section>
+        <section id="setup-message" class="workflow-warning" hidden></section>
+        <section id="constitution-card" class="constitution-card" aria-label="Project Constitution" hidden></section>
+        <section id="instance-collection" class="instance-collection" hidden></section>
+        <section id="item-picker" class="workflow-item-picker" hidden></section>
+        <section id="current-workflow" class="current-workflow"></section>
+        <section id="phase-navigation" class="phase-navigation"></section>
+        <article id="phase-card" class="phase-card"></article>
+    </main>
+    <div id="modal-root"></div>
+    <section id="artifact-viewer" class="artifact-viewer" hidden></section>
+    <script type="module" src="/ui/app.js"></script>
+</body>
+</html>

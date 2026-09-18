@@ -55,6 +55,7 @@ export function newInstance(instanceId) {
         _stateWatchLastMtimeMs: 0, // last processed mtime to suppress echoes
         artifactWatchers: [],    // fs.watch handles on .specify / specs dirs
         _artifactWatchDebounce: null, // pending debounce timer for artifact rescans
+        generation: null,         // latest generated-canvas request/result
     };
 }
 

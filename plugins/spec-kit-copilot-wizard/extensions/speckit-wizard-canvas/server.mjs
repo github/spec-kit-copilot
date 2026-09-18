@@ -48,7 +48,21 @@ import {
     handleProbeEnv,
 } from "./server/handlers-ops.mjs";
 import { handleNpmDiagnose, handleNpmRetry } from "./server/handlers-deps.mjs";
+import {
+    handleGenerationPreflight,
+    handleGenerationReport,
+    handleGenerationStart,
+} from "./server/handlers-generation.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
+import { createWizardAmendment } from "./server/handlers-amendment.mjs";
+import { wizardClarificationScope } from "./shared-workflow-ui/clarifications.mjs";
+
+function generationCallbackUrl(req, token) {
+    const host = typeof req.headers?.host === "string" && /^(?:127\.0\.0\.1|localhost):\d+$/.test(req.headers.host)
+        ? req.headers.host
+        : "127.0.0.1";
+    return `http://${host}/api/generation/report?token=${encodeURIComponent(token)}`;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_UI_DIR = join(__dirname, "ui");
@@ -57,7 +71,7 @@ const DEFAULT_SHARED_DIR = join(__dirname, "shared");
 // "../pipeline/canonical.mjs"). The browser resolves those to
 // absolute paths like /pipeline/*, /composition/*, so the
 // static router must expose them alongside /ui/*.
-const SHARED_ROOT_DIRS = ["pipeline", "composition"];
+const SHARED_ROOT_DIRS = ["pipeline", "composition", "shared-workflow-ui"];
 
 // ------------------------------------------------------------------------
 // deps bag:
@@ -161,6 +175,10 @@ export function createHandler(deps) {
             }
 
             if (method === "GET" && url.pathname === "/api/artifact") {
+                const scope = url.searchParams.get("scope");
+                if (scope && scope !== wizardClarificationScope(getInstance()?.workspacePath)) {
+                    return jsonError(res, 409, "Workspace changed. Reopen the artifact.");
+                }
                 const p = url.searchParams.get("p");
                 if (!p) return jsonError(res, 400, "missing ?p=");
                 const safe = resolveWorkspacePath(res, getInstance()?.workspacePath, p);
@@ -313,6 +331,10 @@ export function createHandler(deps) {
                 const postRoutes = {
                     "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance }),
                     "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
+                    "/api/artifact/amend": async () => {
+                        const result = await createWizardAmendment({ getState, getInstance })(body);
+                        return jsonRes(res, result.ok ? 202 : 400, result);
+                    },
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),
@@ -320,6 +342,14 @@ export function createHandler(deps) {
                     "/api/env/probe": () => handleProbeEnv(res, { getState, broadcast, getInstance, ensureEnvProbe }),
                     "/api/deps/diagnose": () => handleNpmDiagnose(res, body, { broadcast, getInstance }),
                     "/api/deps/retry": () => handleNpmRetry(res, body, { broadcast, getInstance }),
+                    "/api/generation/preflight": () => handleGenerationPreflight(res, body, { getState, getInstance }),
+                    "/api/generation/start": () => handleGenerationStart(res, body, {
+                        getState,
+                        getInstance,
+                        broadcast,
+                        callbackUrl: generationCallbackUrl(req, token),
+                    }),
+                    "/api/generation/report": () => handleGenerationReport(res, body, { getInstance, broadcast }),
                 };
                 const route = postRoutes[url.pathname];
                 if (route) return route();

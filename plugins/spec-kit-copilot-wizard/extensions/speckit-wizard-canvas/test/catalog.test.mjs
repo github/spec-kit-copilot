@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { emptyPhaseSlice, isOptional } from "../canvas-runtime/wizard-phases.mjs";
 import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.mjs";
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
+import { parseExtensionListOutput } from "../catalog/extensions.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 
@@ -338,6 +339,7 @@ test("parsePresetListOutput preserves CLI-declared order (first line = winner)",
     assert.equal(r.byId.get("pirate-full-preset").name, "Pirate Speak (Full)");
     assert.equal(r.byId.get("pirate-full-preset").version, "1.0.0");
     assert.equal(r.byId.get("pirate-full-preset").enabled, true);
+    assert.equal(r.byId.get("pirate-full-preset").priority, 10);
     assert.equal(r.byName.get("pirate speak (full)"), "pirate-full-preset");
 });
 
@@ -362,6 +364,15 @@ test("parsePresetListOutput recognizes explicit 'disabled' marker", () => {
     assert.equal(r.byId.get("off-preset").enabled, false);
 });
 
+test("parsePresetListOutput reads a wrapped priority value", () => {
+    const stdout = [
+        "  Copilot Sub-Agent Delegation (copilot-sub-agents) v1.0.0 — enabled — priority",
+        "1",
+    ].join("\n");
+    const result = parsePresetListOutput(stdout);
+    assert.equal(result.byId.get("copilot-sub-agents").priority, 1);
+});
+
 test("parsePresetListOutput returns empty structures on empty / non-string input", () => {
     for (const bad of ["", null, undefined, 42]) {
         const r = parsePresetListOutput(bad);
@@ -383,6 +394,24 @@ test("parsePresetListOutput ignores non-header lines (descriptions, tags, blank 
     ].join("\n");
     const r = parsePresetListOutput(stdout);
     assert.deepEqual(r.orderedIds, ["alpha", "beta"]);
+});
+
+test("parseExtensionListOutput preserves installed enabled state", () => {
+    const stdout = [
+        "Installed Extensions:",
+        "✓ Assess (v1.0.0)",
+        "  assess",
+        "  Assessment workflow",
+        "  Commands: 5 | Hooks: 0 | Priority: 4 | Status: Enabled",
+        "✗ Hooks (v2.0.0)",
+        "  hooks",
+        "  Optional hooks",
+    ].join("\n");
+    const result = parseExtensionListOutput(stdout);
+    assert.deepEqual(result.orderedIds, ["assess", "hooks"]);
+    assert.equal(result.byId.get("assess").enabled, true);
+    assert.equal(result.byId.get("assess").priority, 4);
+    assert.equal(result.byId.get("hooks").enabled, false);
 });
 
 // ---------------------------------------------------------------------

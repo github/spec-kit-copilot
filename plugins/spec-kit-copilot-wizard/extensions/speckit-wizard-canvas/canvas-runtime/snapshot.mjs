@@ -55,6 +55,7 @@ import { scanWorkspace } from "../project-scanner.mjs";
 import { buildStateSnapshot } from "./snapshot-builder.mjs";
 import { applyPatch, overlayCachedComposition, activeFingerprint } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
+import { recoverGenerationStatus } from "../generation/storage.mjs";
 
 export async function snapshot(inst) {
     // Preset precedence: consume the order the `speckit-preset` skill
@@ -159,6 +160,10 @@ export async function snapshot(inst) {
     // /api/skills/reload) so the UI can gate setup completion on the
     // live SDK result rather than a persisted flag or a folder probe.
     snap.skillsReload = inst.skillsReload ?? null;
+    // Generated-canvas requests are durable. Re-read the latest request/result
+    // pair so extension reloads and fresh SSE subscriptions recover progress.
+    inst.generation = await recoverGenerationStatus(inst.workspacePath).catch(() => inst.generation ?? null);
+    snap.generation = inst.generation ?? null;
     inst.state = applyPatch(inst.state ?? {}, {
         currentPhase: scan.currentPhase,
         preset: scan.preset,

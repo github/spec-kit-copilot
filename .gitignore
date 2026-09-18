@@ -2,10 +2,12 @@
 node_modules/
 .playwright-mcp/
 
+# Local Impeccable hook cache
+.impeccable/hook.cache.json
+
 # Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)
 .speckit-wizard/
 .specify/
 .github/skills/
 css-baseline-*.png
 css-c*.png
-

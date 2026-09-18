@@ -1,5 +1,5 @@
 /* -------- Pipeline banner (v2, merged with stepper) --------
-   The banner is now just a header strip (title + hint + Clear/Reset). The
+   The banner is a header strip with title, hint, and quiet pipeline utilities. The
    stepper below it doubles as the pipeline chip strip — each step has an ×
    to remove and orphan styling for entries whose id isn't in the current
    preset. */
@@ -9,7 +9,8 @@
     margin-bottom: 0;
 }
 .pipeline-banner[hidden] { display: none; }
-.pipeline-banner .panel-header { margin-bottom: 0; }
+.pipeline-banner .panel-header { margin-bottom: 0; flex-wrap: wrap; }
+.pipeline-banner .panel-header > :first-child { flex: 1 1 22rem; min-width: 0; }
 .pipeline-banner .comp-summary { margin: 0.35rem 0 0; }
 .pipeline-header {
     display: flex;
@@ -20,8 +21,9 @@
 }
 .pipeline-title { font-weight: 600; font-size: 0.82rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-color-muted); }
 .pipeline-hint { font-size: 0.8rem; flex: 1; min-width: 12rem; }
-.pipeline-actions { display: inline-flex; gap: 0.35rem; }
-.pipeline-actions .btn { font-size: 0.78rem; padding: 0.15rem 0.55rem; }
+.pipeline-actions { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 0.35rem; }
+.pipeline-actions .btn { min-height: 2rem; font-size: 13px; padding: 0.35rem 0.55rem; }
+.pipeline-generate { margin-inline-start: 0.4rem; }
 .pipeline-standalone-hint {
     font-size: 0.78rem;
     margin: 0 0 0.25rem 0;
@@ -331,4 +333,3 @@
     border-bottom: 1px solid var(--border-color-default);
     border-right: 1px solid var(--border-color-default);
 }
-

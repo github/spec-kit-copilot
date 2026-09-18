@@ -12,9 +12,11 @@ import {
 import {
     canonicalLabel,
     canonicalSpine,
+    canonicalArgumentGuidance,
     isCanonical,
     isCanonicalOptional,
 } from "../pipeline/canonical.mjs";
+import { workflowStepClasses } from "../shared-workflow-ui/stepper.mjs";
 import {
     resolvePipelineEntry,
     pipelineIsEdited,
@@ -27,9 +29,6 @@ import {
     setPhaseDraft,
     getPhaseLastSubmitted,
     setPhaseLastSubmitted,
-    getPendingClarifications,
-    queueClarification,
-    clearClarifications,
     clearPhaseRunning,
     markPhaseRunning,
     markPhaseSubmitted,
@@ -194,13 +193,15 @@ export function renderStepper() {
             el.appendChild(sep);
         }
         const li = document.createElement("li");
-        li.className = "step";
-        if (id === state.currentPhase && !orphan) li.classList.add("active");
-        if (p.locked) li.classList.add("locked");
-        if (p.optional) li.classList.add("is-optional");
-        if (orphan) li.classList.add("orphan");
-        if (synthesized) li.classList.add("is-canonical-fallback");
-        if (extension) li.classList.add("is-extension");
+        li.className = workflowStepClasses({
+            active: id === state.currentPhase && !orphan,
+            locked: p.locked,
+            optional: p.optional,
+            orphan,
+            synthesized,
+            extension: Boolean(extension),
+            status: p.status,
+        }).join(" ");
         li.dataset.phase = id;
         li.dataset.pipelineIndex = idx;
         const optionalTag = p.optional ? `<span class="step-optional-inline"> (optional)</span>` : "";
@@ -533,35 +534,6 @@ export function renderGraphPhaseCard(el, p) {
         <div class="phase-actions-right">${continueBtn}</div>
     </div>`;
 
-    const PHASE_INPUT_PLACEHOLDERS = {
-        constitution: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Enter your project's governing principles and development guidelines that will guide all subsequent development.</span> <em class="phase-input-overlay-hint">If left empty, a new constitution will be drafted from your repo context (README, docs) for review; otherwise, an existing constitution will be changed.</em>`,
-        },
-        specify: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Describe what you want to build — focus on the what and why, not the tech stack.</span> <em class="phase-input-overlay-hint">A description is required.</em>`,
-        },
-        clarify: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Provide areas of concern to focus clarification pass.</span> <em class="phase-input-overlay-hint">If left empty, the full spec will be scanned across categories of impact areas (scope, data model, UX, integration, etc.).</em>`,
-        },
-        plan: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Provide your tech stack and architecture choices.</span> <em class="phase-input-overlay-hint">If left empty, the plan will be derived from the spec.md and constitution.md alone, marking missing technical decisions as needing clarification.</em>`,
-        },
-        tasks: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add guidance for task generation like groupings, priorities, and areas to emphasize.</span> <em class="phase-input-overlay-hint">If left empty, a full, dependency-ordered tasks.md will be generated directly from plan.md and spec.md (with constitution.md as governing constraints).</em>`,
-        },
-        implement: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add guidance for the implementation.</span> <em class="phase-input-overlay-hint">If left empty, all tasks in tasks.md will be implemented in dependency order, updating progress markers as each completes.</em>`,
-        },
-        analyze: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add a specific concern for analysis to focus on.</span> <em class="phase-input-overlay-hint">If left empty, a full consistency and quality analysis will be performed across spec.md, plan.md, and tasks.md (with constitution.md as governing authority).</em>`,
-        },
-        taskstoissues: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add issue-creation guidance like labels, milestone, and assignees.</span> <em class="phase-input-overlay-hint">If left empty, one GitHub issue per task will be created in tasks.md on the current repo's git remote.</em>`,
-        },
-    };
-    const DEFAULT_PHASE_OVERLAY = {
-        overlayHtml: `<span class="phase-input-overlay-primary">Provide guidance to focus or scope this phase.</span> <em class="phase-input-overlay-hint">If left empty, the phase will run with default behavior using the existing artifacts.</em>`,
-    };
     // For extension-provided phases, the LLM inference pass may have
     // captured argsHint (primary "what to type") and argsWhenEmpty
     // (italic "what happens if empty") from the skill body. When at
@@ -580,7 +552,15 @@ export function renderGraphPhaseCard(el, p) {
         const joiner = primary && hint ? " " : "";
         inferredOverlay = { overlayHtml: `${primary}${joiner}${hint}` };
     }
-    const phaseInputSpec = PHASE_INPUT_PLACEHOLDERS[p.id] ?? inferredOverlay ?? DEFAULT_PHASE_OVERLAY;
+    const canonicalGuidance = isCanonical(p.id) ? canonicalArgumentGuidance(p.id) : null;
+    const canonicalOverlay = canonicalGuidance ? {
+        overlayHtml: `<span class="phase-input-overlay-primary">${escapeHtml(canonicalGuidance.hint)}</span> <em class="phase-input-overlay-hint">${escapeHtml(canonicalGuidance.whenEmpty)}</em>`,
+    } : null;
+    const defaultGuidance = canonicalArgumentGuidance("");
+    const defaultOverlay = {
+        overlayHtml: `<span class="phase-input-overlay-primary">${escapeHtml(defaultGuidance.hint)}</span> <em class="phase-input-overlay-hint">${escapeHtml(defaultGuidance.whenEmpty)}</em>`,
+    };
+    const phaseInputSpec = canonicalOverlay ?? inferredOverlay ?? defaultOverlay;
     const phasePlaceholder = typeof phaseInputSpec === "string" ? phaseInputSpec : (phaseInputSpec.placeholder ?? "");
     const phaseHint = typeof phaseInputSpec === "object" ? (phaseInputSpec.hint ?? "") : "";
     const overlayHtml = typeof phaseInputSpec === "object" ? (phaseInputSpec.overlayHtml ?? "") : "";

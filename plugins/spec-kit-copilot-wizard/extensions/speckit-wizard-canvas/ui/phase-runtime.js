@@ -22,38 +22,11 @@ import {
 import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
-
-// -------- Section: phase/clarifications.js --------
-
-// Pending-clarifications queue: per-phase answers waiting to flush.
-
-const pendingClarifications = new Map(); // commandName -> [{ question, answer }, ...]
-
-export function getPendingClarifications(commandName) {
-    if (!pendingClarifications.has(commandName)) pendingClarifications.set(commandName, []);
-    return pendingClarifications.get(commandName);
-}
-
-export function queueClarification(commandName, question, answer) {
-    const list = getPendingClarifications(commandName);
-    const existing = list.findIndex((c) => c.question === question);
-    if (existing >= 0) list[existing] = { question, answer };
-    else list.push({ question, answer });
-}
-
-export function clearClarifications(commandName) {
-    pendingClarifications.set(commandName, []);
-}
-
-export function clearSubmittedClarifications(commandName, submitted) {
-    const remaining = getPendingClarifications(commandName).filter((current) => (
-        !submitted.some((snapshot) => (
-            snapshot.question === current.question && snapshot.answer === current.answer
-        ))
-    ));
-    pendingClarifications.set(commandName, remaining);
-}
-
+import {
+    generationAvailability,
+    generationStatus,
+    openGenerationDialog,
+} from "./generation.js";
 
 // -------- Section: phase/draft-cache.js --------
 
@@ -342,19 +315,15 @@ export async function dispatchPipeline(action, extra = {}) {
     }
 }
 
-/** Render the top-of-page pipeline toolbar: title, hint, Clear/Reset. */
+/** Render the pipeline header and its visible Clear, Reset, and Generate utilities. */
 export function renderPipelineBanner() {
     const el = document.getElementById("pipeline-banner");
     if (!el) return;
     const onPhasesTab = state.activeTab === "phases" || !state.activeTab;
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
-    const items = pipelineItems();
-    const edited = pipelineIsEdited();
-    // Nothing to show when the inferred spine is empty AND user hasn't taken control.
-    if (!items.length && !edited) {
-        el.hidden = true; el.innerHTML = "";
-        return;
-    }
+    const generation = generationStatus();
+    const generate = generationAvailability();
+    const generating = generation?.state === "queued" || generation?.state === "generating";
     el.hidden = false;
     // Previously a "Pipeline from <extension name>" hint rendered above
     // the chip strip when the inferred pipeline was extension-standalone.
@@ -381,12 +350,19 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
-                ${items.length ? `<button type="button" class="btn btn-ghost pipeline-clear" data-action="clear">Clear</button>` : ""}
-                ${`<button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>`}
+                <button type="button" class="btn btn-secondary pipeline-clear" data-action="clear">Clear</button>
+                <button type="button" class="btn btn-secondary pipeline-reset" data-action="reset">Reset to default</button>
+                <button type="button" class="btn btn-secondary pipeline-generate"
+                    ${generate.enabled && !generating ? "" : " disabled"}
+                    ${generating ? 'aria-busy="true"' : ""}
+                    title="${escapeHtml(generate.reason || "Generate a canvas from this pipeline")}">
+                    ${generating ? "Generating…" : "Generate canvas"}
+                </button>
             </div>
         </header>
     `;
     wireInfoPopover("pipeline-info-btn", "pipeline-info-popover");
+    el.querySelector(".pipeline-generate")?.addEventListener("click", openGenerationDialog);
     const clearBtn = el.querySelector(".pipeline-clear");
     if (clearBtn) {
         clearBtn.addEventListener("click", async () => {
@@ -396,7 +372,10 @@ export function renderPipelineBanner() {
             await dispatchPipeline("clear");
         });
     }
-    el.querySelector(".pipeline-reset")?.addEventListener("click", async () => {
+    const resetBtn = el.querySelector(".pipeline-reset");
+    resetBtn?.addEventListener("click", async () => {
+        const ok = await popoverConfirm(resetBtn, "Replace the current pipeline with the default phases?", { confirmLabel: "Reset to default" });
+        if (!ok) return;
         await dispatchPipeline("reset");
     });
 }

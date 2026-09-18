@@ -63,6 +63,9 @@ export const state = {
     // chain disclosure. Keys are `${phaseCommand}|${kind}|${bareId}` so
     // multiple phase cards don't collide. Presence in the set = expanded.
     expandedArtifactChains: new Set(),
+    // Current agent-driven generated-canvas request, mirrored from the
+    // snapshot/SSE generation payload so the Pipeline header survives rerenders.
+    generation: null,
 };
 
 // -------- URL/DOM-derived constants --------
