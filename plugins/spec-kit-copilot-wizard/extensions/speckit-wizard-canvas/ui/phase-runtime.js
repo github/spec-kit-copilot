@@ -315,7 +315,7 @@ export async function dispatchPipeline(action, extra = {}) {
     }
 }
 
-/** Render the top-of-page pipeline toolbar: title, hint, Clear/Reset. */
+/** Render the pipeline header and its visible Clear, Reset, and Generate utilities. */
 export function renderPipelineBanner() {
     const el = document.getElementById("pipeline-banner");
     if (!el) return;
@@ -357,14 +357,14 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
-                <button type="button" class="btn btn-primary pipeline-generate"
+                <button type="button" class="btn btn-secondary pipeline-clear" data-action="clear"${items.length ? "" : " disabled"}>Clear</button>
+                <button type="button" class="btn btn-secondary pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>
+                <button type="button" class="btn btn-secondary pipeline-generate"
                     ${generate.enabled && !generating ? "" : " disabled"}
                     ${generating ? 'aria-busy="true"' : ""}
-                    title="${escapeHtml(generate.reason || "Generate a project canvas from this pipeline")}">
+                    title="${escapeHtml(generate.reason || "Generate a canvas from this pipeline")}">
                     ${generating ? "Generating…" : "Generate canvas"}
                 </button>
-                ${items.length ? `<button type="button" class="btn btn-ghost pipeline-clear" data-action="clear">Clear</button>` : ""}
-                ${`<button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>`}
             </div>
         </header>
     `;

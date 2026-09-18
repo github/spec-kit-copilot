@@ -21,12 +21,13 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 17;
+const TEMPLATE_VERSION = 20;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
     ["generated-canvas-template/approval-runtime.mjs", "template/approval-runtime.mjs"],
     ["generated-canvas-template/amendment-runtime.mjs", "template/amendment-runtime.mjs"],
+    ["generated-canvas-template/artifact-review.mjs", "template/artifact-review.mjs"],
     ["generated-canvas-template/project-artifacts.mjs", "template/project-artifacts.mjs"],
     ["generated-canvas-template/README.md", "template/README.md"],
     ["generated-canvas-template/workflow-adapter.mjs", "template/workflow-adapter.mjs"],
@@ -50,6 +51,7 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "setup-runtime.mjs",
     "approval-runtime.mjs",
     "amendment-runtime.mjs",
+    "artifact-review.mjs",
     "project-artifacts.mjs",
     "workspace-files.mjs",
     "ui/app.js",
@@ -227,7 +229,8 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
     }, fs);
     validateSetupContract(generatedPipeline);
     validateWorkflowPaths(generatedPipeline);
-    validateWorkflowConfig(JSON.parse(await fs.readFile(join(target, "workflow-config.json"), "utf8")), generatedPipeline);
+    validateWorkflowConfig(JSON.parse(await fs.readFile(join(target, "workflow-config.json"), "utf8")), generatedPipeline,
+        { example: request.example ?? null });
     if (typeof generatedPipeline.runtime?.userProvidesSlug !== "boolean") {
         throw new Error("generated runtime must declare whether users can provide a slug");
     }

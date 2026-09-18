@@ -61,6 +61,7 @@ async function loadGeneratedExtension(root, sdk, {
     }
     await copyFile(join(template, "approval-runtime.mjs"), join(extensionRoot, "approval-runtime.mjs"));
     await copyFile(join(template, "amendment-runtime.mjs"), join(extensionRoot, "amendment-runtime.mjs"));
+    await copyFile(join(template, "artifact-review.mjs"), join(extensionRoot, "artifact-review.mjs"));
     await copyFile(join(here, "..", "shared-workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
     for (const file of ["clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"]) {
         await copyFile(join(here, "..", "shared-workflow-ui", file), join(extensionRoot, "ui", file));
@@ -317,6 +318,106 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(f.sent.length, 1);
     });
 
+    test("optional artifact review waits for idle, reports fixed labels, and hides them while clarification is needed", async () => {
+        const root = await mkdtemp(join(here, ".artifact-review-lifecycle-"));
+        roots.push(root);
+        const workspace = join(root, "workspace");
+        await mkdir(join(workspace, "specs", "alpha"), { recursive: true });
+        await mkdir(join(workspace, ".specify"));
+        await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+        const file = join(workspace, "specs", "alpha", "spec.md");
+        await writeFile(file, "# Spec\nDocumented scope.");
+        const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }] },
+            { extensionId: "review", displayName: "Review", description: "Test." });
+        blueprint.setup.requiresSpecKit = false;
+        blueprint.setup.requiredSkills = [];
+        const final = blueprint.pipeline.steps[0];
+        const events = new EventEmitter();
+        const sent = [];
+        let canvas;
+        await loadGeneratedExtension(root, {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async (input) => { sent.push(input); },
+                on: (type, handler) => events.on(type, handler),
+                rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                log: async () => {},
+            }),
+        }, { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, artifactReview: {
+            phase: final.instanceKey, sampleFingerprint: "a".repeat(64), goal: "Document scope.",
+            statuses: [{ id: "draft", label: "Scope incomplete", criterion: "Missing scope." },
+                { id: "ready", label: "Scope documented", criterion: "Scope is documented." }],
+        } } });
+        await canvas.open({ instanceId: "review-panel", input: { cwd: workspace } });
+        const list = canvas.actions.find((action) => action.name === "list_items");
+        const phase = async () => (await list.handler({ instanceId: "review-panel", input: {} })).items
+            .find((item) => item.id === "alpha").phases[final.instanceKey];
+        assert.equal((await phase()).review.label, "Needs review");
+        assert.equal(sent.length, 0);
+        events.emit("session.idle", {});
+        await waitFor(() => sent.length === 1, 7000);
+        assert.equal((await phase()).review.label, "Reviewing");
+        const requestId = sent[0].prompt.match(/"requestId":"([^"]+)"/)[1];
+        const report = canvas.actions.find((action) => action.name === "report_artifact_review");
+        await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "ready" } });
+        assert.equal((await phase()).review.label, "Scope documented");
+        await writeFile(file, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
+        assert.equal((await phase()).review, undefined);
+        assert.equal((await phase()).clarificationCount, 1);
+        assert.equal(sent.length, 1);
+    });
+
+    test("phase snapshots derive clarification counts from fresh, bounded artifact reads", async () => {
+        const root = await mkdtemp(join(here, ".generated-phase-status-"));
+        roots.push(root);
+        const workspace = join(root, "workspace");
+        const artifact = join(workspace, "specs", "alpha", "spec.md");
+        await mkdir(dirname(artifact), { recursive: true });
+        await mkdir(join(workspace, "specs", "beta"), { recursive: true });
+        await writeFile(join(workspace, "specs", "beta", "spec.md"), "# Beta\nNo open questions.");
+        const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }, { id: "plan" }] },
+            { extensionId: "phase-status", displayName: "Status", description: "Test." }, { multiInstance: true });
+        blueprint.setup.requiresSpecKit = false;
+        blueprint.setup.requiredSkills = [];
+        let canvas;
+        await loadGeneratedExtension(root, {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async () => assert.fail("scanning must not dispatch a phase"),
+                rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                log: async () => {},
+            }),
+        }, { blueprint });
+        await canvas.open({ instanceId: "phase-status", input: { cwd: workspace } });
+        const [specify, plan] = blueprint.pipeline.steps;
+        const list = canvas.actions.find((action) => action.name === "list_items");
+        const scan = async () => (await list.handler({ instanceId: "phase-status", input: {} })).items;
+        const phase = async () => (await scan()).find((item) => item.id === "alpha").phases[specify.instanceKey];
+        assert.deepEqual(await phase(), { artifact: null, clarificationCount: null });
+        const one = "[**NEEDS CLARIFICATION:** Scope?]";
+        const two = "[ needs   clarification : Tests? ]";
+        await writeFile(artifact, `# Alpha\n${one}\n${two}\n\`[NEEDS CLARIFICATION: Example?]\``);
+        assert.equal((await phase()).clarificationCount, 2);
+        await writeFile(artifact, `# Alpha\n${one}\nPlease name included features.\nFocused tests.`);
+        assert.equal((await phase()).clarificationCount, 1, "vague/partial answers remain unresolved");
+        await writeFile(artifact, "# Alpha\nCore scope and focused tests.");
+        assert.equal((await phase()).clarificationCount, 0);
+        await writeFile(artifact, one);
+        assert.equal((await phase()).clarificationCount, 1, "later edits can reopen a clarification");
+        for (const content of ["", "x".repeat(512 * 1024 + 1), Buffer.from([0xff])]) {
+            await writeFile(artifact, content);
+            const unavailable = await phase();
+            assert.equal(unavailable.artifact, "specs/alpha/spec.md");
+            assert.equal(unavailable.clarificationCount, null);
+            assert.ok(unavailable.artifactError, "unreadable artifacts must not look ready");
+        }
+        const items = await scan();
+        assert.equal(items.find((item) => item.id === "beta").phases[specify.instanceKey].clarificationCount, 0);
+        assert.deepEqual(items.find((item) => item.id === "alpha").phases[plan.instanceKey], { artifact: null, clarificationCount: null });
+        await rm(artifact);
+        assert.deepEqual(await phase(), { artifact: null, clarificationCount: null });
+    });
+
     test("HTTP Apply answers amends an observed artifact without dispatching the original skill", async () => {
         const root = await mkdtemp(join(here, ".generated-amendment-http-"));
         roots.push(root);
@@ -326,7 +427,7 @@ describe("generated extension setup lifecycle", () => {
         await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
         const artifact = "specs/alpha/spec.md";
         const file = join(workspace, "specs", "alpha", "spec.md");
-        const marker = "[NEEDS CLARIFICATION: Scope?]";
+        const marker = "[**NEEDS CLARIFICATION:** Scope?]";
         await writeFile(file, `# Specification\n${marker}\n[NEEDS CLARIFICATION: Tests?]`);
         const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }] },
             { extensionId: "amend-http", displayName: "Amend", description: "Test." }, { multiInstance: true });

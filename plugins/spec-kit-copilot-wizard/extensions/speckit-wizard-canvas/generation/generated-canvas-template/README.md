@@ -33,6 +33,61 @@ sizes in light/dark themes. `VIEWER_BASELINE_REF` can pin another incumbent comm
 It compares computed styles, hover/focus/disabled states, and exact screenshot bytes
 after normalizing only application-specific navigation and queue copy. No phase runs.
 
+## Phase indicators
+
+Template version 19 derives phase indicators from fresh, safely bounded artifact
+reads. A readable, nonempty artifact with no open clarification markers is green
+with a checkmark; remaining markers make the phase amber with an exclamation mark.
+Missing artifacts stay neutral. Empty, oversized or unreadable artifacts stay
+neutral with an unavailable notice, rather than being mistaken for completion.
+The selected-phase outline remains independent of these colors.
+
+The phase card displays a text-only **Clarification needed** pill with one neutral
+background and border, also used for other notices. No warning color or icon is
+attached to the pill. Existing automatic refresh updates the indicators; submitting
+answers alone does not change them. Run, Run again and navigation are unchanged.
+
+The shared viewer detector recognizes bracketed markers such as
+`[NEEDS CLARIFICATION: Scope?]`, `[ needs clarification : Scope? ]`,
+`[**NEEDS CLARIFICATION:** Scope?]` and `[**NEEDS CLARIFICATION**: Scope?]`,
+including italic/underscore label variants. Exact marker text is retained for
+amendments. Ordinary mentions, code, links and comments are not open questions.
+Green describes artifact presence and absence of detected markers, not correctness.
+
+Maintainers can run `node --test test/generated-phase-status-browser.test.mjs`
+with the same Playwright environment as the viewer parity check above. It checks
+desktop/mobile and light/dark layouts, partial/final clarification transitions,
+selection and input retention, and neutral notices without executing any phase.
+
+## Optional final-artifact status
+
+Template version 20 can include `artifactReview` configuration derived from the
+final artifact of a complete example pipeline. The Wizard only checks availability
+of earlier persistent artifacts; it does not interpret their contents or trace
+skill/template precedence to derive statuses. Missing or insufficient examples
+never block Generate: no `artifactReview` means standard artifact/clarification
+indicators and no review requests or review storage.
+
+When configured, Copilot selects a fixed status ID using only the current final
+artifact and example-derived criteria. All workflow instances use the same 1-3 word
+labels. The neutral pill displays that label; unresolved clarification markers
+always take precedence. Green/amber phase colors retain their artifact-based meaning.
+Insufficient evidence yields **Needs review**, not an assumed successful outcome.
+
+The existing refresh loop waits for settled content and an idle session, with one
+pending review at a time. Its read-only prompt requests a scoped canvas-action
+callback; arbitrary labels, stale snapshots and cross-workflow results are rejected.
+Only the latest accepted result per workflow is stored under
+`.speckit-wizard/artifact-reviews/`, keyed by workspace/canvas/item/phase and
+fingerprinted against artifact content and configuration. Sample contents are not
+bundled into this app. Review errors surface as **Review unavailable**, with
+accessible details. Existing rerun/reopen actions retry failed reviews without
+automatic retry loops. These are assessments of document evidence, not independent
+verification of code, tests or skill execution.
+
+Regenerate to add or change example-informed criteria. Existing generated apps are
+not rewritten automatically.
+
 ## Automatic setup
 
 ### Reusing the creator's workspace or running standalone
@@ -266,6 +321,10 @@ dispatch is in flight, releasing the lock on acceptance or failure. There is no
 durable job or agent-completion signal: acceptance does not mean editing has finished,
 so review the artifact before retrying. Closing a viewer does not discard drafts.
 
+Template version **18** presents an empty workflow collection as a single,
+unboxed instruction: "Start your first workflow below." The existing New action
+and workflow creation behavior are unchanged.
+
 ## Files
 
 - `pipeline.json` — immutable generated workflow definition.
@@ -273,6 +332,7 @@ so review the artifact before retrying. Closing a viewer does not discard drafts
 - `ui/clarification-controls.mjs` — shared neutral draft controls, subset selection and retained-draft review.
 - `ui/amendment.mjs` — shared exact visible-marker validation and focused amendment prompt.
 - `amendment-runtime.mjs` — guarded, deduplicated edit-artifact dispatch; no phase execution.
+- `artifact-review.mjs` — optional example-informed final-artifact review and latest-result storage.
 - `workflow-config.json` — validated workflow labels, fixed phase arguments, and input guidance inferred from effective installed skills.
 - `workflow-adapter.mjs` — protected interpretation of that configuration; never generated executable logic.
 - `setup-runtime.mjs` — deterministic read-only readiness checks and agent setup prompt.
@@ -283,7 +343,7 @@ so review the artifact before retrying. Closing a viewer does not discard drafts
 - `extension.mjs` — standard secure canvas runtime.
 - `ui/` — standard Wizard workflow renderer.
 
-Configuration has four fields: `version: 1`, `itemLabels` (workflow ID to
+Configuration has four standard fields: `version: 1`, `itemLabels` (workflow ID to
 display label), `phaseArguments` (blueprint phase instance key to optional
 single-line `prefix` and `suffix` strings), and `phaseInputs` (every blueprint phase
 instance key to `label`, `helper`, and boolean `optional`). Input labels are at most
@@ -291,6 +351,12 @@ instance key to `label`, `helper`, and boolean `optional`). Input labels are at 
 describing useful content, never slug, identifier, command, or location instructions.
 Legacy configs without `phaseInputs` use neutral guidance; a supplied map must cover
 every phase. Empty labels/fixed-arguments maps use standard behavior.
+Optional `artifactReview` contains `phase` (the final workflow instance key),
+`sampleFingerprint`, `goal`, and 2-6 `statuses` with unique `id`, `label`, and
+`criterion`. Labels contain 1-3 words; runtime selects IDs instead of inventing
+wording. Missing/null configuration is the standard path. Generation validates
+the configuration against its captured example; effective skills remain the source
+of phase-input guidance only, not these review criteria.
 The runtime always retains user input, chooses the command from the blueprint, and
 inserts the workflow slug once. Configuration cannot change item identities, discovery,
 phase order, artifact locations, setup, or the New sentinel. Unsupported

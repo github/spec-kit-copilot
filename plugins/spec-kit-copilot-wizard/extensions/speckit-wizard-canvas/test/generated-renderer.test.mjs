@@ -967,8 +967,8 @@ describe("generated workflow renderer", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         await elements.get("confirm-delete-workflow").emit("click");
         await finalDeletion;
-        assert.match(elements.get("instance-collection").innerHTML, /Nothing here yet\./);
-        assert.match(elements.get("instance-collection").innerHTML, /Select New to get started\./);
+        assert.match(elements.get("instance-collection").innerHTML, /<p class="workflow-empty">Start your first workflow below\.<\/p>/);
+        assert.doesNotMatch(elements.get("instance-collection").innerHTML, /Nothing here yet|Select New to get started/);
         assert.match(elements.get("instance-collection").innerHTML, /\+ New<\/button>/);
         await elements.get("new-workflow").emit("click");
         assert.match(elements.get("current-workflow").innerHTML, /<h2>New<\/h2>/);

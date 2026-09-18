@@ -14,11 +14,11 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" }).trim();
 const prefix = root.slice(gitRoot.length + 1).replaceAll("\\", "/").replace(/\/$/, "");
 const baselineRef = process.env.VIEWER_BASELINE_REF ?? "HEAD";
-const baselineSharedDirectory = execFileSync("git", ["ls-tree", baselineRef, `${prefix}/shared-workflow-ui`],
+const baselineSharedDirectory = execFileSync("git", ["ls-tree", "--full-tree", baselineRef, `${prefix}/shared-workflow-ui`],
     { cwd: root, encoding: "utf8" }).trim() ? "shared-workflow-ui" : "workflow-ui";
 const baseline = (path) => {
     const baselinePath = path.replace(/^shared-workflow-ui\//, `${baselineSharedDirectory}/`);
-    return execFileSync("git", ["show", `${baselineRef}:${prefix}/${baselinePath}`], { cwd: root, encoding: "utf8" })
+    return execFileSync("git", ["show", `${baselineRef}:${prefix}/${baselinePath}`, "--"], { cwd: root, encoding: "utf8" })
         .replace(/(?<!shared-)workflow-ui\//g, "shared-workflow-ui/");
 };
 const artifactPath = "specs/alpha/spec.md";

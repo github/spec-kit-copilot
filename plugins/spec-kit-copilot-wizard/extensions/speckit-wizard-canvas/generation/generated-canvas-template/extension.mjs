@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./workflow-adapter.mjs";
 import { createAmendmentRuntime } from "./amendment-runtime.mjs";
+import { createArtifactReviewer } from "./artifact-review.mjs";
 import { commandViews } from "./ui/command-views.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
+import { visibleMarkers } from "./ui/clarifications.mjs";
 import { constitutionGate, inspectConstitution } from "./project-artifacts.mjs";
 import {
     deleteWorkspaceDirectory,
@@ -53,6 +55,19 @@ const skillsReloads = new Map();
 const BODY_CAP = 256 * 1024;
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8" };
 let session;
+let agentBusy = true;
+const reviewConfig = adapter.artifactReview();
+const artifactReviewer = createArtifactReviewer({
+    config: reviewConfig,
+    dispatch: (input) => session.send(input),
+    readCurrent: async (inst, itemId) => {
+        const item = (await listItems(inst)).find((candidate) => candidate.id === itemId && !candidate.isNew);
+        if (!item) return null;
+        const artifact = await artifactPath(commands.workflow.at(-1), item, inst);
+        if (!artifact) return null;
+        return { artifact, content: await readWorkflowArtifact(inst.cwd, artifact, pipeline) };
+    },
+});
 const amendArtifact = createAmendmentRuntime({
     pipeline,
     items: listItems,
@@ -315,24 +330,45 @@ async function executionSetupStatus(inst) {
     return status;
 }
 
-async function snapshot(inst) {
+async function snapshot(inst, allowReview = false) {
+    const setup = await setupStatus(inst);
     const items = await listItems(inst);
     for (const item of items) {
         item.phases = {};
         for (const step of commands.workflow) {
             const path = await artifactPath(step, item, inst);
             let exists = false;
+            let clarificationCount = null;
+            let artifactError = null;
+            let content = null;
             if (path) {
                 try {
                     await resolveWorkflowPath(inst.cwd, path, pipeline, "artifact");
                     exists = true;
+                    try {
+                        content = await readWorkflowArtifact(inst.cwd, path, pipeline);
+                        if (content.trim()) clarificationCount = visibleMarkers(content).length;
+                        else artifactError = "Artifact is empty or still being written.";
+                    } catch (error) {
+                        if (error.code === "ENOENT") exists = false;
+                        else artifactError = "Could not read the artifact safely. Automatic refresh will retry.";
+                    }
                 } catch (error) {
                     if (error.code !== "ENOENT") throw error;
                 }
             }
             item.phases[step.instanceKey] = {
                 artifact: exists ? path : null,
+                clarificationCount,
+                ...(artifactError ? { artifactError } : {}),
             };
+            if (reviewConfig && step === commands.workflow.at(-1) && !item.isNew) {
+                const review = await artifactReviewer.observe(inst, {
+                    itemId: item.id, artifact: exists ? path : null, content, clarificationCount,
+                    canDispatch: allowReview && setup.ready && !agentBusy,
+                });
+                if (review) item.phases[step.instanceKey].review = review;
+            }
         }
     }
     const binding = pipeline.runtime?.multiInstance === true
@@ -342,7 +378,7 @@ async function snapshot(inst) {
     const constitution = commands.constitution ? await inspectConstitution(inst.cwd, pipeline) : null;
     return {
         clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
-        pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup: await setupStatus(inst),
+        pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
         ...(constitution ? { projectArtifacts: { constitution } } : {}),
     };
 }
@@ -470,6 +506,7 @@ async function runPhase(inst, input) {
         throw error;
     }
     if (bindAfterSend) singleInstanceBindings.set(bindingKey(inst), { state: "bound", slug: bindAfterSend });
+    if (reviewConfig && step === commands.workflow.at(-1) && item && !item.isNew) artifactReviewer.retry(inst, item.id);
     inst.broadcast();
     return { ok: true, phase: step.instanceKey, invocation: step.invocation };
 }
@@ -807,8 +844,10 @@ async function startHttp(inst) {
     inst.url = `http://127.0.0.1:${port}/?token=${inst.token}`;
     let previous = "";
     inst.poller = setInterval(async () => {
+        if (inst.polling) return;
+        inst.polling = true;
         try {
-            const state = await snapshot(inst);
+            const state = await snapshot(inst, true);
             if ((inst.awaitingInstallation && !state.setup.approval?.required)
                 || (state.setup.diskReady && !state.setup.reload)) {
                 await beginSetup(inst);
@@ -819,12 +858,27 @@ async function startHttp(inst) {
         } catch {
             inst.setupDispatch = { state: "failed", error: "Canvas state could not be refreshed. Check the workspace and retry.", at: new Date().toISOString() };
             inst.broadcast?.();
-        }
+        } finally { inst.polling = false; }
     }, 1000);
     inst.poller.unref?.();
 }
 
 const actions = [
+    ...(reviewConfig ? [{
+        name: "report_artifact_review",
+        description: "Report a fixed status ID for a pending example-informed final-artifact review.",
+        inputSchema: {
+            type: "object", required: ["requestId", "statusId"], additionalProperties: false,
+            properties: { requestId: { type: "string" },
+                statusId: { type: "string", enum: ["needs-review", ...reviewConfig.statuses.map((status) => status.id)] } },
+        },
+        handler: async (ctx) => {
+            const inst = instanceFor(ctx.instanceId);
+            const result = await artifactReviewer.report(inst, ctx.input);
+            for (const other of instances.values()) if (sameExecutionScope(other, inst)) other.broadcast?.();
+            return result;
+        },
+    }] : []),
     {
         name: "list_items",
         description: "List workflow items and their available artifacts.",
@@ -919,6 +973,10 @@ async function onClose(ctx) {
     if (inst.server) await new Promise((resolveClose) => inst.server.close(resolveClose));
     instances.delete(ctx.instanceId);
     const replacement = [...instances.values()].find((candidate) => sameExecutionScope(candidate, inst));
+    if (reviewConfig) {
+        if (replacement) instanceAliases.set(ctx.instanceId, replacement.instanceId);
+        else artifactReviewer.close(inst);
+    }
     for (const [key, entry] of automaticSetupDispatches.entries()) {
         if (entry.ownerInstanceId !== ctx.instanceId) continue;
         if (replacement) {
@@ -948,4 +1006,9 @@ session = await joinSession({
         onClose,
     })],
 });
+if (reviewConfig) {
+    session.on("user.message", () => { agentBusy = true; });
+    session.on("tool.execution_start", () => { agentBusy = true; });
+    session.on("session.idle", () => { agentBusy = false; });
+}
 await session.log(`${__EXTENSION_ID_JSON__} canvas ready`, { level: "info", ephemeral: true });

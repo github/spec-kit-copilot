@@ -131,7 +131,8 @@ describe("generation UI helpers", () => {
         assert.match(source, /<input id="generation-require-installation-approval" type="checkbox" aria-labelledby="generation-approval-label" aria-describedby="generation-approval-help" \/>/);
         assert.match(source, />Require installation approval<\/strong>/);
         assert.match(source, />Ask users to approve all included presets and extensions before installation\. Otherwise, the app automatically installs missing components without asking for installation approval\.<\/small>/);
-        assert.match(source, /<div class="wizard-modal-body">\s*<label class="wizard-modal-field" for="generation-target">/);
+        assert.match(source, /<div class="wizard-modal-body">\s*<div id="generation-example"[^>]*><\/div>\s*<label class="wizard-modal-field" for="generation-target">/);
+        assert.doesNotMatch(source, /submit\.disabled\s*=/, "example checks and submissions do not disable Generate");
         assert.equal((source.match(/id="generation-target"/g) ?? []).length, 1);
         assert.match(source, />Canvas workflow header<\/span>/);
         assert.match(source, />Heading shown to users above the grouped workflows, such as Assessments or Bugs\.<\/span>/);
@@ -166,13 +167,37 @@ describe("generation UI helpers", () => {
                 });
                 renderPipelineBanner();
                 assert.doesNotMatch(banner.innerHTML, /generation-status|output-marker|error-marker|message-marker/);
-                const button = banner.innerHTML.match(/class="btn btn-primary pipeline-generate"([\s\S]*?)<\/button>/)?.[1];
+                const button = banner.innerHTML.match(/class="btn btn-secondary pipeline-generate"([\s\S]*?)<\/button>/)?.[1];
                 assert.ok(button);
                 const busy = status === "queued" || status === "generating";
                 assert.equal(button.includes("disabled"), busy);
                 assert.equal(button.includes('aria-busy="true"'), busy);
                 assert.equal((banner.innerHTML.match(/Generating…/g) ?? []).length, busy ? 1 : 0);
                 assert.ok(button.includes(busy ? "Generating…" : "Generate canvas"));
+            }
+        } finally {
+            globalThis.document = savedDocument;
+            state.snapshot = savedSnapshot;
+            state.activeTab = savedTab;
+        }
+    });
+
+    test("pipeline utilities stay visible, neutral and ordered with Generate last", () => {
+        const savedDocument = globalThis.document;
+        const savedSnapshot = state.snapshot;
+        const savedTab = state.activeTab;
+        const banner = { innerHTML: "", querySelector: () => null };
+        try {
+            globalThis.document = { getElementById: (id) => id === "pipeline-banner" ? banner : null };
+            state.activeTab = "phases";
+            for (const pipeline of [readySnapshot().pipeline, []]) {
+                state.snapshot = readySnapshot({ pipeline });
+                renderPipelineBanner();
+                const buttons = [...banner.innerHTML.matchAll(/<button type="button" class="btn btn-secondary pipeline-(clear|reset|generate)"([^>]*)>([\s\S]*?)<\/button>/g)];
+                assert.deepEqual(buttons.map((entry) => entry[1]), ["clear", "reset", "generate"]);
+                assert.deepEqual(buttons.map((entry) => entry[3].trim()), ["Clear", "Reset to default", "Generate canvas"]);
+                assert.equal(buttons[0][2].includes("disabled"), pipeline.length === 0);
+                assert.doesNotMatch(banner.innerHTML, /btn-primary|btn-ghost|project canvas/i);
             }
         } finally {
             globalThis.document = savedDocument;

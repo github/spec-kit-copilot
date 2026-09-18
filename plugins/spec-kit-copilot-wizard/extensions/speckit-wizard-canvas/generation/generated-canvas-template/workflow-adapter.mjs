@@ -31,9 +31,37 @@ function validatePhaseInput(input, phase) {
     if (typeof input.optional !== "boolean") throw new Error(`phaseInputs.${phase}.optional must be a boolean`);
 }
 
-export function validateWorkflowConfig(config, pipeline) {
+function reviewText(value, max) {
+    if (typeof value !== "string" || !value.trim() || value !== value.trim()
+        || value.length > max || /[\x00-\x1f\x7f]/.test(value)) throw new Error("Invalid artifactReview text");
+}
+
+export function validateWorkflowConfig(config, pipeline, { example } = {}) {
     const { all } = commandViews(pipeline);
-    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs"]);
+    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "artifactReview"]);
+    if (config.artifactReview != null) {
+        const review = config.artifactReview;
+        record(review, "artifactReview", ["phase", "sampleFingerprint", "goal", "statuses"]);
+        const final = commandViews(pipeline).workflow.at(-1);
+        if (!final?.artifact?.persistent || review.phase !== final.instanceKey) throw new Error("artifactReview must describe the final artifact-producing workflow phase");
+        if (!/^[a-f0-9]{64}$/.test(review.sampleFingerprint ?? "")) throw new Error("artifactReview requires an example fingerprint");
+        if (example !== undefined && (!example?.available || review.sampleFingerprint !== example.sample?.fingerprint
+            || review.phase !== example.sample?.phase)) throw new Error("artifactReview does not match the captured final example");
+        reviewText(review.goal, 1000);
+        if (!Array.isArray(review.statuses) || review.statuses.length < 2 || review.statuses.length > 6) throw new Error("artifactReview needs 2-6 statuses");
+        const ids = new Set(["needs-review"]);
+        const labels = new Set(["needs review", "clarification needed", "reviewing", "review unavailable", "artifact unavailable"]);
+        for (const status of review.statuses) {
+            record(status, "artifactReview status", ["id", "label", "criterion"]);
+            if (typeof status.id !== "string" || !/^[a-z][a-z0-9-]{0,39}$/.test(status.id) || ids.has(status.id)) throw new Error("artifactReview IDs must be unique and nonreserved");
+            reviewText(status.label, 60);
+            reviewText(status.criterion, 1000);
+            const normalized = status.label.toLowerCase().replace(/\s+/g, " ");
+            if (normalized.split(" ").length > 3 || labels.has(normalized)) throw new Error("artifactReview labels must be unique nonreserved 1-3 word phrases");
+            ids.add(status.id);
+            labels.add(normalized);
+        }
+    }
     if (config.version !== 1) throw new Error("unsupported workflow config version");
     record(config.itemLabels, "itemLabels");
     for (const [id, label] of Object.entries(config.itemLabels)) {
@@ -71,6 +99,7 @@ export function createWorkflowAdapter(config, pipeline) {
     const settings = JSON.parse(JSON.stringify(validateWorkflowConfig(config, pipeline)));
     const { constitution } = commandViews(pipeline);
     return Object.freeze({
+        artifactReview() { return structuredClone(settings.artifactReview ?? null); },
         phaseInput(phase) {
             return { ...(settings.phaseInputs?.[phase.instanceKey] ?? defaultPhaseInput(
                 constitution?.instanceKey === phase.instanceKey ? phase : undefined,

@@ -7,6 +7,11 @@ const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "'": "&#39;",
 })[character]);
 
+const clarificationLabel = String.raw`NEEDS\s+CLARIFICATION`;
+const emphasizedLabels = [String.raw`\*\*`, "__", String.raw`\*`, "_"].map((delimiter) =>
+    String.raw`${delimiter}\s*${clarificationLabel}(?:\s*${delimiter}\s*:|\s*:\s*${delimiter})`);
+const clarificationPrefix = String.raw`\[\s*(?:${clarificationLabel}\s*:|${emphasizedLabels.join("|")})\s*`;
+
 export function renderMarkdown(source, { clarifications } = {}) {
     const lines = String(source ?? "")
         .replace(/\r\n?/g, "\n")
@@ -27,7 +32,7 @@ export function renderMarkdown(source, { clarifications } = {}) {
     const marked = (text) => {
         if (!clarifications) return emphasis(text);
         let result = "", cursor = 0;
-        for (const match of text.matchAll(/\[NEEDS CLARIFICATION:\s*([\s\S]*?)\]/gi)) {
+        for (const match of text.matchAll(new RegExp(`${clarificationPrefix}([\\s\\S]*?)\\]`, "gi"))) {
             const marker = { question: match[1].trim(), marker: match[0], startIdx: match.index, endIdx: match.index + match[0].length };
             result += emphasis(text.slice(cursor, marker.startIdx));
             const index = clarifications.push(marker) - 1;
@@ -39,7 +44,9 @@ export function renderMarkdown(source, { clarifications } = {}) {
     const inline = (text) => {
         let result = "", cursor = 0;
         // Tokenize before inserting HTML: markers inside code or links are never controls.
-        for (const token of text.matchAll(/(`+)([\s\S]*?)\1|\[((?:[^\[\]\n]|\[[^\]\n]*\])+)\]\(([^)\s]+)\)|\[NEEDS CLARIFICATION:\s*[\s\S]*?\]/gi)) {
+        const tokens = new RegExp(/(`+)([\s\S]*?)\1|\[((?:[^\[\]\n]|\[[^\]\n]*\])+)\]\(([^)\s]+)\)/.source
+            + `|${clarificationPrefix}[\\s\\S]*?\\]`, "gi");
+        for (const token of text.matchAll(tokens)) {
             result += marked(text.slice(cursor, token.index));
             if (token[1]) result += `<code>${esc(token[2])}</code>`;
             else if (token[3] !== undefined) {

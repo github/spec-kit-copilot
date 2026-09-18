@@ -5,6 +5,20 @@ import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effect
 let __postJson = async () => undefined;
 let __render = () => {};
 let preflightTimer = null;
+let dialogVersion = 0;
+let preflightVersion = 0;
+
+function renderExample(root, example) {
+    const panel = root.querySelector("#generation-example");
+    if (!panel) return;
+    const heading = example?.available ? "Example artifacts available" : "Example artifacts improve status labels";
+    const message = example?.available
+        ? `Copilot will use the final phase's artifact to tailor its status labels. Example: ${example.source}.`
+        : "Run this pipeline once to create example artifacts. Copilot uses the final artifact to tailor its status labels. You can generate now with standard artifact and clarification indicators.";
+    panel.innerHTML = `<strong>${heading}</strong><p>${escapeHtml(message)}</p>${
+        example?.available ? `<p><code>${escapeHtml(example.finalArtifact)}</code></p>`
+            : `${example?.reason ? `<p>${escapeHtml(example.reason)}</p>` : ""}${example?.missing?.length ? `<p>Missing or unreadable: ${escapeHtml(example.missing.join(", "))}.</p>` : ""}`}`;
+}
 
 function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (character) => (
@@ -124,6 +138,8 @@ function renderMessages(container, result) {
 }
 
 async function runPreflight(root) {
+    const version = ++preflightVersion;
+    const dialog = dialogVersion;
     const extensionId = root.querySelector("#generation-extension-id")?.value.trim() ?? "";
     const displayName = root.querySelector("#generation-display-name")?.value.trim() ?? "";
     const description = root.querySelector("#generation-description")?.value.trim() ?? "";
@@ -135,9 +151,16 @@ async function runPreflight(root) {
     if (submit) {
         submit.textContent = "Checking…";
     }
-    const result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval });
+    let result;
+    try {
+        result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval });
+    } catch {
+        result = { ok: false, errors: ["Could not check generation settings. Try Generate again."] };
+    }
+    if (version !== preflightVersion || dialog !== dialogVersion) return null;
     root._generationPreflight = result;
     renderMessages(root.querySelector("#generation-messages"), result);
+    renderExample(root, result?.example);
     if (target) target.value = result?.target?.relativeDirectory || `.github/extensions/${extensionId || "…"}/`;
     if (submit) {
         submit.textContent = result?.targetExists ? "Regenerate" : "Generate";
@@ -170,42 +193,50 @@ function renderOverwriteConfirmation(root) {
 }
 
 async function submitGeneration(root) {
-    const confirmedOverwrite = root.querySelector("#generation-submit")?.dataset.overwrite === "true";
-    const preflight = confirmedOverwrite ? root._generationPreflight : await runPreflight(root);
-    if (preflight?.ok !== true || preflight?.errors?.length) return;
-    if (preflight?.targetExists && !confirmedOverwrite) {
-        renderOverwriteConfirmation(root);
-        return;
-    }
-    const metadata = root._generationMetadata;
-    const submit = root.querySelector("#generation-submit");
-    if (submit) {
-        submit.disabled = true;
-        submit.textContent = "Queuing…";
-    }
-    const result = await __postJson("/api/generation/start", {
-        ...metadata,
-        overwrite: submit?.dataset.overwrite === "true",
-    });
-    if (!result) {
-        if (submit) {
-            submit.disabled = false;
-            submit.textContent = "Try again";
+    if (root._generationSubmitting) return;
+    root._generationSubmitting = true;
+    const dialog = dialogVersion;
+    clearTimeout(preflightTimer);
+    try {
+        const confirmedOverwrite = root.querySelector("#generation-submit")?.dataset.overwrite === "true";
+        const preflight = confirmedOverwrite ? root._generationPreflight : await runPreflight(root);
+        if (dialog !== dialogVersion || preflight?.ok !== true || preflight?.errors?.length) return;
+        if (preflight?.targetExists && !confirmedOverwrite) {
+            renderOverwriteConfirmation(root);
+            return;
         }
-        return;
-    }
-    closeGenerationDialog();
-    if (state.snapshot) {
-        state.snapshot.generation = result.generation ?? {
-            requestId: result.requestId,
-            state: "queued",
-            target: result.target,
-        };
-    }
-    __render();
+        const metadata = root._generationMetadata;
+        const submit = root.querySelector("#generation-submit");
+        if (submit) submit.textContent = "Queuing…";
+        const result = await __postJson("/api/generation/start", {
+            ...metadata,
+            overwrite: submit?.dataset.overwrite === "true",
+        });
+        if (!result?.requestId) {
+            if (dialog === dialogVersion) {
+                if (submit) submit.textContent = "Try again";
+                renderMessages(root.querySelector("#generation-messages"), { errors: ["Generation was not queued. Check the settings and try again."] });
+            }
+            return;
+        }
+        if (dialog === dialogVersion) closeGenerationDialog();
+        if (state.snapshot) {
+            state.snapshot.generation = result.generation ?? {
+                requestId: result.requestId, state: "queued", target: result.target,
+            };
+        }
+        __render();
+    } catch {
+        if (dialog === dialogVersion) {
+            renderMessages(root.querySelector("#generation-messages"), { errors: ["Could not queue generation. Try again."] });
+            const submit = root.querySelector("#generation-submit");
+            if (submit) submit.textContent = "Try again";
+        }
+    } finally { if (dialog === dialogVersion) root._generationSubmitting = false; }
 }
 
 export function closeGenerationDialog() {
+    dialogVersion++;
     clearTimeout(preflightTimer);
     const root = document.getElementById("wizard-modal-root");
     if (root) root.innerHTML = "";
@@ -216,6 +247,8 @@ export function openGenerationDialog() {
     if (!availability.enabled) return;
     const root = document.getElementById("wizard-modal-root");
     if (!root) return;
+    dialogVersion++;
+    root._generationSubmitting = false;
     const metadata = defaultGenerationMetadata();
     root.innerHTML = `
         <div class="wizard-modal-backdrop" role="presentation">
@@ -225,6 +258,7 @@ export function openGenerationDialog() {
                     <button class="wizard-modal-close" type="button" aria-label="Close">✕</button>
                 </header>
                 <div class="wizard-modal-body">
+                    <div id="generation-example" class="generation-example" role="status" aria-live="polite"></div>
                     <label class="wizard-modal-field" for="generation-target">
                         <span class="wizard-modal-field-label" id="generation-target-label">Target</span>
                         <span class="wizard-modal-desc" id="generation-target-help">Canvas app folder in this workspace. Set by Extension ID.</span>
@@ -273,6 +307,7 @@ export function openGenerationDialog() {
             </section>
         </div>`;
     root._generationMetadata = metadata;
+    renderExample(root, null);
     root.querySelector(".wizard-modal-close")?.addEventListener("click", closeGenerationDialog);
     root.querySelector(".wizard-modal-cancel")?.addEventListener("click", closeGenerationDialog);
     root.querySelector(".wizard-modal-backdrop")?.addEventListener("click", (event) => {

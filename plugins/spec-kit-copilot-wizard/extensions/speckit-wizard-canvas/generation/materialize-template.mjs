@@ -136,7 +136,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
         const pipeline = await verifyMaterializedFiles({ requestFile: args.request, targetDirectory: args.target, request });
         // Load only the request's trusted snapshot validator, never generated executable code.
         const validator = await import(pathToFileURL(resolve(dirname(resolve(args.request)), "template", "workflow-adapter.mjs")).href);
-        validator.validateWorkflowConfig(JSON.parse(await readFile(resolve(args.target, "workflow-config.json"), "utf8")), pipeline);
+        validator.validateWorkflowConfig(JSON.parse(await readFile(resolve(args.target, "workflow-config.json"), "utf8")), pipeline,
+            { example: request.example ?? null });
         result = { ok: true, validated: true };
     } else {
         result = await materialize({ requestFile: args.request, targetDirectory: args.target, request });

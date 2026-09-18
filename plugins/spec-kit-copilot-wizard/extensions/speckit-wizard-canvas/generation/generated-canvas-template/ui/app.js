@@ -118,7 +118,7 @@ function renderInstanceCollection() {
                 </button>
                 <button class="instance-delete" type="button" data-delete-workflow="${esc(item.slug)}" aria-label="Delete ${esc(item.label)}">Delete</button>
             </div>`;
-        }).join("")}</div>` : '<div class="workflow-empty"><strong>Nothing here yet.</strong><span>Select New to get started.</span></div>'}`;
+        }).join("")}</div>` : '<p class="workflow-empty">Start your first workflow below.</p>'}`;
     $("workflow-search")?.addEventListener("input", (event) => {
         state.workflowQuery = event.target.value;
         const query = state.workflowQuery.trim().toLowerCase();
@@ -231,6 +231,24 @@ function openConstitutionDialog(step) {
     });
 }
 
+function phasePresentation(step) {
+    const phase = selectedItem()?.phases?.[step.instanceKey];
+    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: "" };
+    if (phase.artifactError || !Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) {
+        return { className: "", label: phase.artifactError || "Artifact status unavailable", symbol: "!", notice: "Artifact unavailable" };
+    }
+    if (phase.clarificationCount > 0) {
+        return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
+    }
+    const review = step.instanceKey === workflowSteps().at(-1)?.instanceKey ? phase.review : null;
+    return { className: "artifact-ready", label: "Artifact created; no open clarifications", symbol: "✓",
+        notice: review?.label ?? "", detail: review?.error ?? "" };
+}
+
+function phaseNotice(text, detail = "") {
+    return text ? `<span class="phase-notice"${detail ? ` title="${esc(detail)}" aria-label="${esc(`${text}: ${detail}`)}"` : ""}>${esc(text)}</span>` : "";
+}
+
 function renderPhaseNavigation() {
     const steps = workflowSteps();
     const navigation = $("phase-navigation");
@@ -238,12 +256,15 @@ function renderPhaseNavigation() {
         navigation.innerHTML = "";
         return;
     }
-    navigation.innerHTML = `<ol class="stepper" aria-label="Workflow phases">${steps.map((step, index) => `
+    navigation.innerHTML = `<ol class="stepper" aria-label="Workflow phases">${steps.map((step, index) => {
+        const presentation = phasePresentation(step);
+        return `
         ${index > 0 ? '<li class="step-sep" aria-hidden="true"></li>' : ""}
-        <li><button class="step ${index === state.current ? "active" : ""}" type="button" data-phase-index="${index}" ${index === state.current ? 'aria-current="step"' : ""} aria-label="Phase ${index + 1} of ${steps.length}: ${esc(step.label)}">
-            <span class="step-order">${index + 1}</span>
+        <li><button class="step ${presentation.className} ${index === state.current ? "active" : ""}" type="button" data-phase-index="${index}" ${index === state.current ? 'aria-current="step"' : ""} title="${esc(presentation.label)}" aria-label="Phase ${index + 1} of ${steps.length}: ${esc(step.label)} — ${esc(presentation.label)}">
+            <span class="step-order" aria-hidden="true">${presentation.symbol || index + 1}</span>
             <span class="step-label"><span class="step-name">${esc(step.label)}</span></span>
-        </button></li>`).join("")}</ol>`;
+        </button></li>`;
+    }).join("")}</ol>`;
     navigation.querySelectorAll("[data-phase-index]").forEach((button) => {
         button.addEventListener("click", () => {
             state.current = Number(button.dataset.phaseIndex);
@@ -295,7 +316,7 @@ function renderPhaseCard() {
     const continueDisabled = state.current >= steps.length - 1;
     $("phase-card").innerHTML = `
         <header class="workflow-header">
-            <div class="workflow-header-main"><h2>${esc(step.label)}</h2><p class="tagline">${esc(step.description)}</p></div>
+            <div class="workflow-header-main"><div class="phase-heading"><h2>${esc(step.label)}</h2>${phaseNotice(phasePresentation(step).notice, phasePresentation(step).detail)}</div><p class="tagline">${esc(step.description)}</p></div>
         </header>
         <dl class="phase-facts">
             <dt>Writes to</dt><dd><button class="phase-artifact-link" id="browse-output-folder" type="button" data-folder-path="${esc(outputUnresolved ? "" : parentFolder(outputPath))}" ${outputUnresolved ? "disabled" : ""} title="${esc(outputUnresolved ? "Enter a workflow slug to resolve this path" : `Open ${parentFolder(outputPath)} in file explorer`)}"><code>${esc(outputPath || "Transient phase")}</code></button></dd>

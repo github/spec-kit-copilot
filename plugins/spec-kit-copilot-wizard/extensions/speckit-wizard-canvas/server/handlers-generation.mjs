@@ -12,6 +12,7 @@ import {
     writeGenerationResult,
 } from "../generation/storage.mjs";
 import { buildGenerationPrompt } from "../generation/prompt.mjs";
+import { inspectGenerationExample } from "../generation/examples.mjs";
 import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
 
@@ -44,13 +45,14 @@ async function inspectSafeTarget(workspacePath, target, fs) {
     return { ok: true };
 }
 
-export async function preflightGeneration(body, { getState, getInstance, fs = generationFs }) {
+export async function preflightGeneration(body, { getState, getInstance, fs = generationFs }, { captureExample = false } = {}) {
     const inst = getInstance();
     const workspacePath = inst?.workspacePath;
     const validation = validateGenerationMetadata(body);
     const errors = [...validation.errors];
     let target = null;
     let blueprint = null;
+    let example = null;
     if (!workspacePath) {
         errors.push({ code: "workspace_unavailable", message: "Workspace path is unavailable." });
     } else if (!errors.length) {
@@ -75,6 +77,7 @@ export async function preflightGeneration(body, { getState, getInstance, fs = ge
             });
             const safe = await inspectSafeTarget(workspacePath, target, fs);
             if (!safe.ok) errors.push(safe.error);
+            if (blueprint && !errors.length) example = await inspectGenerationExample(workspacePath, snapshot, blueprint, { capture: captureExample });
         } catch (err) {
             if (err instanceof BlueprintValidationError) errors.push(...err.errors);
             else errors.push({ code: "preflight_failed", message: err?.message ?? String(err) });
@@ -89,6 +92,7 @@ export async function preflightGeneration(body, { getState, getInstance, fs = ge
         target,
         targetExists: exists,
         blueprint,
+        example,
     };
     return result;
 }
@@ -108,7 +112,7 @@ export async function handleGenerationStart(res, body, deps) {
     if (inst?.generation?.state === "queued" || inst?.generation?.state === "generating") {
         return jsonError(res, 409, "a canvas generation request is already active");
     }
-    const preflight = await preflightGeneration(body, deps);
+    const preflight = await preflightGeneration(body, deps, { captureExample: true });
     if (!preflight.ok) return jsonRes(res, 400, preflight);
     if (preflight.targetExists && body?.overwrite !== true) {
         return jsonError(res, 409, "target exists; explicit overwrite confirmation is required");
@@ -127,6 +131,7 @@ export async function handleGenerationStart(res, body, deps) {
         target: preflight.target,
         requestFile,
         blueprint: preflight.blueprint,
+        example: preflight.example,
     };
     await writeGenerationRequest(inst.workspacePath, request, deps.generationFs ?? generationFs);
     const queued = {
@@ -209,6 +214,13 @@ export async function handleGenerationReport(res, body, deps) {
         completedAt: new Date().toISOString(),
     };
     if (result.state === "failed" && !result.error) return jsonError(res, 400, "failed reports require an error");
+    if (result.state === "succeeded" && request.template?.version >= 20) {
+        const config = JSON.parse(await fs.readFile(join(request.target.directory, "workflow-config.json"), "utf8"));
+        const note = config.artifactReview
+            ? "Example-informed final-phase status labels are enabled."
+            : "Standard artifact and clarification indicators retained; no tailored final-phase status labels were generated.";
+        result.message = `${note}${result.message ? ` ${result.message}` : ""}`.slice(0, 1000);
+    }
     await writeGenerationResult(inst.workspacePath, result, fs);
     const generation = { ...result, target: request.target?.relativeDirectory ?? null };
     publish(inst, generation, deps.broadcast);

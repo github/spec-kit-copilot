@@ -23,7 +23,7 @@ CLI) and gives you three complementary ways to work with them:
    click a phase in the pipeline, fill its form, watch the agent produce
    the artifact via the matching `speckit-*` skill.
 4. **Generate a dedicated canvas.** Turn the current, user-shaped phase
-   pipeline into a project canvas extension under `.github/extensions/`.
+   pipeline into a canvas extension under `.github/extensions/`.
    The wizard compiles the selected commands into a validated blueprint,
    then asks Copilot's `/create-canvas` skill to scaffold, author, reload,
    and verify the generated canvas.
@@ -100,6 +100,30 @@ pipeline on the **Phases** page. Click **Generate canvas**, review the
 ordered commands and inferred artifact targets, then choose the generated
 extension id and canvas name.
 
+The Generate popup includes an advisory about example artifacts. **Generate is
+never disabled because examples are missing or could not be inspected.** A complete
+example means readable, nonempty artifacts for each persistent workflow phase in
+one workflow context; transient phases and the separate Constitution prerequisite
+are excluded. This is an availability check, not proof of successful execution.
+Only the final phase's artifact contents inform optional tailored status labels.
+No workflow is run automatically to collect examples.
+
+Template version **20** captures that final example with the generation request,
+not in the generated app. Copilot may derive a reusable goal and a fixed vocabulary
+of 1-3 word status labels in optional `artifactReview` configuration. It does not
+trace skill/template precedence or interpret earlier artifacts for this purpose.
+Missing or insufficient examples retain standard artifact/clarification indicators,
+with an explicit generation-result note. Regeneration is required to add or change
+the vocabulary later.
+
+Example-informed canvases ask Copilot to select an existing label from each final
+artifact after it settles and the agent is idle. The same labels apply to every
+workflow; the existing neutral pill displays them, with **Clarification needed**
+taking precedence. Standard canvases make no review requests. Reviews are read-only,
+scoped and fingerprinted; stale results are rejected. Failures show **Review unavailable**
+with accessible details; rerun the phase or reopen the canvas to retry. These labels
+describe artifact evidence, not independently verified implementation or test results.
+
 The wizard stores a deterministic generation request and a versioned
 canvas-template snapshot under `.speckit-wizard/generated-canvases/`.
 The agent invokes `/create-canvas`, scaffolds the extension, runs the
@@ -110,7 +134,8 @@ repeated as implementation instructions. Skill files are reference data, not
 commands to execute during generation. The agent
 customizes only the validated `workflow-config.json` (item labels, fixed phase
 argument prefixes/suffixes, and concise per-phase input labels/helpers derived from
-the effective installed skills, including preset overrides). Phase input guidance
+the effective installed skills, including preset overrides, plus optional
+example-derived final-artifact review criteria). Phase input guidance
 appears inside the empty textarea as placeholder text that disappears when typing
 and returns when cleared; it is never prefilled or submitted as input.
 The field label remains visible, and a screen-reader description retains the guidance
@@ -223,6 +248,17 @@ selected, disabling it only during the submission request. Marker presence and
 background observation never lock out a more detailed follow-up answer. Both
 viewers refresh artifacts automatically; there is no separate Refresh artifact link.
 
+Template version **19** colors generated workflow phases from current artifact
+contents: green with a checkmark for a readable, nonempty artifact without open
+clarifications, amber with an exclamation mark when clarifications remain, and
+neutral for missing or unreadable artifacts. Read failures are shown explicitly.
+The selected phase card shows a text-only **Clarification needed** pill in a fixed
+neutral style; its color does not vary with the message. The existing refresh path
+updates these indicators without changing selection, drafts, or Run/Rerun behavior.
+The viewer and phase indicators share one detector for bracketed markers, including
+casing, whitespace, and Markdown emphasis around the label. Code, links and comments
+remain excluded. Green is evidence of an artifact, not a claim of semantic completion.
+
 Drafts are isolated by workspace/canvas, item or project, phase and artifact.
 Back, navigation, failed sends and request acknowledgements do not clear them.
 Only draft text/revisions persist in same-origin browser storage; submissions are
@@ -273,6 +309,9 @@ these tests never run live generated phases. They cover both `explorer.exe` and
 `open` argument arrays and workspace paths containing spaces. Automated
 Windows/macOS CI is deferred.
 
+The toolbar keeps **Clear**, **Reset to default**, and **Generate canvas** visible
+in that order with matching neutral buttons and extra space before Generate.
+Controls wrap on narrow panels; Clear is disabled rather than hidden when empty.
 The toolbar shows generation activity on the Generate button itself, without
 adjacent status, output-path, or error text. The generation prompt directs the agent
 to explain failures in chat, including when the callback cannot be delivered.

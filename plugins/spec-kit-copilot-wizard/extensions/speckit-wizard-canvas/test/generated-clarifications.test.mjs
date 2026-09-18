@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClarifications as wizardParse } from "../pipeline/canonical.mjs";
-import { applicableDrafts, clarificationKey, createClarificationQueue, parseClarifications } from "../generation/generated-canvas-template/ui/clarifications.mjs";
+import { applicableDrafts, clarificationKey, createClarificationQueue, parseClarifications, visibleMarkers } from "../generation/generated-canvas-template/ui/clarifications.mjs";
 import { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
 
 const context = Object.freeze({ scope: "workspace-and-canvas", itemId: "alpha", phase: "2:custom-plan", artifact: "specs/alpha/plan.md" });
@@ -58,6 +58,30 @@ test("unsafe link targets stay inert and marker text cannot escape link attribut
     assert.match(html, /&quot;onmouseover=&quot;x/);
     assert.doesNotMatch(html, /<script|href="javascript:|href="[^"]*"onmouseover=/);
     assert.equal(marks.length, 1);
+});
+
+test("visible clarification detection supports label formatting while preserving exact amendment markers", () => {
+    for (const marker of [
+        "[NEEDS CLARIFICATION: Scope?]", "[ needs   clarification : Scope? ]",
+        "[**NEEDS CLARIFICATION:** Scope?]",
+        "[**NEEDS CLARIFICATION**: Scope?]", "[__needs clarification:__ Scope?]",
+        "[*Needs Clarification*: Scope?]", "[_Needs Clarification:_ Scope?]",
+    ]) {
+        const marks = visibleMarkers(marker);
+        assert.equal(marks.length, 1, marker);
+        assert.equal(marks[0].question, "Scope?");
+        assert.equal(marks[0].marker, marker);
+        for (const text of [`**${marker}**`, `- ${marker}`, `## ${marker}`]) {
+            assert.equal(visibleMarkers(text).length, 1, text);
+        }
+        const multiline = "[NEEDS\nCLARIFICATION:\nScope?]";
+        assert.equal(visibleMarkers(multiline)[0].marker, multiline);
+        for (const text of [`\`${marker}\``, `~~~md\n${marker}\n~~~`, `<!-- ${marker} -->`, `${marker}(https://example.test)`]) {
+            assert.deepEqual(visibleMarkers(text), [], text);
+        }
+    }
+    assert.equal(visibleMarkers("[NEEDS CLARIFICATION: **Which scope?**]")[0].question, "**Which scope?**");
+    assert.deepEqual(visibleMarkers("An explanation of needs clarification, but not an open marker."), []);
 });
 
 test("queue isolates workspace/canvas, item, exact phase, artifact and project scopes and persists locally", () => {

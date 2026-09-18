@@ -183,6 +183,33 @@ code, pre { font-family: var(--font-mono); }
 .stepper .step:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .step-order { color: var(--text-color-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .step.active .step-order { color: currentColor; }
+#phase-navigation .step.artifact-ready {
+    color: var(--text-color-default);
+    background: color-mix(in srgb, var(--success-color) 12%, var(--background-color-elevated));
+    border-color: var(--success-color);
+}
+#phase-navigation .step.needs-clarification {
+    color: var(--text-color-default);
+    background: color-mix(in srgb, var(--warn-color) 15%, var(--background-color-elevated));
+    border-color: var(--warn-color);
+}
+#phase-navigation .step.artifact-ready .step-order,
+#phase-navigation .step.needs-clarification .step-order { color: currentColor; font-weight: 600; }
+#phase-navigation .step.active { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+#phase-navigation .step:focus-visible { outline-width: 3px; outline-offset: 3px; }
+.phase-card .workflow-header-main { flex: 1; }
+.phase-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+.phase-notice {
+    display: inline-block;
+    padding: 0.2rem 0.65rem;
+    color: var(--text-color-default);
+    background: var(--background-color-secondary);
+    border: 1px solid var(--border-color-default);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
 .step-index {
     display: inline-flex;
     align-items: center;
@@ -447,7 +474,10 @@ code, pre { font-family: var(--font-mono); }
     gap: 0.5rem;
     margin-left: auto;
 }
-.workflow-surface .workflow-empty,
+.workflow-surface .workflow-empty {
+    margin: 0.75rem 0 0;
+    color: var(--workflow-muted);
+}
 .workflow-surface .workflow-error,
 .workflow-surface .workflow-warning {
     padding: 0.75rem 1rem;

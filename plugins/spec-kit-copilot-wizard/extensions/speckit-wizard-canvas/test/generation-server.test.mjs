@@ -75,6 +75,43 @@ async function setup({ snapshot = {} } = {}) {
 }
 
 describe("generation server lifecycle", () => {
+    test("preflight is advisory and generation captures only the final example from a complete pipeline", async () => {
+        const ctx = await setup({ snapshot: { slug: "alpha" } });
+        const metadata = { extensionId: "sampled", displayName: "Sampled", description: "Sample-based canvas." };
+        const empty = res();
+        await ctx.handler(req("/api/generation/preflight", metadata), empty);
+        assert.equal(JSON.parse(empty.body).ok, true);
+        assert.equal(JSON.parse(empty.body).example.available, false);
+        await mkdir(join(ctx.root, "specs", "alpha"), { recursive: true });
+        await writeFile(join(ctx.root, "specs", "alpha", "spec.md"), "Earlier private content");
+        await writeFile(join(ctx.root, "specs", "alpha", "plan.md"), "Final sample content");
+        const complete = res();
+        await ctx.handler(req("/api/generation/preflight", metadata), complete);
+        assert.equal(JSON.parse(complete.body).example.available, true);
+        assert.doesNotMatch(complete.body, /private content|Final sample content/);
+        const started = res();
+        await ctx.handler(req("/api/generation/start", metadata), started);
+        assert.equal(started.statusCode, 202);
+        const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", JSON.parse(started.body).requestId, "request.json");
+        const request = JSON.parse(await readFile(requestPath, "utf8"));
+        assert.equal(request.example.sample.content, "Final sample content");
+        assert.doesNotMatch(JSON.stringify(request.example), /Earlier private/);
+        await mkdir(request.target.directory, { recursive: true });
+        await materialize({ requestFile: requestPath, targetDirectory: request.target.directory, request });
+        const configPath = join(request.target.directory, "workflow-config.json");
+        const config = JSON.parse(await readFile(configPath, "utf8"));
+        assert.equal(config.artifactReview, undefined, "default remains standard until a usable vocabulary is derived");
+        config.artifactReview = {
+            phase: request.example.sample.phase, sampleFingerprint: request.example.sample.fingerprint, goal: "Provide a plan.",
+            statuses: [{ id: "draft", label: "Plan draft", criterion: "Plan is incomplete." }, { id: "ready", label: "Plan ready", criterion: "Plan documents the needed steps." }],
+        };
+        await writeFile(configPath, JSON.stringify(config));
+        const reported = res();
+        await ctx.handler(req("/api/generation/report", { requestId: request.requestId, state: "succeeded" }), reported);
+        assert.equal(reported.statusCode, 200, reported.body);
+        assert.match(reported.body, /Example-informed/);
+    });
+
     test("Wizard amendment HTTP route uses the session dispatcher without phase execution and rejects switched workspace reads", async () => {
         const artifact = "specs/alpha/plan.md";
         const ctx = await setup({ snapshot: { phases: { plan: { artifactPath: artifact } } } });
@@ -214,7 +251,7 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 17);
+        assert.equal(request.template.version, 20);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "amendment-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "project-artifacts.mjs"));
@@ -301,7 +338,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 17);
+        assert.equal(requestBody.template.version, 20);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }
