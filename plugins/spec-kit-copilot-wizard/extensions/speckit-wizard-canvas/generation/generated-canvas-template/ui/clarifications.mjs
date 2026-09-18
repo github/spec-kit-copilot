@@ -11,7 +11,10 @@ export function clarificationKey(context) {
     return JSON.stringify([context.scope, context.itemId ?? null, context.phase, context.artifact]);
 }
 
-export function createClarificationQueue(storage) {
+export const AMENDMENT_WAIT_MS = 120_000;
+export const markerPresent = (content, marker) => content.replace(/\r\n?/g, "\n").includes(marker.replace(/\r\n?/g, "\n"));
+
+export function createClarificationQueue(storage, { now = Date.now } = {}) {
     const cache = new Map();
     const pending = new Map();
     const keyFor = (context) => `speckit-clarifications.v1:${clarificationKey(context)}`;
@@ -24,7 +27,10 @@ export function createClarificationQueue(storage) {
                 answers: Array.isArray(value?.answers) ? value.answers.filter((entry) => (
                     typeof entry?.question === "string" && typeof entry?.answer === "string"
                 )) : [],
-                lastSubmitted: typeof value?.lastSubmitted === "string" ? value.lastSubmitted : null,
+                submitted: Array.isArray(value?.submitted?.answers) && value.submitted.answers.every((entry) => (
+                    typeof entry?.question === "string" && typeof entry?.answer === "string" && typeof entry?.marker === "string"
+                )) && Number.isFinite(value.submitted.startedAt) && value.submitted.startedAt <= now()
+                    ? value.submitted : null,
             });
         }
         return cache.get(key);
@@ -33,46 +39,61 @@ export function createClarificationQueue(storage) {
         try { storage?.setItem(keyFor(context), JSON.stringify(read(context))); } catch {}
     };
     const list = (context) => read(context).answers.map((answer) => ({ ...answer }));
-    const phaseKey = (context) => JSON.stringify([context.scope, context.itemId ?? null, context.phase]);
+    const isPending = (context) => pending.has(clarificationKey(context))
+        || Boolean(read(context).submitted && now() - read(context).submitted.startedAt < AMENDMENT_WAIT_MS);
     return {
         list,
-        isPending: (context) => pending.has(phaseKey(context)),
-        queue(context, question, answer) {
+        isPending,
+        hasSubmission: (context) => Boolean(read(context).submitted),
+        observationToken: (context) => read(context).submitted,
+        queue(context, question, answer, marker = `[NEEDS CLARIFICATION: ${question}]`) {
             const value = read(context);
             const previous = value.answers.find((entry) => entry.question === question);
-            const entry = { question, answer, revision: (previous?.revision ?? 0) + 1 };
+            const entry = { question, answer, marker, revision: (previous?.revision ?? 0) + 1 };
             value.answers = [...value.answers.filter((entry) => entry.question !== question), entry];
             save(context);
         },
-        async flush(context, { confirm, dispatch, baseArgs }) {
-            const key = phaseKey(context);
-            if (pending.has(key)) return { accepted: false, pending: true };
+        observe(context, content, token = read(context).submitted) {
+            const value = read(context);
+            const submission = value.submitted;
+            if (!submission || token !== submission || pending.has(clarificationKey(context))) return null;
+            const resolved = submission.answers.filter((entry) => !markerPresent(content, entry.marker));
+            value.answers = value.answers.filter((entry) => !resolved.some((snapshot) => (
+                snapshot.question === entry.question && snapshot.answer === entry.answer
+                && snapshot.revision === entry.revision
+            )));
+            submission.answers = submission.answers.filter((entry) => markerPresent(content, entry.marker));
+            const complete = !submission.answers.length;
+            const timedOut = !complete && now() - submission.startedAt >= AMENDMENT_WAIT_MS;
+            if (complete) value.submitted = null;
+            save(context);
+            return { resolved: resolved.length, remaining: submission.answers.length, complete, timedOut };
+        },
+        async flush(context, { dispatch }) {
+            const key = clarificationKey(context);
+            if (isPending(context)) return { accepted: false, pending: true };
             const submitted = list(context);
             if (!submitted.length) return { accepted: false };
             pending.set(key, true);
             try {
-                if (!await confirm()) return { accepted: false, cancelled: true };
-                const suffix = submitted.map(({ question, answer }) => `Clarification — ${question}\nAnswer: ${answer}`).join("\n\n");
-                const args = [baseArgs ?? read(context).lastSubmitted ?? "",
-                    `Clarifications for artifact: ${context.artifact}\n\n${suffix}`].filter(Boolean).join("\n\n");
                 const result = await dispatch({
                     phase: context.phase,
                     ...(context.itemId != null ? { itemId: context.itemId } : {}),
-                    args,
+                    artifact: context.artifact,
+                    answers: submitted.map(({ question, answer, marker }) => ({
+                        question, answer, marker: marker ?? `[NEEDS CLARIFICATION: ${question}]`,
+                    })),
                 });
-                if (result?.ok !== true || result.phase !== context.phase || result.approvalRequired) {
+                if (result?.ok !== true || result.phase !== context.phase || result.artifact !== context.artifact
+                    || result.queued || result.approvalRequired) {
                     return { accepted: false, result };
                 }
-                // Setup can still fail or hit a prerequisite when it drains the queue.
-                if (result.queued) return { accepted: true, result, args };
                 const value = read(context);
-                value.lastSubmitted = args;
-                value.answers = value.answers.filter((entry) => !submitted.some((snapshot) => (
-                    snapshot.question === entry.question && snapshot.answer === entry.answer
-                    && snapshot.revision === entry.revision
-                )));
+                value.submitted = { startedAt: now(), answers: submitted.map((entry) => ({
+                    ...entry, marker: entry.marker ?? `[NEEDS CLARIFICATION: ${entry.question}]`,
+                })) };
                 save(context);
-                return { accepted: true, result, args };
+                return { accepted: true, result };
             } finally {
                 pending.delete(key);
             }

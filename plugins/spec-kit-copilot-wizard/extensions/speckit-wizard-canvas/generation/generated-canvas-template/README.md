@@ -4,6 +4,31 @@ __DESCRIPTION__
 
 This project-scoped canvas was generated from a Spec Kit Wizard pipeline. Its runtime and renderer are a deterministic, self-contained copy of the Wizard workflow template. Copilot customizes only declarative data in `workflow-config.json`; all executable files, including `workflow-adapter.mjs`, are protected template code.
 
+## Artifact viewer
+
+Template version 13 snapshots the Wizard's shared `workflow-ui/markdown.mjs` and
+`workflow-ui/artifact-viewer.css` into protected `ui/` files. Both viewers load the
+viewer stylesheet before `workflow-theme.css`, retaining the Wizard's final cascade,
+heading hierarchy, lists, code, tables, quotes, links, clarification pills and header.
+The generated back button returns to the workflow; no installed Wizard assets are
+needed at runtime.
+
+The shared renderer escapes HTML and strips complete comments with a separating
+space. It tokenizes inline code and links before clarification markers, and keeps
+fenced code inert; marker-looking text in code, links or comments is not interactive.
+Unsafe link schemes resolve to `#`. Generated canvases use **Apply answers** to
+amend artifacts, separately from normal phase reruns (see below). The existing
+Wizard's clarification submission behavior is unchanged.
+
+Maintainers can run `node --test test/artifact-viewer-parity.test.mjs` in the Wizard
+extension source tree with Playwright available (or `PLAYWRIGHT_MODULE` pointing to
+its `index.mjs`; `PLAYWRIGHT_CHANNEL=msedge` uses an existing Edge installation).
+The test materializes an isolated fixture, mocks all state/artifact requests, and
+compares the actual viewers against the incumbent Git `HEAD` at desktop/mobile
+sizes in light/dark themes. `VIEWER_BASELINE_REF` can pin another incumbent commit.
+It compares computed styles, hover/focus/disabled states, and exact screenshot bytes
+after normalizing only application-specific navigation and queue copy. No phase runs.
+
 ## Automatic setup
 
 On open, the generated canvas reads the portable setup contract in `pipeline.json`.
@@ -141,27 +166,49 @@ The Markdown viewer recognizes the Wizard's case-insensitive
 **Answered ✓** lets you edit it. Code examples and links stay non-interactive,
 and artifact HTML remains escaped.
 
-Only **Apply and Rerun**, followed by the normal rerun confirmation, submits
-answers through `/api/run` using the exact captured phase and workflow item.
-The request includes the artifact path and question/answer pairs in phase input,
-preserving previous submitted guidance. Constitution uses its captured project
-phase with no workflow item or slug. Installation approval, setup and Constitution
-prerequisites are unchanged.
+**Apply answers** submits the queued subset through `/api/artifact/amend`, not
+`/api/run`. Answering two of five questions amends just those two; the remaining
+markers are preserved. The endpoint validates the exact phase, existing workflow
+item, declared regular artifact and selected marker text against a fresh bounded
+read. Constitution uses its project phase without a workflow item or slug.
+Installation approval and setup/session readiness must be satisfied; amendments
+are never queued for later setup execution.
+
+The dedicated prompt asks the coding agent to incorporate the answers into the
+relevant sections and remove only resolved exact markers. It treats the JSON
+artifact/answer payload as untrusted data and preserves unrelated prose,
+unanswered markers and provenance. It forbids invoking the original skill,
+research, phase reruns or downstream changes. Insufficient/conflicting answers
+keep their markers and the agent reports a reason in chat. The normal **Rerun**
+phase action and its confirmation remain unchanged.
 
 Viewing, polling, queuing the last answer and going Back never dispatch a phase.
 Back retains answers. Browser-local drafts are keyed by workspace/canvas, item
 (or project), exact phase key and artifact path, not the currently selected item.
 They survive viewer navigation and same-origin page reloads; browser storage
 restrictions or a new loopback origin can limit persistence.
-Cancellation, gate rejection and failed sends keep answers. Setup-queued responses
-also retain a draft because later setup or prerequisite checks may fail; the
-normal runtime owns any queued execution. A successful direct submission removes
-only the answer revisions actually sent, preserving edits/additions made in flight.
+Gate rejection, stale markers and failed sends keep answers with an explicit
+message. Dispatch acknowledgement never clears drafts or marks completion.
+Submitted snapshots survive same-origin reloads. Only a fresh artifact read removes
+submitted answer revisions whose exact markers disappeared; in-flight edits and
+additions remain. This is structural verification, **not proof that an answer was
+correctly incorporated**—review the artifact.
+
+The viewer reuses ordinary refreshes and polls every two seconds while an amendment
+is pending, for up to two minutes. Unchanged content leaves its DOM, scroll and
+open answer editor untouched. Reads are scoped to the captured artifact and cannot
+repaint a different selected viewer. Partial updates retain unresolved answers.
+Timeout is a retryable warning, never success. The server coalesces concurrent
+amendments per workspace/canvas/artifact in memory until observed marker removal
+or the same two-minute timeout. There is no durable job or agent-completion signal:
+an agent may still be editing after timeout or an extension restart, so review
+before retrying. Closing a viewer does not discard drafts.
 
 ## Files
 
 - `pipeline.json` — immutable generated workflow definition.
 - `ui/clarifications.mjs` — protected marker parsing and scoped answer queue.
+- `amendment-runtime.mjs` — guarded, deduplicated edit-artifact dispatch; no phase execution.
 - `workflow-config.json` — validated workflow labels, fixed phase arguments, and input guidance inferred from effective installed skills.
 - `workflow-adapter.mjs` — protected interpretation of that configuration; never generated executable logic.
 - `setup-runtime.mjs` — deterministic read-only readiness checks and agent setup prompt.

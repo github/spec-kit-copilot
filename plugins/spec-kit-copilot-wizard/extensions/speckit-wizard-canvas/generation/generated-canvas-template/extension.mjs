@@ -6,6 +6,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./workflow-adapter.mjs";
+import { createAmendmentRuntime } from "./amendment-runtime.mjs";
 import { commandViews } from "./ui/command-views.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
 import { constitutionGate, inspectConstitution } from "./project-artifacts.mjs";
@@ -52,6 +53,20 @@ const approvedReloads = new Map();
 const BODY_CAP = 256 * 1024;
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8" };
 let session;
+const amendArtifact = createAmendmentRuntime({
+    pipeline,
+    items: listItems,
+    dispatch: (input) => session.send(input),
+    gate: async (inst) => {
+        const blocked = await executionGate(inst);
+        if (blocked) return blocked;
+        const setup = await setupStatus(inst);
+        return setup.ready ? null : {
+            ok: false, code: "setup_required",
+            error: "Setup and session skills must be ready before applying answers. Complete setup, then retry; nothing was queued.",
+        };
+    },
+});
 
 function approvalContext(inst) {
     return { cwd: inst.cwd, extensionId: __EXTENSION_ID_JSON__, identity: inst.identity, setup: pipeline.setup };
@@ -718,6 +733,10 @@ async function startHttp(inst) {
             if (req.method === "POST" && url.pathname === "/api/run") {
                 const result = await runPhase(inst, await body(req));
                 return send(res, result.code === "invalid_workflow_slug" ? 400 : 202, result);
+            }
+            if (req.method === "POST" && url.pathname === "/api/artifact/amend") {
+                const result = await amendArtifact(inst, await body(req));
+                return send(res, 200, result);
             }
             if (req.method === "POST" && url.pathname === "/api/installation-approval") {
                 return send(res, 200, await approvalRequest(inst, await body(req)));

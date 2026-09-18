@@ -73,6 +73,19 @@ async function setup({ snapshot = {} } = {}) {
 }
 
 describe("generation server lifecycle", () => {
+    test("serves the shared viewer stylesheet and renderer as browser assets", async () => {
+        const ctx = await setup();
+        for (const [file, type] of [["artifact-viewer.css", "text/css"], ["markdown.mjs", "application/javascript"]]) {
+            const request = req(`/workflow-ui/${file}`, {});
+            request.method = "GET";
+            const response = res();
+            await ctx.handler(request, response);
+            assert.equal(response.statusCode, 200);
+            assert.equal(response.headers["Content-Type"], `${type}; charset=utf-8`);
+            assert.equal(response.body, await readFile(new URL(`../workflow-ui/${file}`, import.meta.url), "utf8"));
+        }
+    });
+
     test("production prompts prohibit live testing with approval on or off", async () => {
         const ctx = await setup();
         const started = res();
@@ -175,8 +188,9 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 12);
+        assert.equal(request.template.version, 13);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
+        assert.ok(request.template.protectedFiles.some((entry) => entry.path === "amendment-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "project-artifacts.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "ui/command-views.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "ui/clarifications.mjs"));
@@ -261,6 +275,10 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
+        assert.equal(requestBody.template.version, 13);
+        for (const file of ["markdown.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
+            assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
+        }
         for (const instruction of ["effective installed", "including preset overrides", "phaseInputs", "EVERY exact blueprint instanceKey", "substantive input only", "no slug arguments", "do not infer input optionality from step.optional", "Customize only workflow-config.json"]) {
             assert.ok(ctx.calls[0].prompt.includes(instruction), `Missing generation instruction: ${instruction}`);
         }
@@ -282,6 +300,13 @@ describe("generation server lifecycle", () => {
             request: requestBody,
         });
         const materializedPipeline = JSON.parse(await readFile(join(ctx.root, ".github", "extensions", "demo-canvas", "pipeline.json"), "utf8"));
+        for (const file of ["markdown.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
+            assert.equal(
+                await readFile(join(ctx.root, ".github", "extensions", "demo-canvas", "ui", file), "utf8"),
+                await readFile(new URL(`../workflow-ui/${file}`, import.meta.url), "utf8"),
+                `${file} must be a standalone copy of the shared viewer source`,
+            );
+        }
         assert.equal(materializedPipeline.metadata.workflowListName, "R&D Cases");
         const configPath = join(ctx.root, ".github", "extensions", "demo-canvas", "workflow-config.json");
         const config = JSON.parse(await readFile(configPath, "utf8"));

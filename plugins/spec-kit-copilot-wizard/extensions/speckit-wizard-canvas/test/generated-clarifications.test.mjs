@@ -2,11 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClarifications as wizardParse } from "../pipeline/canonical.mjs";
 import { createClarificationQueue, parseClarifications } from "../generation/generated-canvas-template/ui/clarifications.mjs";
-import { renderMarkdown } from "../generation/generated-canvas-template/ui/markdown.mjs";
+import { renderMarkdown } from "../workflow-ui/markdown.mjs";
 
 const context = Object.freeze({ scope: "workspace-and-canvas", itemId: "alpha", phase: "2:custom-plan", artifact: "specs/alpha/plan.md" });
-const accepted = { ok: true, phase: context.phase };
-const confirm = async () => true;
+const accepted = { ok: true, phase: context.phase, artifact: context.artifact };
 const memoryStorage = () => {
     const values = new Map();
     return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
@@ -40,6 +39,7 @@ test("fenced code, inline code, links and comments do not expose clarification c
         "`[NEEDS CLARIFICATION: inline]`",
         "``[NEEDS CLARIFICATION: `nested` code]``",
         "[NEEDS CLARIFICATION: link](https://example.test)",
+        "[Read [NEEDS CLARIFICATION: nested link]](https://example.test)",
         "<!-- [NEEDS CLARIFICATION: hidden] -->",
         "<scr<!-- hidden -->ipt>alert(1)</script>",
         "\uE0000\uE001",
@@ -73,53 +73,68 @@ test("queue isolates workspace/canvas, item, exact phase, artifact and project s
     assert.equal(queue.list(context)[0].answer, "Alpha");
 });
 
-test("flush sends only the captured phase/item with artifact, prior input and question/answer payload", async () => {
+test("two of five answers dispatch a dedicated amendment payload and remain until observed", async () => {
     const queue = createClarificationQueue(memoryStorage());
     queue.queue(context, "Which scope?", "Core only");
+    queue.queue(context, "Tests?", "Focused");
     let input;
     const outcome = await queue.flush(context, {
-        confirm, baseArgs: "Original input",
         dispatch: async (value) => { input = value; return accepted; },
     });
     assert.deepEqual(input, {
         phase: "2:custom-plan", itemId: "alpha",
-        args: "Original input\n\nClarifications for artifact: specs/alpha/plan.md\n\nClarification — Which scope?\nAnswer: Core only",
+        artifact: context.artifact,
+        answers: [
+            { question: "Which scope?", answer: "Core only", marker: "[NEEDS CLARIFICATION: Which scope?]" },
+            { question: "Tests?", answer: "Focused", marker: "[NEEDS CLARIFICATION: Tests?]" },
+        ],
     });
     assert.equal(outcome.accepted, true);
+    assert.equal(queue.list(context).length, 2);
+    assert.equal(queue.isPending(context), true);
+    const unchanged = "[NEEDS CLARIFICATION: Which scope?]\n[NEEDS CLARIFICATION: Tests?]\n[NEEDS CLARIFICATION: Third?]\n[NEEDS CLARIFICATION: Fourth?]\n[NEEDS CLARIFICATION: Fifth?]";
+    assert.equal(queue.observe(context, unchanged).resolved, 0);
+    assert.equal(queue.observe(context, unchanged.replace("[NEEDS CLARIFICATION: Which scope?]", "Core only")).resolved, 1);
+    assert.equal(queue.list(context)[0].question, "Tests?");
+    assert.equal(queue.isPending(context), true);
+    assert.equal(queue.observe(context, "[NEEDS CLARIFICATION: Third?]").complete, true);
+    assert.equal(queue.isPending(context), false);
     assert.deepEqual(queue.list(context), []);
-    queue.queue(context, "Tests?", "Focused");
-    await queue.flush(context, { confirm, dispatch: async (next) => {
-        assert.match(next.args, /^Original input/);
-        assert.match(next.args, /Answer: Core only/);
-        return accepted;
-    } });
+});
+
+test("CRLF multiline markers remain pending until their actual disappearance", async () => {
+    const queue = createClarificationQueue();
+    queue.queue(context, "Scope?", "Core", "[NEEDS CLARIFICATION:\nScope?]");
+    await queue.flush(context, { dispatch: async () => accepted });
+    assert.equal(queue.observe(context, "[NEEDS CLARIFICATION:\r\nScope?]").resolved, 0);
+    assert.equal(queue.list(context).length, 1);
 });
 
 test("Constitution clarification uses its exact captured project phase without item or slug", async () => {
     const queue = createClarificationQueue();
     const project = { scope: "project-canvas", phase: "7:constitution-override", artifact: ".specify/memory/constitution.md" };
     queue.queue(project, "Testing?", "Required");
-    await queue.flush(project, { confirm, dispatch: async (input) => {
-        assert.deepEqual(Object.keys(input), ["phase", "args"]);
+    await queue.flush(project, { dispatch: async (input) => {
+        assert.deepEqual(Object.keys(input), ["phase", "artifact", "answers"]);
         assert.equal(input.phase, "7:constitution-override");
-        return { ok: true, phase: input.phase };
+        return { ok: true, phase: input.phase, artifact: input.artifact };
     } });
+    assert.equal(queue.list(project).length, 1);
+    queue.observe(project, "Testing is required");
     assert.deepEqual(queue.list(project), []);
 });
 
-test("cancel, thrown dispatch, failed or gated responses and setup queues retain answers", async () => {
+test("failed dispatch, gates, stale markers and unexpected setup queues retain answers", async () => {
     const queue = createClarificationQueue();
     queue.queue(context, "Scope?", "Retain me");
-    const cancelled = await queue.flush(context, { confirm: async () => false, dispatch: () => assert.fail("cancel dispatched") });
-    assert.equal(cancelled.cancelled, true);
-    await assert.rejects(queue.flush(context, { confirm, dispatch: async () => { throw new Error("offline"); } }), /offline/);
+    await assert.rejects(queue.flush(context, { dispatch: async () => { throw new Error("offline"); } }), /offline/);
     for (const result of [
         undefined, {}, { ok: false }, { ok: true, phase: "wrong-phase" },
-        { ok: false, approvalRequired: true }, { ok: false, code: "constitution_required" },
-        { ok: true, phase: context.phase, queued: true },
+        { ok: false, approvalRequired: true }, { ok: false, code: "setup_required" }, { ok: false, code: "stale_markers" },
+        { ...accepted, queued: true },
     ]) {
-        const outcome = await queue.flush(context, { confirm, dispatch: async () => result });
-        assert.equal(outcome.accepted, Boolean(result?.queued));
+        const outcome = await queue.flush(context, { dispatch: async () => result });
+        assert.equal(outcome.accepted, false);
         assert.equal(queue.list(context)[0].answer, "Retain me");
         assert.equal(queue.isPending(context), false);
     }
@@ -130,19 +145,41 @@ test("in-flight additions and changed revisions survive, including edit away and
     queue.queue(context, "Scope?", "Initial");
     queue.queue(context, "Unchanged?", "Remove on success");
     let release;
-    const sending = queue.flush(context, { confirm, dispatch: () => new Promise((resolve) => { release = resolve; }) });
+    const sending = queue.flush(context, { dispatch: () => new Promise((resolve) => { release = resolve; }) });
     await Promise.resolve();
     assert.equal(queue.isPending(context), true);
-    assert.deepEqual(await queue.flush({ ...context, artifact: "other.md" }, { confirm, dispatch: () => assert.fail("duplicate phase dispatch") }), { accepted: false, pending: true });
+    assert.deepEqual(await queue.flush(context, { dispatch: () => assert.fail("duplicate artifact dispatch") }), { accepted: false, pending: true });
     queue.queue(context, "Scope?", "Updated");
     queue.queue(context, "Scope?", "Initial");
     queue.queue(context, "Added?", "Keep");
     release(accepted);
     await sending;
+    assert.equal(queue.list(context).length, 3, "dispatch acknowledgement must not clear answers");
+    queue.observe(context, "All submitted markers were incorporated.");
     assert.deepEqual(queue.list(context).map(({ question, answer }) => ({ question, answer })), [
         { question: "Scope?", answer: "Initial" }, { question: "Added?", answer: "Keep" },
     ]);
     assert.equal(queue.isPending(context), false);
+});
+
+test("observation snapshots survive reload; timeout is retryable and stale reads cannot complete a new submission", async () => {
+    const storage = memoryStorage();
+    let time = 100;
+    let queue = createClarificationQueue(storage, { now: () => time });
+    queue.queue(context, "Scope?", "Core");
+    const beforeDispatch = queue.observationToken(context);
+    await queue.flush(context, { dispatch: async () => accepted });
+    assert.equal(queue.observe(context, "old read without markers", beforeDispatch), null);
+    queue = createClarificationQueue(storage, { now: () => time });
+    assert.equal(queue.isPending(context), true);
+    time += 120_001;
+    assert.equal(queue.observe(context, "[NEEDS CLARIFICATION: Scope?]").timedOut, true);
+    assert.equal(queue.list(context).length, 1);
+    assert.equal(queue.isPending(context), false);
+    const oldToken = queue.observationToken(context);
+    await queue.flush(context, { dispatch: async () => accepted });
+    assert.equal(queue.observe(context, "stale content", oldToken), null);
+    assert.equal(queue.list(context).length, 1);
 });
 
 test("unavailable or malformed browser storage never prevents staging or preserves corrupt entries", () => {

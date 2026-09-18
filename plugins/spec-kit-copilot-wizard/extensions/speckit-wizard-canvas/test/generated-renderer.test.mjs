@@ -76,7 +76,7 @@ describe("generated workflow renderer", () => {
             const directory = await mkdtemp(join(tmpdir(), "generated-renderer-test-"));
             temporaryDirectories.push(directory);
             await Promise.all(["app.js", "command-views.mjs", "markdown.mjs", "clarifications.mjs", "workflow-slug.mjs"].map((name) => (
-                copyFile(new URL(`../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
+                copyFile(new URL(name === "markdown.mjs" ? "../workflow-ui/markdown.mjs" : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
             )));
             await import(pathToFileURL(join(directory, "app.mjs")).href);
             await new Promise((resolve) => setTimeout(resolve, 10));
@@ -158,7 +158,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(directory, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
         ]);
@@ -236,7 +236,7 @@ describe("generated workflow renderer", () => {
             await Promise.all([
                 copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(directory, "app.mjs")),
                 copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
-                copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
+                copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
                 copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
                 copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
             ]);
@@ -298,7 +298,7 @@ describe("generated workflow renderer", () => {
             await elements.get("view-constitution").emit("click");
             await new Promise((resolve) => setTimeout(resolve, 10));
             assert.equal(elements.get("artifact-viewer").hidden, false);
-            assert.match(elements.get("artifact-viewer").innerHTML, /Project principles/);
+            assert.match(elements.get("artifact-viewer").querySelector(".artifact-viewer-body").innerHTML, /Project principles/);
             await elements.get("close-artifact").emit("click");
             assert.equal(elements.get("artifact-viewer").hidden, true);
             if (phaseSteps.length) assert.equal(elements.get("phase-args").value, "Keep my plan draft");
@@ -372,7 +372,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(directory, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
         ]);
@@ -495,7 +495,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(renderedUi, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
@@ -590,7 +590,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(renderedUi, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
@@ -684,7 +684,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(renderedUi, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
@@ -829,7 +829,7 @@ describe("generated workflow renderer", () => {
         await Promise.all([
             copyFile(new URL("../generation/generated-canvas-template/ui/app.js", import.meta.url), join(renderedUi, "app.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
-            copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
+            copyFile(new URL("../workflow-ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
@@ -902,10 +902,11 @@ describe("generated workflow renderer", () => {
         assert.match(elements.get("current-workflow").innerHTML, /Beta/);
 
         await elements.get("view-artifact").emit("click");
-        assert.match(elements.get("artifact-viewer").innerHTML, /<h1>Intake<\/h1>/);
-        assert.match(elements.get("artifact-viewer").innerHTML, /<ul><li>First item<\/li><li><strong>Important<\/strong> item<\/li><\/ul>/);
-        assert.match(elements.get("artifact-viewer").innerHTML, /href="https:\/\/example\.com"/);
-        assert.doesNotMatch(elements.get("artifact-viewer").innerHTML, /<pre># Intake/);
+        const artifactHtml = elements.get("artifact-viewer").querySelector(".artifact-viewer-body").innerHTML;
+        assert.match(artifactHtml, /<h1>Intake<\/h1>/);
+        assert.match(artifactHtml, /<ul><li>First item<\/li><li><strong>Important<\/strong> item<\/li><\/ul>/);
+        assert.match(artifactHtml, /href="https:\/\/example\.com"/);
+        assert.doesNotMatch(artifactHtml, /<pre># Intake/);
 
         await elements.get("new-workflow").emit("click");
         assert.match(elements.get("phase-card").innerHTML, />Run phase<\/button>/);

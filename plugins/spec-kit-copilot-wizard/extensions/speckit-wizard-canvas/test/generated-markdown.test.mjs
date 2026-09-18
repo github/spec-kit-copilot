@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown } from "../generation/generated-canvas-template/ui/markdown.mjs";
+import { renderMarkdown } from "../workflow-ui/markdown.mjs";
+import { renderMarkdown as wizardMarkdown } from "../ui/modals.js";
+
+test("Wizard and generated artifacts use the same renderer", () => {
+    assert.equal(wizardMarkdown, renderMarkdown);
+});
 
 test("hides complete comments without joining surrounding fragments", () => {
     assert.equal(renderMarkdown("<!-- hidden\nmetadata -->\r\n# Title"), "<h1>Title</h1>");

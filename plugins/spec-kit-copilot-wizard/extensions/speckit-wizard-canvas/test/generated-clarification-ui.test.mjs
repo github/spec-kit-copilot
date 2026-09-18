@@ -8,7 +8,11 @@ import { compileBlueprint } from "../generation/compiler.mjs";
 
 const globals = Object.fromEntries(["document", "EventSource", "fetch", "localStorage"].map((key) => [key, globalThis[key]]));
 const directories = [];
+const timers = [];
+const realTimeout = globalThis.setTimeout;
 afterEach(async () => {
+    timers.splice(0).forEach(clearTimeout);
+    globalThis.setTimeout = realTimeout;
     Object.assign(globalThis, globals);
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -18,9 +22,13 @@ function element() {
     const listeners = new Map(), selectors = new Map();
     let html = "", markers = [];
     return {
-        dataset: {}, value: "", hidden: false, disabled: false,
-        get innerHTML() { return html; },
+        dataset: {}, value: "", hidden: false, disabled: false, scrollTop: 0, renders: 0,
+        classList: { toggle() {} },
+        removeAttribute(name) { delete this[name]; },
+        get innerHTML() { return html + [...selectors.values()].map((child) => child.innerHTML).join(""); },
         set innerHTML(value) {
+            this.renders++;
+            selectors.clear();
             html = value;
             markers = Array.from(value.matchAll(/data-clarify-idx="(\d+)"/g), (match) => {
                 const button = element();
@@ -35,12 +43,19 @@ function element() {
             if (!selectors.has(selector)) selectors.set(selector, element());
             return selectors.get(selector);
         },
-        querySelectorAll(selector) { return selector === "[data-clarify-idx]" ? markers : []; },
+        querySelectorAll(selector) { return selector === "[data-clarify-idx]" ? [...markers, ...[...selectors.values()].flatMap((child) => child.querySelectorAll(selector))] : []; },
         insertAdjacentHTML(_position, value) { this.innerHTML += value; },
     };
 }
 
 async function fixture() {
+    const polls = [];
+    globalThis.setTimeout = (...args) => {
+        const timer = realTimeout(...args);
+        timers.push(timer);
+        if (args[1] === 2000) polls.push({ timer, callback: args[0] });
+        return timer;
+    };
     const elements = new Map(), values = new Map(), posts = [];
     const get = (id) => {
         if (!elements.has(id)) elements.set(id, element());
@@ -66,7 +81,7 @@ async function fixture() {
             },
         })),
     };
-    let send = async (input) => ({ ok: true, phase: input.phase });
+    let send = async (input) => ({ ok: true, phase: input.phase, artifact: input.artifact });
     let readArtifact = async () => ({ content: "# Artifact\n[NEEDS CLARIFICATION: Which <scope>?]\n\n[NEEDS CLARIFICATION: Tests?]" });
     globalThis.fetch = async (url, options) => {
         let result;
@@ -81,7 +96,7 @@ async function fixture() {
     directories.push(directory);
     await mkdir(directory);
     await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "command-views.mjs", "workflow-slug.mjs"].map((name) => (
-        copyFile(new URL(`../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
+        copyFile(new URL(name === "markdown.mjs" ? "../workflow-ui/markdown.mjs" : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
     )));
     await import(pathToFileURL(join(directory, "app.mjs")).href);
     await tick();
@@ -97,6 +112,7 @@ async function fixture() {
         target: { closest: (selector) => selector === "[data-instance]" ? { dataset: { instance: id } } : null },
     });
     return { get, snapshot, specify, plan, constitution, posts, buttons, answer, decide, select,
+        poll: async () => { const poll = polls.pop(); assert.ok(poll, "amendment schedules observation polling"); clearTimeout(poll.timer); await poll.callback(); },
         refresh: async () => { events.onmessage(); await tick(); },
         setSend: (callback) => { send = callback; },
         setRead: (callback) => { readArtifact = callback; },
@@ -135,34 +151,32 @@ test("viewer stages, edits and cancels answers without dispatch; Back, workflows
     await f.get("previous-phase").emit("click");
     await f.get("view-artifact").emit("click");
     assert.equal(f.buttons()[0].title, "Alpha only");
-    const cancelled = f.get("apply-clarifications").emit("click");
-    await f.decide("cancel");
-    await cancelled;
-    assert.equal(f.posts.length, 0);
+    assert.match(f.get("clarification-banner").innerHTML, /Apply answers/);
+    await f.get("apply-clarifications").emit("click");
+    assert.equal(f.posts.length, 1);
     assert.equal(f.buttons()[0].title, "Alpha only");
 });
 
-test("captured dispatch survives selection changes and preserves concurrent edits/additions with running acknowledgement", async () => {
+test("captured amendment survives selection changes and retains concurrent edits until observation", async () => {
     const f = await fixture();
     await f.get("view-artifact").emit("click");
     await f.answer("Initial");
     let release;
     f.setSend(() => new Promise((resolve) => { release = resolve; }));
     const sending = f.get("apply-clarifications").emit("click");
-    await f.decide("confirm");
     await tick();
     assert.equal(f.posts.length, 1);
-    assert.deepEqual(Object.keys(f.posts[0].input), ["phase", "itemId", "args"]);
+    assert.deepEqual(Object.keys(f.posts[0].input), ["phase", "itemId", "artifact", "answers"]);
     assert.equal(f.posts[0].input.phase, f.specify.instanceKey);
     assert.equal(f.posts[0].input.itemId, "alpha");
-    assert.match(f.posts[0].input.args, /Clarifications for artifact: specs\/alpha\/spec.md/);
-    assert.match(f.posts[0].input.args, /Clarification — Which <scope>\?\nAnswer: Initial/);
+    assert.equal(f.posts[0].input.artifact, "specs/alpha/spec.md");
+    assert.equal(f.posts[0].input.answers[0].answer, "Initial");
     await f.answer("Edited in flight");
     await f.answer("Added in flight", 1);
     await f.get("close-artifact").emit("click");
     await f.select("beta");
     await f.get("view-artifact").emit("click");
-    release({ ok: true, phase: f.specify.instanceKey });
+    release({ ok: true, phase: f.specify.instanceKey, artifact: "specs/alpha/spec.md" });
     await sending;
     assert.equal(f.buttons()[0].textContent, "Clarify", "alpha completion must not repaint beta");
     await f.get("close-artifact").emit("click");
@@ -171,7 +185,7 @@ test("captured dispatch survives selection changes and preserves concurrent edit
     assert.equal(f.buttons()[0].title, "Edited in flight");
     assert.equal(f.buttons()[1].title, "Added in flight");
     await f.get("apply-clarifications").emit("click");
-    assert.equal(f.posts.length, 1, "running acknowledgement prevents a duplicate");
+    assert.equal(f.posts.length, 1, "awaiting artifact observation prevents a duplicate");
 });
 
 test("failed/gated sends keep answers and Constitution dispatch stays project-scoped", async () => {
@@ -181,30 +195,55 @@ test("failed/gated sends keep answers and Constitution dispatch stays project-sc
     for (const response of [
         new Error("offline"),
         { ok: false, approvalRequired: true },
-        { ok: false, code: "constitution_required" },
+        { ok: false, code: "setup_required" },
     ]) {
         f.setSend(async () => { if (response instanceof Error) throw response; return response; });
         const submission = f.get("apply-clarifications").emit("click");
-        assert.match(f.get("modal-root").innerHTML, /Existing project Constitution content/);
-        assert.doesNotMatch(f.get("modal-root").innerHTML, /downstream/);
-        await f.decide("confirm");
         await submission;
         assert.equal(f.buttons()[0].title, "Project testing rules");
         assert.match(f.get("clarification-banner").innerHTML, /preserved/);
     }
     await f.select("beta");
-    f.setSend(async (input) => ({ ok: true, queued: true, phase: input.phase }));
+    f.setSend(async (input) => ({ ok: true, phase: input.phase, artifact: input.artifact }));
     const queued = f.get("apply-clarifications").emit("click");
-    await f.decide("confirm");
     await queued;
     assert.equal(f.buttons()[0].title, "Project testing rules");
-    assert.match(f.get("clarification-banner").innerHTML, /queued for setup/);
+    assert.match(f.get("clarification-banner").innerHTML, /unresolved/);
     for (const { url, input } of f.posts) {
-        assert.equal(url, "/api/run");
+        assert.equal(url, "/api/artifact/amend");
         assert.equal(input.phase, f.constitution.instanceKey);
         assert.equal(Object.hasOwn(input, "itemId"), false);
         assert.equal(Object.hasOwn(input, "slug"), false);
     }
+});
+
+test("fresh artifact observations update only changed content, preserve scroll/modal drafts and retain unresolved answers", async () => {
+    const f = await fixture();
+    await f.get("view-artifact").emit("click");
+    await f.answer("Core");
+    await f.answer("Focused", 1);
+    await f.get("apply-clarifications").emit("click");
+    assert.equal(f.buttons().length, 2);
+    const body = f.get("artifact-viewer").querySelector(".artifact-viewer-body");
+    body.scrollTop = 71;
+    const renders = body.renders;
+    await f.buttons()[0].emit("click");
+    f.get("clarification-answer").value = "Unsaved editor draft";
+    await f.refresh();
+    assert.equal(body.renders, renders, "unchanged reads must not replace the artifact DOM");
+    assert.equal(f.get("clarification-answer").value, "Unsaved editor draft");
+    f.setRead(async () => ({ content: "# Artifact\nCore is selected.\n\n[NEEDS CLARIFICATION: Tests?]" }));
+    await f.poll();
+    assert.equal(body.scrollTop, 71);
+    assert.equal(f.buttons().length, 1);
+    assert.equal(f.buttons()[0].title, "Focused");
+    assert.equal(f.get("clarification-answer").value, "Unsaved editor draft");
+    await f.get("queue-clarification").emit("click");
+    f.setRead(async () => ({ content: "# Artifact\nCore is selected. Focused tests are required." }));
+    await f.refresh();
+    assert.match(f.get("clarification-banner").innerHTML, /Submitted markers disappeared/);
+    assert.match(f.get("clarification-banner").innerHTML, /Apply answers/, "edited answer remains a draft even after its original marker disappears");
+    assert.equal(f.posts.length, 1);
 });
 
 test("late artifact reads cannot replace the newly selected artifact context", async () => {

@@ -51,6 +51,9 @@ async function loadGeneratedExtension(root, sdk, {
     await mkdir(join(extensionRoot, "ui"), { recursive: true });
     await copyFile(join(template, "setup-runtime.mjs"), join(extensionRoot, "setup-runtime.mjs"));
     await copyFile(join(template, "approval-runtime.mjs"), join(extensionRoot, "approval-runtime.mjs"));
+    await copyFile(join(template, "amendment-runtime.mjs"), join(extensionRoot, "amendment-runtime.mjs"));
+    await copyFile(join(here, "..", "workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
+    await copyFile(join(template, "ui", "clarifications.mjs"), join(extensionRoot, "ui", "clarifications.mjs"));
     await copyFile(join(template, "workspace-files.mjs"), join(extensionRoot, "workspace-files.mjs"));
     await copyFile(join(template, "workflow-adapter.mjs"), join(extensionRoot, "workflow-adapter.mjs"));
     await copyFile(join(template, "project-artifacts.mjs"), join(extensionRoot, "project-artifacts.mjs"));
@@ -98,6 +101,53 @@ async function loadGeneratedExtension(root, sdk, {
 }
 
 describe("generated extension setup lifecycle", () => {
+    test("HTTP Apply answers amends an observed artifact without dispatching the original skill", async () => {
+        const root = await mkdtemp(join(here, ".generated-amendment-http-"));
+        roots.push(root);
+        const workspace = join(root, "workspace");
+        await mkdir(join(workspace, "specs", "alpha"), { recursive: true });
+        await mkdir(join(workspace, ".specify"));
+        await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+        const artifact = "specs/alpha/spec.md";
+        const file = join(workspace, "specs", "alpha", "spec.md");
+        const marker = "[NEEDS CLARIFICATION: Scope?]";
+        await writeFile(file, `# Specification\n${marker}\n[NEEDS CLARIFICATION: Tests?]`);
+        const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }] },
+            { extensionId: "amend-http", displayName: "Amend", description: "Test." }, { multiInstance: true });
+        blueprint.setup.requiresSpecKit = false;
+        blueprint.setup.requiredSkills = [];
+        let canvas;
+        const sent = [];
+        await loadGeneratedExtension(root, {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async ({ prompt }) => { sent.push(prompt); },
+                rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                log: async () => {},
+            }),
+        }, { blueprint });
+        const opened = await canvas.open({ instanceId: "amend-http", input: { cwd: workspace } });
+        await canvas.actions.find((action) => action.name === "reloadSessionSkills").handler({ instanceId: "amend-http", input: {} });
+        const url = new URL(opened.url);
+        url.pathname = "/api/artifact/amend";
+        const input = { phase: blueprint.pipeline.steps[0].instanceKey, itemId: "alpha", artifact,
+            answers: [{ question: "Scope?", marker, answer: "Core only" }] };
+        const submit = async (body) => (await fetch(url, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        })).json();
+        const submitted = await submit(input);
+        assert.equal(submitted.ok, true, JSON.stringify(submitted));
+        assert.equal((await submit(input)).code, "amendment_pending");
+        assert.equal((await submit({ ...input, artifact: "../private.md" })).ok, false);
+        assert.equal(sent.length, 1);
+        assert.match(sent[0], /Edit exactly one existing Spec Kit artifact/);
+        assert.doesNotMatch(sent[0], /\/skill:/);
+        await writeFile(file, "# Specification\nCore only.\n[NEEDS CLARIFICATION: Tests?]");
+        url.pathname = "/api/artifact";
+        url.searchParams.set("path", artifact);
+        assert.match((await (await fetch(url)).json()).content, /Core only/);
+    });
+
     for (const readiness of ["ready", "missing", "failed", "approval-required"]) {
         test(`rejects invalid slugs before gates, queues and dispatch when setup is ${readiness}`, async () => {
             const root = await mkdtemp(join(here, ".generated-lifecycle-"));

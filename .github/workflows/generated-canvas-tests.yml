@@ -49,4 +49,8 @@ jobs:
           test/generated-approval-runtime.test.mjs
           test/generated-constitution.test.mjs
           test/generated-clarification-ui.test.mjs
+          test/generated-clarifications.test.mjs
+          test/generated-amendment-runtime.test.mjs
+          test/generated-markdown.test.mjs
+          test/modals.test.mjs
           test/generation-server.test.mjs

@@ -2,7 +2,8 @@
 
 import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
-import { parseClarifications } from "../pipeline/canonical.mjs";
+import { renderMarkdown } from "../workflow-ui/markdown.mjs";
+export { renderMarkdown } from "../workflow-ui/markdown.mjs";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -14,167 +15,6 @@ import {
     queueClarification,
     setPhaseLastSubmitted,
 } from "./phase-runtime.js";
-
-// -------- Section: markdown.mjs --------
-
-export function renderMarkdown(src, placeholders = []) {
-    const raw = String(src ?? "")
-        .replace(/\r\n/g, "\n")
-        // Strip any remaining lone `\r` (e.g. CR-CR-LF files that leave a
-        // trailing `\r` on each line after the CRLF pass). Lone CRs break
-        // regex `$` anchors and cause the block-vs-paragraph loop to spin
-        // forever on lines like `# heading\r`.
-        .replace(/\r/g, "")
-        // Strip HTML comments — SpecKit skills use these as invisible
-        // provenance/version markers (e.g. `<!-- speckit:specify v1 -->`)
-        // that shouldn't render.
-        .replace(/<!--[\s\S]*?-->/g, "");
-    const PH_RE = /\uE000(\d+)\uE001/g;
-
-    const restorePlaceholders = (s) => s.replace(PH_RE, (_, i) => placeholders[Number(i)] ?? "");
-
-    // Inline: code first (so nothing inside backticks gets further rewrites),
-    // then bold, italic, links.
-    const renderInline = (text) => {
-        // Placeholders are preserved through inline rewrites — the token
-        // itself never contains characters the rewrites care about.
-        let out = escapeHtml(text);
-        // Inline code
-        out = out.replace(/`([^`\n]+)`/g, (_m, c) => `<code>${c}</code>`);
-        // Bold: **x** or __x__
-        out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-        out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-        // Italic: *x* or _x_  (avoid matching inside already-bolded strong tags)
-        out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-        out = out.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
-        // Links [text](url)
-        out = out.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, t, u) => {
-            const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
-            return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-        });
-        return restorePlaceholders(out);
-    };
-
-    const lines = raw.split("\n");
-    const html = [];
-    let i = 0;
-
-    const flushList = (listType, items) => {
-        if (!items.length) return;
-        html.push(`<${listType}>${items.map((it) => `<li>${renderInline(it)}</li>`).join("")}</${listType}>`);
-    };
-
-    while (i < lines.length) {
-        const line = lines[i];
-
-        // Fenced code block
-        if (/^```/.test(line)) {
-            const lang = line.replace(/^```/, "").trim();
-            i++;
-            const buf = [];
-            while (i < lines.length && !/^```/.test(lines[i])) {
-                buf.push(lines[i]);
-                i++;
-            }
-            if (i < lines.length) i++; // skip closing fence
-            const cls = lang ? ` class="language-${escapeHtml(lang)}"` : "";
-            html.push(`<pre><code${cls}>${restorePlaceholders(escapeHtml(buf.join("\n")))}</code></pre>`);
-            continue;
-        }
-
-        // ATX heading
-        const h = /^(#{1,6})\s+(.*)$/.exec(line);
-        if (h) {
-            const level = h[1].length;
-            html.push(`<h${level}>${renderInline(h[2].trim())}</h${level}>`);
-            i++;
-            continue;
-        }
-
-        // Horizontal rule
-        if (/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/.test(line)) {
-            html.push("<hr />");
-            i++;
-            continue;
-        }
-
-        // Blockquote (grouped)
-        if (/^>\s?/.test(line)) {
-            const buf = [];
-            while (i < lines.length && /^>\s?/.test(lines[i])) {
-                buf.push(lines[i].replace(/^>\s?/, ""));
-                i++;
-            }
-            html.push(`<blockquote>${renderInline(buf.join("\n"))}</blockquote>`);
-            continue;
-        }
-
-        // Unordered list
-        if (/^\s*[-*+]\s+/.test(line)) {
-            const items = [];
-            while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-                items.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
-                i++;
-            }
-            flushList("ul", items);
-            continue;
-        }
-
-        // Ordered list
-        if (/^\s*\d+\.\s+/.test(line)) {
-            const items = [];
-            while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-                items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
-                i++;
-            }
-            flushList("ol", items);
-            continue;
-        }
-
-        // Table: header | header | header  then --- | --- | ---  then rows
-        if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-+:?(\s*\|\s*:?-+:?)+\|?\s*$/.test(lines[i + 1])) {
-            const splitRow = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
-            const header = splitRow(line);
-            i += 2;
-            const rows = [];
-            while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
-                rows.push(splitRow(lines[i]));
-                i++;
-            }
-            html.push(
-                `<table><thead><tr>${header.map((c) => `<th>${renderInline(c)}</th>`).join("")}</tr></thead>` +
-                `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${renderInline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
-            );
-            continue;
-        }
-
-        // Blank line -> paragraph break
-        if (/^\s*$/.test(line)) {
-            i++;
-            continue;
-        }
-
-        // Paragraph: collapse contiguous non-blank, non-block lines.
-        const buf = [];
-        while (
-            i < lines.length &&
-            !/^\s*$/.test(lines[i]) &&
-            !/^(#{1,6})\s+/.test(lines[i]) &&
-            !/^```/.test(lines[i]) &&
-            !/^\s*[-*+]\s+/.test(lines[i]) &&
-            !/^\s*\d+\.\s+/.test(lines[i]) &&
-            !/^>\s?/.test(lines[i]) &&
-            !/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/.test(lines[i])
-        ) {
-            buf.push(lines[i]);
-            i++;
-        }
-        html.push(`<p>${renderInline(buf.join("\n"))}</p>`);
-    }
-
-    return html.join("\n");
-}
-
 
 // -------- Section: modals/confirm.js --------
 
@@ -508,22 +348,8 @@ export async function openArtifactViewer(p) {
         return;
     }
 
-    const marks = parseClarifications(text);
-    const placeholders = [];
-    let processed = "";
-    let cursor = 0;
-    marks.forEach((m, idx) => {
-        processed += text.slice(cursor, m.startIdx);
-        const markerHtml =
-            `<mark class="clarify-marker">${escapeHtml(text.slice(m.startIdx, m.endIdx))}</mark>` +
-            ` <button type="button" class="clarify-pill" data-clarify-idx="${idx}">Clarify</button>`;
-        placeholders.push(markerHtml);
-        processed += `\uE000${idx}\uE001`;
-        cursor = m.endIdx;
-    });
-    processed += text.slice(cursor);
-
-    const rendered = renderMarkdown(processed, placeholders);
+    const marks = [];
+    const rendered = renderMarkdown(text, { clarifications: marks });
 
     const body = root.querySelector(".artifact-viewer-body");
     if (body) body.innerHTML = `<div class="artifact-viewer-md">${rendered}</div>`;
@@ -706,7 +532,7 @@ export async function openCommandViewer(sourcePath, title) {
         if (!res.ok) throw new Error(`${res.status} ${await res.text().catch(() => "")}`);
         const text = await res.text();
         const body = root.querySelector(".artifact-viewer-body");
-        if (body) body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(text, [])}</div>`;
+        if (body) body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(text)}</div>`;
     } catch (err) {
         const msg = err?.name === "AbortError" ? "request timed out after 10s" : String(err?.message ?? err);
         const body = root.querySelector(".artifact-viewer-body");

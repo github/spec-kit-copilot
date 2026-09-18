@@ -1,6 +1,6 @@
 import { renderMarkdown } from "./markdown.mjs";
 import { commandViews } from "./command-views.mjs";
-import { createClarificationQueue } from "./clarifications.mjs";
+import { clarificationKey, createClarificationQueue } from "./clarifications.mjs";
 import { validateWorkflowSlug } from "./workflow-slug.mjs";
 
 const RUN_ACK_MS = 15 * 1000;
@@ -19,6 +19,7 @@ const state = {
     constitutionDraft: "",
     lastSubmitted: new Map(),
     artifactView: null,
+    amendmentPolls: new Map(),
 };
 const clarifications = createClarificationQueue(globalThis.localStorage);
 const $ = (id) => document.getElementById(id);
@@ -489,49 +490,106 @@ async function openArtifact(path, step, item = selectedItem()) {
         ...(!projectScoped ? { itemId: item?.id ?? null } : {}),
     });
     const view = {
-        context, step, projectScoped, marks: [],
-        runKey: projectScoped ? `project:${step.instanceKey}` : phaseRunKey(step, item),
+        context, marks: [], content: null, message: "",
     };
     state.artifactView = view;
     try {
         const result = await json(`/api/artifact?path=${encodeURIComponent(path)}`);
         if (state.artifactView !== view) return;
-        $("artifact-viewer").innerHTML = `<header class="artifact-viewer-header"><button class="btn btn-secondary" id="close-artifact" type="button">Back</button><strong>${esc(path)}</strong></header><div class="artifact-viewer-clarify-banner" id="clarification-banner" hidden></div><div class="artifact-viewer-body"><div class="artifact-viewer-md">${renderMarkdown(result.content, { clarifications: view.marks })}</div></div>`;
+        $("artifact-viewer").innerHTML = `<div class="artifact-viewer-header"><button class="btn btn-ghost btn-sm artifact-viewer-back" id="close-artifact" type="button">← Workflow</button><div class="artifact-viewer-title"><h2>${esc(step.label)}</h2><code class="muted">${esc(path)}</code></div></div><div class="artifact-viewer-clarify-banner" id="clarification-banner" hidden></div><div class="artifact-viewer-body"></div>`;
         $("artifact-viewer").hidden = false;
         $("close-artifact").addEventListener("click", () => {
             state.artifactView = null;
             $("artifact-viewer").hidden = true;
         });
-        $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
-            button.addEventListener("click", () => openClarification(view, view.marks[Number(button.dataset.clarifyIdx)].question, button));
-        });
-        refreshClarifications(view);
+        renderArtifactContent(view, result.content);
+        await refreshArtifact(view);
+        pollAmendment(view);
     } catch (error) {
         if (state.artifactView === view) globalThis.alert(error.message);
     }
 }
 
-function refreshClarifications(view, message = "") {
+function renderArtifactContent(view, content) {
+    if (state.artifactView !== view || view.content === content) return;
+    const body = $("artifact-viewer").querySelector(".artifact-viewer-body");
+    const scroll = body.scrollTop;
+    view.content = content;
+    view.marks = [];
+    body.innerHTML = `<div class="artifact-viewer-md">${renderMarkdown(content, { clarifications: view.marks })}</div>`;
+    body.scrollTop = scroll;
+    $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
+        button.addEventListener("click", () => openClarification(view, view.marks[Number(button.dataset.clarifyIdx)].question, button));
+    });
+    refreshClarifications(view);
+}
+
+async function refreshArtifact(view) {
+    if (view.reading) return view.reading;
+    const token = clarifications.observationToken(view.context);
+    view.reading = (async () => {
+        try {
+            const result = await json(`/api/artifact?path=${encodeURIComponent(view.context.artifact)}`);
+            const observed = clarifications.observe(view.context, result.content, token);
+            if (observed) {
+                view.message = observed.complete
+                    ? "Submitted markers disappeared. Review the artifact to verify the answers were incorporated correctly."
+                    : observed.timedOut
+                        ? "Timed out waiting for unresolved markers to disappear. Answers retained. The agent may still be editing; review the artifact before retrying."
+                        : `${observed.remaining} submitted clarification${observed.remaining === 1 ? "" : "s"} still unresolved. Waiting for artifact changes; answers retained.`;
+            }
+            if (state.artifactView === view) {
+                renderArtifactContent(view, result.content);
+                refreshClarifications(view);
+            }
+        } catch {
+            if (state.artifactView === view) refreshClarifications(view, "Could not refresh the artifact. Answers retained; refresh or retry when available.");
+        } finally { view.reading = null; }
+    })();
+    return view.reading;
+}
+
+function pollAmendment(view) {
+    const key = clarificationKey(view.context);
+    if (state.artifactView && clarificationKey(state.artifactView.context) === key) view = state.artifactView;
+    clearTimeout(state.amendmentPolls.get(key));
+    state.amendmentPolls.delete(key);
+    if (!clarifications.isPending(view.context)) return;
+    const timer = setTimeout(async () => {
+        state.amendmentPolls.delete(key);
+        const currentView = state.artifactView;
+        await refreshArtifact(currentView && clarificationKey(currentView.context) === clarificationKey(view.context) ? currentView : view);
+        pollAmendment(view);
+    }, 2000);
+    timer.unref?.();
+    state.amendmentPolls.set(key, timer);
+}
+
+function refreshClarifications(view, message = view.message) {
     if (state.artifactView !== view) return;
+    view.message = message;
     const answers = clarifications.list(view.context);
-    const pending = clarifications.isPending(view.context) || state.runningPhase === view.runKey;
+    const pending = clarifications.isPending(view.context);
     $("artifact-viewer").querySelectorAll("[data-clarify-idx]").forEach((button) => {
         const answer = answers.find((entry) => entry.question === view.marks[Number(button.dataset.clarifyIdx)].question);
         button.textContent = answer ? "Answered ✓" : "Clarify";
-        button.title = answer?.answer ?? "";
+        if (answer) button.title = answer.answer;
+        else button.removeAttribute("title");
+        button.classList.toggle("clarify-pill-answered", Boolean(answer));
     });
     const banner = $("clarification-banner");
     banner.hidden = !answers.length && !message;
-    banner.innerHTML = `<span role="status">${esc(message || `${answers.length} clarification${answers.length === 1 ? "" : "s"} queued. Answers stay here until you apply them.`)}</span>${answers.length ? `<button class="btn btn-primary btn-sm" id="apply-clarifications" type="button" ${pending ? "disabled" : ""}>${pending ? "Applying…" : "Apply and Rerun"}</button>` : ""}`;
+    banner.innerHTML = `<span role="status">${esc(message || `${answers.length} clarification${answers.length === 1 ? "" : "s"} queued. Apply answers edits this artifact only.`)}</span>${answers.length ? `<button class="btn btn-primary btn-sm" id="apply-clarifications" type="button" ${pending ? "disabled" : ""}>${pending ? "Applying…" : "Apply answers"}</button>` : ""}`;
     $("apply-clarifications")?.addEventListener("click", () => applyClarifications(view));
 }
 
 function openClarification(view, question, trigger) {
+    const marker = view.marks.find((entry) => entry.question === question)?.marker;
     const root = $("modal-root");
     root.innerHTML = `<div class="wizard-modal-backdrop"><section class="wizard-modal constitution-dialog" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
         <header class="wizard-modal-head"><h3 id="clarification-title">Resolve clarification</h3></header>
         <div class="wizard-modal-body"><p id="clarification-question">${esc(question)}</p>
-        <label class="field" for="clarification-answer"><span class="field-label">Answer</span><textarea class="phase-input-control" id="clarification-answer" aria-describedby="clarification-question"></textarea></label><p class="muted">Queue your answer, then choose Apply and Rerun when ready.</p></div>
+        <label class="field" for="clarification-answer"><span class="field-label">Answer</span><textarea class="phase-input-control" id="clarification-answer" aria-describedby="clarification-question"></textarea></label><p class="muted">Queue your answer, then choose Apply answers to amend this artifact without rerunning the phase.</p></div>
         <footer class="wizard-modal-foot"><button class="btn btn-secondary" id="cancel-clarification" type="button">Cancel</button><button class="btn btn-primary" id="queue-clarification" type="button">Queue answer</button></footer>
         </section></div>`;
     const input = $("clarification-answer");
@@ -560,19 +618,17 @@ function openClarification(view, question, trigger) {
     };
     queue.addEventListener("click", () => {
         if (!input.value.trim()) return;
-        clarifications.queue(view.context, question, input.value.trim());
+        clarifications.queue(view.context, question, input.value.trim(), marker);
         close();
-        refreshClarifications(view);
+        refreshClarifications(view, "");
     });
 }
 
 async function applyClarifications(view) {
-    if (state.runningPhase === view.runKey || clarifications.isPending(view.context)) return;
+    if (clarifications.isPending(view.context)) return;
     try {
         const submission = clarifications.flush(view.context, {
-            confirm: () => confirmRerun(view.step, view.projectScoped),
-            baseArgs: state.lastSubmitted.get(view.runKey),
-            dispatch: (input) => json("/api/run", {
+            dispatch: (input) => json("/api/artifact/amend", {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(input),
             }),
@@ -580,23 +636,15 @@ async function applyClarifications(view) {
         refreshClarifications(view);
         const outcome = await submission;
         if (!outcome.accepted) {
-            if (outcome.result?.approvalRequired || outcome.result?.code === "constitution_required") await refresh();
-            refreshClarifications(view, outcome.cancelled ? "" : "Could not submit the clarification rerun. Your queued answers were preserved.");
+            if (outcome.result?.approvalRequired || outcome.result?.code === "setup_required") await refresh();
+            if (outcome.result?.code === "stale_markers") await refreshArtifact(view);
+            refreshClarifications(view, `${outcome.result?.error || "Could not submit the amendment."} Your queued answers were preserved.`);
             return;
         }
-        state.submitted.add(view.runKey);
-        if (!outcome.result.queued) state.lastSubmitted.set(view.runKey, outcome.args);
-        state.runningPhase = view.runKey;
-        if (state.runTimer) clearTimeout(state.runTimer);
-        state.runTimer = setTimeout(() => {
-            if (state.runningPhase === view.runKey) state.runningPhase = null;
-            state.runTimer = null;
-            renderPhaseCard();
-            if (state.artifactView) refreshClarifications(state.artifactView);
-        }, RUN_ACK_MS);
-        state.runTimer.unref?.();
-        renderPhaseCard();
-        refreshClarifications(view, outcome.result.queued ? "Clarification rerun queued for setup. Answers retained as a draft." : "Clarification rerun submitted.");
+        refreshClarifications(view, "Amendment submitted. Answers retained until a fresh artifact read observes the selected markers disappearing.");
+        const currentView = state.artifactView;
+        await refreshArtifact(currentView && clarificationKey(currentView.context) === clarificationKey(view.context) ? currentView : view);
+        pollAmendment(view);
     } catch (error) {
         refreshClarifications(view, `${error.message} Your queued answers were preserved.`);
     }
@@ -730,6 +778,7 @@ async function refresh() {
     }
     render();
     if (phaseDraft !== undefined && previousSelection === state.selectedItemId && $("phase-args")) $("phase-args").value = phaseDraft;
+    if (state.artifactView) await refreshArtifact(state.artifactView);
 }
 
 $("theme-toggle").addEventListener("click", () => {

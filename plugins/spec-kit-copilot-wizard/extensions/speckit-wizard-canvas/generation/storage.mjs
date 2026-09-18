@@ -20,11 +20,12 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 12;
+const TEMPLATE_VERSION = 13;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
     ["generated-canvas-template/approval-runtime.mjs", "template/approval-runtime.mjs"],
+    ["generated-canvas-template/amendment-runtime.mjs", "template/amendment-runtime.mjs"],
     ["generated-canvas-template/project-artifacts.mjs", "template/project-artifacts.mjs"],
     ["generated-canvas-template/README.md", "template/README.md"],
     ["generated-canvas-template/workflow-adapter.mjs", "template/workflow-adapter.mjs"],
@@ -32,11 +33,12 @@ const TEMPLATE_FILES = [
     ["generated-canvas-template/workspace-files.mjs", "template/workspace-files.mjs"],
     ["generated-canvas-template/ui/index.html", "template/ui/index.html"],
     ["generated-canvas-template/ui/app.js", "template/ui/app.js"],
-    ["generated-canvas-template/ui/markdown.mjs", "template/ui/markdown.mjs"],
+    ["../workflow-ui/markdown.mjs", "template/ui/markdown.mjs"],
     ["generated-canvas-template/ui/clarifications.mjs", "template/ui/clarifications.mjs"],
     ["generated-canvas-template/ui/command-views.mjs", "template/ui/command-views.mjs"],
     ["generated-canvas-template/ui/workflow-slug.mjs", "template/ui/workflow-slug.mjs"],
     ["../workflow-ui/workflow-theme.css", "template/ui/workflow-theme.css"],
+    ["../workflow-ui/artifact-viewer.css", "template/ui/artifact-viewer.css"],
     ["../workflow-ui/stepper.mjs", "template/ui/stepper.mjs"],
     ["materialize-template.mjs", "materialize-template.mjs"],
 ];
@@ -44,6 +46,7 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "workflow-adapter.mjs",
     "setup-runtime.mjs",
     "approval-runtime.mjs",
+    "amendment-runtime.mjs",
     "project-artifacts.mjs",
     "workspace-files.mjs",
     "ui/app.js",
@@ -52,6 +55,7 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "ui/command-views.mjs",
     "ui/workflow-slug.mjs",
     "ui/workflow-theme.css",
+    "ui/artifact-viewer.css",
     "ui/stepper.mjs",
 ]);
 
@@ -191,6 +195,7 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
         "workflow-config.json",
         "setup-runtime.mjs",
         "approval-runtime.mjs",
+        "amendment-runtime.mjs",
         "project-artifacts.mjs",
         "workspace-files.mjs",
         "README.md",
@@ -200,6 +205,7 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
         "ui/clarifications.mjs",
         "ui/command-views.mjs",
         "ui/workflow-theme.css",
+        "ui/artifact-viewer.css",
         "ui/stepper.mjs",
     ]) {
         try {
