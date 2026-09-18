@@ -1,3 +1,4 @@
+// Regression coverage for standalone clarification authorization and amendment prompts.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -24,19 +25,18 @@ async function fixture() {
         await mkdir(dirname(file), { recursive: true });
         await writeFile(file, source);
     }
-    let time = 1;
     let gate = async () => null;
     let dispatch = async () => {};
     const sends = [];
     const amend = createAmendmentRuntime({
-        pipeline, now: () => time, gate: (...args) => gate(...args),
+        pipeline, gate: (...args) => gate(...args),
         items: async () => [{ id: "alpha", slug: "alpha" }, { id: "beta", slug: "beta" }],
         dispatch: async (input) => { sends.push(input); return dispatch(input); },
     });
     const inst = { cwd, identity: "test-canvas" };
     const input = { phase: specify.instanceKey, itemId: "alpha", artifact: "specs/alpha/spec.md", answers };
     return { cwd, input, inst, amend, sends, plan, constitution,
-        advance: () => { time += 120_001; }, gate: (value) => { gate = async () => value; },
+        gate: (value) => { gate = async () => value; },
         dispatch: (callback) => { dispatch = callback; } };
 }
 
@@ -72,7 +72,7 @@ test("dispatch failure and setup gates preserve retryability without queuing a p
     assert.equal((await f.amend(f.inst, f.input)).ok, true);
 });
 
-test("same-artifact concurrent dispatch is blocked; partial observations wait and timeout allows explicit retry", async () => {
+test("same-artifact concurrent dispatch is blocked; remaining markers can be clarified again immediately", async () => {
     const f = await fixture();
     let release;
     f.dispatch(() => new Promise((resolve) => { release = resolve; }));
@@ -82,11 +82,10 @@ test("same-artifact concurrent dispatch is blocked; partial observations wait an
     release();
     await first;
     await writeFile(join(f.cwd, "specs", "alpha", "spec.md"), source.replace(marker(1), "Answer 1"));
-    const remaining = { ...f.input, answers: [answers[1]] };
-    assert.equal((await f.amend(f.inst, remaining)).code, "amendment_pending");
-    f.advance();
+    const remaining = { ...f.input, answers: [{ ...answers[1], answer: "More specific details" }] };
     f.dispatch(async () => {});
     assert.equal((await f.amend(f.inst, remaining)).ok, true);
+    assert.match(f.sends[1].prompt, /More specific details/);
 });
 
 test("stale markers, code/link markers, mismatched phase/item and unsafe paths never dispatch", async () => {

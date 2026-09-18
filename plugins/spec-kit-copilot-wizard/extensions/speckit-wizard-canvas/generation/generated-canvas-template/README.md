@@ -6,8 +6,8 @@ This project-scoped canvas was generated from a Spec Kit Wizard pipeline. Its ru
 
 ## Artifact viewer
 
-Template version 13 snapshots the Wizard's shared `workflow-ui/markdown.mjs` and
-`workflow-ui/artifact-viewer.css` into protected `ui/` files. Both viewers load the
+Template version 13 snapshots the Wizard's shared `shared-workflow-ui/markdown.mjs` and
+`shared-workflow-ui/artifact-viewer.css` into protected `ui/` files. Both viewers load the
 viewer stylesheet before `workflow-theme.css`, retaining the Wizard's final cascade,
 heading hierarchy, lists, code, tables, quotes, links, clarification pills and header.
 The generated back button returns to the workflow; no installed Wizard assets are
@@ -225,6 +225,12 @@ dispatch. Constitution uses its project phase without a workflow item or slug.
 Installation approval and setup/session readiness must be satisfied; amendments
 are never queued for later setup execution.
 
+Template version **17** disables **Apply answers** only while the submission request
+is being sent or no applicable drafts are selected. After acceptance, an unresolved
+question can be edited and resubmitted immediately; marker presence and observation
+timeouts do not block follow-up answers. Automatic artifact refresh replaces the
+manual Refresh artifact link.
+
 The dedicated prompt asks the coding agent to incorporate the answers into the
 relevant sections and remove only resolved exact markers. It treats the JSON
 artifact/answer payload as untrusted data and preserves unrelated prose,
@@ -254,11 +260,11 @@ The viewer reuses ordinary refreshes and polls every two seconds while an amendm
 is pending, for up to two minutes. Unchanged content leaves its DOM, scroll and
 open answer editor untouched. Reads are scoped to the captured artifact and cannot
 repaint a different selected viewer. Partial updates retain unresolved answers.
-Timeout is a retryable warning, never success. The server coalesces concurrent
-amendments per workspace/canvas/artifact in memory until observed marker removal
-or the same two-minute timeout. There is no durable job or agent-completion signal:
-an agent may still be editing after timeout or an extension restart, so review
-before retrying. Closing a viewer does not discard drafts.
+Timeout is an observation warning, never success or a submission lock. The server
+blocks overlapping submission requests per workspace/canvas/artifact only while
+dispatch is in flight, releasing the lock on acceptance or failure. There is no
+durable job or agent-completion signal: acceptance does not mean editing has finished,
+so review the artifact before retrying. Closing a viewer does not discard drafts.
 
 ## Files
 

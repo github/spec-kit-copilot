@@ -1,3 +1,4 @@
+// Shared safe Markdown rendering and visible clarification-marker presentation.
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
     "<": "&lt;",

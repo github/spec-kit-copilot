@@ -1,3 +1,4 @@
+// Exercise standalone draft controls and partial clarification submission behavior.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, rm } from "node:fs/promises";
@@ -105,7 +106,7 @@ async function fixture() {
     directories.push(directory);
     await mkdir(directory);
     await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "command-views.mjs", "workflow-slug.mjs"].map((name) => (
-        copyFile(new URL(["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs"].includes(name) ? `../workflow-ui/${name}` : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
+        copyFile(new URL(["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs"].includes(name) ? `../shared-workflow-ui/${name}` : `../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
     )));
     await import(pathToFileURL(join(directory, "app.mjs")).href);
     await tick();
@@ -176,6 +177,9 @@ test("captured amendment survives selection changes and retains concurrent edits
     const sending = f.get("apply-clarifications").emit("click");
     await tick();
     assert.equal(f.posts.length, 1);
+    assert.match(f.get("clarification-banner").innerHTML, /id="apply-clarifications"[^>]*disabled/);
+    await f.get("apply-clarifications").emit("click");
+    assert.equal(f.posts.length, 1, "transport-in-flight still prevents a duplicate");
     assert.deepEqual(Object.keys(f.posts[0].input), ["phase", "itemId", "artifact", "answers"]);
     assert.equal(f.posts[0].input.phase, f.specify.instanceKey);
     assert.equal(f.posts[0].input.itemId, "alpha");
@@ -194,8 +198,30 @@ test("captured amendment survives selection changes and retains concurrent edits
     await f.get("view-artifact").emit("click");
     assert.equal(f.buttons()[0].title, "Edited in flight");
     assert.equal(f.buttons()[1].title, "Added in flight");
+    assert.doesNotMatch(f.get("clarification-banner").innerHTML, /id="apply-clarifications"[^>]*disabled|data-draft-refresh|Refresh artifact/);
+    f.setSend(async (input) => ({ ok: true, phase: input.phase, artifact: input.artifact }));
     await f.get("apply-clarifications").emit("click");
-    assert.equal(f.posts.length, 1, "awaiting artifact observation prevents a duplicate");
+    assert.equal(f.posts.length, 2, "artifact observation never locks out a follow-up submission");
+    assert.equal(f.posts[1].input.answers[0].answer, "Edited in flight");
+});
+
+test("an insufficient answer stays editable and can be reapplied before the observation timeout", async () => {
+    const f = await fixture();
+    await f.get("view-artifact").emit("click");
+    await f.answer("Core");
+    await f.get("apply-clarifications").emit("click");
+    f.setRead(async () => ({ content: "# Artifact\n[NEEDS CLARIFICATION: Which <scope>?]\nPlease name the included features.\n\n[NEEDS CLARIFICATION: Tests?]" }));
+    await f.poll();
+    assert.equal(f.buttons()[0].textContent, "Edit draft");
+    await f.answer("Include intake and research; exclude implementation.");
+    assert.doesNotMatch(f.get("clarification-banner").innerHTML, /id="apply-clarifications"[^>]*disabled|data-draft-refresh/);
+    await f.get("apply-clarifications").emit("click");
+    assert.equal(f.posts.length, 2);
+    assert.deepEqual(f.posts[1].input.answers, [{
+        question: "Which <scope>?", marker: "[NEEDS CLARIFICATION: Which <scope>?]",
+        answer: "Include intake and research; exclude implementation.",
+    }]);
+    assert.equal(f.buttons()[1].textContent, "Clarify", "unanswered questions remain open");
 });
 
 test("failed/gated sends keep answers and Constitution dispatch stays project-scoped", async () => {

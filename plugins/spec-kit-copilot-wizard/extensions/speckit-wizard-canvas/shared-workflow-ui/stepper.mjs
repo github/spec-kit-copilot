@@ -1,3 +1,4 @@
+// Shared phase-step CSS state mapping for Wizard and standalone workflow views.
 export function workflowStepClasses({
     active = false,
     locked = false,

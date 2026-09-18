@@ -1,3 +1,4 @@
+// Verify portable workflow names and browser/server slug-validation consistency.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { validateWorkflowSlug } from "../generation/generated-canvas-template/ui/workflow-slug.mjs";

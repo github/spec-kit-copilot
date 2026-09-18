@@ -1,3 +1,4 @@
+// Validate generated-canvas names and workspace-relative destination paths.
 import { relative, resolve, sep } from "node:path";
 
 const EXTENSION_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

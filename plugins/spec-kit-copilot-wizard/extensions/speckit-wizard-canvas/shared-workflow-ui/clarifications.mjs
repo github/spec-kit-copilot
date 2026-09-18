@@ -1,3 +1,4 @@
+// Shared artifact-authoritative clarification drafts and transient batch observations.
 import { renderMarkdown } from "./markdown.mjs";
 
 export function parseClarifications(markdown) {
@@ -100,7 +101,7 @@ export function createClarificationQueue(storage, { now = Date.now } = {}) {
         },
         async flush(context, { dispatch, markers, content = "" }) {
             const key = clarificationKey(context);
-            if (isPending(context)) return { accepted: false, pending: true };
+            if (pending.has(key)) return { accepted: false, pending: true };
             const submitted = list(context).filter((entry) => !markers || markers.includes(entry.marker));
             if (!submitted.length) return { accepted: false };
             pending.set(key, true);

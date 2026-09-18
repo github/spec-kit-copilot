@@ -1,3 +1,4 @@
+// Verify generation routes, protected template snapshots, and shared asset serving.
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -13,7 +14,7 @@ import { recoverGenerationStatus } from "../generation/storage.mjs";
 import { materialize } from "../generation/materialize-template.mjs";
 import { buildGenerationPrompt } from "../generation/prompt.mjs";
 import { createHandler } from "../server.mjs";
-import { wizardClarificationScope } from "../workflow-ui/clarifications.mjs";
+import { wizardClarificationScope } from "../shared-workflow-ui/clarifications.mjs";
 
 const roots = [];
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,13 +102,13 @@ describe("generation server lifecycle", () => {
     test("serves the shared viewer stylesheet and renderer as browser assets", async () => {
         const ctx = await setup();
         for (const [file, type] of [["artifact-viewer.css", "text/css"], ...["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"].map((file) => [file, "application/javascript"])]) {
-            const request = req(`/workflow-ui/${file}`, {});
+            const request = req(`/shared-workflow-ui/${file}`, {});
             request.method = "GET";
             const response = res();
             await ctx.handler(request, response);
             assert.equal(response.statusCode, 200);
             assert.equal(response.headers["Content-Type"], `${type}; charset=utf-8`);
-            assert.equal(response.body, await readFile(new URL(`../workflow-ui/${file}`, import.meta.url), "utf8"));
+            assert.equal(response.body, await readFile(new URL(`../shared-workflow-ui/${file}`, import.meta.url), "utf8"));
         }
     });
 
@@ -213,7 +214,7 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 16);
+        assert.equal(request.template.version, 17);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "amendment-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "project-artifacts.mjs"));
@@ -300,7 +301,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 16);
+        assert.equal(requestBody.template.version, 17);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }
@@ -328,7 +329,7 @@ describe("generation server lifecycle", () => {
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.equal(
                 await readFile(join(ctx.root, ".github", "extensions", "demo-canvas", "ui", file), "utf8"),
-                await readFile(new URL(`../workflow-ui/${file}`, import.meta.url), "utf8"),
+                await readFile(new URL(`../shared-workflow-ui/${file}`, import.meta.url), "utf8"),
                 `${file} must be a standalone copy of the shared viewer source`,
             );
         }

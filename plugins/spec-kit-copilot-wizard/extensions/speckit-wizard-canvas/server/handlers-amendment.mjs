@@ -1,12 +1,13 @@
-import { buildAmendmentPrompt, validateAmendmentAnswers } from "../workflow-ui/amendment.mjs";
-import { AMENDMENT_WAIT_MS, markerPresent, wizardClarificationScope } from "../workflow-ui/clarifications.mjs";
+// Authorize Wizard artifact clarification batches and dispatch surgical amendments.
+import { buildAmendmentPrompt, validateAmendmentAnswers } from "../shared-workflow-ui/amendment.mjs";
+import { wizardClarificationScope } from "../shared-workflow-ui/clarifications.mjs";
 import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { readWorkflowArtifact } from "../generation/generated-canvas-template/workspace-files.mjs";
 import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
 
-const active = new Map();
+const active = new Set();
 
-export function createWizardAmendment({ getState, getInstance, dispatch = dispatchPromptToSession, now = Date.now }) {
+export function createWizardAmendment({ getState, getInstance, dispatch = dispatchPromptToSession }) {
     const failure = (code, error) => ({ ok: false, code, error });
     return async (input) => {
         const workspace = getInstance()?.workspacePath;
@@ -38,26 +39,18 @@ export function createWizardAmendment({ getState, getInstance, dispatch = dispat
         const invalid = validateAmendmentAnswers(content, input.answers);
         if (invalid) return invalid;
         const key = JSON.stringify([workspace, input.artifact]);
-        const previous = active.get(key);
-        if (previous && (previous.sending || now() - previous.startedAt < AMENDMENT_WAIT_MS
-            && previous.markers.some((marker) => markerPresent(content, marker)))) {
-            return failure("amendment_pending", "An amendment is awaiting an artifact update. Review before retrying.");
+        if (active.has(key)) {
+            return failure("amendment_pending", "An amendment request is being sent. Try again once submission finishes.");
         }
-        const reservation = { sending: true, startedAt: now(), markers: input.answers.map((entry) => entry.marker) };
-        active.set(key, reservation);
+        active.add(key);
         try {
             if (getInstance()?.workspacePath !== workspace) throw new Error("Workspace changed");
             await dispatch({ prompt: buildAmendmentPrompt(input.artifact, content, input.answers, workspace), waitForAcceptance: true });
-            reservation.sending = false;
-            reservation.startedAt = now();
-            const timer = setTimeout(() => {
-                if (active.get(key) === reservation) active.delete(key);
-            }, AMENDMENT_WAIT_MS);
-            timer.unref?.();
             return { ok: true, phase: input.phase, artifact: input.artifact };
         } catch {
-            active.delete(key);
             return failure("amendment_failed", "Could not dispatch the amendment. Drafts retained; retry when ready.");
+        } finally {
+            active.delete(key);
         }
     };
 }

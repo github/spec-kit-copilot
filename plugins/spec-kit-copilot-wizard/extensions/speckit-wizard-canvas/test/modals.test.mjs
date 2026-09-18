@@ -25,7 +25,8 @@ test("Wizard drafts are artifact-scoped; Apply answers never invokes the phase o
     assert.equal(clarificationDrafts.list(context)[0].answer, "Newer");
     assert.equal(isPhaseRunning(context.phase), false);
     assert.deepEqual(clarificationDrafts.list({ ...context, artifact: "specs/beta/plan.md" }), []);
-    assert.equal((await flushClarifications(view)).pending, true);
+    assert.equal((await flushClarifications(view)).accepted, true);
+    assert.equal(posted.input.answers[0].answer, "Newer", "edited drafts can be reapplied without waiting for marker removal");
 });
 
 test("Wizard failed sends retain drafts and never set phase running or submitted state", async () => {

@@ -175,7 +175,7 @@
 /* ==========================================================================
    Artifact viewer overlay
    ========================================================================== */
-/* Shared with standalone canvases: workflow-ui/artifact-viewer.css.
+/* Shared with standalone canvases: shared-workflow-ui/artifact-viewer.css.
    workflow-theme.css is still loaded last, preserving the Wizard cascade. */
 
 

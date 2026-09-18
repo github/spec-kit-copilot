@@ -1,3 +1,4 @@
+// Determine whether a composed pipeline can be materialized as a standalone canvas.
 import { dirname } from "node:path/posix";
 
 function itemRoot(pathTemplate) {

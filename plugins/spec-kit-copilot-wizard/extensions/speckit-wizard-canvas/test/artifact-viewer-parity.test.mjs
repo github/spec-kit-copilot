@@ -1,3 +1,4 @@
+// Compare Wizard and standalone artifact viewers in a mocked browser environment.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -13,7 +14,13 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" }).trim();
 const prefix = root.slice(gitRoot.length + 1).replaceAll("\\", "/").replace(/\/$/, "");
 const baselineRef = process.env.VIEWER_BASELINE_REF ?? "HEAD";
-const baseline = (path) => execFileSync("git", ["show", `${baselineRef}:${prefix}/${path}`], { cwd: root, encoding: "utf8" });
+const baselineSharedDirectory = execFileSync("git", ["ls-tree", baselineRef, `${prefix}/shared-workflow-ui`],
+    { cwd: root, encoding: "utf8" }).trim() ? "shared-workflow-ui" : "workflow-ui";
+const baseline = (path) => {
+    const baselinePath = path.replace(/^shared-workflow-ui\//, `${baselineSharedDirectory}/`);
+    return execFileSync("git", ["show", `${baselineRef}:${prefix}/${baselinePath}`], { cwd: root, encoding: "utf8" })
+        .replace(/(?<!shared-)workflow-ui\//g, "shared-workflow-ui/");
+};
 const artifactPath = "specs/alpha/spec.md";
 const source = [
     "# Artifact title", "A paragraph with **bold**, *italic*, `inline code` and [a link](https://example.test).",
@@ -90,7 +97,7 @@ test("artifact viewers share left-aligned layout and incumbent formatting: deskt
                             ? baseline(path) : await readFile(join(root, ...path.split("/")), "utf8");
                         // Only layout is intentionally changed; preserve the incumbent
                         // formatting comparison and verify the new geometry independently.
-                        if (variant === "baseline" && path === "workflow-ui/workflow-theme.css") {
+                        if (variant === "baseline" && path === "shared-workflow-ui/workflow-theme.css") {
                             body += "\n.artifact-viewer-body { padding: 1.25rem 1.5rem; }\n"
                                 + ".artifact-viewer-md { max-width: none; margin: 0; text-align: left; }\n"
                                 + "@media (max-width: 640px) { .artifact-viewer-body { padding-inline: 1rem; } }\n";
@@ -202,6 +209,19 @@ test("artifact viewers share left-aligned layout and incumbent formatting: deskt
                         assert.equal(posts.length, 1);
                         assert.equal(posts[0].answers.length, 1);
                         assert.equal(await page.locator(".clarify-pill").count(), 2, "ACK is not marker resolution");
+                        assert.equal(await page.locator("#apply-clarifications").isEnabled(), true);
+                        assert.equal(await page.getByRole("button", { name: "Refresh artifact", exact: true }).count(), 0);
+                        content = `${source}\n\nPlease name the included features.`;
+                        await page.getByText("Please name the included features.", { exact: true }).waitFor();
+                        await save(0, "Include intake and research only.");
+                        assert.equal(await page.locator("#apply-clarifications").isEnabled(), true);
+                        await page.locator("#apply-clarifications").click();
+                        await page.getByRole("status").filter({ hasText: "Submitted; waiting" }).waitFor();
+                        assert.equal(posts.length, 2);
+                        assert.deepEqual(posts[1].answers, [{
+                            question: "Scope?", marker: "[NEEDS CLARIFICATION: Scope?]",
+                            answer: "Include intake and research only.",
+                        }]);
                         await save(0, "Newer scope draft");
                         await page.locator(".artifact-viewer-back").click();
                         await openViewer();
@@ -211,7 +231,7 @@ test("artifact viewers share left-aligned layout and incumbent formatting: deskt
                         await page.waitForFunction(() => document.querySelector(".artifact-viewer-clarify-banner")?.textContent.includes("Selected markers are no longer visible"));
                         assert.match(await page.locator(".artifact-viewer-clarify-banner").textContent(), /retained draft.*need review/s);
                         assert.match(await page.locator(".clarify-retained-draft").textContent(), /Newer scope draft/);
-                        assert.equal(posts.length, 1);
+                        assert.equal(posts.length, 2);
                         assert.deepEqual(errors, []);
                     }
                     await page.locator(".artifact-viewer-back").click();

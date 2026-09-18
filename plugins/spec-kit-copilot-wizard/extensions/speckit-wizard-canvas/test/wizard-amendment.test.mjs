@@ -1,3 +1,4 @@
+// Verify Wizard amendment scope checks, stale-answer rejection, and dispatch behavior.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -5,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createWizardAmendment } from "../server/handlers-amendment.mjs";
-import { wizardClarificationScope } from "../workflow-ui/clarifications.mjs";
+import { wizardClarificationScope } from "../shared-workflow-ui/clarifications.mjs";
 import { createAmendmentRuntime } from "../generation/generated-canvas-template/amendment-runtime.mjs";
 import { compileBlueprint } from "../generation/compiler.mjs";
 
@@ -27,12 +28,12 @@ async function fixture(t) {
     };
     const inst = { workspacePath: cwd };
     const sends = [];
-    let time = 1, dispatch = async () => {};
-    const deps = { getInstance: () => inst, getState: async () => snapshot, now: () => time,
+    let dispatch = async () => {};
+    const deps = { getInstance: () => inst, getState: async () => snapshot,
         dispatch: async (input) => { sends.push(input); return dispatch(input); } };
     return { cwd, snapshot, inst, sends, deps, amend: createWizardAmendment(deps),
         input: { scope: wizardClarificationScope(cwd), phase: "speckit.specify", artifact: paths[0], answers },
-        advance: () => { time += 120_001; }, dispatch: (callback) => { dispatch = callback; } };
+        dispatch: (callback) => { dispatch = callback; } };
 }
 
 test("Wizard amends two of five markers without invoking a skill, touching phase state or rewriting files", async (t) => {
@@ -92,9 +93,9 @@ test("Wizard failed transport remains retryable and simultaneous panels share on
     release();
     assert.equal((await first).ok, true);
     f.dispatch(async () => {});
-    assert.equal((await f.amend(f.input)).code, "amendment_pending");
-    f.advance();
-    assert.equal((await f.amend(f.input)).ok, true);
+    const updated = { ...f.input, answers: [{ ...answers[0], answer: "More specific details" }] };
+    assert.equal((await f.amend(updated)).ok, true, "remaining markers must not lock out follow-up answers");
+    assert.match(f.sends.at(-1).prompt, /More specific details/);
 });
 
 for (const host of ["Wizard", "generated"]) {

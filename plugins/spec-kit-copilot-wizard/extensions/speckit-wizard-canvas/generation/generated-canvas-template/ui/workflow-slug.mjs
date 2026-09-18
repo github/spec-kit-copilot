@@ -1,3 +1,4 @@
+// Portable workflow-slug validation shared by standalone browser and server code.
 export function validateWorkflowSlug(value) {
     const slug = String(value ?? "").trim();
     let error = "";

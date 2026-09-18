@@ -1,3 +1,4 @@
+// Compile Wizard pipeline composition into a standalone workflow blueprint.
 import {
     CORE_CAPABILITIES,
     canonicalArgumentGuidance,

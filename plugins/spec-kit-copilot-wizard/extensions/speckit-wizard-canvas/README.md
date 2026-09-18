@@ -218,6 +218,11 @@ effective phase artifact, reject stale/ambiguous batches, and preserve existing
 path/setup/approval safeguards. Insufficient answers retain their exact markers
 with a concise nearby explanation of what is missing. Ordinary **Run/Rerun** is unchanged.
 
+Template version **17** keeps **Apply answers** available whenever drafts are
+selected, disabling it only during the submission request. Marker presence and
+background observation never lock out a more detailed follow-up answer. Both
+viewers refresh artifacts automatically; there is no separate Refresh artifact link.
+
 Drafts are isolated by workspace/canvas, item or project, phase and artifact.
 Back, navigation, failed sends and request acknowledgements do not clear them.
 Only draft text/revisions persist in same-origin browser storage; submissions are
@@ -570,7 +575,7 @@ change and doesn't require any org-wide npm reconfiguration.
 | `canvas-runtime/` | Long-lived per-instance state: `instances.mjs`, `snapshot-builder.mjs` (pure state → snapshot), `snapshot.mjs` (broadcast), `watchers.mjs` (fs), `dispatch.mjs` (SDK action router), `wizard-phases.mjs` (phase list + `SKILL_BY_KIND`), `composition-apply.mjs`. |
 | `pipeline/` | Pipeline math: `canonical.mjs` (canonical phase vocabulary), `effective-phases.mjs`, `active-artifacts.mjs` (per-phase resolved artifacts), `validate.mjs`. |
 | `generation/` | Deterministic blueprint/applicability validation, request-scoped template materialization, integrity checking, and declarative-configuration-only `/create-canvas` prompt construction. |
-| `workflow-ui/` | Canonical workflow presentation shared by the Wizard Phases surface and vendored into generated canvases. |
+| `shared-workflow-ui/` | Canonical workflow presentation shared by the Wizard Phases surface and vendored into generated canvases. |
 | `composition/` | Composition graph: `assembler.mjs` (composes preset/extension/bundle layers), `preset-loader.mjs`, `preset-order.mjs`, `collect.mjs` (companion CLI). |
 | `catalog/` | Catalog hydration for the Setup → Catalogs page: `sources.mjs` (hardcoded catalog URL table + `fetchCatalogJson`), `presets.mjs`, `extensions.mjs`, `bundles.mjs`, `shared.mjs`. |
 | `env/` | Environment probe + PATH resolution: `probe.mjs`, `probe-cache.mjs`, `resolve-path.mjs` (locates `copilot`/`specify` binaries when the SDK dir isn't on `PATH`), `deps-check.mjs`, `workspace.mjs`. |

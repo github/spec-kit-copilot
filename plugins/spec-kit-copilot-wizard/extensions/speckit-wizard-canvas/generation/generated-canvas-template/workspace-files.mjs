@@ -1,3 +1,4 @@
+// Constrain standalone artifact reads and workflow paths to the selected workspace.
 import { spawn } from "node:child_process";
 import { lstat, open, readdir, realpath, rm } from "node:fs/promises";
 import { constants } from "node:fs";

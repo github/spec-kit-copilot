@@ -1,3 +1,4 @@
+// Exercise standalone extension lifecycle, setup readiness, and execution boundaries.
 import assert from "node:assert/strict";
 import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -60,9 +61,9 @@ async function loadGeneratedExtension(root, sdk, {
     }
     await copyFile(join(template, "approval-runtime.mjs"), join(extensionRoot, "approval-runtime.mjs"));
     await copyFile(join(template, "amendment-runtime.mjs"), join(extensionRoot, "amendment-runtime.mjs"));
-    await copyFile(join(here, "..", "workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
+    await copyFile(join(here, "..", "shared-workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
     for (const file of ["clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"]) {
-        await copyFile(join(here, "..", "workflow-ui", file), join(extensionRoot, "ui", file));
+        await copyFile(join(here, "..", "shared-workflow-ui", file), join(extensionRoot, "ui", file));
     }
     await copyFile(join(template, "workspace-files.mjs"), join(extensionRoot, "workspace-files.mjs"));
     await copyFile(join(template, "workflow-adapter.mjs"), join(extensionRoot, "workflow-adapter.mjs"));
@@ -348,7 +349,7 @@ describe("generated extension setup lifecycle", () => {
             const asset = await fetch(assetUrl);
             assert.equal(asset.status, 200);
             assert.match(asset.headers.get("content-type"), /application\/javascript/);
-            assert.doesNotMatch(await asset.text(), /\.\.\/\.\.\/\.\.\/workflow-ui/);
+            assert.doesNotMatch(await asset.text(), /\.\.\/\.\.\/\.\.\/shared-workflow-ui/);
         }
         await canvas.actions.find((action) => action.name === "reloadSessionSkills").handler({ instanceId: "amend-http", input: {} });
         const url = new URL(opened.url);
@@ -360,9 +361,10 @@ describe("generated extension setup lifecycle", () => {
         })).json();
         const submitted = await submit(input);
         assert.equal(submitted.ok, true, JSON.stringify(submitted));
-        assert.equal((await submit(input)).code, "amendment_pending");
+        assert.equal((await submit({ ...input, answers: [{ ...input.answers[0], answer: "Include intake; exclude implementation" }] })).ok, true);
         assert.equal((await submit({ ...input, artifact: "../private.md" })).ok, false);
-        assert.equal(sent.length, 1);
+        assert.equal(sent.length, 2);
+        assert.match(sent[1], /Include intake; exclude implementation/);
         assert.match(sent[0], /Edit exactly one existing Spec Kit artifact/);
         assert.doesNotMatch(sent[0], /\/skill:/);
         await writeFile(file, "# Specification\nCore only.\n[NEEDS CLARIFICATION: Tests?]");

@@ -1,6 +1,7 @@
+// Regression coverage for shared safe Markdown and clarification-marker rendering.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown } from "../workflow-ui/markdown.mjs";
+import { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
 import { renderMarkdown as wizardMarkdown } from "../ui/modals.js";
 
 test("Wizard and generated artifacts use the same renderer", () => {

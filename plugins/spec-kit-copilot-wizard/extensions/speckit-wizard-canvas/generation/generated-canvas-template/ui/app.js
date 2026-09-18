@@ -1,3 +1,4 @@
+// Standalone workflow UI: setup, phase execution, artifact viewing, and clarifications.
 import { renderMarkdown } from "./markdown.mjs";
 import { commandViews } from "./command-views.mjs";
 import { clarificationKey, createClarificationQueue } from "./clarifications.mjs";
@@ -538,7 +539,7 @@ async function refreshArtifact(view) {
                 refreshClarifications(view);
             }
         } catch {
-            if (state.artifactView === view) refreshClarifications(view, "Could not refresh the artifact. Answers retained; refresh or retry when available.");
+            if (state.artifactView === view) refreshClarifications(view, "Could not refresh the artifact. Answers retained; automatic refresh will retry.");
         } finally { view.reading = null; }
     })();
     return view.reading;
@@ -564,7 +565,7 @@ function refreshClarifications(view, message = view.message) {
     if (state.artifactView !== view) return;
     view.message = message;
     refreshDraftControls($("artifact-viewer"), view, clarifications, {
-        apply: () => applyClarifications(view), refresh: () => refreshArtifact(view),
+        apply: () => applyClarifications(view),
     });
 }
 
@@ -609,7 +610,7 @@ function openClarification(view, { question, marker }, trigger) {
 }
 
 async function applyClarifications(view) {
-    if (clarifications.isPending(view.context)) return;
+    if (clarifications.isSending(view.context)) return;
     try {
         const submission = clarifications.flush(view.context, {
             content: view.content,

@@ -1,3 +1,4 @@
+// Inspect project-wide artifacts and build Constitution prerequisite prompts.
 import { createHash } from "node:crypto";
 import { commandViews } from "./ui/command-views.mjs";
 import { readWorkflowArtifact } from "./workspace-files.mjs";

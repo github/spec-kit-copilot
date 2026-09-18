@@ -1,3 +1,4 @@
+// Regression coverage for standalone setup consent and installation approval.
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

@@ -16,7 +16,7 @@ import {
     isCanonical,
     isCanonicalOptional,
 } from "../pipeline/canonical.mjs";
-import { workflowStepClasses } from "../workflow-ui/stepper.mjs";
+import { workflowStepClasses } from "../shared-workflow-ui/stepper.mjs";
 import {
     resolvePipelineEntry,
     pipelineIsEdited,

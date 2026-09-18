@@ -2,10 +2,10 @@
 
 import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
-import { renderMarkdown } from "../workflow-ui/markdown.mjs";
-export { renderMarkdown } from "../workflow-ui/markdown.mjs";
-import { clarificationKey, createClarificationQueue, wizardClarificationScope } from "../workflow-ui/clarifications.mjs";
-import { observationMessage, refreshDraftControls, selectedDrafts } from "../workflow-ui/clarification-controls.mjs";
+import { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
+export { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
+import { clarificationKey, createClarificationQueue, wizardClarificationScope } from "../shared-workflow-ui/clarifications.mjs";
+import { observationMessage, refreshDraftControls, selectedDrafts } from "../shared-workflow-ui/clarification-controls.mjs";
 
 // -------- Section: modals/confirm.js --------
 
@@ -296,7 +296,6 @@ function currentArtifactView(view) {
 function refreshClarificationControls(view) {
     if (activeArtifactView !== view) return;
     refreshDraftControls(document.getElementById("phase-artifact-viewer"), view, clarificationDrafts, {
-        refresh: () => refreshArtifactViewer(view),
         apply: async () => {
             try {
                 const request = flushClarifications(view);
@@ -345,7 +344,7 @@ export async function refreshArtifactViewer(view = activeArtifactView) {
         }
         refreshClarificationControls(view);
     } catch (error) {
-        view.message = `Could not refresh the artifact: ${error.message}. Drafts retained; refresh or retry.`;
+        view.message = `Could not refresh the artifact: ${error.message}. Drafts retained; automatic refresh will retry.`;
         refreshClarificationControls(view);
     } finally { view.reading = false; }
 }

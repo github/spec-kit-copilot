@@ -1,3 +1,4 @@
+// Verify generated workflow execution policy and protected adapter behavior.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";

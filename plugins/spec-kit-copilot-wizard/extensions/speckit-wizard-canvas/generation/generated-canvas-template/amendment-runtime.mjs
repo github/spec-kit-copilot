@@ -1,12 +1,12 @@
+// Authorize standalone artifact clarification batches before agent dispatch.
 import { commandViews } from "./ui/command-views.mjs";
 import { buildAmendmentPrompt, validateAmendmentAnswers } from "./ui/amendment.mjs";
-import { AMENDMENT_WAIT_MS, markerPresent } from "./ui/clarifications.mjs";
 import { readWorkflowArtifact, resolveDeclaredArtifact } from "./workspace-files.mjs";
 
 export { buildAmendmentPrompt };
 
-export function createAmendmentRuntime({ pipeline, items, gate, dispatch, now = Date.now }) {
-    const active = new Map();
+export function createAmendmentRuntime({ pipeline, items, gate, dispatch }) {
+    const active = new Set();
     const commands = commandViews(pipeline);
     const failure = (code, error) => ({ ok: false, code, error });
     return async (inst, input) => {
@@ -27,28 +27,20 @@ export function createAmendmentRuntime({ pipeline, items, gate, dispatch, now = 
         const invalid = validateAmendmentAnswers(content, answers);
         if (invalid) return invalid;
         const key = JSON.stringify([inst.cwd, inst.identity, input.artifact]);
-        const previous = active.get(key);
-        if (previous && (previous.sending || (now() - previous.startedAt < AMENDMENT_WAIT_MS
-            && previous.markers.some((marker) => markerPresent(content, marker))))) {
-            return failure("amendment_pending", "An amendment for this artifact is still awaiting observation. Refresh before retrying.");
+        if (active.has(key)) {
+            return failure("amendment_pending", "An amendment request is being sent. Try again once submission finishes.");
         }
         // Reserve before awaiting gates/dispatch, including requests from another panel.
-        const reservation = { sending: true, startedAt: now(), markers: answers.map((entry) => entry.marker) };
-        active.set(key, reservation);
+        active.add(key);
         try {
             const blocked = await gate(inst);
-            if (blocked) { active.delete(key); return blocked; }
+            if (blocked) return blocked;
             await dispatch({ prompt: buildAmendmentPrompt(input.artifact, content, answers, inst.cwd) });
-            reservation.sending = false;
-            reservation.startedAt = now();
-            const timer = setTimeout(() => {
-                if (active.get(key) === reservation) active.delete(key);
-            }, AMENDMENT_WAIT_MS);
-            timer.unref?.();
             return { ok: true, phase: step.instanceKey, artifact: input.artifact };
         } catch {
-            active.delete(key);
             return failure("amendment_failed", "Could not dispatch the amendment. Your answers are retained; retry when ready.");
+        } finally {
+            active.delete(key);
         }
     };
 }

@@ -1,3 +1,4 @@
+// Handle Wizard generation requests, protected snapshots, and completion callbacks.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 

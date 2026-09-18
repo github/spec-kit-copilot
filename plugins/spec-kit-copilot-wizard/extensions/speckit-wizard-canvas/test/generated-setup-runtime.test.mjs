@@ -1,3 +1,4 @@
+// Verify standalone setup inspection, skill evidence, and repair prompts.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

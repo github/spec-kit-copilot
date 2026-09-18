@@ -1,3 +1,4 @@
+// Verify pipeline compilation, generation applicability, naming, and prompt contracts.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

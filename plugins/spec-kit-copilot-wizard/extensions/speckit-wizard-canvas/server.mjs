@@ -55,7 +55,7 @@ import {
 } from "./server/handlers-generation.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
 import { createWizardAmendment } from "./server/handlers-amendment.mjs";
-import { wizardClarificationScope } from "./workflow-ui/clarifications.mjs";
+import { wizardClarificationScope } from "./shared-workflow-ui/clarifications.mjs";
 
 function generationCallbackUrl(req, token) {
     const host = typeof req.headers?.host === "string" && /^(?:127\.0\.0\.1|localhost):\d+$/.test(req.headers.host)
@@ -71,7 +71,7 @@ const DEFAULT_SHARED_DIR = join(__dirname, "shared");
 // "../pipeline/canonical.mjs"). The browser resolves those to
 // absolute paths like /pipeline/*, /composition/*, so the
 // static router must expose them alongside /ui/*.
-const SHARED_ROOT_DIRS = ["pipeline", "composition", "workflow-ui"];
+const SHARED_ROOT_DIRS = ["pipeline", "composition", "shared-workflow-ui"];
 
 // ------------------------------------------------------------------------
 // deps bag:

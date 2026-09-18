@@ -1,3 +1,4 @@
+// Persist generation requests and protected standalone template snapshots.
 import {
     mkdir,
     lstat,
@@ -20,7 +21,7 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 16;
+const TEMPLATE_VERSION = 17;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
@@ -33,15 +34,15 @@ const TEMPLATE_FILES = [
     ["generated-canvas-template/workspace-files.mjs", "template/workspace-files.mjs"],
     ["generated-canvas-template/ui/index.html", "template/ui/index.html"],
     ["generated-canvas-template/ui/app.js", "template/ui/app.js"],
-    ["../workflow-ui/markdown.mjs", "template/ui/markdown.mjs"],
-    ["../workflow-ui/clarifications.mjs", "template/ui/clarifications.mjs"],
-    ["../workflow-ui/clarification-controls.mjs", "template/ui/clarification-controls.mjs"],
-    ["../workflow-ui/amendment.mjs", "template/ui/amendment.mjs"],
+    ["../shared-workflow-ui/markdown.mjs", "template/ui/markdown.mjs"],
+    ["../shared-workflow-ui/clarifications.mjs", "template/ui/clarifications.mjs"],
+    ["../shared-workflow-ui/clarification-controls.mjs", "template/ui/clarification-controls.mjs"],
+    ["../shared-workflow-ui/amendment.mjs", "template/ui/amendment.mjs"],
     ["generated-canvas-template/ui/command-views.mjs", "template/ui/command-views.mjs"],
     ["generated-canvas-template/ui/workflow-slug.mjs", "template/ui/workflow-slug.mjs"],
-    ["../workflow-ui/workflow-theme.css", "template/ui/workflow-theme.css"],
-    ["../workflow-ui/artifact-viewer.css", "template/ui/artifact-viewer.css"],
-    ["../workflow-ui/stepper.mjs", "template/ui/stepper.mjs"],
+    ["../shared-workflow-ui/workflow-theme.css", "template/ui/workflow-theme.css"],
+    ["../shared-workflow-ui/artifact-viewer.css", "template/ui/artifact-viewer.css"],
+    ["../shared-workflow-ui/stepper.mjs", "template/ui/stepper.mjs"],
     ["materialize-template.mjs", "materialize-template.mjs"],
 ];
 const PROTECTED_TEMPLATE_FILES = new Set([
@@ -250,7 +251,7 @@ export async function validateGeneratedTemplate(request, fs = realFs) {
     for (const forbidden of ["generate_canvas", "add_command", "remove_command", "clear_pipeline", "reset_pipeline", "reorder_phase"]) {
         if (extension.includes(forbidden) || html.includes(forbidden)) throw new Error(`generated extension contains forbidden capability: ${forbidden}`);
     }
-    if (extension.includes("speckit-wizard-canvas") || extension.includes("../workflow-ui")) {
+    if (extension.includes("speckit-wizard-canvas") || extension.includes("../shared-workflow-ui")) {
         throw new Error("generated extension imports the live Wizard instead of its vendored template");
     }
     return true;

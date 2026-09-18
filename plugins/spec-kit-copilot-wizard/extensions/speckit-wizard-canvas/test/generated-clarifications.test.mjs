@@ -1,8 +1,9 @@
+// Verify shared clarification drafts remain subordinate to visible artifact markers.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClarifications as wizardParse } from "../pipeline/canonical.mjs";
 import { applicableDrafts, clarificationKey, createClarificationQueue, parseClarifications } from "../generation/generated-canvas-template/ui/clarifications.mjs";
-import { renderMarkdown } from "../workflow-ui/markdown.mjs";
+import { renderMarkdown } from "../shared-workflow-ui/markdown.mjs";
 
 const context = Object.freeze({ scope: "workspace-and-canvas", itemId: "alpha", phase: "2:custom-plan", artifact: "specs/alpha/plan.md" });
 const accepted = { ok: true, phase: context.phase, artifact: context.artifact };
@@ -194,6 +195,29 @@ test("only drafts survive reload; timeout is retryable and stale reads cannot co
     await queue.flush(context, { dispatch: async () => accepted });
     assert.equal(queue.observe(context, "stale content", oldToken), null);
     assert.equal(queue.list(context).length, 1);
+});
+
+test("an unresolved marker permits immediate updated submissions without stale observations consuming drafts", async () => {
+    let time = 0;
+    const queue = createClarificationQueue(memoryStorage(), { now: () => time });
+    const marker = "[NEEDS CLARIFICATION: Scope?]";
+    queue.queue(context, "Scope?", "Core");
+    await queue.flush(context, { content: marker, dispatch: async () => accepted });
+    const firstToken = queue.observationToken(context);
+    queue.observe(context, `${marker}\nPlease name the included features.`);
+    time += 1001;
+    queue.observe(context, `${marker}\nPlease name the included features.`);
+    queue.queue(context, "Scope?", "Intake and research only");
+    let sent;
+    assert.equal((await queue.flush(context, { content: marker,
+        dispatch: async (input) => { sent = input; return accepted; } })).accepted, true);
+    assert.equal(sent.answers[0].answer, "Intake and research only");
+    assert.equal(queue.observe(context, "Old request resolved", firstToken), null);
+    assert.equal(queue.list(context)[0].answer, "Intake and research only");
+    queue.observe(context, "Scope: intake and research only.");
+    time += 1001;
+    assert.equal(queue.observe(context, "Scope: intake and research only.").complete, true);
+    assert.deepEqual(queue.list(context), []);
 });
 
 test("subset selection and empty/truncated/unstable writes never erase drafts", async () => {

@@ -1,3 +1,4 @@
+// Verify project-scoped Constitution prerequisites in generated workflow canvases.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

@@ -1,3 +1,4 @@
+// Build the bounded configuration-only prompt for deterministic canvas generation.
 export function buildGenerationPrompt({ request, callbackUrl }) {
     const callbackOpen = JSON.stringify({
         canvasId: "speckit-wizard",

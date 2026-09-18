@@ -1,3 +1,4 @@
+// Wizard Generate controls for capturing a pipeline and requesting a standalone canvas.
 import { state, bareCommandId, capitalize } from "./state.js";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 

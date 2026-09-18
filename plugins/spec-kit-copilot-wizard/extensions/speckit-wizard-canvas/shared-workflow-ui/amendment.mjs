@@ -1,3 +1,4 @@
+// Shared clarification validation and surgical artifact-amendment prompts.
 import { visibleMarkers } from "./clarifications.mjs";
 
 export function validateAmendmentAnswers(content, answers) {
