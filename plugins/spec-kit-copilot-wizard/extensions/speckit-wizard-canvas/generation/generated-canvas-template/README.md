@@ -72,6 +72,20 @@ Caught runtime exceptions are reported through fixed, operation-specific message
 HTTP responses and canvas state, rather than exposing exception text or stack traces.
 Unavailable or oversized artifacts retain HTTP status 413; other failed requests return 400.
 
+## Workflow slug validation
+
+Template version 12 shares a protected `ui/workflow-slug.mjs` validator between
+the renderer and runtime. Slugs are trimmed without lowercasing. Leave the field
+blank for automatic naming; otherwise use lowercase letters, numbers, and single
+hyphens. Windows reserved directory names (`con`, `prn`, `aux`, `nul`,
+`com1`–`com9`, `lpt1`–`lpt9`) are rejected on every platform.
+
+Invalid input is reported at the field before running state or installation/rerun
+dialogs. Editing clears the error without discarding drafts. Runtime validation
+also precedes approval checks, setup queueing, and dispatch: HTTP runs return 400
+with fixed guidance, and actions return `ok: false`, `queued: false`, and
+`code: "invalid_workflow_slug"`. Unexpected failures retain generic error messages.
+
 ## Project Constitution (when selected)
 
 Template version 11 supports optional `projectArtifacts.constitution`, referencing

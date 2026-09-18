@@ -55,6 +55,7 @@ async function loadGeneratedExtension(root, sdk, {
     await copyFile(join(template, "workflow-adapter.mjs"), join(extensionRoot, "workflow-adapter.mjs"));
     await copyFile(join(template, "project-artifacts.mjs"), join(extensionRoot, "project-artifacts.mjs"));
     await copyFile(join(template, "ui", "command-views.mjs"), join(extensionRoot, "ui", "command-views.mjs"));
+    await copyFile(join(template, "ui", "workflow-slug.mjs"), join(extensionRoot, "ui", "workflow-slug.mjs"));
     await writeFile(join(extensionRoot, "workflow-config.json"), JSON.stringify(workflowConfig), "utf8");
     await writeFile(join(extensionRoot, "pipeline.json"), JSON.stringify(blueprint ?? {
         setup,
@@ -97,6 +98,86 @@ async function loadGeneratedExtension(root, sdk, {
 }
 
 describe("generated extension setup lifecycle", () => {
+    for (const readiness of ["ready", "missing", "failed", "approval-required"]) {
+        test(`rejects invalid slugs before gates, queues and dispatch when setup is ${readiness}`, async () => {
+            const root = await mkdtemp(join(here, ".generated-lifecycle-"));
+            roots.push(root);
+            const workspace = join(root, "workspace with spaces");
+            await mkdir(workspace);
+            const initialize = async () => {
+                await mkdir(join(workspace, ".specify"), { recursive: true });
+                await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+            };
+            if (readiness === "ready") await initialize();
+            let canvas;
+            let failSetup = readiness === "failed";
+            const sent = [];
+            await loadGeneratedExtension(root, {
+                createCanvas: (definition) => (canvas = definition),
+                runSpecify: async () => "No extensions installed.",
+                joinSession: async () => ({
+                    send: async ({ prompt }) => {
+                        sent.push(prompt);
+                        if (failSetup) throw new Error("fixture setup failure");
+                    },
+                    rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                    log: async () => {},
+                }),
+            }, {
+                runtime: { itemRoot: ".specify/items/<slug>", multiInstance: true, userProvidesSlug: true },
+                artifact: { pathTemplate: ".specify/items/<slug>/spec.md" },
+                ...(readiness === "approval-required" ? { setup: {
+                    requireInstallationApproval: true,
+                    integration: { id: "copilot", skillsMode: true }, requiredSkills: [], presets: [],
+                    extensions: [{ kind: "extension", id: "assess", enabled: true, priority: 10, precedence: 0 }],
+                } } : {}),
+            });
+            const opened = await canvas.open({ instanceId: "slug-validation", input: { cwd: workspace } });
+            const action = (name, input = {}) => canvas.actions.find((entry) => entry.name === name).handler({ instanceId: "slug-validation", input });
+            if (readiness === "missing" || readiness === "failed") await waitFor(() => sent.length > 0);
+            const before = sent.length;
+            const url = new URL(opened.url);
+            url.pathname = "/api/run";
+            for (const slug of ["Bad-slug", "two words", "a--b", "-a", "a-", "../outside", "con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"]) {
+                const input = { phase: "speckit.specify#0", itemId: "__new__", slug };
+                const expected = {
+                    ok: false, queued: false, code: "invalid_workflow_slug",
+                    error: /^(con|prn|aux|nul|com[19]|lpt[19])$/.test(slug)
+                        ? "This name is reserved on Windows. Choose another workflow slug."
+                        : "Use lowercase letters, numbers, and single hyphens only.",
+                };
+                assert.deepEqual(await action("run_phase", input), expected);
+                const response = await fetch(url, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+                });
+                assert.equal(response.status, 400);
+                assert.deepEqual(await response.json(), expected);
+                assert.equal(sent.length, before, "invalid runs cannot trigger setup retry or phase dispatch");
+            }
+            if (readiness === "approval-required") {
+                assert.equal(before, 0);
+                assert.equal((await action("run_phase", { phase: "speckit.specify#0", slug: "corrected" })).code, "installation_approval_required");
+                return;
+            }
+            failSetup = false;
+            await initialize();
+            assert.equal((await action("reloadSessionSkills")).ok, true);
+            await settle();
+            assert.equal(sent.length, before, "readiness must not replay any invalid queued requests");
+            for (const slug of ["", " \t "]) {
+                assert.equal((await action("run_phase", { phase: "speckit.specify#0", itemId: "__new__", slug })).ok, true);
+                assert.equal(sent.at(-1), "/skill:speckit-specify", "blank input keeps automatic naming");
+            }
+            const response = await fetch(url, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ phase: "speckit.specify#0", itemId: "__new__", slug: "  corrected-slug  ", args: "Preserved input" }),
+            });
+            assert.equal(response.status, 202);
+            assert.equal((await response.json()).ok, true);
+            assert.equal(sent.at(-1), "/skill:speckit-specify slug=corrected-slug Preserved input");
+        });
+    }
+
     test("clarification draft scope is stable across panels and isolated by workspace and canvas", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);
@@ -503,10 +584,10 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(calls, 3, "Closing every panel must not leave a stuck shared setup dispatch");
     });
 
-    test("reveals only regular directories inside the workspace", async () => {
+    test("reveals regular directories with spaces using Windows and macOS argument arrays", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);
-        const workspace = join(root, "workspace");
+        const workspace = join(root, "workspace with spaces");
         const output = join(workspace, ".specify", "items", "alpha");
         await mkdir(output, { recursive: true });
 
@@ -516,27 +597,29 @@ describe("generated extension setup lifecycle", () => {
             /outside workspace/i,
         );
 
-        const calls = [];
-        const revealed = await revealWorkspaceDirectory(workspace, ".specify/items/alpha", {
-            pipeline: {
-                runtime: { itemRoot: ".specify/items/<slug>" },
-                pipeline: { steps: [{ artifact: { pathTemplate: ".specify/items/<slug>/spec.md" } }] },
-            },
-            platform: "win32",
-            spawnImpl(command, args, options) {
-                calls.push({ command, args, options });
-                const child = new EventEmitter();
-                child.unref = () => {};
-                queueMicrotask(() => child.emit("spawn"));
-                return child;
-            },
-        });
-        assert.equal(revealed, output);
-        assert.deepEqual(calls, [{
-            command: "explorer.exe",
-            args: [output],
-            options: { detached: true, stdio: "ignore" },
-        }]);
+        for (const [platform, expectedCommand] of [["win32", "explorer.exe"], ["darwin", "open"]]) {
+            const calls = [];
+            const revealed = await revealWorkspaceDirectory(workspace, ".specify/items/alpha", {
+                pipeline: {
+                    runtime: { itemRoot: ".specify/items/<slug>" },
+                    pipeline: { steps: [{ artifact: { pathTemplate: ".specify/items/<slug>/spec.md" } }] },
+                },
+                platform,
+                spawnImpl(command, args, options) {
+                    calls.push({ command, args, options });
+                    const child = new EventEmitter();
+                    child.unref = () => {};
+                    queueMicrotask(() => child.emit("spawn"));
+                    return child;
+                },
+            });
+            assert.equal(revealed, output);
+            assert.deepEqual(calls, [{
+                command: expectedCommand,
+                args: [output],
+                options: { detached: true, stdio: "ignore" },
+            }]);
+        }
     });
 
     test("shares automatic setup, reassigns a closed owner, reloads once, and queues early phase execution", async () => {
@@ -879,19 +962,27 @@ describe("generated extension setup lifecycle", () => {
             input: { slug: "alpha" },
         }), { ok: true, slug: "alpha" });
         await assert.rejects(lstat(workflowDirectory), /ENOENT/);
-        await assert.rejects(
-            deleteWorkflow.handler({ instanceId: "delete", input: { slug: "../outside" } }),
-            /invalid workflow slug/i,
-        );
+        for (const slug of ["", "../outside", "Uppercase", "con", "lpt9"]) {
+            await assert.rejects(
+                deleteWorkflow.handler({ instanceId: "delete", input: { slug } }),
+                /invalid workflow slug/i,
+            );
+        }
         await canvas.onClose({ instanceId: "delete" });
     });
 
-    test("enumerates every slug and preserves the neutral New item in multi-instance mode", async () => {
+    test("enumerates only portable slugs and preserves the neutral New item in multi-instance mode", async () => {
         const root = await mkdtemp(join(here, ".generated-lifecycle-"));
         roots.push(root);
         const workspace = join(root, "workspace");
         await mkdir(join(workspace, ".specify", "items", "alpha"), { recursive: true });
         await mkdir(join(workspace, ".specify", "items", "beta"), { recursive: true });
+        const invalidDirectories = ["Uppercase", "double--hyphen", " leading-space"];
+        // Windows cannot create these directories; macOS must exclude them from portable workflows.
+        if (process.platform !== "win32") invalidDirectories.push("con", "com1", "lpt9");
+        for (const name of invalidDirectories) {
+            await mkdir(join(workspace, ".specify", "items", name), { recursive: true });
+        }
         await writeFile(join(workspace, ".specify", "init-options.json"), JSON.stringify({
             integration: "copilot",
             ai_skills: true,

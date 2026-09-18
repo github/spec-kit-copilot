@@ -1,0 +1,52 @@
+name: Generated canvas source tests
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/spec-kit-copilot-wizard/**'
+      - '.github/workflows/generated-canvas-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/spec-kit-copilot-wizard/**'
+      - '.github/workflows/generated-canvas-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-canvas:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas
+        shell: pwsh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/package-lock.json
+      - name: Install existing dependencies
+        run: npm ci
+      - name: Test generated canvas source with mocked SDK and folder opening
+        run: >-
+          node --test
+          test/generated-workflow-slug.test.mjs
+          test/generated-renderer.test.mjs
+          test/generated-extension-lifecycle.test.mjs
+          test/generated-workflow-policy.test.mjs
+          test/generated-setup-runtime.test.mjs
+          test/generated-approval-runtime.test.mjs
+          test/generated-constitution.test.mjs
+          test/generated-clarification-ui.test.mjs
+          test/generation-server.test.mjs

@@ -30,7 +30,7 @@ const contract = {
 };
 
 async function workspace() {
-    const root = await mkdtemp(join(here, ".setup-workspace-"));
+    const root = await mkdtemp(join(here, ".setup workspace with spaces-"));
     roots.push(root);
     return root;
 }

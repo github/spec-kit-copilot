@@ -80,7 +80,7 @@ async function fixture() {
     const directory = join(dirname(fileURLToPath(import.meta.url)), `.clarification-ui-${randomUUID()}`);
     directories.push(directory);
     await mkdir(directory);
-    await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "command-views.mjs"].map((name) => (
+    await Promise.all(["app.js", "markdown.mjs", "clarifications.mjs", "command-views.mjs", "workflow-slug.mjs"].map((name) => (
         copyFile(new URL(`../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
     )));
     await import(pathToFileURL(join(directory, "app.mjs")).href);

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./workflow-adapter.mjs";
 import { commandViews } from "./ui/command-views.mjs";
+import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
 import { constitutionGate, inspectConstitution } from "./project-artifacts.mjs";
 import {
     deleteWorkspaceDirectory,
@@ -192,7 +193,10 @@ async function discoveredItems(inst) {
         throw error;
     }
     const directories = entries
-        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name));
+        .filter((entry) => {
+            const { slug, error } = validateWorkflowSlug(entry.name);
+            return entry.isDirectory() && !entry.isSymbolicLink() && entry.name === slug && !error;
+        });
     return Promise.all(directories.map(async (entry) => {
         const stat = await lstat(join(parent, entry.name));
         return {
@@ -323,6 +327,11 @@ async function runPhase(inst, input) {
     if (isConstitution && (input?.itemId != null || input?.slug != null)) {
         throw new Error("Constitution is project-scoped; omit itemId and slug.");
     }
+    const validation = validateWorkflowSlug(input?.slug);
+    if (validation.error) {
+        return { ok: false, queued: false, code: "invalid_workflow_slug", error: validation.error };
+    }
+    let requestedSlug = pipeline.runtime?.userProvidesSlug === true ? validation.slug : "";
     const blocked = await executionGate(inst);
     if (blocked) return blocked;
     const setup = await setupStatus(inst);
@@ -332,7 +341,7 @@ async function runPhase(inst, input) {
             phase: step.instanceKey,
             ...(!isConstitution ? { itemId: input?.itemId ?? null } : {}),
             args: String(input?.args ?? ""),
-            ...(!isConstitution && pipeline.runtime?.userProvidesSlug === true ? { slug: String(input?.slug ?? "") } : {}),
+            ...(!isConstitution && pipeline.runtime?.userProvidesSlug === true ? { slug: requestedSlug } : {}),
         });
         if (setup.state === "failed") {
             void setupWorkflow(inst);
@@ -360,10 +369,6 @@ async function runPhase(inst, input) {
         && singleInstanceBindings.get(bindingKey(inst))?.state === "bound";
     if (input?.itemId != null && !items.some((entry) => entry.id === input.itemId) && !staleSingleNew) throw new Error("unknown workflow item");
     let item = items.find((entry) => entry.id === input?.itemId) ?? items[0] ?? null;
-    let requestedSlug = pipeline.runtime?.userProvidesSlug === true ? String(input?.slug ?? "").trim() : "";
-    if (requestedSlug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(requestedSlug)) {
-        throw new Error("slug must contain lowercase letters, numbers, and single hyphens");
-    }
     let reservedNow = false;
     let reservationKey = null;
     if (pipeline.runtime?.itemRoot && item?.isNew && pipeline.runtime?.userProvidesSlug === true) {
@@ -442,8 +447,8 @@ async function deleteWorkflow(inst, input) {
     if (pipeline.runtime?.multiInstance !== true || !pipeline.runtime?.itemRoot) {
         throw new Error("workflow deletion is available only in multi-workflow canvases");
     }
-    const slug = String(input?.slug ?? "").trim();
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new Error("invalid workflow slug");
+    const { slug, error } = validateWorkflowSlug(input?.slug);
+    if (!slug || error) throw new Error("invalid workflow slug");
     const item = (await discoveredItems(inst)).find((entry) => entry.slug === slug);
     if (!item) throw new Error("workflow does not exist");
     const relativeDirectory = pipeline.runtime.itemRoot.replaceAll("<slug>", slug);
@@ -710,7 +715,10 @@ async function startHttp(inst) {
                 req.on("close", () => inst.clients.delete(res));
                 return;
             }
-            if (req.method === "POST" && url.pathname === "/api/run") return send(res, 202, await runPhase(inst, await body(req)));
+            if (req.method === "POST" && url.pathname === "/api/run") {
+                const result = await runPhase(inst, await body(req));
+                return send(res, result.code === "invalid_workflow_slug" ? 400 : 202, result);
+            }
             if (req.method === "POST" && url.pathname === "/api/installation-approval") {
                 return send(res, 200, await approvalRequest(inst, await body(req)));
             }

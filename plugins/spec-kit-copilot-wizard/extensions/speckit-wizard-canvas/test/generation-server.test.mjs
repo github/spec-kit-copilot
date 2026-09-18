@@ -139,7 +139,7 @@ describe("generation server lifecycle", () => {
         await writeFile(configPath, JSON.stringify(config));
         await assert.rejects(validate(), /missing phase: 1:constitution/);
         await materialize({ requestFile: requestPath, targetDirectory: request.target.directory, request });
-        for (const path of ["project-artifacts.mjs", join("ui", "command-views.mjs"), join("ui", "clarifications.mjs")]) {
+        for (const path of ["project-artifacts.mjs", join("ui", "command-views.mjs"), join("ui", "clarifications.mjs"), join("ui", "workflow-slug.mjs")]) {
             const original = await readFile(join(request.target.directory, path), "utf8");
             await writeFile(join(request.target.directory, path), `${original}\n// tampered\n`);
             await assert.rejects(validate(), /template file was modified/);
@@ -175,11 +175,12 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 11);
+        assert.equal(request.template.version, 12);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "project-artifacts.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "ui/command-views.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "ui/clarifications.mjs"));
+        assert.ok(request.template.protectedFiles.some((entry) => entry.path === "ui/workflow-slug.mjs"));
         await new Promise((resolve) => setImmediate(resolve));
         assert.match(ctx.calls[0].prompt, /Preserve its metadata and blueprint exactly/);
         assert.match(ctx.calls[0].prompt, /Do not test or operate the generated canvas/);

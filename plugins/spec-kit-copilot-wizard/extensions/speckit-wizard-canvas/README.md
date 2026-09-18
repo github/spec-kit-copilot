@@ -172,7 +172,7 @@ Traversal and symlink/junction paths are rejected. Named Markdown artifacts such
 SDD checklists use a deterministic newest-file selection within their declared folder.
 Configuration validation rejects unsupported behavior instead of executing generated
 JavaScript or silently substituting defaults. These rules ship in new template
-snapshots (version 11); existing generated apps are not rewritten automatically.
+snapshots (version 12); existing generated apps are not rewritten automatically.
 
 Generated Markdown artifacts now expose the Wizard's **Clarify** / **Answered ✓**
 controls for `[NEEDS CLARIFICATION: …]` markers outside code examples and links.
@@ -206,6 +206,23 @@ The optional user-provided slug setting lets users specify the directory name fo
 generated workflow artifacts. When disabled, no slug field or `slug=` argument is
 added: Spec Kit chooses a default, or Copilot may ask the user in the chat session.
 This does not affect the project-scoped Constitution.
+
+Generated workflow slugs are trimmed, but never silently lowercased. Blank input
+allows automatic naming; nonblank names must use lowercase letters, numbers, and
+single hyphens. Windows reserved directory names (`con`, `prn`, `aux`, `nul`,
+`com1`–`com9`, `lpt1`–`lpt9`) are rejected on both Windows and macOS. A shared,
+protected `ui/workflow-slug.mjs` validator keeps browser and server rules aligned.
+The field reports invalid names before installation/rerun dialogs or running state,
+clears stale errors on edit, and retains drafts. HTTP run requests receive a fixed
+validation message and status 400; actions return `invalid_workflow_slug` with
+`ok: false` and `queued: false`, before approval, setup queues, or phase dispatch.
+Unexpected runtime errors still use generic messages without exposing exception text.
+
+The **Generated canvas source tests** GitHub Actions workflow runs the focused
+renderer, lifecycle, setup, workspace-policy, and template-generation tests on
+`windows-latest` and `macos-latest`. SDK calls and folder-opening processes are
+mocked; it never runs live generated phases. Tests cover both `explorer.exe` and
+`open` argument arrays and workspace paths containing spaces.
 
 The toolbar shows generation activity on the Generate button itself, without
 adjacent status, output-path, or error text. The generation prompt directs the agent

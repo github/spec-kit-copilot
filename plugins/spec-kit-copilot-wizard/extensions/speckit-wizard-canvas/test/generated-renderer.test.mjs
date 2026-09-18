@@ -22,21 +22,113 @@ afterEach(async () => {
 
 function fakeElement() {
     const listeners = new Map();
+    const selectors = new Map();
     return {
         className: "",
         dataset: {},
         hidden: false,
         innerHTML: "",
         textContent: "",
+        validationMessage: "",
+        validityReports: 0,
+        setCustomValidity(message) { this.validationMessage = message; },
+        reportValidity() { this.validityReports++; return !this.validationMessage; },
         addEventListener(type, handler) { listeners.set(type, handler); },
         async emit(type, event = {}) { return listeners.get(type)?.(event); },
-        querySelector() { return fakeElement(); },
+        querySelector(selector) {
+            if (!selectors.has(selector)) selectors.set(selector, fakeElement());
+            return selectors.get(selector);
+        },
         querySelectorAll() { return []; },
         insertAdjacentHTML(_position, html) { this.innerHTML += html; },
     };
 }
 
 describe("generated workflow renderer", () => {
+    for (const scenario of ["ready", "approval", "rerun", "blank"]) {
+        test(`validates slugs before ${scenario} submission without losing drafts`, async () => {
+            const elements = new Map();
+            globalThis.document = {
+                documentElement: { dataset: {} },
+                getElementById(id) {
+                    if (!elements.has(id)) elements.set(id, fakeElement());
+                    return elements.get(id);
+                },
+            };
+            globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+            globalThis.EventSource = class {};
+            const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }, { id: "plan" }] },
+                { extensionId: "slug-ui", displayName: "Workflow", description: "Test." }, { userProvidesSlug: true });
+            const phase = blueprint.pipeline.steps[0];
+            const snapshot = {
+                pipeline: blueprint, selectedItemId: "__new__",
+                setup: { ready: scenario !== "approval", approval: { required: scenario === "approval", approved: false, components: [] } },
+                items: [{
+                    id: "__new__", isNew: true, slug: null, label: "New",
+                    phases: { [phase.instanceKey]: { artifact: scenario === "rerun" ? "specs/example/spec.md" : null } },
+                }],
+            };
+            const requests = [];
+            globalThis.fetch = async (url, options) => {
+                requests.push({ url, ...(options ? { input: JSON.parse(options.body) } : {}) });
+                return { ok: true, json: async () => options ? { ok: true, setup: snapshot.setup } : structuredClone(snapshot) };
+            };
+            const directory = await mkdtemp(join(tmpdir(), "generated-renderer-test-"));
+            temporaryDirectories.push(directory);
+            await Promise.all(["app.js", "command-views.mjs", "markdown.mjs", "clarifications.mjs", "workflow-slug.mjs"].map((name) => (
+                copyFile(new URL(`../generation/generated-canvas-template/ui/${name}`, import.meta.url), join(directory, name === "app.js" ? "app.mjs" : name))
+            )));
+            await import(pathToFileURL(join(directory, "app.mjs")).href);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const slugControl = elements.get("workflow-slug");
+            const argsControl = elements.get("phase-args");
+            argsControl.value = "Keep my phase draft";
+            await argsControl.emit("input", { target: argsControl });
+            const before = requests.length;
+            const modalBefore = elements.get("modal-root")?.innerHTML ?? "";
+            for (const value of ["Two words", "a--b", "../outside", "con", "lpt9"]) {
+                slugControl.value = value;
+                await slugControl.emit("input", { target: slugControl });
+                assert.equal(slugControl.validationMessage, "", "editing clears stale validation");
+                const cardBefore = elements.get("phase-card").innerHTML;
+                await elements.get("run-phase").emit("click");
+                assert.equal(slugControl.validationMessage, ["con", "lpt9"].includes(value)
+                    ? "This name is reserved on Windows. Choose another workflow slug."
+                    : "Use lowercase letters, numbers, and single hyphens only.");
+                assert.equal(elements.get("phase-card").innerHTML, cardBefore, "invalid submission never enters running state");
+                assert.equal(requests.length, before, "invalid submission must make no network requests");
+                assert.equal(elements.get("modal-root")?.innerHTML ?? "", modalBefore, "validation precedes approval and rerun dialogs");
+                assert.equal(slugControl.value, value, "do not rewrite the slug draft");
+                assert.equal(argsControl.value, "Keep my phase draft");
+            }
+            assert.equal(slugControl.validityReports, 5);
+            slugControl.value = scenario === "blank" ? " \t " : "  fixed-slug  ";
+            await slugControl.emit("input", { target: slugControl });
+            assert.equal(slugControl.validationMessage, "");
+            if (scenario !== "rerun") {
+                await elements.get("next-phase").emit("click");
+                await elements.get("previous-phase").emit("click");
+                assert.match(elements.get("phase-card").innerHTML, scenario === "blank" ? /value=" \t "/ : /value="  fixed-slug  "/);
+                assert.equal(argsControl.value, "Keep my phase draft");
+            }
+            const running = elements.get("run-phase").emit("click");
+            if (scenario === "rerun") {
+                assert.match(elements.get("modal-root").innerHTML, /Run again/);
+                await elements.get("modal-root").querySelector('[data-answer="confirm"]').emit("click");
+            }
+            await running;
+            if (scenario === "approval") {
+                assert.ok(requests.some(({ url }) => url === "/api/installation-approval"));
+                assert.ok(!requests.some(({ url }) => url === "/api/run"));
+            } else {
+                assert.deepEqual(requests.at(-1), {
+                    url: "/api/run",
+                    input: { phase: phase.instanceKey, itemId: "__new__", args: "Keep my phase draft", slug: scenario === "blank" ? "" : "fixed-slug" },
+                });
+            }
+        });
+    }
+
     test("Constitution LAST after Assess renders exactly five numbered phases and one top-level card", async () => {
         const fixture = JSON.parse(await readFile(new URL("./fixtures/generation/assess.json", import.meta.url), "utf8"));
         fixture.snapshot.pipeline.push({ id: "constitution" });
@@ -68,6 +160,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
         ]);
         await import(pathToFileURL(join(directory, "app.mjs")).href);
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -145,6 +238,7 @@ describe("generated workflow renderer", () => {
                 copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
                 copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
                 copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
+                copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
             ]);
             await import(pathToFileURL(join(directory, "app.mjs")).href);
             await new Promise((resolve) => setTimeout(resolve, 10));
@@ -280,6 +374,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(directory, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(directory, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(directory, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(directory, "workflow-slug.mjs")),
         ]);
         await import(pathToFileURL(join(directory, "app.mjs")).href);
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -402,6 +497,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
         ]);
         await import(`${pathToFileURL(join(renderedUi, "app.mjs")).href}?test=${Date.now()}`);
@@ -496,6 +592,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
         ]);
         await import(`${pathToFileURL(join(renderedUi, "app.mjs")).href}?test=${Date.now()}-new`);
@@ -589,6 +686,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
         ]);
         await import(`${pathToFileURL(join(renderedUi, "app.mjs")).href}?test=${Date.now()}-setup`);
@@ -733,6 +831,7 @@ describe("generated workflow renderer", () => {
             copyFile(new URL("../generation/generated-canvas-template/ui/command-views.mjs", import.meta.url), join(renderedUi, "command-views.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/markdown.mjs", import.meta.url), join(renderedUi, "markdown.mjs")),
             copyFile(new URL("../generation/generated-canvas-template/ui/clarifications.mjs", import.meta.url), join(renderedUi, "clarifications.mjs")),
+            copyFile(new URL("../generation/generated-canvas-template/ui/workflow-slug.mjs", import.meta.url), join(renderedUi, "workflow-slug.mjs")),
             copyFile(new URL("../workflow-ui/stepper.mjs", import.meta.url), join(renderedUi, "stepper.mjs")),
         ]);
         await import(`${pathToFileURL(join(renderedUi, "app.mjs")).href}?test=${Date.now()}-multi`);

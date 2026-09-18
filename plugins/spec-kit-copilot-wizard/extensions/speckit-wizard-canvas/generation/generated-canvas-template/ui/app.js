@@ -1,6 +1,7 @@
 import { renderMarkdown } from "./markdown.mjs";
 import { commandViews } from "./command-views.mjs";
 import { createClarificationQueue } from "./clarifications.mjs";
+import { validateWorkflowSlug } from "./workflow-slug.mjs";
 
 const RUN_ACK_MS = 15 * 1000;
 const state = {
@@ -285,7 +286,7 @@ function renderPhaseCard() {
     const slugLocked = !item?.isNew || running || submitted;
     const slugValue = item?.slug || state.workflowSlugDraft.trim();
     const slugControl = showsSlug
-        ? `<label class="field" for="workflow-slug"><span class="field-label" id="workflow-slug-label">Workflow slug${slugLocked ? "" : ' <span class="muted">(optional)</span>'}</span><span class="muted" id="workflow-slug-help">Names the folder where this workflow’s artifacts are saved.${slugLocked ? "" : " Leave blank to let Spec Kit choose a name."}</span><input class="phase-input-control" id="workflow-slug" type="text" aria-labelledby="workflow-slug-label" aria-describedby="workflow-slug-help" value="${esc(slugLocked ? slugValue : state.workflowSlugDraft)}" placeholder="${slugLocked ? "Automatically assigned" : "your-slug"}" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" ${slugLocked ? "readonly" : ""} /></label>`
+        ? `<label class="field" for="workflow-slug"><span class="field-label" id="workflow-slug-label">Workflow slug${slugLocked ? "" : ' <span class="muted">(optional)</span>'}</span><span class="muted" id="workflow-slug-help">Names the folder where this workflow’s artifacts are saved.${slugLocked ? "" : " Leave blank to let Spec Kit choose a name."}</span><input class="phase-input-control" id="workflow-slug" type="text" aria-labelledby="workflow-slug-label" aria-describedby="workflow-slug-help" value="${esc(slugLocked ? slugValue : state.workflowSlugDraft)}" placeholder="${slugLocked ? "Automatically assigned" : "your-slug"}" ${slugLocked ? "readonly" : ""} /></label>`
         : "";
     const backDisabled = state.current === 0;
     const continueDisabled = state.current >= steps.length - 1;
@@ -315,6 +316,7 @@ function renderPhaseCard() {
     $("phase-args").addEventListener("input", (event) => state.phaseDrafts.set(runKey, event.target.value));
     $("workflow-slug")?.addEventListener("input", (event) => {
         if (slugLocked) return;
+        $("workflow-slug").setCustomValidity("");
         state.workflowSlugDraft = event.target.value;
         updateWritesTo(step, item);
     });
@@ -338,17 +340,25 @@ function renderPhaseCard() {
 async function runPhase(step, completed) {
     const runKey = phaseRunKey(step);
     if (state.runningPhase === runKey) return;
+    const item = selectedItem();
+    const usesSlugDraft = state.current === slugPhaseIndex(workflowSteps()) && item?.isNew;
+    const validation = validateWorkflowSlug(usesSlugDraft ? state.workflowSlugDraft : "");
+    if (usesSlugDraft) {
+        const control = $("workflow-slug");
+        control.setCustomValidity(validation.error);
+        if (validation.error) {
+            control.reportValidity();
+            return;
+        }
+    }
     if (state.snapshot?.setup?.approval?.required && !state.snapshot.setup.approval.approved) {
         await reviewInstallation("review");
         return;
     }
     if ((completed || state.submitted.has(runKey)) && !await confirmRerun(step)) return;
-    const item = selectedItem();
     const args = $("phase-args")?.value ?? "";
     state.phaseDrafts.set(runKey, args);
-    const slug = state.current === slugPhaseIndex(workflowSteps()) && item?.isNew
-        ? state.workflowSlugDraft.trim()
-        : null;
+    const slug = usesSlugDraft ? validation.slug : null;
     if (state.runTimer) clearTimeout(state.runTimer);
     state.runningPhase = runKey;
     renderPhaseCard();
