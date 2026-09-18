@@ -103,11 +103,12 @@ function renderInstanceCollection() {
         .filter((item) => !item.isNew)
         .sort((left, right) => (right.lastActivity ?? 0) - (left.lastActivity ?? 0));
     const statuses = new Map(items.map((item) => [item.id, workflowStatus(item)]));
-    const successCount = items.filter((item) => statuses.get(item.id).success).length;
     const clarificationCount = items.filter((item) => workflowSteps().some((step) => item.phases?.[step.instanceKey]?.clarificationCount > 0)).length;
     const review = state.snapshot?.artifactReview;
-    const successLabel = review?.successLabel ?? "Artifact ready";
-    const complementLabel = review?.complementLabel ?? "Artifact not ready";
+    const resultCounts = (review?.labels ?? []).map((label, index) => ({
+        label, count: items.filter((item) => statuses.get(item.id).statusId === `result-${index + 1}`).length,
+    }));
+    const undeterminedCount = review ? items.filter((item) => statuses.get(item.id).statusId === "not-determined").length : 0;
     const collectionPath = state.snapshot?.pipeline?.runtime?.itemRoot?.replaceAll("\\", "/").replace(/\/<slug>$/, "");
     collection.hidden = false;
     collection.innerHTML = `
@@ -117,9 +118,9 @@ function renderInstanceCollection() {
         </div>
         ${collectionPath ? `<button type="button" class="phase-artifact-link collection-folder" id="browse-collection-folder" data-folder-path="${esc(collectionPath)}" title="Open ${esc(collectionPath)}/ in file explorer"><code>${esc(collectionPath)}/</code></button>` : ""}
         <div class="collection-summary" aria-label="Workflow counts">
-            ${phaseNotice(`${successLabel}: ${successCount}`, review ? "Workflows whose current final-phase status meets the configured goal." : "Readable, nonempty final artifacts with no open clarification markers; not verified goal achievement.")}
+            ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows whose current final-artifact evidence matches this result label; not verified code correctness.")).join("")}
             ${phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.")}
-            ${phaseNotice(`${complementLabel}: ${items.length - successCount}`, "All remaining workflows, including unfinished and unreviewed ones; not necessarily failures.")}
+            ${undeterminedCount > 0 ? phaseNotice(`Not determined: ${undeterminedCount}`, "Workflows whose current final-artifact review explicitly returned Not determined.") : ""}
         </div>
         <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
@@ -129,7 +130,7 @@ function renderInstanceCollection() {
                 <button class="instance-select" type="button" data-instance="${esc(item.id)}">
                     <strong>${esc(item.label)}</strong>
                     <span class="muted">${esc(activity)}</span>
-                    ${phaseNotice(statuses.get(item.id).label, statuses.get(item.id).detail)}
+                    ${phaseFeedback(statuses.get(item.id))}
                 </button>
                 <button class="instance-delete" type="button" data-delete-workflow="${esc(item.slug)}" aria-label="Delete ${esc(item.label)}">Delete</button>
             </div>`;
@@ -150,10 +151,12 @@ function renderInstanceCollection() {
         state.current = 0;
         render();
     });
+    if (collection.dataset.bound) return;
+    collection.dataset.bound = "true";
     collection.addEventListener("click", async (event) => {
         const deleteButton = event.target.closest?.("[data-delete-workflow]");
         if (deleteButton) {
-            const item = items.find((entry) => entry.slug === deleteButton.dataset.deleteWorkflow);
+            const item = state.snapshot?.items?.find((entry) => !entry.isNew && entry.slug === deleteButton.dataset.deleteWorkflow);
             if (item) await requestWorkflowDeletion(item);
             return;
         }
@@ -250,38 +253,53 @@ function openConstitutionDialog(step) {
 function phasePresentation(step, item = selectedItem()) {
     const phase = item?.phases?.[step.instanceKey];
     const final = step.instanceKey === workflowSteps().at(-1)?.instanceKey;
-    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: final && !state.snapshot?.artifactReview ? "Artifact not ready" : "", success: false };
+    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: "" };
     if (phase.artifactError || !Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) {
-        return { className: "", label: phase.artifactError || "Artifact status unavailable", symbol: "!", notice: "Artifact unavailable" };
+        return { className: "", label: phase.artifactError || "Artifact status unavailable", symbol: "!",
+            notice: state.snapshot?.artifactReview ? "Artifact unavailable" : "", error: phase.artifactError || "Artifact status unavailable" };
     }
     if (phase.clarificationCount > 0) {
         return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
     }
     const review = final ? phase.review : null;
     const config = final ? state.snapshot?.artifactReview : null;
-    const success = final && (config
-        ? review?.state === "reviewed" && review.statusId === config.successStatusId
-        : !review);
+    const index = config?.labels.findIndex((_label, index) => review?.statusId === `result-${index + 1}`) ?? -1;
+    const statusId = config && review?.state === "reviewed" && !review.error && (index >= 0 || review.statusId === "not-determined")
+        ? review.statusId : null;
+    const notice = config
+        ? statusId && index >= 0 ? config.labels[index]
+            : review?.state === "reviewing" ? "Reviewing" : review?.state === "failed" ? "Review unavailable" : "Not determined"
+        : "";
     return { className: "artifact-ready", label: "Artifact created; no open clarifications", symbol: "✓",
-        notice: review?.label ?? (final ? config ? "Needs review" : "Artifact ready" : ""),
-        detail: review?.error ?? (final && !config ? "Artifact readiness only, not verified goal achievement." : ""), success };
+        notice, statusId,
+        error: review?.error };
 }
 
 function workflowStatus(item) {
     const steps = workflowSteps();
     const final = steps.at(-1);
-    if (!final) return { label: "No phases", success: false };
+    if (!final) return { notice: "" };
+    if (!state.snapshot?.artifactReview) {
+        const phases = steps.map((step) => phasePresentation(step, item));
+        return { notice: phases.some((phase) => phase.notice === "Clarification needed") ? "Clarification needed" : "",
+            error: phases.filter((phase) => phase.error).map((phase) => phase.error).join(" ") };
+    }
     if (item.phases?.[final.instanceKey]?.artifact) {
         const presentation = phasePresentation(final, item);
-        return { label: presentation.notice, detail: presentation.detail, success: Boolean(presentation.success) };
+        return presentation;
     }
     const next = steps.find((step) => !item.phases?.[step.instanceKey]?.artifact
         && (step.artifact?.persistent || !state.submitted.has(phaseRunKey(step, item)))) ?? final;
-    return { label: `Run ${next.label}`, success: false };
+    return { notice: `Run ${next.label}` };
 }
 
 function phaseNotice(text, detail = "") {
     return text ? `<span class="phase-notice"${detail ? ` title="${esc(detail)}" aria-label="${esc(`${text}: ${detail}`)}"` : ""}>${esc(text)}</span>` : "";
+}
+
+function phaseFeedback(presentation) {
+    return phaseNotice(presentation.notice, presentation.error)
+        + (presentation.error ? `<span class="workflow-error" role="status">${esc(presentation.error)}</span>` : "");
 }
 
 function renderPhaseNavigation() {
@@ -351,7 +369,7 @@ function renderPhaseCard() {
     const continueDisabled = state.current >= steps.length - 1;
     $("phase-card").innerHTML = `
         <header class="workflow-header">
-            <div class="workflow-header-main"><div class="phase-heading"><h2>${esc(step.label)}</h2>${phaseNotice(phasePresentation(step).notice, phasePresentation(step).detail)}</div><p class="tagline">${esc(step.description)}</p></div>
+            <div class="workflow-header-main"><div class="phase-heading"><h2>${esc(step.label)}</h2>${phaseFeedback(phasePresentation(step))}</div><p class="tagline">${esc(step.description)}</p></div>
         </header>
         <dl class="phase-facts">
             <dt>Writes to</dt><dd><button class="phase-artifact-link" id="browse-output-folder" type="button" data-folder-path="${esc(outputUnresolved ? "" : parentFolder(outputPath))}" ${outputUnresolved ? "disabled" : ""} title="${esc(outputUnresolved ? "Enter a workflow slug to resolve this path" : `Open ${parentFolder(outputPath)} in file explorer`)}"><code>${esc(outputPath || "Transient phase")}</code></button></dd>

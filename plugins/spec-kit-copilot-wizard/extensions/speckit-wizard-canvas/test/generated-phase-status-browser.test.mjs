@@ -101,30 +101,26 @@ test("phase status and neutral notices refresh without losing selection or draft
                 assert.equal(await buttons.nth(1).getAttribute("aria-current"), "step");
                 assert.equal(await page.locator("#phase-args").inputValue(), "Retain these phase details");
                 await buttons.nth(3).click();
-                assert.equal(await pill.textContent(), "Artifact unavailable");
-                assert.deepEqual(await pill.evaluate((element) => {
-                    const style = getComputedStyle(element);
-                    return { background: style.backgroundColor, border: style.borderColor };
-                }), { background: colors.background, border: colors.border }, "all notices use one neutral style");
+                assert.equal(await pill.count(), 0, "unconfigured canvases show errors inline, not as status pills");
+                assert.equal(await page.locator("#phase-card").getByText(phases[implement.instanceKey].artifactError, { exact: true }).isVisible(), true);
                 const last = phases[implement.instanceKey];
                 delete last.artifactError;
                 last.clarificationCount = 0;
                 last.review = { state: "reviewed", label: "Goal met" };
                 await page.evaluate(() => window.workflowEvents.onmessage());
-                assert.equal(await pill.textContent(), "Goal met");
+                assert.equal(await pill.count(), 0, "review metadata cannot introduce result pills without configured labels");
                 assert.match(await buttons.nth(3).getAttribute("class"), /artifact-ready/);
-                assert.equal(await pill.locator("*").count(), 0);
                 last.clarificationCount = 1;
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.textContent(), "Clarification needed");
                 last.clarificationCount = 0;
                 last.review = { state: "failed", label: "Review unavailable", error: "Rerun or reopen to retry." };
                 await page.evaluate(() => window.workflowEvents.onmessage());
-                assert.equal(await pill.textContent(), "Review unavailable");
-                assert.match(await pill.getAttribute("aria-label"), /Rerun or reopen/);
+                assert.equal(await pill.count(), 0);
+                assert.equal(await page.locator("#phase-card").getByText("Rerun or reopen to retry.", { exact: true }).isVisible(), true);
                 delete last.review;
                 await page.evaluate(() => window.workflowEvents.onmessage());
-                assert.equal(await pill.textContent(), "Artifact ready", "standard final-phase readiness matches the collection vocabulary");
+                assert.equal(await pill.count(), 0, "unconfigured final phases have no readiness pill");
                 assert.deepEqual(errors, []);
                 await page.close();
             }

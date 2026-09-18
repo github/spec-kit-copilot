@@ -31,47 +31,37 @@ function validatePhaseInput(input, phase) {
     if (typeof input.optional !== "boolean") throw new Error(`phaseInputs.${phase}.optional must be a boolean`);
 }
 
-function reviewText(value, max) {
-    if (typeof value !== "string" || !value.trim() || value !== value.trim()
-        || value.length > max || /[\x00-\x1f\x7f]/.test(value)) throw new Error("Invalid artifactReview text");
+export function validateResultLabels(value) {
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.length > 5) throw new Error("Workflow results must be a list of up to 5 labels.");
+    const reserved = new Set(["not determined", "clarification needed", "needs clarification",
+        "reviewing", "review unavailable", "artifact unavailable", "artifact ready", "artifact not ready"]);
+    const labels = new Set();
+    for (const text of value) {
+        if (typeof text !== "string" || !text.trim()) {
+            throw new Error("Each result label must be nonempty text.");
+        }
+        if (text !== text.trim() || text.length > 60 || /[\x00-\x1f\x7f\u2028\u2029]/.test(text)
+            || text.split(/\s+/).length > 3) {
+            throw new Error("Result labels must be trimmed single-line text of 1-3 words and at most 60 characters.");
+        }
+        const normalized = text.toLowerCase().replace(/\s+/g, " ");
+        if (reserved.has(normalized)) throw new Error(`"${text}" is built in. Remove it from the custom result labels.`);
+        if (labels.has(normalized)) throw new Error("Result labels must be different.");
+        labels.add(normalized);
+    }
+    return [...value];
 }
 
-export function validateWorkflowConfig(config, pipeline, { example } = {}) {
+export function validateWorkflowConfig(config, pipeline, { resultLabels } = {}) {
     const { all } = commandViews(pipeline);
-    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "artifactReview"]);
-    if (config.artifactReview != null) {
-        const review = config.artifactReview;
-        record(review, "artifactReview", ["phase", "sampleFingerprint", "goal", "statuses", "successStatusId", "complementLabel"]);
-        const final = commandViews(pipeline).workflow.at(-1);
-        if (!final?.artifact?.persistent || review.phase !== final.instanceKey) throw new Error("artifactReview must describe the final artifact-producing workflow phase");
-        if (!/^[a-f0-9]{64}$/.test(review.sampleFingerprint ?? "")) throw new Error("artifactReview requires an example fingerprint");
-        if (example !== undefined && (!example?.available || review.sampleFingerprint !== example.sample?.fingerprint
-            || review.phase !== example.sample?.phase)) throw new Error("artifactReview does not match the captured final example");
-        reviewText(review.goal, 1000);
-        if (!Array.isArray(review.statuses) || review.statuses.length < 2 || review.statuses.length > 6) throw new Error("artifactReview needs 2-6 statuses");
-        const ids = new Set(["needs-review"]);
-        const labels = new Set(["needs review", "clarification needed", "reviewing", "review unavailable", "artifact unavailable"]);
-        for (const status of review.statuses) {
-            record(status, "artifactReview status", ["id", "label", "criterion"]);
-            if (typeof status.id !== "string" || !/^[a-z][a-z0-9-]{0,39}$/.test(status.id) || ids.has(status.id)) throw new Error("artifactReview IDs must be unique and nonreserved");
-            reviewText(status.label, 60);
-            reviewText(status.criterion, 1000);
-            const normalized = status.label.toLowerCase().replace(/\s+/g, " ");
-            if (normalized.split(" ").length > 3 || labels.has(normalized)) throw new Error("artifactReview labels must be unique nonreserved 1-3 word phrases");
-            ids.add(status.id);
-            labels.add(normalized);
-        }
-        if (!review.statuses.some((status) => status.id === review.successStatusId)) {
-            throw new Error("artifactReview successStatusId must identify a configured status");
-        }
-        reviewText(review.complementLabel, 60);
-        const complement = review.complementLabel.toLowerCase().replace(/\s+/g, " ");
-        const success = review.statuses.find((status) => status.id === review.successStatusId);
-        if (complement.split(" ").length > 3
-            || complement === success.label.toLowerCase().replace(/\s+/g, " ")
-            || ["needs review", "clarification needed", "reviewing", "review unavailable", "artifact unavailable"].includes(complement)) {
-            throw new Error("artifactReview complementLabel must be a distinct nonreserved 1-3 word phrase");
-        }
+    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "resultLabels"]);
+    const configuredLabels = validateResultLabels(config.resultLabels);
+    if (configuredLabels.length && !commandViews(pipeline).workflow.at(-1)?.artifact?.persistent) {
+        throw new Error("Workflow results require a persistent artifact from the final workflow phase.");
+    }
+    if (resultLabels !== undefined && JSON.stringify(configuredLabels) !== JSON.stringify(validateResultLabels(resultLabels))) {
+        throw new Error("Result labels must match the generation settings exactly.");
     }
     if (config.version !== 1) throw new Error("unsupported workflow config version");
     record(config.itemLabels, "itemLabels");
@@ -108,9 +98,11 @@ export function validateWorkflowConfig(config, pipeline, { example } = {}) {
 export function createWorkflowAdapter(config, pipeline) {
     // Copy validated JSON so callers cannot change the adapter after validation.
     const settings = JSON.parse(JSON.stringify(validateWorkflowConfig(config, pipeline)));
-    const { constitution } = commandViews(pipeline);
+    const { constitution, workflow } = commandViews(pipeline);
     return Object.freeze({
-        artifactReview() { return structuredClone(settings.artifactReview ?? null); },
+        artifactReview() {
+            return settings.resultLabels?.length ? { phase: workflow.at(-1).instanceKey, labels: [...settings.resultLabels] } : null;
+        },
         phaseInput(phase) {
             return { ...(settings.phaseInputs?.[phase.instanceKey] ?? defaultPhaseInput(
                 constitution?.instanceKey === phase.instanceKey ? phase : undefined,

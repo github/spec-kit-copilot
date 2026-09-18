@@ -4,6 +4,11 @@ __DESCRIPTION__
 
 This project-scoped canvas was generated from a Spec Kit Wizard pipeline. Its runtime and renderer are a deterministic, self-contained copy of the Wizard workflow template. Copilot customizes only declarative data in `workflow-config.json`; all executable files, including `workflow-adapter.mjs`, are protected template code.
 
+Captured files, configuration, and runtime contracts are validated before loading.
+Completion reporting only records the result; a Wizard
+update or reporting failure does not prevent opening a successfully validated and
+loaded canvas. Reporting failures are surfaced separately from generation failures.
+
 ## Artifact viewer
 
 Template version 21 always shows **View artifact** on workflow phase cards,
@@ -41,28 +46,29 @@ after normalizing only application-specific navigation and queue copy. No phase 
 
 ## Phase indicators
 
-Template version 22 adds a collection summary beneath the workflow heading:
-the shared parent folder link and three neutral count pills. The first reuses the
-configured final-phase success label; the last uses its fixed complementary label.
-Success plus complement always equals all saved workflows, excluding New and
-independent of search or selection. Unstarted, unreviewed and unavailable workflows
-belong to the complement, which does not mean failure. **Clarification needed**
+The collection summary beneath the workflow heading contains the shared parent
+folder link and neutral count pills. With result labels configured, it counts
+explicit current matches for each configured label separately. **Not determined**
+counts explicit uncertain reviews and appears only when greater than zero.
+Counts exclude New and are independent of search or selection; they are not
+adjusted to add up to the workflow total. Unstarted, unreviewed, and unavailable
+workflows are not assigned a result to fill a remainder. **Clarification needed**
 counts workflows with one or more unresolved markers in any workflow phase,
-not individual questions, and overlaps the other two counts.
+not individual questions, and overlaps the result counts.
 
-Every workflow row reuses the final-phase pill once its final artifact exists.
+With result labels, every workflow row reuses the final-phase pill once its final artifact exists.
 Otherwise it shows **Run &lt;next phase&gt;**, using the first phase without artifact
 evidence (or a current-session submission for a transient phase). Navigating to a
 later page does not advance progress. No new execution history, LLM calls or stored
 counters are introduced. Automatic snapshot refresh updates the rows and totals.
-Without semantic review configuration, **Artifact ready / Artifact not ready**
-describe readable, nonempty final artifacts without clarification markers, not
-verified goal achievement; the final-phase card uses the same vocabulary.
+Without result labels, only clarification pills and counts are displayed.
+Rows show clarification when any workflow phase has unresolved questions.
+Artifact-readiness and next-phase pills are omitted; errors remain explicit inline text.
 The folder link opens only the blueprint's shared collection root, remains enabled
 when empty, and reports missing-folder or reveal errors inline.
 
-Template version 19 derives phase indicators from fresh, safely bounded artifact
-reads. A readable, nonempty artifact with no open clarification markers is green
+Phase indicators use fresh, safely bounded artifact reads.
+A readable, nonempty artifact with no open clarification markers is green
 with a checkmark; remaining markers make the phase amber with an exclamation mark.
 Missing artifacts stay neutral. Empty, oversized or unreadable artifacts stay
 neutral with an unavailable notice, rather than being mistaken for completion.
@@ -87,45 +93,37 @@ selection and input retention, and neutral notices without executing any phase.
 
 ## Optional final-artifact status
 
-Template version 23 uses the same format-independent reading guidance during
-generation and runtime review. Concepts such as **goal outcome**, **status**,
+An optional list of up to five result labels is supplied in the
+Generate settings, such as **Implemented / Partially implemented / Not implemented**
+or **Go / Hold / Kill**. Labels are preserved exactly and ordered for display, not priority;
+generation does not inspect workflow artifacts to choose them.
+
+Runtime review uses format-independent reading guidance. Concepts such as **goal outcome**, **status**,
 **verdict**, **decision**, and **result** are illustrative semantic cues, not
 required keywords or headings. Copilot considers the whole artifact and locates
 the passages that most closely express its current overall outcome, in any
 Markdown structure. Actual outcomes take precedence over aspirations, future
 plans, examples and intermediate findings; neither the first keyword match nor
-the last section is presumed authoritative. Unclear or conflicting evidence
-omits tailored configuration during generation or yields **Needs review** at
-runtime. Labels and criteria must not depend on the sample's exact layout.
+the last section is presumed authoritative. Unclear, unsupported, or conflicting
+evidence yields **Not determined** rather than forcing a configured result.
 The review fingerprint includes this guidance, invalidating cached assessments
-when it changes. Existing canvases require regeneration to receive the update.
-
-Template version 20 can include `artifactReview` configuration derived from the
-final artifact of a complete example pipeline. The Wizard only checks availability
-of earlier persistent artifacts; it does not interpret their contents or trace
-skill/template precedence to derive statuses. Missing or insufficient examples
-never block Generate: no `artifactReview` means standard artifact/clarification
-indicators and no review requests or review storage.
+when it changes. Empty result settings mean clarification-only pills and no review requests.
 
 When configured, Copilot selects a fixed status ID using only the current final
-artifact and example-derived criteria. All workflow instances use the same 1-3 word
+artifact and configured labels. All workflow instances use the same 1-3 word
 labels. The neutral pill displays that label; unresolved clarification markers
 always take precedence. Green/amber phase colors retain their artifact-based meaning.
-Insufficient evidence yields **Needs review**, not an assumed successful outcome.
+Insufficient evidence yields **Not determined**, not an assumed result.
 
 The existing refresh loop waits for settled content and an idle session, with one
 pending review at a time. Its read-only prompt requests a scoped canvas-action
 callback; arbitrary labels, stale snapshots and cross-workflow results are rejected.
 Only the latest accepted result per workflow is stored under
 `.speckit-wizard/artifact-reviews/`, keyed by workspace/canvas/item/phase and
-fingerprinted against artifact content and configuration. Sample contents are not
-bundled into this app. Review errors surface as **Review unavailable**, with
+fingerprinted against artifact content and configuration. Review errors surface as **Review unavailable**, with
 accessible details. Existing rerun/reopen actions retry failed reviews without
 automatic retry loops. These are assessments of document evidence, not independent
 verification of code, tests or skill execution.
-
-Regenerate to add or change example-informed criteria. Existing generated apps are
-not rewritten automatically.
 
 ## Automatic setup
 
@@ -371,7 +369,7 @@ and workflow creation behavior are unchanged.
 - `ui/clarification-controls.mjs` — shared neutral draft controls, subset selection and retained-draft review.
 - `ui/amendment.mjs` — shared exact visible-marker validation and focused amendment prompt.
 - `amendment-runtime.mjs` — guarded, deduplicated edit-artifact dispatch; no phase execution.
-- `artifact-review.mjs` — optional example-informed final-artifact review and latest-result storage.
+- `artifact-review.mjs` — optional final-artifact result classification and latest-result storage.
 - `workflow-config.json` — validated workflow labels, fixed phase arguments, and input guidance inferred from effective installed skills.
 - `workflow-adapter.mjs` — protected interpretation of that configuration; never generated executable logic.
 - `setup-runtime.mjs` — deterministic read-only readiness checks and agent setup prompt.
@@ -388,19 +386,19 @@ single-line `prefix` and `suffix` strings), and `phaseInputs` (every blueprint p
 instance key to `label`, `helper`, and boolean `optional`). Input labels are at most
 80 characters; helpers are at most 240 characters. Both are plain single-line text
 describing useful content, never slug, identifier, command, or location instructions.
-Legacy configs without `phaseInputs` use neutral guidance; a supplied map must cover
-every phase. Empty labels/fixed-arguments maps use standard behavior.
-Optional `artifactReview` contains `phase` (the final workflow instance key),
-`sampleFingerprint`, `goal`, and 2-6 `statuses` with unique `id`, `label`, and
-`criterion`. Version 22 also requires `successStatusId` to identify one configured
-status and `complementLabel` to describe all other workflows, including incomplete
-ones. The complement is a distinct, nonreserved 1-3 word label of at most 60
-characters. These meanings are derived once from the example, never guessed from
-wording at runtime. Regenerate earlier canvases to obtain the new configuration.
-Labels contain 1-3 words; runtime selects IDs instead of inventing
-wording. Missing/null configuration is the standard path. Generation validates
-the configuration against its captured example; effective skills remain the source
-of phase-input guidance only, not these review criteria.
+A supplied `phaseInputs` map must cover every phase. Empty labels/fixed-arguments
+maps use standard behavior.
+Optional `resultLabels` is an array of zero to five labels, each a trimmed,
+single-line label of 1-3 words and at most 60 characters. Labels must be distinct
+case-insensitively and must not use built-in notice labels such as Not determined,
+Clarification needed, Reviewing, Review unavailable, or Artifact unavailable.
+Both Needs clarification and Clarification needed are reserved, regardless of case
+or whitespace. Generation validates the list and its order against the captured settings
+exactly. Runtime classification binds to the actual final workflow phase and returns
+only the configured positional IDs (`result-1` through `result-5`) or `not-determined`;
+no free-form labels are accepted. Missing/null settings normalize to an empty list.
+Empty settings show only clarification pills. Effective skills are consulted
+for phase-input guidance only, not for result labels.
 The runtime always retains user input, chooses the command from the blueprint, and
 inserts the workflow slug once. Configuration cannot change item identities, discovery,
 phase order, artifact locations, setup, or the New sentinel. Unsupported

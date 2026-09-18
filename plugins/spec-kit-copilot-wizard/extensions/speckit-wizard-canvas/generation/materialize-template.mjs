@@ -37,6 +37,56 @@ function substituteMarkdown(content, metadata) {
         .replaceAll("__DESCRIPTION__", metadata.description.replace(/\s+/g, " "));
 }
 
+function validateSetupContract(blueprint) {
+    const setup = blueprint?.setup;
+    const steps = blueprint?.pipeline?.steps;
+    if (blueprint?.schemaVersion !== 2 || !setup || !Array.isArray(steps)) {
+        throw new Error("generated blueprint has no supported setup contract");
+    }
+    if (setup.integration?.id !== "copilot" || setup.integration?.skillsMode !== true) {
+        throw new Error("generated setup contract must require Copilot skills mode");
+    }
+    if (setup.requireInstallationApproval !== undefined && typeof setup.requireInstallationApproval !== "boolean") {
+        throw new Error("generated setup installation approval must be a boolean");
+    }
+    const expected = new Map();
+    for (const step of steps) {
+        if (!expected.has(step.skillName)) {
+            expected.set(step.skillName, {
+                name: step.skillName,
+                invocation: step.invocation,
+                commandName: step.commandName,
+                provider: {
+                    kind: step.source?.kind,
+                    id: step.source?.id ?? null,
+                },
+            });
+        }
+    }
+    const required = [...(setup.requiredSkills ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+    const expectedSkills = [...expected.values()].sort((a, b) => a.name.localeCompare(b.name));
+    if (JSON.stringify(required) !== JSON.stringify(expectedSkills)) {
+        throw new Error("generated setup requiredSkills do not match the selected pipeline");
+    }
+    for (const kind of ["preset", "extension"]) {
+        const records = setup[`${kind}s`];
+        if (!Array.isArray(records)) throw new Error(`generated setup ${kind}s must be an array`);
+        const ids = new Set();
+        for (const record of records) {
+            if (record?.kind !== kind || !/^[a-z0-9][a-z0-9._-]*$/i.test(record.id ?? "")) {
+                throw new Error(`generated setup contains an invalid ${kind}`);
+            }
+            if (ids.has(record.id)) throw new Error(`generated setup contains duplicate ${kind}: ${record.id}`);
+            ids.add(record.id);
+            if (record.source) {
+                if (typeof record.source.name !== "string" || !/^https:\/\//i.test(record.source.url ?? "")) {
+                    throw new Error(`generated setup contains an invalid ${kind} source`);
+                }
+            }
+        }
+    }
+}
+
 export async function verifyMaterializedFiles({ requestFile, targetDirectory, request }, fs = { readFile, lstat }) {
     const requestDir = dirname(resolve(requestFile));
     const target = resolve(targetDirectory);
@@ -76,6 +126,48 @@ export async function verifyMaterializedFiles({ requestFile, targetDirectory, re
     return pipeline;
 }
 
+export async function validateMaterializedTemplate({ requestFile, targetDirectory, request }) {
+    const target = resolve(targetDirectory);
+    const pipeline = await verifyMaterializedFiles({ requestFile, targetDirectory, request });
+    validateSetupContract(pipeline);
+    // Load only captured validators, never generated executable code or the live Wizard.
+    const template = resolve(dirname(resolve(requestFile)), "template");
+    const [{ validateWorkflowConfig }, { validateWorkflowPaths }] = await Promise.all([
+        import(pathToFileURL(resolve(template, "workflow-adapter.mjs")).href),
+        import(pathToFileURL(resolve(template, "workspace-files.mjs")).href),
+    ]);
+    validateWorkflowPaths(pipeline);
+    validateWorkflowConfig(JSON.parse(await readFile(resolve(target, "workflow-config.json"), "utf8")), pipeline,
+        { resultLabels: request.metadata.resultLabels ?? [] });
+    if (typeof pipeline.runtime?.userProvidesSlug !== "boolean") {
+        throw new Error("generated runtime must declare whether users can provide a slug");
+    }
+    if (typeof pipeline.runtime?.multiInstance !== "boolean") {
+        throw new Error("generated runtime must declare whether it supports multiple workflow instances");
+    }
+    if (pipeline.runtime.multiInstance && !String(pipeline.runtime.itemRoot ?? "").includes("<slug>")) {
+        throw new Error("multi-instance generated runtime requires a slug-scoped item root");
+    }
+    const pipelineText = JSON.stringify(pipeline);
+    if (pipelineText.includes(JSON.stringify(request.workspacePath).slice(1, -1)) || /token/i.test(pipelineText)) {
+        throw new Error("generated pipeline.json contains workspace or token data");
+    }
+    const [extension, html] = await Promise.all([
+        readFile(resolve(target, "extension.mjs"), "utf8"),
+        readFile(resolve(target, "ui", "index.html"), "utf8"),
+    ]);
+    for (const requiredAction of ["list_items", "setup_workflow", "reloadSessionSkills", "run_phase"]) {
+        if (!extension.includes(`name: "${requiredAction}"`)) throw new Error(`generated runtime is missing required action: ${requiredAction}`);
+    }
+    for (const forbidden of ["generate_canvas", "add_command", "remove_command", "clear_pipeline", "reset_pipeline", "reorder_phase"]) {
+        if (extension.includes(forbidden) || html.includes(forbidden)) throw new Error(`generated extension contains forbidden capability: ${forbidden}`);
+    }
+    if (extension.includes("speckit-wizard-canvas") || extension.includes("../shared-workflow-ui")) {
+        throw new Error("generated extension imports the live Wizard instead of its vendored template");
+    }
+    return { ok: true, validated: true };
+}
+
 export async function materialize({ requestFile, targetDirectory, request: suppliedRequest }) {
     const requestPath = resolve(requestFile);
     const requestDir = dirname(requestPath);
@@ -106,6 +198,7 @@ export async function materialize({ requestFile, targetDirectory, request: suppl
     await writeFile(resolve(target, "pipeline.json"), `${JSON.stringify(request.blueprint, null, 2)}\n`, "utf8");
     const configPath = resolve(target, "workflow-config.json");
     const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.resultLabels = request.metadata.resultLabels ?? [];
     const { defaultPhaseInput } = await import(pathToFileURL(resolve(templateDir, "workflow-adapter.mjs")).href);
     config.phaseInputs = Object.fromEntries(request.blueprint.pipeline.steps.map((step) => [step.instanceKey, defaultPhaseInput(step)]));
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -133,12 +226,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     const request = JSON.parse(await readFile(resolve(args.request), "utf8"));
     let result;
     if (args.validate) {
-        const pipeline = await verifyMaterializedFiles({ requestFile: args.request, targetDirectory: args.target, request });
-        // Load only the request's trusted snapshot validator, never generated executable code.
-        const validator = await import(pathToFileURL(resolve(dirname(resolve(args.request)), "template", "workflow-adapter.mjs")).href);
-        validator.validateWorkflowConfig(JSON.parse(await readFile(resolve(args.target, "workflow-config.json"), "utf8")), pipeline,
-            { example: request.example ?? null });
-        result = { ok: true, validated: true };
+        result = await validateMaterializedTemplate({ requestFile: args.request, targetDirectory: args.target, request });
     } else {
         result = await materialize({ requestFile: args.request, targetDirectory: args.target, request });
     }

@@ -12,16 +12,13 @@ import {
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateWorkflowConfig } from "./generated-canvas-template/workflow-adapter.mjs";
-import { validateWorkflowPaths } from "./generated-canvas-template/workspace-files.mjs";
-import { verifyMaterializedFiles } from "./materialize-template.mjs";
 
 export const GENERATED_CANVASES_DIR = ".speckit-wizard/generated-canvases";
 const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 23;
+const TEMPLATE_VERSION = 26;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
@@ -133,131 +130,6 @@ async function readJson(path, fs) {
 
 export async function readGenerationRequest(workspacePath, requestId, fs = realFs) {
     return readJson(join(requestDirectory(workspacePath, requestId), "request.json"), fs);
-}
-
-async function requireRegularFile(path, fs, label) {
-    const entry = await fs.lstat(path);
-    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`${label} is not a regular file`);
-}
-
-function validateSetupContract(blueprint) {
-    const setup = blueprint?.setup;
-    const steps = blueprint?.pipeline?.steps;
-    if (blueprint?.schemaVersion !== 2 || !setup || !Array.isArray(steps)) {
-        throw new Error("generated blueprint has no supported setup contract");
-    }
-    if (setup.integration?.id !== "copilot" || setup.integration?.skillsMode !== true) {
-        throw new Error("generated setup contract must require Copilot skills mode");
-    }
-    if (setup.requireInstallationApproval !== undefined && typeof setup.requireInstallationApproval !== "boolean") {
-        throw new Error("generated setup installation approval must be a boolean");
-    }
-    const expected = new Map();
-    for (const step of steps) {
-        if (!expected.has(step.skillName)) {
-            expected.set(step.skillName, {
-                name: step.skillName,
-                invocation: step.invocation,
-                commandName: step.commandName,
-                provider: {
-                    kind: step.source?.kind,
-                    id: step.source?.id ?? null,
-                },
-            });
-        }
-    }
-    const required = [...(setup.requiredSkills ?? [])].sort((a, b) => a.name.localeCompare(b.name));
-    const expectedSkills = [...expected.values()].sort((a, b) => a.name.localeCompare(b.name));
-    if (JSON.stringify(required) !== JSON.stringify(expectedSkills)) {
-        throw new Error("generated setup requiredSkills do not match the selected pipeline");
-    }
-    for (const kind of ["preset", "extension"]) {
-        const records = setup[`${kind}s`];
-        if (!Array.isArray(records)) throw new Error(`generated setup ${kind}s must be an array`);
-        const ids = new Set();
-        for (const record of records) {
-            if (record?.kind !== kind || !/^[a-z0-9][a-z0-9._-]*$/i.test(record.id ?? "")) {
-                throw new Error(`generated setup contains an invalid ${kind}`);
-            }
-            if (ids.has(record.id)) throw new Error(`generated setup contains duplicate ${kind}: ${record.id}`);
-            ids.add(record.id);
-            if (record.source) {
-                if (typeof record.source.name !== "string" || !/^https:\/\//i.test(record.source.url ?? "")) {
-                    throw new Error(`generated setup contains an invalid ${kind} source`);
-                }
-            }
-        }
-    }
-}
-
-export async function validateGeneratedTemplate(request, fs = realFs) {
-    const target = request?.target?.directory;
-    if (!target || request?.template?.version !== TEMPLATE_VERSION) {
-        throw new Error("generation request has no supported deterministic template");
-    }
-    for (const required of [
-        "extension.mjs",
-        "pipeline.json",
-        "workflow-adapter.mjs",
-        "workflow-config.json",
-        "setup-runtime.mjs",
-        "approval-runtime.mjs",
-        "amendment-runtime.mjs",
-        "project-artifacts.mjs",
-        "workspace-files.mjs",
-        "README.md",
-        "ui/index.html",
-        "ui/app.js",
-        "ui/markdown.mjs",
-        "ui/clarifications.mjs",
-        "ui/clarification-controls.mjs",
-        "ui/amendment.mjs",
-        "ui/command-views.mjs",
-        "ui/workflow-theme.css",
-        "ui/artifact-viewer.css",
-        "ui/stepper.mjs",
-    ]) {
-        try {
-            await requireRegularFile(join(target, ...required.split("/")), fs, required);
-        } catch {
-            throw new Error(`generated extension is missing required template file: ${required}`);
-        }
-    }
-    const requestDir = requestDirectory(request.workspacePath, request.requestId);
-    const generatedPipeline = await verifyMaterializedFiles({
-        requestFile: join(requestDir, "request.json"), targetDirectory: target, request,
-    }, fs);
-    validateSetupContract(generatedPipeline);
-    validateWorkflowPaths(generatedPipeline);
-    validateWorkflowConfig(JSON.parse(await fs.readFile(join(target, "workflow-config.json"), "utf8")), generatedPipeline,
-        { example: request.example ?? null });
-    if (typeof generatedPipeline.runtime?.userProvidesSlug !== "boolean") {
-        throw new Error("generated runtime must declare whether users can provide a slug");
-    }
-    if (typeof generatedPipeline.runtime?.multiInstance !== "boolean") {
-        throw new Error("generated runtime must declare whether it supports multiple workflow instances");
-    }
-    if (generatedPipeline.runtime.multiInstance && !String(generatedPipeline.runtime.itemRoot ?? "").includes("<slug>")) {
-        throw new Error("multi-instance generated runtime requires a slug-scoped item root");
-    }
-    const pipelineText = JSON.stringify(generatedPipeline);
-    if (pipelineText.includes(request.workspacePath) || /token/i.test(pipelineText)) {
-        throw new Error("generated pipeline.json contains workspace or token data");
-    }
-    const [extension, html] = await Promise.all([
-        fs.readFile(join(target, "extension.mjs"), "utf8"),
-        fs.readFile(join(target, "ui", "index.html"), "utf8"),
-    ]);
-    for (const requiredAction of ["list_items", "setup_workflow", "reloadSessionSkills", "run_phase"]) {
-        if (!extension.includes(`name: "${requiredAction}"`)) throw new Error(`generated runtime is missing required action: ${requiredAction}`);
-    }
-    for (const forbidden of ["generate_canvas", "add_command", "remove_command", "clear_pipeline", "reset_pipeline", "reorder_phase"]) {
-        if (extension.includes(forbidden) || html.includes(forbidden)) throw new Error(`generated extension contains forbidden capability: ${forbidden}`);
-    }
-    if (extension.includes("speckit-wizard-canvas") || extension.includes("../shared-workflow-ui")) {
-        throw new Error("generated extension imports the live Wizard instead of its vendored template");
-    }
-    return true;
 }
 
 export async function recoverGenerationStatus(workspacePath, fs = realFs) {

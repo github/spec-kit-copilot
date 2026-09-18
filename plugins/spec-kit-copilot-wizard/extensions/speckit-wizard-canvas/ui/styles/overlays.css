@@ -142,17 +142,23 @@
     line-height: 1.4;
 }
 .generation-message + .generation-message { margin-top: 6px; }
-.generation-example {
-    padding: 10px 12px;
-    border: 1px solid var(--border-color-default);
-    border-radius: var(--radius-md);
-    background: var(--background-color-secondary);
-    color: var(--text-color-default);
-    font-size: 13px;
-    line-height: 1.5;
-    overflow-wrap: anywhere;
+.generation-results {
+    display: grid;
+    gap: 12px;
+    padding-top: 8px;
 }
-.generation-example p { margin: 4px 0 0; }
+.generation-results h4,
+.generation-results p { margin: 0; }
+#generation-result-list {
+    display: grid;
+    gap: 12px;
+}
+.generation-result-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+}
 .generation-warning {
     color: var(--warn-color);
     background: color-mix(in srgb, var(--warn-color) 10%, transparent);

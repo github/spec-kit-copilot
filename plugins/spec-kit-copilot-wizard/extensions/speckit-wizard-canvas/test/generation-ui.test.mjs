@@ -48,6 +48,7 @@ describe("generation UI helpers", () => {
         assert.equal(metadata.workflowListName, "Workflows");
         assert.equal(metadata.userProvidesSlug, false);
         assert.equal(metadata.requireInstallationApproval, false);
+        assert.deepEqual(metadata.resultLabels, []);
         assert.equal(Object.hasOwn(metadata, "multiInstance"), false);
         assert.match(metadata.description, /Intake.*Research/);
     });
@@ -131,11 +132,19 @@ describe("generation UI helpers", () => {
         assert.match(source, /<input id="generation-require-installation-approval" type="checkbox" aria-labelledby="generation-approval-label" aria-describedby="generation-approval-help" \/>/);
         assert.match(source, />Require installation approval<\/strong>/);
         assert.match(source, />Ask users to approve all included presets and extensions before installation\. Otherwise, the app automatically installs missing components without asking for installation approval\.<\/small>/);
-        assert.match(source, /<div class="wizard-modal-body">\s*<div id="generation-example"[^>]*><\/div>\s*<label class="wizard-modal-field" for="generation-target">/);
-        assert.doesNotMatch(source, /submit\.disabled\s*=/, "example checks and submissions do not disable Generate");
+        assert.match(source, /<div class="wizard-modal-body">\s*<label class="wizard-modal-field" for="generation-target">/);
+        assert.doesNotMatch(source, /generation-example|Run once|run the full pipeline|Example artifacts available/);
+        assert.match(source, /Examples: Go \/ Kill, or Implemented \/ Partially implemented \/ Not implemented/);
+        assert.match(source, /Clarification needed is built in/);
+        assert.doesNotMatch(source, /submit\.disabled\s*=/, "preflight checks and submissions do not disable Generate");
         assert.equal((source.match(/id="generation-target"/g) ?? []).length, 1);
         assert.match(source, />Canvas workflow header<\/span>/);
-        assert.match(source, />Heading shown to users above the grouped workflows, such as Assessments or Bugs\.<\/span>/);
+        assert.match(source, />Text displayed as the workflow collection heading, such as Assessments or Bugs\.<\/span>/);
+        assert.match(source, />Text displayed as the canvas title\.<\/span>/);
+        assert.match(source, />The canvas displays result counts for the workflow based on these labels\.<\/p>/);
+        assert.doesNotMatch(source, /Copilot checks|Leave both blank to use standard artifact and clarification indicators/);
+        assert.match(source, /Result label \$\{index \+ 1\}/);
+        assert.match(source, /aria-describedby="generation-results-help generation-results-examples/);
         assert.doesNotMatch(source, /Workflow list name|What should this canvas|Singular name|Plural name|generation-target-row/);
         for (const id of ["target", "extension-id", "display-name", "workflow-list-name", "description"]) {
             const field = source.match(new RegExp(`<label class="wizard-modal-field" for="generation-${id}">([\\s\\S]*?)</label>`))?.[1];
@@ -221,7 +230,31 @@ describe("generation UI helpers", () => {
         }
     });
 
-    test("sends the admin list name through preflight and confirmed overwrite", async () => {
+    test("validates a bounded result list without changing its wording", () => {
+        const metadata = defaultGenerationMetadata(readySnapshot());
+        for (const resultLabels of [undefined, null, [], [" ", " "]]) {
+            const result = validateGenerationMetadata({ ...metadata, resultLabels });
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.metadata.resultLabels, []);
+        }
+        const labels = ["  Ready to implement  ", "Not implemented"];
+        const normalized = validateGenerationMetadata({ ...metadata, resultLabels: labels });
+        assert.deepEqual(normalized.errors, []);
+        assert.deepEqual(normalized.metadata.resultLabels, ["Ready to implement", "Not implemented"]);
+        for (const values of [["Go"], ["One", "Two", "Three", "Four", "Five"]]) {
+            assert.deepEqual(validateGenerationMetadata({ ...metadata, resultLabels: values }).errors, []);
+        }
+        for (const resultLabels of [
+            {}, "Go", ["One", "Two", "Three", "Four", "Five", "Six"], ["Go", "go"], ["Go", 42],
+            ["Not determined"], ["Needs clarification"], [" CLARIFICATION   NEEDED "],
+            ["a".repeat(61)], ["One two three four"], ["Go\nNow"],
+        ]) {
+            const result = validateGenerationMetadata({ ...metadata, resultLabels });
+            assert.ok(result.errors.some((error) => error.field === "resultLabels"), JSON.stringify(resultLabels));
+        }
+    });
+
+    test("sends list name and result settings through preflight and confirmed overwrite", async () => {
         const savedDocument = globalThis.document;
         const savedSnapshot = state.snapshot;
         const elements = new Map();
@@ -231,6 +264,7 @@ describe("generation UI helpers", () => {
                 elements.set(selector, {
                     value: "", checked: false, dataset: {}, innerHTML: "",
                     classList: { add() {}, remove() {} },
+                    setAttribute() {},
                     addEventListener: (type, handler) => listeners.set(type, handler),
                     emit: (type) => listeners.get(type)?.(),
                 });
@@ -240,7 +274,9 @@ describe("generation UI helpers", () => {
         const root = {
             innerHTML: "",
             querySelector: element,
-            querySelectorAll: () => inputs,
+            querySelectorAll: (selector) => selector === "[data-result-label]"
+                ? inputs.filter((input) => Object.hasOwn(input.dataset, "resultLabel"))
+                : selector === "[data-remove-result]" ? [] : inputs.filter((input) => !Object.hasOwn(input.dataset, "resultLabel")),
         };
         const metadata = defaultGenerationMetadata(readySnapshot());
         const fields = {
@@ -248,8 +284,12 @@ describe("generation UI helpers", () => {
             "display-name": metadata.displayName,
             description: metadata.description,
             "workflow-list-name": metadata.workflowListName,
+            "result-0": "",
+            "result-1": "",
         };
-        const inputs = Object.entries(fields).map(([id, value]) => Object.assign(element(`#generation-${id}`), { value }));
+        const inputs = Object.entries(fields).map(([id, value]) => Object.assign(element(`#generation-${id}`), {
+            value, ...(id.startsWith("result-") ? { dataset: { resultLabel: "" } } : {}),
+        }));
         inputs.push(element("#generation-require-installation-approval"));
         const posts = [];
         try {
@@ -279,6 +319,10 @@ describe("generation UI helpers", () => {
             const field = element("#generation-workflow-list-name");
             field.value = "R&D Cases";
             field.emit("input");
+            element("#generation-result-0").value = "Implemented";
+            element("#generation-result-0").emit("input");
+            element("#generation-result-1").value = "Not implemented";
+            element("#generation-result-1").emit("input");
             await element("#generation-submit").emit("click");
             assert.equal(posts.at(-1).body.workflowListName, "R&D Cases");
             assert.equal(posts.at(-1).body.requireInstallationApproval, true);
@@ -291,6 +335,7 @@ describe("generation UI helpers", () => {
             assert.equal(start.body.overwrite, true);
             assert.equal(start.body.requireInstallationApproval, true);
             assert.equal(start.body.extensionId, "revised-assess-workflow");
+            assert.deepEqual(start.body.resultLabels, ["Implemented", "Not implemented"]);
             assert.equal(Object.hasOwn(start.body, "target"), false);
         } finally {
             closeGenerationDialog();

@@ -65,7 +65,9 @@ const artifactReviewer = createArtifactReviewer({
         if (!item) return null;
         const artifact = await artifactPath(commands.workflow.at(-1), item, inst);
         if (!artifact) return null;
-        return { artifact, content: await readWorkflowArtifact(inst.cwd, artifact, pipeline) };
+        const content = await readWorkflowArtifact(inst.cwd, artifact, pipeline);
+        if (!content.trim() || visibleMarkers(content).length) return null;
+        return { artifact, content };
     },
 });
 const amendArtifact = createAmendmentRuntime({
@@ -381,9 +383,7 @@ async function snapshot(inst, allowReview = false) {
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
         artifactReview: reviewConfig ? {
             phase: reviewConfig.phase,
-            successStatusId: reviewConfig.successStatusId,
-            successLabel: reviewConfig.statuses.find((status) => status.id === reviewConfig.successStatusId).label,
-            complementLabel: reviewConfig.complementLabel,
+            labels: reviewConfig.labels,
         } : null,
         ...(constitution ? { projectArtifacts: { constitution } } : {}),
     };
@@ -872,11 +872,11 @@ async function startHttp(inst) {
 const actions = [
     ...(reviewConfig ? [{
         name: "report_artifact_review",
-        description: "Report a fixed status ID for a pending example-informed final-artifact review.",
+        description: "Report a fixed status ID for a pending read-only final-artifact review.",
         inputSchema: {
             type: "object", required: ["requestId", "statusId"], additionalProperties: false,
             properties: { requestId: { type: "string" },
-                statusId: { type: "string", enum: ["needs-review", ...reviewConfig.statuses.map((status) => status.id)] } },
+                statusId: { type: "string", enum: [...reviewConfig.labels.map((_label, index) => `result-${index + 1}`), "not-determined"] } },
         },
         handler: async (ctx) => {
             const inst = instanceFor(ctx.instanceId);

@@ -132,34 +132,75 @@ async function fixture() {
 test("collection counts use final status IDs and distinct workflows, not marker totals or labels", async () => {
     const f = await fixture();
     f.snapshot.artifactReview = {
-        phase: f.plan.instanceKey, successStatusId: "finished",
-        successLabel: "Decision made", complementLabel: "Decision not made",
+        phase: f.plan.instanceKey, labels: ["Decision made", "Decision deferred", "Decision not made"],
     };
     const [alpha, beta] = f.snapshot.items;
     for (const item of [alpha, beta]) {
         item.phases[f.specify.instanceKey].clarificationCount = 4;
         item.phases[f.plan.instanceKey].clarificationCount = 0;
     }
-    alpha.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "finished", label: "Decision made" };
+    alpha.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "result-1", label: "Decision made" };
     beta.phases[f.plan.instanceKey].review = { state: "pending", label: "Decision made" };
     await f.refresh();
     const summary = () => f.get("instance-collection").innerHTML.match(/<div class="collection-summary"[\s\S]*?<\/div>/)[0];
     assert.match(summary(), />Decision made: 1</);
     assert.match(summary(), />Clarification needed: 2</);
+    assert.match(summary(), />Decision not made: 0</);
+    assert.doesNotMatch(summary(), />Not determined:/);
+    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "not-determined", label: "Not determined" };
+    await f.refresh();
+    assert.match(summary(), />Not determined: 1</);
+    assert.match(summary(), />Decision deferred: 0</);
+    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "result-3", label: "Decision made" };
+    await f.refresh();
+    assert.match(summary(), />Decision made: 1</);
     assert.match(summary(), />Decision not made: 1</);
-    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "finished", label: "Decision made" };
+    assert.doesNotMatch(summary(), />Not determined:/);
+    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "invented", label: "Decision made", success: true };
+    await f.refresh();
+    assert.doesNotMatch(summary(), />Not determined:/);
+    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "result-1", label: "Decision made" };
     await f.refresh();
     assert.match(summary(), />Decision made: 2</);
     assert.match(summary(), />Decision not made: 0</);
+    assert.doesNotMatch(summary(), />Not determined:/);
     beta.phases[f.plan.instanceKey].clarificationCount = 1;
     await f.refresh();
     assert.match(summary(), />Decision made: 1</);
+    assert.doesNotMatch(summary(), />Not determined:/);
     assert.match(f.get("instance-collection").innerHTML, />Clarification needed<\/span>/);
     beta.phases[f.plan.instanceKey].artifact = null;
     await f.refresh();
     assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
     await f.get("next-phase").emit("click");
     assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
+    assert.equal(f.posts.length, 0);
+});
+
+test("unconfigured results show only clarification pills while retaining inline artifact errors and indicators", async () => {
+    const f = await fixture();
+    const [alpha, beta] = f.snapshot.items;
+    alpha.phases[f.specify.instanceKey].clarificationCount = 3;
+    alpha.phases[f.plan.instanceKey].clarificationCount = 0;
+    beta.phases[f.specify.instanceKey].clarificationCount = 0;
+    beta.phases[f.plan.instanceKey] = { artifact: "specs/beta/plan.md", clarificationCount: null, artifactError: "Cannot read <artifact>" };
+    await f.refresh();
+    const html = f.get("instance-collection").innerHTML;
+    assert.match(html, />Clarification needed: 1</);
+    assert.match(html, />Clarification needed<\/span>/);
+    assert.match(html, /role="status">Cannot read &lt;artifact&gt;<\/span>/);
+    assert.doesNotMatch(html, /Artifact ready:|Artifact not ready:|>Run Plan<|>Not determined/);
+    assert.equal((html.match(/class="phase-notice"/g) ?? []).length, 2);
+    await f.select("beta");
+    await f.get("next-phase").emit("click");
+    assert.match(f.get("phase-card").innerHTML, /role="status">Cannot read &lt;artifact&gt;<\/span>/);
+    assert.doesNotMatch(f.get("phase-card").innerHTML, /class="phase-notice"/);
+    await f.select("alpha");
+    assert.match(f.get("phase-navigation").innerHTML, /needs-clarification/);
+    assert.match(f.get("phase-navigation").innerHTML, /artifact-ready/);
+    f.snapshot.pipeline.runtime.multiInstance = false;
+    await f.refresh();
+    assert.equal(f.get("instance-collection").hidden, true);
     assert.equal(f.posts.length, 0);
 });
 

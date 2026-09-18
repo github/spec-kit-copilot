@@ -95,52 +95,45 @@ The agent opens the wizard in a side panel. See
 
 ## Generating a canvas from a pipeline
 
-Template version **23** shares semantic outcome-reading guidance between generation
-and runtime review. Goal outcome, status, verdict, decision and result are examples
-of meaning to locate anywhere in Markdown, not required keywords or headings.
-Copilot distinguishes current outcomes from goals, plans and intermediate findings;
-uncertain evidence retains the existing fallback rather than forcing a match.
-
-Generated template version **22** adds a shared collection-folder link, three
-count pills, and a status pill on every saved workflow row. The success count
-reuses the final-phase status label; its complementary count is total minus success.
-**Clarification needed** independently counts workflows with unresolved questions
-in any phase, so it overlaps those two counts. Rows reuse the final-phase pill or
-show **Run &lt;next phase&gt;** when the final artifact is not yet available. Counts
+Generated canvases show a shared collection-folder link and independent count pills.
+Each configured result label counts its explicit current final-artifact classifications.
+**Not determined** counts explicit uncertain reviews and is shown only when greater
+than zero. Counts are not adjusted to add up to the workflow total.
+**Clarification needed** independently counts workflows with unresolved
+questions in any phase and can overlap the result counts. With result settings,
+rows reuse the final-phase pill or show **Run &lt;next phase&gt;** when the final artifact
+is not yet available. Counts
 ignore search/selection and exclude the unsaved New form. They reuse existing
 snapshots and reviews without additional LLM requests or persisted counters.
-Example-derived `artifactReview` now declares `successStatusId` and
-`complementLabel`; standard canvases use **Artifact ready / Artifact not ready**
-without claiming goal achievement. Regenerate existing canvases to receive this UI.
+Without result settings, only clarification pills are shown. Artifact indicators,
+viewers, navigation, and inline errors remain available.
 
-Generated template version **21** keeps **View artifact** visible on every workflow
+**View artifact** remains visible on every workflow
 phase, even before execution. The in-canvas viewer uses the phase's output path
 and shows missing-artifact guidance or read errors inline, preserving phase drafts
-when returning to the workflow. Regenerate existing canvases to pick up this change.
+when returning to the workflow.
 
 Complete Setup, install the presets/extensions you want, and shape the
 pipeline on the **Phases** page. Click **Generate canvas**, review the
 ordered commands and inferred artifact targets, then choose the generated
 extension id and canvas name.
 
-The Generate popup includes an advisory about example artifacts. **Generate is
-never disabled because examples are missing or could not be inspected.** A complete
-example means readable, nonempty artifacts for each persistent workflow phase in
-one workflow context; transient phases and the separate Constitution prerequisite
-are excluded. This is an availability check, not proof of successful execution.
-Only the final phase's artifact contents inform optional tailored status labels.
-No workflow is run automatically to collect examples.
+The optional **Workflow results** settings accept up to five result labels, such as
+**Implemented / Partially implemented / Not implemented** or **Go / Hold / Kill**.
+Use **Add result** and **Remove** to edit the list, or leave it empty. Labels must be distinct,
+nonreserved, single-line phrases of 1-3 words and at most 60 characters. The actual
+last workflow phase must declare a persistent artifact to support result labels.
+**Needs clarification** and **Clarification needed** are reserved because clarification
+is built in; entering either displays a validation message rather than adding a duplicate.
+Generation uses these exact settings and does not read workflow artifacts.
 
-Template version **20** captures that final example with the generation request,
-not in the generated app. Copilot may derive a reusable goal and a fixed vocabulary
-of 1-3 word status labels in optional `artifactReview` configuration. It does not
-trace skill/template precedence or interpret earlier artifacts for this purpose.
-Missing or insufficient examples retain standard artifact/clarification indicators,
-with an explicit generation-result note. Regeneration is required to add or change
-the vocabulary later.
-
-Example-informed canvases ask Copilot to select an existing label from each final
-artifact after it settles and the agent is idle. The same labels apply to every
+Configured canvases ask Copilot to interpret each final artifact after it settles
+and the agent is idle, selecting one configured label or **Not determined**.
+List order controls display order, not classification priority.
+Goal outcome, status, verdict, decision and result are semantic cues, not required
+keywords or headings. Actual conclusions take precedence over goals, future plans,
+and intermediate findings; ambiguous evidence never forces a binary choice.
+The same labels apply to every
 workflow; the existing neutral pill displays them, with **Clarification needed**
 taking precedence. Standard canvases make no review requests. Reviews are read-only,
 scoped and fingerprinted; stale results are rejected. Failures show **Review unavailable**
@@ -157,8 +150,8 @@ repeated as implementation instructions. Skill files are reference data, not
 commands to execute during generation. The agent
 customizes only the validated `workflow-config.json` (item labels, fixed phase
 argument prefixes/suffixes, and concise per-phase input labels/helpers derived from
-the effective installed skills, including preset overrides, plus optional
-example-derived final-artifact review criteria). Phase input guidance
+the effective installed skills, including preset overrides). It preserves the seeded
+user-defined final-artifact result labels unchanged. Phase input guidance
 appears inside the empty textarea as placeholder text that disappears when typing
 and returns when cleared; it is never prefilled or submitted as input.
 The field label remains visible, and a screen-reader description retains the guidance
@@ -169,12 +162,19 @@ otherwise neutral; empty input never blocks Run. `workflow-adapter.mjs` is prote
 not an executable customization point. The renderer, secure runtime, and
 pipeline data are deterministic rather than LLM-authored. Before extension reload,
 the request-local materializer's `--validate` mode verifies code hashes, metadata
-substitutions, blueprint equality, and the configuration schema; the result callback
-also validates the output. These are static integrity checks, not workflow tests.
+substitutions, blueprint equality, configuration schema, and setup, path, and
+standalone-runtime contracts. Validation happens before loading; the result callback
+only records completion for the matching request,
+without inspecting generated files or requiring the current template version.
+These are static integrity checks, not workflow tests.
 Production generation does not run test suites or browser automation, probe actions,
-install components, or execute/queue phases. After reporting success, the agent opens
-the generated canvas once as the final user handoff and stops without interacting
-with it. The canvas's normal automatic setup-on-open behavior is unchanged.
+install components, or execute/queue phases. After validation and provider loading
+succeed, the agent attempts to report success, opens the generated canvas once as
+the final user handoff, and stops without interacting with it. A reporting failure
+produces a warning that the Wizard's completion status could not be updated; it
+does not block opening or trigger regeneration. Validation and provider-loading
+failures still block opening. The canvas's normal automatic setup-on-open behavior
+is unchanged.
 The provider is inspected only for load status after reload. The result is
 written to:
 
@@ -341,6 +341,10 @@ The toolbar shows generation activity on the Generate button itself, without
 adjacent status, output-path, or error text. The generation prompt directs the agent
 to explain failures in chat, including when the callback cannot be delivered.
 Generation results remain recorded; field-validation feedback stays in the popup.
+The popup button stays **Generate** while editing and checking settings, and shows
+**Generating...** only while starting the confirmed request. Failures restore
+**Generate**; existing targets retain the explicit **Overwrite and generate**
+confirmation. Background checks never change the button label.
 
 ### Optional project Constitution
 

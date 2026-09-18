@@ -1,5 +1,6 @@
 // Validate generated-canvas names and workspace-relative destination paths.
 import { relative, resolve, sep } from "node:path";
+import { validateResultLabels } from "./generated-canvas-template/workflow-adapter.mjs";
 
 const EXTENSION_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PROTECTED_EXTENSION_IDS = new Set(["speckit-wizard", "speckit-wizard-canvas"]);
@@ -12,6 +13,18 @@ export function validateGenerationMetadata(input) {
         : typeof input.workflowListName === "string" ? input.workflowListName.trim() : "";
     const errors = [];
     const warnings = [];
+    let resultLabels = [];
+    try {
+        const raw = input?.resultLabels;
+        if (raw != null) {
+            const normalized = Array.isArray(raw)
+                ? raw.map((value) => typeof value === "string" ? value.trim() : value).filter((value) => value !== "")
+                : raw;
+            resultLabels = validateResultLabels(normalized);
+        }
+    } catch (error) {
+        errors.push({ code: "result_labels_invalid", field: "resultLabels", message: error.message });
+    }
 
     if (!EXTENSION_ID_RE.test(extensionId)) {
         errors.push({ code: "extension_id_invalid", field: "extensionId", message: "Extension ID must be 1-63 lowercase letters, numbers, or hyphens, and cannot start or end with a hyphen." });
@@ -32,7 +45,7 @@ export function validateGenerationMetadata(input) {
     if (description && !/[.!?]$/.test(description)) {
         warnings.push({ code: "description_sentence", field: "description", message: "Consider ending the description with punctuation." });
     }
-    return { metadata: { extensionId, displayName, description, workflowListName }, errors, warnings };
+    return { metadata: { extensionId, displayName, description, workflowListName, resultLabels }, errors, warnings };
 }
 
 export function generationTarget(workspacePath, extensionId) {

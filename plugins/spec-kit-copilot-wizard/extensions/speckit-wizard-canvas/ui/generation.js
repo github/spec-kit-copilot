@@ -8,16 +8,53 @@ let preflightTimer = null;
 let dialogVersion = 0;
 let preflightVersion = 0;
 
-function renderExample(root, example) {
-    const panel = root.querySelector("#generation-example");
-    if (!panel) return;
-    const heading = example?.available ? "Example artifacts available" : "Example artifacts improve status labels";
-    const message = example?.available
-        ? `Copilot will use the final phase's artifact to tailor its status labels. Example: ${example.source}.`
-        : "Run this pipeline once to create example artifacts. Copilot uses the final artifact to tailor its status labels. You can generate now with standard artifact and clarification indicators.";
-    panel.innerHTML = `<strong>${heading}</strong><p>${escapeHtml(message)}</p>${
-        example?.available ? `<p><code>${escapeHtml(example.finalArtifact)}</code></p>`
-            : `${example?.reason ? `<p>${escapeHtml(example.reason)}</p>` : ""}${example?.missing?.length ? `<p>Missing or unreadable: ${escapeHtml(example.missing.join(", "))}.</p>` : ""}`}`;
+function resultInputs(root) {
+    return [...root.querySelectorAll("[data-result-label]")];
+}
+
+function resultLabels(root) {
+    return resultInputs(root).map((input) => input.value.trim()).filter(Boolean);
+}
+
+function renderResultInputs(root, values, onChange) {
+    const list = root.querySelector("#generation-result-list");
+    if (!list) return;
+    list.innerHTML = values.map((value, index) => `
+        <div class="generation-result-row">
+            <label class="wizard-modal-field" for="generation-result-${index}">
+                <span class="wizard-modal-field-label">Result label ${index + 1}</span>
+                <input id="generation-result-${index}" data-result-label class="wizard-modal-input" maxlength="60"
+                    value="${escapeHtml(value)}" placeholder="e.g. ${["Implemented", "Partially implemented", "Not implemented"][index] ?? "Deferred"}"
+                    aria-describedby="generation-results-help generation-results-examples generation-results-unavailable generation-messages" />
+            </label>
+            <button type="button" class="btn btn-secondary btn-sm" data-remove-result="${index}" aria-label="Remove result label ${index + 1}">Remove</button>
+        </div>`).join("");
+    for (const input of resultInputs(root)) input.addEventListener("input", onChange);
+    for (const button of root.querySelectorAll("[data-remove-result]")) {
+        button.addEventListener("click", () => {
+            const next = resultInputs(root).map((input) => input.value);
+            const index = Number(button.dataset.removeResult);
+            next.splice(index, 1);
+            renderResultInputs(root, next, onChange);
+            onChange();
+            (resultInputs(root)[Math.min(index, next.length - 1)] ?? root.querySelector("#generation-add-result"))?.focus();
+        });
+    }
+    renderResultSettings(root, root._generationPreflight);
+}
+
+function renderResultSettings(root, result) {
+    const invalid = result?.errors?.some((error) => error.field === "resultLabels");
+    const inputs = resultInputs(root);
+    const hasLabels = resultLabels(root).length > 0;
+    for (const input of inputs) {
+        input.setAttribute("aria-invalid", invalid ? "true" : "false");
+        if (typeof result?.supportsResultLabels === "boolean") input.disabled = !result.supportsResultLabels && !hasLabels;
+    }
+    const add = root.querySelector("#generation-add-result");
+    if (add) add.disabled = inputs.length >= 5 || result?.supportsResultLabels === false;
+    const unavailable = root.querySelector("#generation-results-unavailable");
+    if (unavailable && typeof result?.supportsResultLabels === "boolean") unavailable.hidden = result.supportsResultLabels;
 }
 
 function escapeHtml(value) {
@@ -104,6 +141,7 @@ export function defaultGenerationMetadata(snapshot = state.snapshot) {
         workflowListName: "Workflows",
         userProvidesSlug: false,
         requireInstallationApproval: false,
+        resultLabels: [],
         description: sequence
             ? `Visual workflow for ${sequence}.`
             : "Visual Spec Kit workflow.",
@@ -146,25 +184,18 @@ async function runPreflight(root) {
     const workflowListName = root.querySelector("#generation-workflow-list-name")?.value.trim() ?? "";
     const userProvidesSlug = root.querySelector("#generation-user-provides-slug")?.checked === true;
     const requireInstallationApproval = root.querySelector("#generation-require-installation-approval")?.checked === true;
-    const submit = root.querySelector("#generation-submit");
     const target = root.querySelector("#generation-target");
-    if (submit) {
-        submit.textContent = "Checking…";
-    }
     let result;
     try {
-        result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval });
+        result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval, resultLabels: resultLabels(root) });
     } catch {
         result = { ok: false, errors: ["Could not check generation settings. Try Generate again."] };
     }
     if (version !== preflightVersion || dialog !== dialogVersion) return null;
     root._generationPreflight = result;
     renderMessages(root.querySelector("#generation-messages"), result);
-    renderExample(root, result?.example);
+    renderResultSettings(root, result);
     if (target) target.value = result?.target?.relativeDirectory || `.github/extensions/${extensionId || "…"}/`;
-    if (submit) {
-        submit.textContent = result?.targetExists ? "Regenerate" : "Generate";
-    }
     return result;
 }
 
@@ -207,15 +238,14 @@ async function submitGeneration(root) {
         }
         const metadata = root._generationMetadata;
         const submit = root.querySelector("#generation-submit");
-        if (submit) submit.textContent = "Queuing…";
+        if (submit) submit.textContent = "Generating…";
         const result = await __postJson("/api/generation/start", {
             ...metadata,
             overwrite: submit?.dataset.overwrite === "true",
         });
         if (!result?.requestId) {
             if (dialog === dialogVersion) {
-                if (submit) submit.textContent = "Try again";
-                renderMessages(root.querySelector("#generation-messages"), { errors: ["Generation was not queued. Check the settings and try again."] });
+                renderMessages(root.querySelector("#generation-messages"), { errors: ["Generation did not start. Check the settings and try again."] });
             }
             return;
         }
@@ -228,11 +258,15 @@ async function submitGeneration(root) {
         __render();
     } catch {
         if (dialog === dialogVersion) {
-            renderMessages(root.querySelector("#generation-messages"), { errors: ["Could not queue generation. Try again."] });
-            const submit = root.querySelector("#generation-submit");
-            if (submit) submit.textContent = "Try again";
+            renderMessages(root.querySelector("#generation-messages"), { errors: ["Could not start generation. Try again."] });
         }
-    } finally { if (dialog === dialogVersion) root._generationSubmitting = false; }
+    } finally {
+        if (dialog === dialogVersion) {
+            root._generationSubmitting = false;
+            const submit = root.querySelector("#generation-submit");
+            if (submit) submit.textContent = submit.dataset.overwrite === "true" ? "Overwrite and generate" : "Generate";
+        }
+    }
 }
 
 export function closeGenerationDialog() {
@@ -249,6 +283,7 @@ export function openGenerationDialog() {
     if (!root) return;
     dialogVersion++;
     root._generationSubmitting = false;
+    root._generationPreflight = null;
     const metadata = defaultGenerationMetadata();
     root.innerHTML = `
         <div class="wizard-modal-backdrop" role="presentation">
@@ -258,32 +293,39 @@ export function openGenerationDialog() {
                     <button class="wizard-modal-close" type="button" aria-label="Close">✕</button>
                 </header>
                 <div class="wizard-modal-body">
-                    <div id="generation-example" class="generation-example" role="status" aria-live="polite"></div>
                     <label class="wizard-modal-field" for="generation-target">
                         <span class="wizard-modal-field-label" id="generation-target-label">Target</span>
-                        <span class="wizard-modal-desc" id="generation-target-help">Canvas app folder in this workspace. Set by Extension ID.</span>
+                        <span class="wizard-modal-desc" id="generation-target-help">Folder where the canvas app is created. Set by Extension ID.</span>
                         <input id="generation-target" class="wizard-modal-input" value=".github/extensions/${escapeHtml(metadata.extensionId)}/" aria-labelledby="generation-target-label" aria-describedby="generation-target-help" readonly />
                     </label>
                     <label class="wizard-modal-field" for="generation-extension-id">
                         <span class="wizard-modal-field-label" id="generation-extension-id-label">Extension ID</span>
-                        <span class="wizard-modal-desc" id="generation-extension-id-help">Folder name and unique ID. Use lowercase letters, numbers, and hyphens.</span>
+                        <span class="wizard-modal-desc" id="generation-extension-id-help">Technical ID and folder name, not a display label. Use lowercase letters, numbers, and hyphens.</span>
                         <input id="generation-extension-id" class="wizard-modal-input" value="${escapeHtml(metadata.extensionId)}" aria-labelledby="generation-extension-id-label" aria-describedby="generation-extension-id-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-display-name">
                         <span class="wizard-modal-field-label" id="generation-display-name-label">Canvas name</span>
-                        <span class="wizard-modal-desc" id="generation-display-name-help">Name shown to users when they open the canvas.</span>
+                        <span class="wizard-modal-desc" id="generation-display-name-help">Text displayed as the canvas title.</span>
                         <input id="generation-display-name" class="wizard-modal-input" value="${escapeHtml(metadata.displayName)}" aria-labelledby="generation-display-name-label" aria-describedby="generation-display-name-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-workflow-list-name">
                         <span class="wizard-modal-field-label" id="generation-workflow-list-name-label">Canvas workflow header</span>
-                        <span class="wizard-modal-desc" id="generation-workflow-list-name-help">Heading shown to users above the grouped workflows, such as Assessments or Bugs.</span>
+                        <span class="wizard-modal-desc" id="generation-workflow-list-name-help">Text displayed as the workflow collection heading, such as Assessments or Bugs.</span>
                         <input id="generation-workflow-list-name" class="wizard-modal-input" value="${escapeHtml(metadata.workflowListName)}" maxlength="80" aria-labelledby="generation-workflow-list-name-label" aria-describedby="generation-workflow-list-name-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-description">
                         <span class="wizard-modal-field-label" id="generation-description-label">Description</span>
-                        <span class="wizard-modal-desc" id="generation-description-help">Short summary of what the canvas does.</span>
+                        <span class="wizard-modal-desc" id="generation-description-help">Text used to describe what the canvas does.</span>
                         <textarea id="generation-description" class="wizard-modal-textarea generation-description" aria-labelledby="generation-description-label" aria-describedby="generation-description-help">${escapeHtml(metadata.description)}</textarea>
                     </label>
+                    <div class="generation-results" role="group" aria-labelledby="generation-results-title" aria-describedby="generation-results-help">
+                        <h4 id="generation-results-title">Workflow results <span class="muted">(optional)</span></h4>
+                        <p class="wizard-modal-desc" id="generation-results-help">The canvas displays result counts for the workflow based on these labels.</p>
+                        <p class="wizard-modal-desc" id="generation-results-examples">Examples: Go / Kill, or Implemented / Partially implemented / Not implemented. Add up to 5 labels of 1-3 words. Clarification needed is built in.</p>
+                        <div id="generation-result-list"></div>
+                        <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add result</button></div>
+                        <p class="wizard-modal-desc" id="generation-results-unavailable" hidden>The final workflow phase does not declare a persistent artifact. Remove custom labels to generate without result pills.</p>
+                    </div>
                     <label class="wizard-modal-check">
                         <input id="generation-user-provides-slug" type="checkbox" />
                         <span>
@@ -307,13 +349,13 @@ export function openGenerationDialog() {
             </section>
         </div>`;
     root._generationMetadata = metadata;
-    renderExample(root, null);
     root.querySelector(".wizard-modal-close")?.addEventListener("click", closeGenerationDialog);
     root.querySelector(".wizard-modal-cancel")?.addEventListener("click", closeGenerationDialog);
     root.querySelector(".wizard-modal-backdrop")?.addEventListener("click", (event) => {
         if (event.target === event.currentTarget) closeGenerationDialog();
     });
     const syncMetadata = () => {
+        preflightVersion++;
         root._generationMetadata = {
             extensionId: root.querySelector("#generation-extension-id")?.value.trim() ?? "",
             displayName: root.querySelector("#generation-display-name")?.value.trim() ?? "",
@@ -321,10 +363,19 @@ export function openGenerationDialog() {
             workflowListName: root.querySelector("#generation-workflow-list-name")?.value.trim() ?? "",
             userProvidesSlug: root.querySelector("#generation-user-provides-slug")?.checked === true,
             requireInstallationApproval: root.querySelector("#generation-require-installation-approval")?.checked === true,
+            resultLabels: resultLabels(root),
         };
         schedulePreflight(root);
     };
     for (const input of root.querySelectorAll("input:not([readonly]), textarea")) input.addEventListener("input", syncMetadata);
+    renderResultInputs(root, [""], syncMetadata);
+    root.querySelector("#generation-add-result")?.addEventListener("click", () => {
+        const values = resultInputs(root).map((input) => input.value);
+        if (values.length >= 5 || root._generationPreflight?.supportsResultLabels === false) return;
+        renderResultInputs(root, [...values, ""], syncMetadata);
+        syncMetadata();
+        resultInputs(root).at(-1)?.focus();
+    });
     root.querySelector("#generation-submit")?.addEventListener("click", () => submitGeneration(root));
     runPreflight(root);
 }
