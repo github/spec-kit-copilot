@@ -345,11 +345,18 @@ describe("generated extension setup lifecycle", () => {
             }),
         }, { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, artifactReview: {
             phase: final.instanceKey, sampleFingerprint: "a".repeat(64), goal: "Document scope.",
+            successStatusId: "ready", complementLabel: "Scope not documented",
             statuses: [{ id: "draft", label: "Scope incomplete", criterion: "Missing scope." },
                 { id: "ready", label: "Scope documented", criterion: "Scope is documented." }],
         } } });
-        await canvas.open({ instanceId: "review-panel", input: { cwd: workspace } });
+        const opened = await canvas.open({ instanceId: "review-panel", input: { cwd: workspace } });
         const list = canvas.actions.find((action) => action.name === "list_items");
+        const stateUrl = new URL(opened.url);
+        stateUrl.pathname = "/api/state";
+        assert.deepEqual((await (await fetch(stateUrl)).json()).artifactReview, {
+            phase: final.instanceKey, successStatusId: "ready",
+            successLabel: "Scope documented", complementLabel: "Scope not documented",
+        });
         const phase = async () => (await list.handler({ instanceId: "review-panel", input: {} })).items
             .find((item) => item.id === "alpha").phases[final.instanceKey];
         assert.equal((await phase()).review.label, "Needs review");
@@ -361,6 +368,7 @@ describe("generated extension setup lifecycle", () => {
         const report = canvas.actions.find((action) => action.name === "report_artifact_review");
         await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "ready" } });
         assert.equal((await phase()).review.label, "Scope documented");
+        assert.equal((await phase()).review.statusId, "ready");
         await writeFile(file, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
         assert.equal((await phase()).review, undefined);
         assert.equal((await phase()).clarificationCount, 1);

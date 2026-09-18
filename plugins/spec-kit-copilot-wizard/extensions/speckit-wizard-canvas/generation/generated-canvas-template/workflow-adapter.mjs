@@ -41,7 +41,7 @@ export function validateWorkflowConfig(config, pipeline, { example } = {}) {
     record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "artifactReview"]);
     if (config.artifactReview != null) {
         const review = config.artifactReview;
-        record(review, "artifactReview", ["phase", "sampleFingerprint", "goal", "statuses"]);
+        record(review, "artifactReview", ["phase", "sampleFingerprint", "goal", "statuses", "successStatusId", "complementLabel"]);
         const final = commandViews(pipeline).workflow.at(-1);
         if (!final?.artifact?.persistent || review.phase !== final.instanceKey) throw new Error("artifactReview must describe the final artifact-producing workflow phase");
         if (!/^[a-f0-9]{64}$/.test(review.sampleFingerprint ?? "")) throw new Error("artifactReview requires an example fingerprint");
@@ -60,6 +60,17 @@ export function validateWorkflowConfig(config, pipeline, { example } = {}) {
             if (normalized.split(" ").length > 3 || labels.has(normalized)) throw new Error("artifactReview labels must be unique nonreserved 1-3 word phrases");
             ids.add(status.id);
             labels.add(normalized);
+        }
+        if (!review.statuses.some((status) => status.id === review.successStatusId)) {
+            throw new Error("artifactReview successStatusId must identify a configured status");
+        }
+        reviewText(review.complementLabel, 60);
+        const complement = review.complementLabel.toLowerCase().replace(/\s+/g, " ");
+        const success = review.statuses.find((status) => status.id === review.successStatusId);
+        if (complement.split(" ").length > 3
+            || complement === success.label.toLowerCase().replace(/\s+/g, " ")
+            || ["needs review", "clarification needed", "reviewing", "review unavailable", "artifact unavailable"].includes(complement)) {
+            throw new Error("artifactReview complementLabel must be a distinct nonreserved 1-3 word phrase");
         }
     }
     if (config.version !== 1) throw new Error("unsupported workflow config version");

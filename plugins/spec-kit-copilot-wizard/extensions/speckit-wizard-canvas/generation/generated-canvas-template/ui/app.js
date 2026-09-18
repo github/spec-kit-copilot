@@ -102,12 +102,26 @@ function renderInstanceCollection() {
     const items = (state.snapshot?.items ?? [])
         .filter((item) => !item.isNew)
         .sort((left, right) => (right.lastActivity ?? 0) - (left.lastActivity ?? 0));
+    const statuses = new Map(items.map((item) => [item.id, workflowStatus(item)]));
+    const successCount = items.filter((item) => statuses.get(item.id).success).length;
+    const clarificationCount = items.filter((item) => workflowSteps().some((step) => item.phases?.[step.instanceKey]?.clarificationCount > 0)).length;
+    const review = state.snapshot?.artifactReview;
+    const successLabel = review?.successLabel ?? "Artifact ready";
+    const complementLabel = review?.complementLabel ?? "Artifact not ready";
+    const collectionPath = state.snapshot?.pipeline?.runtime?.itemRoot?.replaceAll("\\", "/").replace(/\/<slug>$/, "");
     collection.hidden = false;
     collection.innerHTML = `
         <div class="instance-collection-head">
             <h2>${esc(state.snapshot?.pipeline?.metadata?.workflowListName ?? "Workflows")} <span class="muted">(${items.length})</span></h2>
             <button class="btn btn-secondary" id="new-workflow" type="button">+ New</button>
         </div>
+        ${collectionPath ? `<button type="button" class="phase-artifact-link collection-folder" id="browse-collection-folder" data-folder-path="${esc(collectionPath)}" title="Open ${esc(collectionPath)}/ in file explorer"><code>${esc(collectionPath)}/</code></button>` : ""}
+        <div class="collection-summary" aria-label="Workflow counts">
+            ${phaseNotice(`${successLabel}: ${successCount}`, review ? "Workflows whose current final-phase status meets the configured goal." : "Readable, nonempty final artifacts with no open clarification markers; not verified goal achievement.")}
+            ${phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.")}
+            ${phaseNotice(`${complementLabel}: ${items.length - successCount}`, "All remaining workflows, including unfinished and unreviewed ones; not necessarily failures.")}
+        </div>
+        <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
         ${items.length ? `<div class="instance-list">${items.map((item) => {
             const activity = item.lastActivity ? new Date(item.lastActivity).toLocaleDateString() : "";
@@ -115,10 +129,12 @@ function renderInstanceCollection() {
                 <button class="instance-select" type="button" data-instance="${esc(item.id)}">
                     <strong>${esc(item.label)}</strong>
                     <span class="muted">${esc(activity)}</span>
+                    ${phaseNotice(statuses.get(item.id).label, statuses.get(item.id).detail)}
                 </button>
                 <button class="instance-delete" type="button" data-delete-workflow="${esc(item.slug)}" aria-label="Delete ${esc(item.label)}">Delete</button>
             </div>`;
         }).join("")}</div>` : '<p class="workflow-empty">Start your first workflow below.</p>'}`;
+    $("browse-collection-folder")?.addEventListener("click", (event) => revealOutputFolder(event, "collection-message"));
     $("workflow-search")?.addEventListener("input", (event) => {
         state.workflowQuery = event.target.value;
         const query = state.workflowQuery.trim().toLowerCase();
@@ -231,18 +247,37 @@ function openConstitutionDialog(step) {
     });
 }
 
-function phasePresentation(step) {
-    const phase = selectedItem()?.phases?.[step.instanceKey];
-    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: "" };
+function phasePresentation(step, item = selectedItem()) {
+    const phase = item?.phases?.[step.instanceKey];
+    const final = step.instanceKey === workflowSteps().at(-1)?.instanceKey;
+    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: final && !state.snapshot?.artifactReview ? "Artifact not ready" : "", success: false };
     if (phase.artifactError || !Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) {
         return { className: "", label: phase.artifactError || "Artifact status unavailable", symbol: "!", notice: "Artifact unavailable" };
     }
     if (phase.clarificationCount > 0) {
         return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
     }
-    const review = step.instanceKey === workflowSteps().at(-1)?.instanceKey ? phase.review : null;
+    const review = final ? phase.review : null;
+    const config = final ? state.snapshot?.artifactReview : null;
+    const success = final && (config
+        ? review?.state === "reviewed" && review.statusId === config.successStatusId
+        : !review);
     return { className: "artifact-ready", label: "Artifact created; no open clarifications", symbol: "✓",
-        notice: review?.label ?? "", detail: review?.error ?? "" };
+        notice: review?.label ?? (final ? config ? "Needs review" : "Artifact ready" : ""),
+        detail: review?.error ?? (final && !config ? "Artifact readiness only, not verified goal achievement." : ""), success };
+}
+
+function workflowStatus(item) {
+    const steps = workflowSteps();
+    const final = steps.at(-1);
+    if (!final) return { label: "No phases", success: false };
+    if (item.phases?.[final.instanceKey]?.artifact) {
+        const presentation = phasePresentation(final, item);
+        return { label: presentation.notice, detail: presentation.detail, success: Boolean(presentation.success) };
+    }
+    const next = steps.find((step) => !item.phases?.[step.instanceKey]?.artifact
+        && (step.artifact?.persistent || !state.submitted.has(phaseRunKey(step, item)))) ?? final;
+    return { label: `Run ${next.label}`, success: false };
 }
 
 function phaseNotice(text, detail = "") {
@@ -332,7 +367,7 @@ function renderPhaseCard() {
             <div class="phase-actions-left"><button class="btn btn-secondary" id="previous-phase" type="button" ${backDisabled ? "disabled" : ""}>◀ Back</button></div>
             <div class="phase-actions-center">
                 <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Running…' : (completed || submitted ? "Run again" : "Run phase")}</button>
-                ${artifact ? '<button class="btn btn-secondary" id="view-artifact" type="button">View artifact</button>' : ""}
+                <button class="btn btn-secondary" id="view-artifact" type="button">View artifact</button>
             </div>
             <div class="phase-actions-right"><button class="btn btn-secondary" id="next-phase" type="button" ${continueDisabled ? "disabled" : ""}>Continue ▶</button></div>
         </footer>`;
@@ -345,7 +380,7 @@ function renderPhaseCard() {
         updateWritesTo(step, item);
     });
     $("run-phase")?.addEventListener("click", () => runPhase(step, completed));
-    $("view-artifact")?.addEventListener("click", () => openArtifact(artifact, step, item));
+    $("view-artifact")?.addEventListener("click", () => openArtifact(resolvedOutputPath(step, item), step, item));
     $("browse-output-folder")?.addEventListener("click", revealOutputFolder);
     $("previous-phase")?.addEventListener("click", () => {
         if (state.current > 0) {
@@ -489,7 +524,7 @@ async function requestWorkflowDeletion(item) {
     }
 }
 
-async function revealOutputFolder(event) {
+async function revealOutputFolder(event, messageId = "phase-message") {
     const folderPath = event?.currentTarget?.dataset?.folderPath
         || $("browse-output-folder")?.dataset?.folderPath;
     if (!folderPath) return;
@@ -500,7 +535,7 @@ async function revealOutputFolder(event) {
             body: JSON.stringify({ path: folderPath }),
         });
     } catch (error) {
-        $("phase-message").innerHTML = `<div class="workflow-error">${esc(error.message)}</div>`;
+        $(messageId).innerHTML = `<div class="workflow-error">${esc(error.message)}</div>`;
     }
 }
 
@@ -516,21 +551,20 @@ async function openArtifact(path, step, item = selectedItem()) {
         context, marks: [], content: null, message: "",
     };
     state.artifactView = view;
-    try {
-        const result = await json(`/api/artifact?path=${encodeURIComponent(path)}`);
-        if (state.artifactView !== view) return;
-        $("artifact-viewer").innerHTML = `<div class="artifact-viewer-header"><button class="btn btn-ghost btn-sm artifact-viewer-back" id="close-artifact" type="button">← Workflow</button><div class="artifact-viewer-title"><h2>${esc(step.label)}</h2><code class="muted">${esc(path)}</code></div></div><div class="artifact-viewer-clarify-banner" id="clarification-banner" hidden></div><div class="artifact-viewer-body"></div>`;
-        $("artifact-viewer").hidden = false;
-        $("close-artifact").addEventListener("click", () => {
-            state.artifactView = null;
-            $("artifact-viewer").hidden = true;
-        });
-        renderArtifactContent(view, result.content);
-        await refreshArtifact(view);
-        pollAmendment(view);
-    } catch (error) {
-        if (state.artifactView === view) globalThis.alert(error.message);
+    $("artifact-viewer").innerHTML = `<div class="artifact-viewer-header"><button class="btn btn-ghost btn-sm artifact-viewer-back" id="close-artifact" type="button">← Workflow</button><div class="artifact-viewer-title"><h2>${esc(step.label)}</h2><code class="muted">${esc(path)}</code></div></div><div class="artifact-viewer-clarify-banner" id="clarification-banner" hidden></div><div class="artifact-viewer-body"><p class="muted">Loading…</p></div>`;
+    $("artifact-viewer").hidden = false;
+    $("close-artifact").addEventListener("click", () => {
+        state.artifactView = null;
+        $("artifact-viewer").hidden = true;
+    });
+    if (!path || path.includes("<slug>")) {
+        $("artifact-viewer").querySelector(".artifact-viewer-body").innerHTML = `<p class="muted">${path
+            ? "No artifact is available yet. Run the phase or select an existing workflow to view its artifact."
+            : "This phase has no declared artifact to view."}</p>`;
+        return;
     }
+    await refreshArtifact(view);
+    pollAmendment(view);
 }
 
 function renderArtifactContent(view, content) {
@@ -548,6 +582,7 @@ function renderArtifactContent(view, content) {
 }
 
 async function refreshArtifact(view) {
+    if (!view.context.artifact || view.context.artifact.includes("<slug>")) return;
     if (view.reading) return view.reading;
     const token = clarifications.observationToken(view.context);
     view.reading = (async () => {
@@ -556,11 +591,17 @@ async function refreshArtifact(view) {
             const observed = clarifications.observe(view.context, result.content, token);
             if (observed) view.message = observationMessage(observed);
             if (state.artifactView === view) {
-                if (result.content.trim()) renderArtifactContent(view, result.content);
+                if (result.content.trim() || view.content === null) renderArtifactContent(view, result.content);
                 refreshClarifications(view);
             }
-        } catch {
-            if (state.artifactView === view) refreshClarifications(view, "Could not refresh the artifact. Answers retained; automatic refresh will retry.");
+        } catch (error) {
+            if (state.artifactView === view) {
+                if (view.content === null) {
+                    $("artifact-viewer").querySelector(".artifact-viewer-body").innerHTML = `<p class="workflow-error" role="status">Could not load the artifact. It may not have been created yet. Run the phase or check its output path.</p><p class="muted">${esc(error.message)}</p>`;
+                } else {
+                    refreshClarifications(view, "Could not refresh the artifact. Answers retained; automatic refresh will retry.");
+                }
+            }
         } finally { view.reading = null; }
     })();
     return view.reading;

@@ -190,13 +190,14 @@ describe("generation UI helpers", () => {
         try {
             globalThis.document = { getElementById: (id) => id === "pipeline-banner" ? banner : null };
             state.activeTab = "phases";
-            for (const pipeline of [readySnapshot().pipeline, []]) {
+            for (const pipeline of [readySnapshot().pipeline, [], undefined]) {
                 state.snapshot = readySnapshot({ pipeline });
                 renderPipelineBanner();
                 const buttons = [...banner.innerHTML.matchAll(/<button type="button" class="btn btn-secondary pipeline-(clear|reset|generate)"([^>]*)>([\s\S]*?)<\/button>/g)];
                 assert.deepEqual(buttons.map((entry) => entry[1]), ["clear", "reset", "generate"]);
                 assert.deepEqual(buttons.map((entry) => entry[3].trim()), ["Clear", "Reset to default", "Generate canvas"]);
-                assert.equal(buttons[0][2].includes("disabled"), pipeline.length === 0);
+                assert.equal(buttons[0][2].includes("disabled"), false);
+                assert.equal(buttons[1][2].includes("disabled"), false);
                 assert.doesNotMatch(banner.innerHTML, /btn-primary|btn-ghost|project canvas/i);
             }
         } finally {

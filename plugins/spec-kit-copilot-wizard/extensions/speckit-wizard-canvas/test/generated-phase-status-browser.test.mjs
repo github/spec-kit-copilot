@@ -73,7 +73,7 @@ test("phase status and neutral notices refresh without losing selection or draft
                 assert.equal(await buttons.nth(2).locator(".step-order").textContent(), "3");
                 assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /artifact-ready|needs-clarification/);
                 await buttons.nth(1).click();
-                const pill = page.locator(".phase-notice");
+                const pill = page.locator("#phase-card .phase-notice");
                 assert.equal(await pill.textContent(), "Clarification needed");
                 const colors = await pill.evaluate((element) => {
                     const style = getComputedStyle(element);
@@ -124,7 +124,7 @@ test("phase status and neutral notices refresh without losing selection or draft
                 assert.match(await pill.getAttribute("aria-label"), /Rerun or reopen/);
                 delete last.review;
                 await page.evaluate(() => window.workflowEvents.onmessage());
-                assert.equal(await pill.count(), 0, "standard artifact-ready behavior has no extra pill");
+                assert.equal(await pill.textContent(), "Artifact ready", "standard final-phase readiness matches the collection vocabulary");
                 assert.deepEqual(errors, []);
                 await page.close();
             }

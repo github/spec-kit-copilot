@@ -129,6 +129,89 @@ async function fixture() {
     };
 }
 
+test("collection counts use final status IDs and distinct workflows, not marker totals or labels", async () => {
+    const f = await fixture();
+    f.snapshot.artifactReview = {
+        phase: f.plan.instanceKey, successStatusId: "finished",
+        successLabel: "Decision made", complementLabel: "Decision not made",
+    };
+    const [alpha, beta] = f.snapshot.items;
+    for (const item of [alpha, beta]) {
+        item.phases[f.specify.instanceKey].clarificationCount = 4;
+        item.phases[f.plan.instanceKey].clarificationCount = 0;
+    }
+    alpha.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "finished", label: "Decision made" };
+    beta.phases[f.plan.instanceKey].review = { state: "pending", label: "Decision made" };
+    await f.refresh();
+    const summary = () => f.get("instance-collection").innerHTML.match(/<div class="collection-summary"[\s\S]*?<\/div>/)[0];
+    assert.match(summary(), />Decision made: 1</);
+    assert.match(summary(), />Clarification needed: 2</);
+    assert.match(summary(), />Decision not made: 1</);
+    beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "finished", label: "Decision made" };
+    await f.refresh();
+    assert.match(summary(), />Decision made: 2</);
+    assert.match(summary(), />Decision not made: 0</);
+    beta.phases[f.plan.instanceKey].clarificationCount = 1;
+    await f.refresh();
+    assert.match(summary(), />Decision made: 1</);
+    assert.match(f.get("instance-collection").innerHTML, />Clarification needed<\/span>/);
+    beta.phases[f.plan.instanceKey].artifact = null;
+    await f.refresh();
+    assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
+    await f.get("next-phase").emit("click");
+    assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
+    assert.equal(f.posts.length, 0);
+});
+
+test("View artifact stays available before execution and shows inline errors with refresh recovery", async () => {
+    const f = await fixture();
+    f.snapshot.items[0].phases[f.specify.instanceKey].artifact = null;
+    await f.refresh();
+    assert.match(f.get("phase-card").innerHTML, /id="view-artifact"[^>]*>View artifact/);
+    assert.doesNotMatch(f.get("phase-card").innerHTML, /id="view-artifact"[^>]*disabled/);
+    f.get("phase-args").value = "Keep my draft";
+    await f.get("phase-args").emit("input", { target: f.get("phase-args") });
+    const reads = [];
+    f.setRead(async (url) => {
+        reads.push(url);
+        throw new Error("Artifact <missing>");
+    });
+    await f.get("view-artifact").emit("click");
+    assert.equal(f.get("artifact-viewer").hidden, false);
+    assert.equal(reads[0], "/api/artifact?path=specs%2Falpha%2Fspec.md");
+    assert.match(f.get("artifact-viewer").innerHTML, /Could not load the artifact/);
+    assert.match(f.get("artifact-viewer").innerHTML, /Artifact &lt;missing&gt;/);
+    f.setRead(async () => ({ content: "# Newly created artifact" }));
+    await f.refresh();
+    assert.match(f.get("artifact-viewer").innerHTML, /Newly created artifact/);
+    assert.doesNotMatch(f.get("artifact-viewer").innerHTML, /Could not load the artifact/);
+    await f.get("close-artifact").emit("click");
+    assert.equal(f.get("artifact-viewer").hidden, true);
+    assert.equal(f.get("phase-args").value, "Keep my draft");
+    assert.equal(f.posts.length, 0);
+});
+
+test("View artifact explains unresolved and undeclared outputs without requesting invalid paths", async () => {
+    const f = await fixture();
+    f.snapshot.items[0].phases[f.specify.instanceKey].artifact = null;
+    f.snapshot.items[0].slug = null;
+    let reads = 0;
+    f.setRead(async () => { reads++; return { content: "# Unexpected request" }; });
+    await f.refresh();
+    await f.get("view-artifact").emit("click");
+    assert.match(f.get("artifact-viewer").innerHTML, /No artifact is available yet/);
+    await f.refresh();
+    assert.equal(reads, 0);
+    await f.get("close-artifact").emit("click");
+    delete f.specify.artifact;
+    await f.refresh();
+    assert.match(f.get("phase-card").innerHTML, /id="view-artifact"/);
+    await f.get("view-artifact").emit("click");
+    assert.match(f.get("artifact-viewer").innerHTML, /no declared artifact/);
+    assert.equal(reads, 0);
+    assert.equal(f.posts.length, 0);
+});
+
 test("viewer stages, edits and cancels answers without dispatch; Back, workflows and phases isolate drafts", async () => {
     const f = await fixture();
     await f.get("view-artifact").emit("click");

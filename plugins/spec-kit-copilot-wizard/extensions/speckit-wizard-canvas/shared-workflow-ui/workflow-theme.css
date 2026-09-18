@@ -313,6 +313,9 @@ code, pre { font-family: var(--font-mono); }
 .instance-collection-head { display: flex; align-items: center; gap: 1rem; }
 .instance-collection-head h2 { margin: 0; font-size: 18px; min-width: 0; overflow-wrap: anywhere; }
 .instance-collection-head .btn { margin-left: auto; flex-shrink: 0; }
+.collection-folder { justify-self: start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.collection-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+#collection-message:empty { display: none; }
 .workflow-search input { width: 100%; }
 .instance-list {
     display: grid;
@@ -347,6 +350,12 @@ code, pre { font-family: var(--font-mono); }
 }
 .instance-select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .instance-select:hover { color: var(--accent-color); }
+.instance-select .phase-notice { margin-left: auto; flex-shrink: 0; }
+@media (max-width: 640px) {
+    .instance-select { flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+    .instance-select strong { flex-basis: 100%; }
+    .instance-select .phase-notice { margin-left: 0; max-width: 100%; flex-shrink: 1; }
+}
 .instance-delete {
     padding: 0.5rem 1rem;
     color: var(--danger-color);

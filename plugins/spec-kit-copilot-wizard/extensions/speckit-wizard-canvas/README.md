@@ -95,6 +95,29 @@ The agent opens the wizard in a side panel. See
 
 ## Generating a canvas from a pipeline
 
+Template version **23** shares semantic outcome-reading guidance between generation
+and runtime review. Goal outcome, status, verdict, decision and result are examples
+of meaning to locate anywhere in Markdown, not required keywords or headings.
+Copilot distinguishes current outcomes from goals, plans and intermediate findings;
+uncertain evidence retains the existing fallback rather than forcing a match.
+
+Generated template version **22** adds a shared collection-folder link, three
+count pills, and a status pill on every saved workflow row. The success count
+reuses the final-phase status label; its complementary count is total minus success.
+**Clarification needed** independently counts workflows with unresolved questions
+in any phase, so it overlaps those two counts. Rows reuse the final-phase pill or
+show **Run &lt;next phase&gt;** when the final artifact is not yet available. Counts
+ignore search/selection and exclude the unsaved New form. They reuse existing
+snapshots and reviews without additional LLM requests or persisted counters.
+Example-derived `artifactReview` now declares `successStatusId` and
+`complementLabel`; standard canvases use **Artifact ready / Artifact not ready**
+without claiming goal achievement. Regenerate existing canvases to receive this UI.
+
+Generated template version **21** keeps **View artifact** visible on every workflow
+phase, even before execution. The in-canvas viewer uses the phase's output path
+and shows missing-artifact guidance or read errors inline, preserving phase drafts
+when returning to the workflow. Regenerate existing canvases to pick up this change.
+
 Complete Setup, install the presets/extensions you want, and shape the
 pipeline on the **Phases** page. Click **Generate canvas**, review the
 ordered commands and inferred artifact targets, then choose the generated
@@ -311,7 +334,9 @@ Windows/macOS CI is deferred.
 
 The toolbar keeps **Clear**, **Reset to default**, and **Generate canvas** visible
 in that order with matching neutral buttons and extra space before Generate.
-Controls wrap on narrow panels; Clear is disabled rather than hidden when empty.
+Controls wrap on narrow panels. Clear and Reset to default are always enabled,
+including for empty or unchanged pipelines, and both ask for confirmation in the
+same anchored popover before changing the pipeline.
 The toolbar shows generation activity on the Generate button itself, without
 adjacent status, output-path, or error text. The generation prompt directs the agent
 to explain failures in chat, including when the callback cannot be delivered.

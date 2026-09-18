@@ -379,6 +379,12 @@ async function snapshot(inst, allowReview = false) {
     return {
         clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
+        artifactReview: reviewConfig ? {
+            phase: reviewConfig.phase,
+            successStatusId: reviewConfig.successStatusId,
+            successLabel: reviewConfig.statuses.find((status) => status.id === reviewConfig.successStatusId).label,
+            complementLabel: reviewConfig.complementLabel,
+        } : null,
         ...(constitution ? { projectArtifacts: { constitution } } : {}),
     };
 }

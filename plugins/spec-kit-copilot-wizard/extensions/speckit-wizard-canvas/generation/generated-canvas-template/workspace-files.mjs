@@ -100,7 +100,12 @@ export function authorizeWorkflowPath(pipeline, relativePath, operation) {
     const path = workflowPath(relativePath);
     let allowed = [];
     if (operation === "artifact") allowed = artifacts;
-    else if (operation === "reveal") allowed = artifacts.map((artifact) => posix.dirname(artifact)).filter((dir) => dir !== ".");
+    else if (operation === "reveal") {
+        allowed = artifacts.map((artifact) => posix.dirname(artifact)).filter((dir) => dir !== ".");
+        if (pipeline.runtime?.multiInstance === true && pipeline.runtime?.itemRoot) {
+            allowed.push(posix.dirname(workflowPath(pipeline.runtime.itemRoot, { template: true })));
+        }
+    }
     else if (operation === "delete" && pipeline.runtime?.multiInstance === true && pipeline.runtime?.itemRoot) {
         allowed = [workflowPath(pipeline.runtime.itemRoot, { template: true })];
     }

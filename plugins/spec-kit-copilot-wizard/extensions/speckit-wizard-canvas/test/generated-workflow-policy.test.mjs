@@ -102,6 +102,10 @@ test("configuration rejects unsupported code hooks, phase references, slug owner
 test("artifact, reveal, and delete permissions are distinct and blueprint-bound", () => {
     assert.equal(authorizeWorkflowPath(pipeline, ".specify\\items\\alpha\\intake.md", "artifact"), ".specify/items/alpha/intake.md");
     assert.equal(authorizeWorkflowPath(pipeline, ".specify/items/alpha/notes", "reveal"), ".specify/items/alpha/notes");
+    assert.equal(authorizeWorkflowPath(pipeline, ".specify/items", "reveal"), ".specify/items");
+    assert.throws(() => authorizeWorkflowPath(pipeline, ".specify", "reveal"), /outside.*scope/);
+    assert.throws(() => authorizeWorkflowPath(pipeline, ".specify/other-items", "reveal"), /outside.*scope/);
+    assert.throws(() => authorizeWorkflowPath({ ...pipeline, runtime: { ...pipeline.runtime, multiInstance: false } }, ".specify/items", "reveal"), /outside.*scope/);
     assert.equal(authorizeWorkflowPath(pipeline, ".specify/items/alpha", "delete"), ".specify/items/alpha");
     for (const path of ["README.md", ".specify/items/alpha/secret.md", ".specify/items/alpha/notes"]) {
         assert.throws(() => authorizeWorkflowPath(pipeline, path, "artifact"), /outside.*scope/);
@@ -161,6 +165,20 @@ test("filesystem operations reject internal/external junctions and delete only t
         await writeFile(join(root, "outside", "intake.md"), "outside");
         await symlink(join(items, "beta"), join(items, "internal-link"), "junction");
         await symlink(join(root, "outside"), join(items, "external-link"), "junction");
+        await symlink(items, join(workspace, ".specify", "linked-items"), "junction");
+        const linkedPipeline = JSON.parse(JSON.stringify(pipeline).replaceAll(".specify/items", ".specify/linked-items"));
+        await assert.rejects(resolveWorkflowPath(workspace, ".specify/linked-items", linkedPipeline, "reveal"), /symbolic link/);
+        assert.equal(await revealWorkspaceDirectory(workspace, ".specify/items", {
+            pipeline, platform: "win32",
+            spawnImpl(command, args) {
+                assert.equal(command, "explorer.exe");
+                assert.deepEqual(args, [items]);
+                const child = new EventEmitter();
+                child.unref = () => {};
+                queueMicrotask(() => child.emit("spawn"));
+                return child;
+            },
+        }), items);
         for (const slug of ["internal-link", "external-link"]) {
             await assert.rejects(resolveWorkflowPath(workspace, `.specify/items/${slug}/intake.md`, pipeline, "artifact"), /symbolic link/);
             await assert.rejects(deleteWorkspaceDirectory(workspace, `.specify/items/${slug}`, pipeline), /symbolic link/);

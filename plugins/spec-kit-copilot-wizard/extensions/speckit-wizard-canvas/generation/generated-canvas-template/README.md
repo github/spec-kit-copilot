@@ -6,6 +6,12 @@ This project-scoped canvas was generated from a Spec Kit Wizard pipeline. Its ru
 
 ## Artifact viewer
 
+Template version 21 always shows **View artifact** on workflow phase cards,
+including before a phase runs. Like the Wizard, it opens the in-canvas viewer
+using the phase's output path. Missing or unresolved artifacts show guidance in
+the viewer; read errors stay inline rather than using browser alerts. Back
+preserves the selected phase and draft, and viewing never runs a phase.
+
 Template version 13 snapshots the Wizard's shared `shared-workflow-ui/markdown.mjs` and
 `shared-workflow-ui/artifact-viewer.css` into protected `ui/` files. Both viewers load the
 viewer stylesheet before `workflow-theme.css`, retaining the Wizard's final cascade,
@@ -35,6 +41,26 @@ after normalizing only application-specific navigation and queue copy. No phase 
 
 ## Phase indicators
 
+Template version 22 adds a collection summary beneath the workflow heading:
+the shared parent folder link and three neutral count pills. The first reuses the
+configured final-phase success label; the last uses its fixed complementary label.
+Success plus complement always equals all saved workflows, excluding New and
+independent of search or selection. Unstarted, unreviewed and unavailable workflows
+belong to the complement, which does not mean failure. **Clarification needed**
+counts workflows with one or more unresolved markers in any workflow phase,
+not individual questions, and overlaps the other two counts.
+
+Every workflow row reuses the final-phase pill once its final artifact exists.
+Otherwise it shows **Run &lt;next phase&gt;**, using the first phase without artifact
+evidence (or a current-session submission for a transient phase). Navigating to a
+later page does not advance progress. No new execution history, LLM calls or stored
+counters are introduced. Automatic snapshot refresh updates the rows and totals.
+Without semantic review configuration, **Artifact ready / Artifact not ready**
+describe readable, nonempty final artifacts without clarification markers, not
+verified goal achievement; the final-phase card uses the same vocabulary.
+The folder link opens only the blueprint's shared collection root, remains enabled
+when empty, and reports missing-folder or reveal errors inline.
+
 Template version 19 derives phase indicators from fresh, safely bounded artifact
 reads. A readable, nonempty artifact with no open clarification markers is green
 with a checkmark; remaining markers make the phase amber with an exclamation mark.
@@ -60,6 +86,19 @@ desktop/mobile and light/dark layouts, partial/final clarification transitions,
 selection and input retention, and neutral notices without executing any phase.
 
 ## Optional final-artifact status
+
+Template version 23 uses the same format-independent reading guidance during
+generation and runtime review. Concepts such as **goal outcome**, **status**,
+**verdict**, **decision**, and **result** are illustrative semantic cues, not
+required keywords or headings. Copilot considers the whole artifact and locates
+the passages that most closely express its current overall outcome, in any
+Markdown structure. Actual outcomes take precedence over aspirations, future
+plans, examples and intermediate findings; neither the first keyword match nor
+the last section is presumed authoritative. Unclear or conflicting evidence
+omits tailored configuration during generation or yields **Needs review** at
+runtime. Labels and criteria must not depend on the sample's exact layout.
+The review fingerprint includes this guidance, invalidating cached assessments
+when it changes. Existing canvases require regeneration to receive the update.
 
 Template version 20 can include `artifactReview` configuration derived from the
 final artifact of a complete example pipeline. The Wizard only checks availability
@@ -353,7 +392,12 @@ Legacy configs without `phaseInputs` use neutral guidance; a supplied map must c
 every phase. Empty labels/fixed-arguments maps use standard behavior.
 Optional `artifactReview` contains `phase` (the final workflow instance key),
 `sampleFingerprint`, `goal`, and 2-6 `statuses` with unique `id`, `label`, and
-`criterion`. Labels contain 1-3 words; runtime selects IDs instead of inventing
+`criterion`. Version 22 also requires `successStatusId` to identify one configured
+status and `complementLabel` to describe all other workflows, including incomplete
+ones. The complement is a distinct, nonreserved 1-3 word label of at most 60
+characters. These meanings are derived once from the example, never guessed from
+wording at runtime. Regenerate earlier canvases to obtain the new configuration.
+Labels contain 1-3 words; runtime selects IDs instead of inventing
 wording. Missing/null configuration is the standard path. Generation validates
 the configuration against its captured example; effective skills remain the source
 of phase-input guidance only, not these review criteria.

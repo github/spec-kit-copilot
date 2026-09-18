@@ -1,16 +1,18 @@
 // Validate optional example-derived vocabularies and bounded, scoped artifact assessments.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
-import { createArtifactReviewer } from "../generation/generated-canvas-template/artifact-review.mjs";
+import { ARTIFACT_OUTCOME_GUIDANCE, createArtifactReviewer } from "../generation/generated-canvas-template/artifact-review.mjs";
 import { createWorkflowAdapter, validateWorkflowConfig } from "../generation/generated-canvas-template/workflow-adapter.mjs";
 
 const roots = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 export const reviewConfig = () => ({
     phase: "last", sampleFingerprint: "a".repeat(64), goal: "Document an evidence-backed decision.",
+    successStatusId: "decided", complementLabel: "Decision not made",
     statuses: [
         { id: "pending", label: "Decision pending", criterion: "Evidence exists but a decision is not yet stated." },
         { id: "decided", label: "Decision made", criterion: "A decision and supporting evidence are stated, including a decision not to proceed." },
@@ -42,6 +44,15 @@ test("review config is optional, immutable, final-phase-bound and tied to the ca
         (r) => { r.statuses[0].criterion = "one\ntwo"; },
         (r) => { r.statuses[0].extra = true; },
         (r) => { r.sampleFingerprint = "bad"; },
+        (r) => { delete r.successStatusId; },
+        (r) => { r.successStatusId = "invented"; },
+        (r) => { r.successStatusId = "needs-review"; },
+        (r) => { delete r.complementLabel; },
+        (r) => { r.complementLabel = "Decision made"; },
+        (r) => { r.complementLabel = "Clarification needed"; },
+        (r) => { r.complementLabel = "One two three four"; },
+        (r) => { r.complementLabel = "Not\nready"; },
+        (r) => { r.complementLabel = "x".repeat(61); },
     ]) {
         const review = reviewConfig(); edit(review);
         assert.throws(() => validateWorkflowConfig(settings(review), pipeline));
@@ -82,14 +93,18 @@ test("settled artifacts get one review and fixed labels across items, panels and
     await Promise.all([f.observe(), f.observe("alpha", {}, f.reviewer, { ...f.inst, instanceId: "panel-two" })]);
     assert.equal(f.sends.length, 1);
     assert.match(f.sends[0].prompt, /Do not read skills\/templates, edit files, execute phases/);
+    assert.ok(f.sends[0].prompt.includes(ARTIFACT_OUTCOME_GUIDANCE));
+    assert.match(f.sends[0].prompt, /Use this evidence to select exactly one configured status ID; use needs-review/);
     await assert.rejects(f.reviewer.report({ ...f.inst, identity: "other" }, f.response()), /Unknown/);
     await assert.rejects(f.reviewer.report(f.inst, { ...f.response(), statusId: "invented" }), /configured/);
     assert.equal((await f.reviewer.report(f.inst, f.response())).label, "Decision made");
     await assert.rejects(f.reviewer.report(f.inst, f.response()), /Unknown/);
     const reloaded = createArtifactReviewer(f.options);
     assert.equal((await f.observe("alpha", {}, reloaded)).label, "Decision made");
+    assert.equal((await f.observe("alpha", {}, reloaded)).statusId, "decided");
     await f.observe("beta"); f.advance(); await f.observe("beta");
     assert.equal((await f.reviewer.report(f.inst, f.response())).label, "Decision made");
+    assert.equal((await f.observe("beta")).statusId, "decided");
     assert.equal((await readdir(join(f.inst.cwd, ".speckit-wizard", "artifact-reviews"))).length, 2);
 });
 
@@ -111,6 +126,22 @@ test("changed inputs and deleted items cannot receive stale results", async () =
     f.contents.set("alpha", "Last change"); await f.observe(); f.advance(); await f.observe();
     f.contents.delete("alpha");
     await assert.rejects(f.reviewer.report(f.inst, f.response()), /stale/);
+});
+
+test("reviews cached without semantic reading guidance are assessed again", async () => {
+    const f = await fixture();
+    await f.observe(); f.advance(); await f.observe();
+    await f.reviewer.report(f.inst, f.response());
+    const directory = join(f.inst.cwd, ".speckit-wizard", "artifact-reviews");
+    const oldFingerprint = createHash("sha256")
+        .update(JSON.stringify([f.options.config, "alpha.md", f.contents.get("alpha")])).digest("hex");
+    await writeFile(join(directory, (await readdir(directory))[0]),
+        JSON.stringify({ version: 1, fingerprint: oldFingerprint, statusId: "decided" }));
+    const reloaded = createArtifactReviewer(f.options);
+    assert.equal((await f.observe("alpha", {}, reloaded)).state, "pending");
+    f.advance();
+    assert.equal((await f.observe("alpha", {}, reloaded)).state, "reviewing");
+    assert.equal(f.sends.length, 2);
 });
 
 test("standard behavior and unresolved/empty artifacts never dispatch reviews", async () => {

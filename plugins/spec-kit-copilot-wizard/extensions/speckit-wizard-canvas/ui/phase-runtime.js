@@ -321,16 +321,9 @@ export function renderPipelineBanner() {
     if (!el) return;
     const onPhasesTab = state.activeTab === "phases" || !state.activeTab;
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
-    const items = pipelineItems();
-    const edited = pipelineIsEdited();
     const generation = generationStatus();
     const generate = generationAvailability();
     const generating = generation?.state === "queued" || generation?.state === "generating";
-    // Nothing to show when the inferred spine is empty AND user hasn't taken control.
-    if (!items.length && !edited) {
-        el.hidden = true; el.innerHTML = "";
-        return;
-    }
     el.hidden = false;
     // Previously a "Pipeline from <extension name>" hint rendered above
     // the chip strip when the inferred pipeline was extension-standalone.
@@ -357,8 +350,8 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
-                <button type="button" class="btn btn-secondary pipeline-clear" data-action="clear"${items.length ? "" : " disabled"}>Clear</button>
-                <button type="button" class="btn btn-secondary pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>
+                <button type="button" class="btn btn-secondary pipeline-clear" data-action="clear">Clear</button>
+                <button type="button" class="btn btn-secondary pipeline-reset" data-action="reset">Reset to default</button>
                 <button type="button" class="btn btn-secondary pipeline-generate"
                     ${generate.enabled && !generating ? "" : " disabled"}
                     ${generating ? 'aria-busy="true"' : ""}
@@ -379,7 +372,10 @@ export function renderPipelineBanner() {
             await dispatchPipeline("clear");
         });
     }
-    el.querySelector(".pipeline-reset")?.addEventListener("click", async () => {
+    const resetBtn = el.querySelector(".pipeline-reset");
+    resetBtn?.addEventListener("click", async () => {
+        const ok = await popoverConfirm(resetBtn, "Replace the current pipeline with the default phases?", { confirmLabel: "Reset to default" });
+        if (!ok) return;
         await dispatchPipeline("reset");
     });
 }
