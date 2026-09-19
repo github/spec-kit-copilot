@@ -19,7 +19,15 @@ function resultLabels(root) {
 function renderResultInputs(root, values, onChange) {
     const list = root.querySelector("#generation-result-list");
     if (!list) return;
-    list.innerHTML = values.map((value, index) => `
+    list.innerHTML = (root._generationClarificationTag !== false ? `
+        <div class="generation-result-row">
+            <label class="wizard-modal-field" for="generation-clarification-tag">
+                <span class="wizard-modal-field-label">Default tag</span>
+                <input id="generation-clarification-tag" class="wizard-modal-input" value="Needs clarification" readonly />
+            </label>
+            <button type="button" id="generation-toggle-clarification" class="btn btn-secondary btn-sm" aria-label="Remove Needs clarification tag">Remove</button>
+        </div>` : '<div><button type="button" id="generation-toggle-clarification" class="btn btn-secondary btn-sm">Restore Needs clarification tag</button></div>')
+        + values.map((value, index) => `
         <div class="generation-result-row">
             <label class="wizard-modal-field" for="generation-result-${index}">
                 <span class="wizard-modal-field-label">Tag ${index + 1}</span>
@@ -30,6 +38,12 @@ function renderResultInputs(root, values, onChange) {
             <button type="button" class="btn btn-secondary btn-sm" data-remove-result="${index}" aria-label="Remove tag ${index + 1}">Remove</button>
         </div>`).join("");
     for (const input of resultInputs(root)) input.addEventListener("input", onChange);
+    root.querySelector("#generation-toggle-clarification")?.addEventListener("click", () => {
+        root._generationClarificationTag = root._generationClarificationTag === false;
+        renderResultInputs(root, resultInputs(root).map((input) => input.value), onChange);
+        onChange();
+        root.querySelector("#generation-toggle-clarification")?.focus();
+    });
     for (const button of root.querySelectorAll("[data-remove-result]")) {
         button.addEventListener("click", () => {
             const next = resultInputs(root).map((input) => input.value);
@@ -138,6 +152,7 @@ export function defaultGenerationMetadata(snapshot = state.snapshot) {
         userProvidesSlug: false,
         requireInstallationApproval: false,
         resultLabels: [],
+        clarificationTag: true,
         description: sequence
             ? `Visual workflow for ${sequence}.`
             : "Visual Spec Kit workflow.",
@@ -183,7 +198,7 @@ async function runPreflight(root) {
     const target = root.querySelector("#generation-target");
     let result;
     try {
-        result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval, resultLabels: resultLabels(root) });
+        result = await __postJson("/api/generation/preflight", { extensionId, displayName, description, workflowListName, userProvidesSlug, requireInstallationApproval, resultLabels: resultLabels(root), clarificationTag: root._generationClarificationTag !== false });
     } catch {
         result = { ok: false, errors: ["Could not check generation settings. Try Generate again."] };
     }
@@ -281,6 +296,7 @@ export function openGenerationDialog() {
     root._generationSubmitting = false;
     root._generationPreflight = null;
     const metadata = defaultGenerationMetadata();
+    root._generationClarificationTag = metadata.clarificationTag;
     root.innerHTML = `
         <div class="wizard-modal-backdrop" role="presentation">
             <section class="wizard-modal generation-modal" role="dialog" aria-modal="true" aria-labelledby="generation-title">
@@ -317,7 +333,7 @@ export function openGenerationDialog() {
                     <div class="generation-results" role="group" aria-labelledby="generation-results-title" aria-describedby="generation-results-help">
                         <h4 id="generation-results-title" class="wizard-modal-field-label">Phase result tags <span class="muted">(optional)</span></h4>
                         <p class="wizard-modal-desc" id="generation-results-help">Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, no tag is applied.</p>
-                        <p class="wizard-modal-desc" id="generation-results-examples">Add up to 5 custom tags of 1-3 words. Needs clarification is built in.</p>
+                        <p class="wizard-modal-desc" id="generation-results-examples">Add up to 5 custom tags of 1-3 words. Remove the default Needs clarification tag to turn off clarification reporting.</p>
                         <div id="generation-result-list"></div>
                         <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add tag</button></div>
                     </div>
@@ -359,6 +375,7 @@ export function openGenerationDialog() {
             userProvidesSlug: root.querySelector("#generation-user-provides-slug")?.checked === true,
             requireInstallationApproval: root.querySelector("#generation-require-installation-approval")?.checked === true,
             resultLabels: resultLabels(root),
+            clarificationTag: root._generationClarificationTag !== false,
         };
         schedulePreflight(root);
     };

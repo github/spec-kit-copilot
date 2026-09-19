@@ -123,7 +123,7 @@ export async function resolveWorkflowPath(workspacePath, relativePath, pipeline,
 
 export const ARTIFACT_CAP = 512 * 1024;
 
-export async function readWorkflowArtifact(workspacePath, relativePath, pipeline) {
+export async function readWorkflowArtifact(workspacePath, relativePath, pipeline, { metadata = false } = {}) {
     const file = await resolveWorkflowPath(workspacePath, relativePath, pipeline, "artifact");
     const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
@@ -145,7 +145,8 @@ export async function readWorkflowArtifact(workspacePath, relativePath, pipeline
             || before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
             throw new Error("Artifact changed while reading; refresh and try again.");
         }
-        return new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
+        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
+        return metadata ? { content, mtimeMs: before.mtimeMs } : content;
     } finally {
         await handle.close();
     }

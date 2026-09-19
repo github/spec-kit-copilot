@@ -97,16 +97,24 @@ The agent opens the wizard in a side panel. See
 
 Generated canvases show a shared collection-folder link and independent count pills.
 The configured description appears beneath the collection heading, before the folder link.
-Each configured result label counts current classifications of each workflow's latest dispatched phase.
+Each configured tag counts workflows with that tag in any current phase result, once per workflow.
 Untagged results are not counted. Counts need not add up to the workflow total.
-**Clarification needed** independently counts workflows with unresolved
+When the default **Needs clarification** tag is kept, **Clarification needed** independently counts workflows with unresolved
 questions in any phase and can overlap the result counts. With result settings,
-rows reuse that phase's result, including when an earlier phase is rerun.
+rows still show the latest dispatched phase's result, including when an earlier phase is rerun.
 Before any phase is dispatched, rows show **Run &lt;next phase&gt;**.
 Unresolved clarifications in any phase take precedence until they are resolved. Counts
 ignore search/selection and exclude the unsaved New form. They reuse existing
 snapshots and reviews without additional LLM requests or persisted counters.
-Without result settings, only clarification pills are shown. Artifact indicators,
+Counts retain accepted matches while a phase runs; a new accepted result replaces that
+phase's old tag, rather than adding history. Freshness follows pipeline order using known
+artifact modification times, or completed run order when artifacts are unavailable.
+Upstream changes can exclude downstream matches until refreshed. Shared artifacts do not
+invalidate themselves. This is best-effort reporting, never an execution gate: copying or
+touching files can affect freshness. Known Implement task evidence must contain at least
+one task with all tasks checked; unknown artifacts do not prevent response-backed matches.
+Saved matches survive reloads in the existing per-phase run state.
+Without custom result settings, only enabled clarification pills are shown. Artifact indicators,
 viewers, navigation, and inline errors remain available.
 
 **View artifact** remains visible on every workflow
@@ -128,8 +136,12 @@ Runtime review classifies every phase from its latest available normal final age
 no artifact is required.
 Phases without a known local artifact target, such as `taskstoissues`, do not produce
 a generation warning; their artifact metadata remains available to the viewer.
-**Needs clarification** and **Clarification needed** are reserved because clarification
-is built in; entering either displays a validation message rather than adding a duplicate.
+**Needs clarification** appears as a removable default tag, separate from the five custom
+tag slots. Removing it disables generated-canvas clarification status pills, counts,
+and background marker scans. Restore it with **Restore Needs clarification tag**.
+Artifact viewing and answering questions within an artifact remain available.
+**Needs clarification** and **Clarification needed** remain reserved custom names to
+avoid duplicates. Existing configurations without this setting keep clarification reporting enabled.
 Generation uses these exact settings and does not read workflow artifacts.
 
 Checklist generation uses its declared `checklists/<name>.md` output, even before
@@ -148,7 +160,7 @@ keywords or headings. Actual conclusions take precedence over goals, future plan
 and intermediate findings; ambiguous evidence never forces a binary choice.
 The same labels apply to every
 phase and workflow; the existing neutral pill displays them, with **Clarification needed**
-taking precedence. Standard canvases make no review requests. Reviews are read-only,
+taking precedence when enabled. Standard canvases make no review requests. Reviews are read-only,
 scoped and fingerprinted; stale callbacks are ignored. Optional status failures show
 no tag, with diagnostic details confined to provider logs. Available
 Markdown remains a fallback when response capture is unavailable. Newer replies

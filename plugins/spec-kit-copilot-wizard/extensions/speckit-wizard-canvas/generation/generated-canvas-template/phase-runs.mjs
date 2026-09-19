@@ -1,4 +1,4 @@
-// Latest dispatch flags, not execution history or evidence of successful completion.
+// Latest phase runs and accepted reporting results, not an execution history.
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { resolveWorkspaceDirectory } from "./workspace-files.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
 import { RESPONSE_LIMIT } from "./phase-response.mjs";
+import { renderMarkdown } from "./ui/markdown.mjs";
 
 const LIMIT = 512 * 1024;
 const writes = new Map();
@@ -13,6 +14,37 @@ const hash = (value) => createHash("sha256").update(JSON.stringify(value)).diges
 const validSlug = (value) => typeof value === "string" && value.length > 0
     && validateWorkflowSlug(value).slug === value && !validateWorkflowSlug(value).error;
 const empty = () => ({ version: 1, items: [], pending: [], binding: null });
+
+// Reporting only: artifact times where known, completed run order otherwise.
+export function milestoneTags(steps, evidence, runs, labels) {
+    const upstream = [], tags = new Set();
+    for (const step of steps) {
+        const current = evidence[step.instanceKey] ?? {};
+        const run = runs.find((entry) => entry.phase === step.instanceKey);
+        const result = run?.result;
+        const sequence = result?.sequence ?? (run?.completed ? run.sequence : 0);
+        const timed = Number.isFinite(current.mtimeMs);
+        const fresh = !(result?.artifact && !timed) && upstream.every((prior) => {
+            if (!prior.fresh) return false;
+            if (prior.artifact && prior.artifact === current.artifact) return true;
+            return Number.isFinite(prior.mtimeMs) && timed ? prior.mtimeMs <= current.mtimeMs
+                : !sequence || prior.sequence <= sequence;
+        });
+        let tasksComplete = true;
+        if (step.commandName === "speckit.implement") {
+            const taskEvidence = /(?:^|\/)tasks\.md$/.test(current.artifact ?? "") ? current
+                : upstream.findLast((entry) => entry.commandName === "speckit.tasks");
+            if (typeof taskEvidence?.content === "string") {
+                const tasks = [...renderMarkdown(taskEvidence.content).matchAll(/<li>\[([ xX])\]\s/g)];
+                tasksComplete = tasks.length > 0 && tasks.every((task) => task[1].toLowerCase() === "x");
+            }
+        }
+        if (fresh && tasksComplete && !(current.clarificationCount > 0) && labels.includes(result?.label)) tags.add(result.label);
+        upstream.push({ ...current, commandName: step.commandName, fresh,
+            sequence: run?.completed ? run.sequence : result?.sequence ?? 0 });
+    }
+    return [...tags];
+}
 
 export function createPhaseRunStore({ extensionId, pipeline }) {
     const steps = pipeline.pipeline.steps;
@@ -35,7 +67,11 @@ export function createPhaseRunStore({ extensionId, pipeline }) {
                 && typeof run.messageId === "string" && typeof run.sessionId === "string"
                 && Number.isSafeInteger(run.sequence) && run.sequence > 0 && typeof run.completed === "boolean"
                 && (run.response === null || (typeof run.response === "string" && Buffer.byteLength(run.response) <= RESPONSE_LIMIT))
-                && (run.error === null || typeof run.error === "string")));
+                && (run.error === null || typeof run.error === "string")
+                && (run.result === undefined || (run.result && Number.isSafeInteger(run.result.sequence)
+                    && run.result.sequence > 0 && run.result.sequence <= run.sequence
+                    && (run.result.label === null || typeof run.result.label === "string" && run.result.label.length <= 60)
+                    && (run.result.artifact === null || typeof run.result.artifact === "string")))));
         const phasesValid = (phases) => Array.isArray(phases) && phases.every((phase) => phaseKeys.has(phase))
             && new Set(phases).size === phases.length;
         if (record?.version !== 1 || !Array.isArray(record.items)
@@ -135,6 +171,15 @@ export function createPhaseRunStore({ extensionId, pipeline }) {
                 !item.isNew ? record.items.find((entry) => entry.id === item.id)?.runs : [],
             );
         },
+        async rememberResults(inst, itemId, results) {
+            return update(inst, (record) => {
+                const item = record.items.find((entry) => entry.id === itemId);
+                for (const result of results) {
+                    const run = item?.runs?.find((entry) => entry.runId === result.runId && entry.completed);
+                    if (run) run.result = { label: result.label, artifact: result.artifact, sequence: run.sequence };
+                }
+            });
+        },
         async complete(inst, runId, result) {
             let accepted = false;
             await update(inst, (record) => {
@@ -162,8 +207,9 @@ export function createPhaseRunStore({ extensionId, pipeline }) {
                 }
                 if (run) {
                     record.sequence = (record.sequence ?? 0) + 1;
+                    const result = target.runs?.find((entry) => entry.phase === phase)?.result;
                     target.runs = mergeRuns(target.runs, [{ ...run, phase, sequence: record.sequence,
-                        completed: false, response: null, error: null }]);
+                        completed: false, response: null, error: null, ...(result ? { result } : {}) }]);
                 }
             });
         },

@@ -135,7 +135,7 @@ describe("generation UI helpers", () => {
         assert.match(source, /<div class="wizard-modal-body">\s*<label class="wizard-modal-field" for="generation-target">/);
         assert.doesNotMatch(source, /generation-example|Run once|run the full pipeline|Example artifacts available/);
         assert.match(source, /such as Go, Kill, or Needs clarification/);
-        assert.match(source, /Needs clarification is built in/);
+        assert.match(source, /Remove the default Needs clarification tag to turn off clarification reporting/);
         assert.doesNotMatch(source, /submit\.disabled\s*=/, "preflight checks and submissions do not disable Generate");
         assert.equal((source.match(/id="generation-target"/g) ?? []).length, 1);
         assert.match(source, />Workflow header<\/span>/);
@@ -258,6 +258,19 @@ describe("generation UI helpers", () => {
         }
     });
 
+    test("clarification reporting defaults on and accepts only boolean settings", () => {
+        const metadata = defaultGenerationMetadata(readySnapshot());
+        assert.equal(metadata.clarificationTag, true);
+        for (const clarificationTag of [undefined, true, false]) {
+            const result = validateGenerationMetadata({ ...metadata, clarificationTag });
+            assert.deepEqual(result.errors, []);
+            assert.equal(result.metadata.clarificationTag, clarificationTag !== false);
+        }
+        for (const clarificationTag of [null, "false", 0, [], {}]) {
+            assert.ok(validateGenerationMetadata({ ...metadata, clarificationTag }).errors.some((error) => error.field === "clarificationTag"));
+        }
+    });
+
     test("sends list name and result settings through preflight and confirmed overwrite", async () => {
         const savedDocument = globalThis.document;
         const savedSnapshot = state.snapshot;
@@ -268,7 +281,7 @@ describe("generation UI helpers", () => {
                 elements.set(selector, {
                     value: "", checked: false, dataset: {}, innerHTML: "",
                     classList: { add() {}, remove() {} },
-                    setAttribute() {},
+                    setAttribute() {}, focus() {},
                     addEventListener: (type, handler) => listeners.set(type, handler),
                     emit: (type) => listeners.get(type)?.(),
                 });
@@ -311,6 +324,8 @@ describe("generation UI helpers", () => {
             await new Promise((resolve) => setImmediate(resolve));
             assert.equal(posts[0].body.workflowListName, "Workflows");
             assert.equal(posts[0].body.requireInstallationApproval, false);
+            assert.equal(posts[0].body.clarificationTag, true);
+            element("#generation-toggle-clarification").emit("click");
             const approval = element("#generation-require-installation-approval");
             approval.checked = true;
             approval.emit("input");
@@ -340,6 +355,7 @@ describe("generation UI helpers", () => {
             assert.equal(start.body.requireInstallationApproval, true);
             assert.equal(start.body.extensionId, "revised-assess-workflow");
             assert.deepEqual(start.body.resultLabels, ["Implemented", "Not implemented"]);
+            assert.equal(start.body.clarificationTag, false);
             assert.equal(Object.hasOwn(start.body, "target"), false);
         } finally {
             closeGenerationDialog();

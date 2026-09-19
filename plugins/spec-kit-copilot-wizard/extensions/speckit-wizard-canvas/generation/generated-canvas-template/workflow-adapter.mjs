@@ -53,9 +53,15 @@ export function validateResultLabels(value) {
     return [...value];
 }
 
-export function validateWorkflowConfig(config, pipeline, { resultLabels } = {}) {
+export function validateWorkflowConfig(config, pipeline, { resultLabels, clarificationTag } = {}) {
     const { all } = commandViews(pipeline);
-    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "resultLabels"]);
+    record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "resultLabels", "clarificationTag"]);
+    if (config.clarificationTag !== undefined && typeof config.clarificationTag !== "boolean") {
+        throw new Error("clarificationTag must be a boolean.");
+    }
+    if (clarificationTag !== undefined && (config.clarificationTag ?? true) !== clarificationTag) {
+        throw new Error("Needs clarification tag must match the generation settings exactly.");
+    }
     const configuredLabels = validateResultLabels(config.resultLabels);
     if (resultLabels !== undefined && JSON.stringify(configuredLabels) !== JSON.stringify(validateResultLabels(resultLabels))) {
         throw new Error("Tags must match the generation settings exactly.");
@@ -97,6 +103,7 @@ export function createWorkflowAdapter(config, pipeline) {
     const settings = JSON.parse(JSON.stringify(validateWorkflowConfig(config, pipeline)));
     const { constitution, workflow } = commandViews(pipeline);
     return Object.freeze({
+        clarificationTag: settings.clarificationTag !== false,
         artifactReview() {
             return settings.resultLabels?.length && workflow.length ? { labels: [...settings.resultLabels] } : null;
         },

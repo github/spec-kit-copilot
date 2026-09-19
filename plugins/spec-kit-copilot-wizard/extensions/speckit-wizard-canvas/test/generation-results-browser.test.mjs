@@ -91,7 +91,15 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             assert.equal(await page.getByLabel("Tag 1", { exact: true }).count(), 1);
             assert.equal(await add.textContent(), "+ Add tag");
             assert.equal(await page.locator("#generation-results-help").textContent(), "Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, no tag is applied.");
-            assert.equal(await page.locator("#generation-results-examples").textContent(), "Add up to 5 custom tags of 1-3 words. Needs clarification is built in.");
+            assert.equal(await page.locator("#generation-results-examples").textContent(), "Add up to 5 custom tags of 1-3 words. Remove the default Needs clarification tag to turn off clarification reporting.");
+            assert.equal(await page.locator("#generation-clarification-tag").inputValue(), "Needs clarification");
+            assert.equal(await page.locator(".generation-modal").evaluate((modal) => modal.scrollWidth <= modal.clientWidth), true, "the default tag fits narrow panels");
+            await page.getByRole("button", { name: "Remove Needs clarification tag", exact: true }).click();
+            assert.equal(await page.locator("#generation-clarification-tag").count(), 0);
+            assert.equal(await page.locator("[data-result-label]").count(), 1, "the built-in tag does not consume a custom tag slot");
+            await page.getByRole("button", { name: "Restore Needs clarification tag", exact: true }).click();
+            assert.equal(await page.locator("#generation-clarification-tag").inputValue(), "Needs clarification");
+            await page.getByRole("button", { name: "Remove Needs clarification tag", exact: true }).click();
             assert.doesNotMatch(await page.locator(".generation-results").innerText(), /Workflow results|Result label|Add result/);
             assert.equal(await generate.isEnabled(), true);
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -135,11 +143,13 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await page.locator(".generation-modal").waitFor({ state: "detached" });
             assert.equal(await page.evaluate(() => window.started), 2);
             assert.deepEqual(await page.evaluate(() => window.lastStart.resultLabels), ["Implemented", "Partially implemented", "Not implemented"]);
+            assert.equal(await page.evaluate(() => window.lastStart.clarificationTag), false);
             await page.evaluate(() => {
                 window.openGeneration();
             });
             await first.waitFor();
             assert.equal(await first.inputValue(), "");
+            assert.equal(await page.locator("#generation-clarification-tag").inputValue(), "Needs clarification", "a new generation defaults to clarification reporting");
             assert.equal(await generate.isEnabled(), true);
             // An earlier preflight response must not overwrite a newer check.
             await page.evaluate(() => {
@@ -187,6 +197,7 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await generate.click();
             await page.locator(".generation-modal").waitFor({ state: "detached" });
             assert.deepEqual(await page.evaluate(() => window.lastStart.resultLabels), ["Implemented"]);
+            assert.equal(await page.evaluate(() => window.lastStart.clarificationTag), true);
             assert.deepEqual(errors, []);
             await page.close();
         }

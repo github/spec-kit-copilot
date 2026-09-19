@@ -138,7 +138,7 @@ export async function validateMaterializedTemplate({ requestFile, targetDirector
     ]);
     validateWorkflowPaths(pipeline);
     validateWorkflowConfig(JSON.parse(await readFile(resolve(target, "workflow-config.json"), "utf8")), pipeline,
-        { resultLabels: request.metadata.resultLabels ?? [] });
+        { resultLabels: request.metadata.resultLabels ?? [], clarificationTag: request.metadata.clarificationTag ?? true });
     if (typeof pipeline.runtime?.userProvidesSlug !== "boolean") {
         throw new Error("generated runtime must declare whether users can provide a slug");
     }
@@ -199,6 +199,7 @@ export async function materialize({ requestFile, targetDirectory, request: suppl
     const configPath = resolve(target, "workflow-config.json");
     const config = JSON.parse(await readFile(configPath, "utf8"));
     config.resultLabels = request.metadata.resultLabels ?? [];
+    config.clarificationTag = request.metadata.clarificationTag ?? true;
     const { defaultPhaseInput } = await import(pathToFileURL(resolve(templateDir, "workflow-adapter.mjs")).href);
     config.phaseInputs = Object.fromEntries(request.blueprint.pipeline.steps.map((step) => [step.instanceKey, defaultPhaseInput(step)]));
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");

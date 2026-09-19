@@ -78,7 +78,13 @@ test("workflow summaries independently count current reviews across refresh, sel
                     return route.fulfill({ status: failReveal ? 400 : 200,
                         json: failReveal ? { error: "Folder does not exist yet." } : { ok: true } });
                 }
-                if (url.pathname === "/api/state") return route.fulfill({ json: snapshot });
+                if (url.pathname === "/api/state") return route.fulfill({ json: {
+                    ...snapshot, items: snapshot.items.map((item) => ({ ...item, resultTags: item.resultTags
+                        ?? [...new Set(Object.values(item.phases ?? {})
+                            .filter((phase) => phase.review?.state === "reviewed" && !phase.review.error && !(phase.clarificationCount > 0))
+                            .map((phase) => snapshot.artifactReview?.labels[Number(phase.review.statusId?.replace("result-", "")) - 1])
+                            .filter(Boolean))] })),
+                } });
                 const path = url.pathname === "/" ? "ui/index.html" : url.pathname.slice(1);
                 await route.fulfill({ contentType: path.endsWith(".html") ? "text/html" : path.endsWith(".css") ? "text/css" : "application/javascript",
                     body: await readFile(join(target, ...path.split("/")), "utf8") });
@@ -109,6 +115,15 @@ test("workflow summaries independently count current reviews across refresh, sel
             assert.equal(await row("failed").count(), 0);
             assert.doesNotMatch(await page.locator("body").innerText(), /Not determined|Review unavailable|Reopen to retry/);
             assert.match(await row("unavailable").getAttribute("title"), /Cannot read/);
+            snapshot.clarificationTag = false;
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => !document.querySelector(".collection-summary").textContent.includes("Clarification needed"));
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1"]);
+            assert.equal(await page.locator(".needs-clarification").count(), 0);
+            assert.doesNotMatch(await page.locator("#instance-collection").innerText(), /Clarification needed/);
+            snapshot.clarificationTag = true;
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => document.querySelector(".collection-summary").textContent.includes("Clarification needed: 2"));
             await page.locator("#browse-collection-folder").click();
             assert.deepEqual(posts, [{ path: "specs" }]);
             failReveal = true;
@@ -189,7 +204,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             await page.waitForFunction(() => document.querySelector('[data-instance="approved"] .phase-notice').textContent === "Deferred");
             await page.locator('[data-phase-index="1"]').click();
             assert.equal(await phasePill.textContent(), "Deferred", "an intermediate artifact-free phase displays its own result");
-            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 2", "Rejected: 1", "Clarification needed: 0"]);
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 2", "Rejected: 1", "Clarification needed: 0"]);
             approved.latestPhase = first.instanceKey;
             approved.phases[first.instanceKey].review = { state: "reviewed", statusId: "not-determined", label: "Not determined" };
             await page.evaluate(() => window.workflowEvents.onmessage());
@@ -204,7 +219,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             await page.waitForFunction(() => document.querySelector('[data-instance="approved"] .phase-notice').textContent === "Rejected");
             await page.locator('[data-phase-index="0"]').click();
             assert.equal(await phasePill.textContent(), "Rejected", "a decisive response result survives an artifact read error");
-            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 2", "Clarification needed: 0"]);
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 2", "Rejected: 2", "Clarification needed: 0"]);
             approved.latestPhase = last.instanceKey;
             approved.phases[first.instanceKey] = { artifact: "specs/approved/spec.md", clarificationCount: 4 };
             snapshot.items = savedItems.filter((entry) => entry.isNew);
@@ -229,6 +244,17 @@ test("workflow summaries independently count current reviews across refresh, sel
                 await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent.endsWith(": 0"));
                 assert.deepEqual(await counts.allTextContents(), [...labels.map((label) => `${label}: 0`), "Clarification needed: 0"]);
             }
+            snapshot.artifactReview = { labels: ["Specify", "Plan", "Tasks", "Implement"] };
+            snapshot.items = ["one", "two", "three"].map((id) => item(id, {
+                resultTags: ["Specify", "Plan", "Tasks", "Implement", "Implement"],
+            }));
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent === "Specify: 3");
+            assert.deepEqual(await counts.allTextContents(), ["Specify: 3", "Plan: 3", "Tasks: 3", "Implement: 3", "Clarification needed: 0"]);
+            snapshot.items = snapshot.items.slice(0, 1);
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent === "Specify: 1");
+            assert.deepEqual(await counts.allTextContents(), ["Specify: 1", "Plan: 1", "Tasks: 1", "Implement: 1", "Clarification needed: 0"]);
             snapshot.items = savedItems;
             approved.phases[last.instanceKey] = { artifact: "specs/approved/tasks.md", clarificationCount: 0 };
             snapshot.artifactReview = null;

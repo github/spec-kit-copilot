@@ -99,7 +99,14 @@ async function fixture() {
             const input = JSON.parse(options.body);
             posts.push({ url, input });
             result = await send(input);
-        } else result = url.startsWith("/api/artifact") ? await readArtifact(url) : structuredClone(snapshot);
+        } else result = url.startsWith("/api/artifact") ? await readArtifact(url) : {
+            ...structuredClone(snapshot), items: snapshot.items.map((item) => ({ ...structuredClone(item),
+                resultTags: [...new Set(Object.values(item.phases)
+                    .filter((phase) => phase.review?.state === "reviewed" && !phase.review.error && !(phase.clarificationCount > 0))
+                    .map((phase) => snapshot.artifactReview?.labels[Number(phase.review.statusId?.replace("result-", "")) - 1])
+                    .filter(Boolean))],
+            })),
+        };
         return { ok: true, json: async () => result };
     };
     const directory = join(dirname(fileURLToPath(import.meta.url)), `.clarification-ui-${randomUUID()}`);
@@ -129,7 +136,7 @@ async function fixture() {
     };
 }
 
-test("collection counts use final status IDs and distinct workflows, not marker totals or labels", async () => {
+test("collection counts use distinct workflow tags while clarification counts remain independent", async () => {
     const f = await fixture();
     f.snapshot.artifactReview = {
         labels: ["Decision made", "Decision deferred", "Decision not made"],

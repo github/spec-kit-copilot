@@ -13,6 +13,10 @@ export function validateGenerationMetadata(input) {
         : typeof input.workflowListName === "string" ? input.workflowListName.trim() : "";
     const errors = [];
     const warnings = [];
+    const clarificationTag = input?.clarificationTag === undefined ? true : input.clarificationTag;
+    if (typeof clarificationTag !== "boolean") {
+        errors.push({ code: "clarification_tag_invalid", field: "clarificationTag", message: "Needs clarification tag must be enabled or disabled." });
+    }
     let resultLabels = [];
     try {
         const raw = input?.resultLabels;
@@ -45,7 +49,7 @@ export function validateGenerationMetadata(input) {
     if (description && !/[.!?]$/.test(description)) {
         warnings.push({ code: "description_sentence", field: "description", message: "Consider ending the description with punctuation." });
     }
-    return { metadata: { extensionId, displayName, description, workflowListName, resultLabels }, errors, warnings };
+    return { metadata: { extensionId, displayName, description, workflowListName, resultLabels, clarificationTag }, errors, warnings };
 }
 
 export function generationTarget(workspacePath, extensionId) {

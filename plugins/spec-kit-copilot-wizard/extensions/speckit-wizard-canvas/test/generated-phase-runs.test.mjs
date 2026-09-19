@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
-import { createPhaseRunStore } from "../generation/generated-canvas-template/phase-runs.mjs";
+import { createPhaseRunStore, milestoneTags } from "../generation/generated-canvas-template/phase-runs.mjs";
 
 const roots = [];
 afterEach(async () => {
@@ -145,4 +145,111 @@ test("current runs recover capture errors and replace earlier replies without re
     assert.equal(saved.response, "Validation passed.");
     assert.equal(saved.error, null);
     assert.deepEqual((await f.store.read(f.inst)).items[0].phases, ["tasks"]);
+});
+
+test("accepted tags survive pending reruns and reloads, replace once, and reject stale results", async () => {
+    const f = await fixture();
+    const item = { id: "alpha", slug: "alpha" };
+    const mark = async (phase, runId) => f.store.mark(f.inst, item, phase, {
+        run: { runId, messageId: runId, sessionId: "session" },
+    });
+    const accept = async (runId, label) => {
+        await f.store.complete(f.inst, runId, { response: label, error: null });
+        await f.store.rememberResults(f.inst, item.id, [{ runId, label, artifact: null }]);
+    };
+    const tags = async () => milestoneTags(pipeline.pipeline.steps, {},
+        f.store.forItem(await f.store.read(f.inst), item), ["Tasks", "Implement"]);
+    await mark("tasks", "tasks-1");
+    await accept("tasks-1", "Tasks");
+    await mark("implement", "implement-1");
+    assert.deepEqual(await tags(), ["Tasks"]);
+    await accept("implement-1", "Implement");
+    assert.deepEqual(await tags(), ["Tasks", "Implement"]);
+    await mark("tasks", "tasks-2");
+    f.store = createPhaseRunStore(f.config);
+    assert.deepEqual(await tags(), ["Tasks", "Implement"], "starting an upstream rerun keeps previous milestones");
+    await accept("tasks-2", "Tasks");
+    assert.deepEqual(await tags(), ["Tasks"], "a completed artifact-free upstream rerun invalidates downstream results");
+    await f.store.rememberResults(f.inst, item.id, [{ runId: "tasks-1", label: "Implement", artifact: null }]);
+    assert.deepEqual(await tags(), ["Tasks"], "stale callbacks cannot restore a different tag");
+    await mark("implement", "implement-2");
+    await accept("implement-2", "Implement");
+    assert.deepEqual(await tags(), ["Tasks", "Implement"]);
+    await mark("implement", "implement-3");
+    await accept("implement-3", "Tasks");
+    assert.deepEqual(await tags(), ["Tasks"], "a changed rerun replaces its old tag without duplicating a tag from another phase");
+    await mark("implement", "implement-4");
+    await accept("implement-4", null);
+    assert.deepEqual(await tags(), ["Tasks"], "an accepted no-match replaces only its own previous tag");
+    await f.store.forget(f.inst, item.id);
+    assert.deepEqual(await tags(), []);
+});
+
+test("a rerun moves a workflow between result tags rather than accumulating history", async () => {
+    const f = await fixture();
+    const item = { id: "alpha", slug: "alpha" };
+    for (const [index, label] of ["Go", "Go", "Kill"].entries()) {
+        const runId = `decision-${index}`;
+        await f.store.mark(f.inst, item, "tasks", { run: { runId, messageId: runId, sessionId: "session" } });
+        await f.store.complete(f.inst, runId, { response: label, error: null });
+        await f.store.rememberResults(f.inst, item.id, [{ runId, label, artifact: null }]);
+        const tags = milestoneTags(pipeline.pipeline.steps, {}, f.store.forItem(await f.store.read(f.inst), item), ["Go", "Kill"]);
+        assert.deepEqual(tags, [label]);
+        assert.deepEqual(["Go", "Kill"].map((tag) => Number(tags.includes(tag))), label === "Go" ? [1, 0] : [0, 1]);
+    }
+});
+
+function milestones() {
+    const labels = ["Specify", "Plan", "Tasks", "Implement"];
+    const steps = labels.map((label) => ({ instanceKey: label.toLowerCase(), commandName: `speckit.${label.toLowerCase()}` }));
+    const evidence = Object.fromEntries(steps.map((step, index) => [step.instanceKey, {
+        artifact: `${index === 0 ? "spec" : index === 3 ? "tasks" : step.instanceKey}.md`,
+        mtimeMs: Math.min(index + 1, 3), content: "- [x] T001 Done\n- [X] T002 Done", clarificationCount: 0,
+    }]));
+    const runs = steps.map((step, index) => ({ phase: step.instanceKey, sequence: index + 1, completed: true,
+        result: { label: labels[index], sequence: index + 1, artifact: evidence[step.instanceKey].artifact } }));
+    return { labels, steps, evidence, runs, tags: () => milestoneTags(steps, evidence, runs, labels) };
+}
+
+test("milestone counts deduplicate workflows and shared tags across all phases", () => {
+    const f = milestones();
+    assert.deepEqual(f.tags(), f.labels);
+    const count = (workflows) => f.labels.map((label) => workflows.filter((tags) => tags.includes(label)).length);
+    assert.deepEqual(count([f.tags()]), [1, 1, 1, 1]);
+    assert.deepEqual(count([f.tags(), f.tags(), f.tags()]), [3, 3, 3, 3]);
+    f.runs[3].result.label = "Tasks";
+    assert.deepEqual(f.tags(), ["Specify", "Plan", "Tasks"], "two matching phases still count once");
+    assert.deepEqual(milestoneTags(f.steps, f.evidence, f.runs, [...f.labels].reverse()), f.tags(), "reordering tags cannot reinterpret saved results");
+});
+
+test("artifact times invalidate downstream milestones and regeneration restores them", () => {
+    const f = milestones();
+    f.evidence.specify.mtimeMs = 4;
+    assert.deepEqual(f.tags(), ["Specify"]);
+    f.evidence.plan.mtimeMs = 5;
+    assert.deepEqual(f.tags(), ["Specify", "Plan"]);
+    f.evidence.tasks.mtimeMs = f.evidence.implement.mtimeMs = 6;
+    assert.deepEqual(f.tags(), f.labels);
+    f.runs[0].sequence = 10;
+    assert.deepEqual(f.tags(), f.labels, "an unchanged upstream artifact wins over rerun order");
+    delete f.evidence.plan.mtimeMs;
+    assert.deepEqual(f.tags(), ["Specify"], "a previously known missing artifact invalidates dependents");
+});
+
+test("Implement requires nonempty completed task evidence when available, ignoring fenced examples", () => {
+    const f = milestones();
+    for (const content of ["", "# Tasks", "- [ ] T001 Pending", "- [x] T001 Done\n- [ ] T002 Pending",
+        "```md\n- [x] Example only\n```"]) {
+        f.evidence.implement.content = content;
+        assert.deepEqual(f.tags(), ["Specify", "Plan", "Tasks"]);
+    }
+    f.evidence.implement.content = "- [x] T001 Done\n```\n- [ ] Example only\n```";
+    assert.deepEqual(f.tags(), f.labels);
+    f.evidence.implement = {};
+    f.runs[3].result.artifact = null;
+    f.evidence.tasks.content = "- [ ] T001 Pending";
+    assert.deepEqual(f.tags(), ["Specify", "Plan", "Tasks"], "artifact-free Implement can use the known Tasks artifact");
+    f.evidence.tasks = {};
+    f.runs[2].result.artifact = null;
+    assert.deepEqual(f.tags(), f.labels, "unavailable artifact metadata does not disqualify response-backed matches");
 });

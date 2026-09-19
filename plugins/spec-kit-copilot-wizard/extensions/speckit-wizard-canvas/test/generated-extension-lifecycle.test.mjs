@@ -91,7 +91,9 @@ async function loadGeneratedExtension(root, sdk, {
     let source = await readFile(join(template, "extension.mjs"), "utf8");
     source = source
         .replace('import { joinSession, createCanvas } from "@github/copilot-sdk/extension";',
-            "const { joinSession, createCanvas, runSpecify, onInspectSetup } = globalThis.__generatedCanvasSdk;")
+            "const { joinSession, createCanvas, runSpecify, onInspectSetup, onClarificationScan } = globalThis.__generatedCanvasSdk;")
+        .replace('import { visibleMarkers } from "./ui/clarifications.mjs";',
+            'import { visibleMarkers as visibleMarkersImpl } from "./ui/clarifications.mjs";\nconst visibleMarkers = (content) => { onClarificationScan?.(); return visibleMarkersImpl(content); };')
         .replace("    inspectSetup,", "    inspectSetup as inspectSetupImpl,")
         .replace("const here =", "const inspectSetup = (options) => { onInspectSetup?.(options); return inspectSetupImpl({ ...options, ...(runSpecify ? { runSpecify } : {}) }); };\nconst here =")
         .replaceAll("__EXTENSION_ID_JSON__", JSON.stringify(extensionId))
@@ -412,7 +414,9 @@ describe("generated extension setup lifecycle", () => {
         await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-1" } });
         assert.equal((await phase()).review.label, "Scope documented");
         assert.equal((await phase()).review.statusId, "result-1");
+        assert.deepEqual((await item()).resultTags, ["Scope documented"]);
         await run(plan);
+        assert.deepEqual((await item()).resultTags, ["Scope documented"], "starting the next phase retains earlier milestone counts");
         events.emit("session.idle", {});
         await waitFor(() => sent.length === 4, 7000);
         const secondId = sent[3].prompt.match(/"requestId":"([^"]+)"/)[1];
@@ -421,14 +425,17 @@ describe("generated extension setup lifecycle", () => {
         assert.equal((await phase(plan)).review.statusId, "result-2", "no Markdown is required");
         assert.equal((await item()).latestPhase, plan.instanceKey);
         assert.equal((await phase()).review.statusId, "result-1");
+        assert.deepEqual((await item()).resultTags, ["Scope documented", "Scope incomplete"]);
         await run(specify);
         assert.equal((await item()).latestPhase, specify.instanceKey, "dispatch order, not pipeline order, selects workflow result");
         assert.equal((await phase()).review?.statusId, undefined, "rerun hides the prior result immediately");
+        assert.deepEqual((await item()).resultTags, ["Scope documented", "Scope incomplete"], "pending reruns hide row tags, not accepted milestone counts");
         assert.deepEqual(await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-3" } }), { ignored: true });
         events.emit("session.idle", {});
         await waitFor(() => sent.length === 6, 7000);
         const thirdId = sent[5].prompt.match(/"requestId":"([^"]+)"/)[1];
         await report.handler({ instanceId: "review-panel", input: { requestId: thirdId, statusId: "result-1" } });
+        assert.deepEqual((await item()).resultTags, ["Scope documented"], "completed upstream reruns stale artifact-free downstream results");
         await canvas.onClose({ instanceId: "review-panel" });
         const runDirectory = join(workspace, ".speckit-wizard", "phase-runs");
         const runFile = join(runDirectory, (await readdir(runDirectory))[0]);
@@ -451,6 +458,7 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(restored.latestPhase, specify.instanceKey);
         assert.equal(restored.phases[specify.instanceKey].review.statusId, "result-1");
         assert.equal(restored.phases[plan.instanceKey].review.statusId, "result-2");
+        assert.deepEqual(restored.resultTags, ["Scope documented"], "reload preserves both matches and their freshness");
         await writeFile(file, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
         const updated = (await canvas.actions.find((action) => action.name === "list_items")
             .handler({ instanceId: "review-reopened", input: {} })).items.find((item) => item.id === "alpha");
@@ -473,6 +481,7 @@ describe("generated extension setup lifecycle", () => {
             requestId: sent[6].prompt.match(/"requestId":"([^"]+)"/)[1], statusId: "result-2",
         } });
         assert.equal((await restoredItem()).phases[specify.instanceKey].review.statusId, "result-2");
+        assert.deepEqual((await restoredItem()).resultTags, ["Scope incomplete"], "a changed accepted result replaces, rather than accumulates, its prior tag");
         events.emit("session.idle", {});
         await restoredItem();
         assert.equal(sent.length, 7, "unchanged evidence does not dispatch another classification");
@@ -609,6 +618,45 @@ describe("generated extension setup lifecycle", () => {
         assert.deepEqual(items.find((item) => item.id === "alpha").phases[plan.instanceKey], { hasRun: false, artifact: null, clarificationCount: null });
         await rm(artifact);
         assert.deepEqual(await phase(), { hasRun: false, artifact: null, clarificationCount: null });
+    });
+
+    test("removed clarification tag skips background marker scans without removing artifact access", async () => {
+        for (const clarificationTag of [true, false]) {
+            const root = await mkdtemp(join(here, ".optional-clarification-"));
+            roots.push(root);
+            const workspace = join(root, "workspace");
+            const artifact = "specs/alpha/spec.md";
+            await mkdir(join(workspace, "specs", "alpha"), { recursive: true });
+            await writeFile(join(workspace, artifact), "# Spec\n[NEEDS CLARIFICATION: Scope?]");
+            const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }] },
+                { extensionId: "clarification-tag", displayName: "Test", description: "Test." }, { multiInstance: true });
+            blueprint.setup.requiresSpecKit = false;
+            blueprint.setup.requiredSkills = [];
+            let canvas, scans = 0;
+            await loadGeneratedExtension(root, {
+                onClarificationScan: () => scans++,
+                createCanvas: (definition) => (canvas = definition),
+                joinSession: async () => ({
+                    send: async () => assert.fail("reporting must not run a phase"),
+                    on: () => {},
+                    rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                    log: async () => {},
+                }),
+            }, { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, clarificationTag, resultLabels: ["Go"] } });
+            const opened = await canvas.open({ instanceId: "optional-clarification", input: { cwd: workspace } });
+            const url = new URL(opened.url);
+            url.pathname = "/api/state";
+            const snapshot = await (await fetch(url)).json();
+            assert.equal(snapshot.clarificationTag, clarificationTag);
+            assert.deepEqual(snapshot.artifactReview, { labels: ["Go"] });
+            assert.equal(snapshot.items.find((item) => item.id === "alpha").phases[blueprint.pipeline.steps[0].instanceKey].clarificationCount,
+                clarificationTag ? 1 : 0);
+            assert.equal(scans > 0, clarificationTag, "disabled reporting never invokes the marker parser");
+            url.pathname = "/api/artifact";
+            url.searchParams.set("path", artifact);
+            assert.match((await (await fetch(url)).json()).content, /NEEDS CLARIFICATION/);
+            await canvas.onClose({ instanceId: "optional-clarification" });
+        }
     });
 
     test("HTTP Apply answers amends an observed artifact without dispatching the original skill", async () => {

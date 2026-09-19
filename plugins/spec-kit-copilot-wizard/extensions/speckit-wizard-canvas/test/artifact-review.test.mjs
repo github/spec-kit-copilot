@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
 import { ARTIFACT_OUTCOME_GUIDANCE, createArtifactReviewer } from "../generation/generated-canvas-template/artifact-review.mjs";
-import { validateResultLabels, validateWorkflowConfig } from "../generation/generated-canvas-template/workflow-adapter.mjs";
+import { createWorkflowAdapter, validateResultLabels, validateWorkflowConfig } from "../generation/generated-canvas-template/workflow-adapter.mjs";
 
 const roots = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -79,6 +79,17 @@ const reviewing = { state: "reviewing", label: "" };
 const uncertain = { statusId: "not-determined", label: "Not determined" };
 const unknown = { state: "reviewed", ...uncertain };
 const ignored = { ignored: true };
+test("clarification reporting is independently optional and defaults on for existing configs", () => {
+    for (const clarificationTag of [undefined, true, false]) {
+        const config = { ...settings(["Go"]), ...(clarificationTag === undefined ? {} : { clarificationTag }) };
+        const adapter = createWorkflowAdapter(config, pipeline);
+        assert.equal(adapter.clarificationTag, clarificationTag !== false);
+        assert.deepEqual(adapter.artifactReview(), { labels: ["Go"] });
+    }
+    assert.equal(createWorkflowAdapter({ ...settings([]), clarificationTag: false }, pipeline).artifactReview(), null);
+    assert.throws(() => validateWorkflowConfig({ ...settings([]), clarificationTag: "false" }, pipeline), /must be a boolean/);
+});
+
 async function start(f, overrides = {}, id = "alpha", runtime = f.reviewer, panel = f.inst) {
     assert.deepEqual(await f.observe(id, overrides, runtime, panel), pending);
     f.advance();

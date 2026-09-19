@@ -95,11 +95,11 @@ function renderInstanceCollection() {
         .filter((item) => !item.isNew)
         .sort((left, right) => (right.lastActivity ?? 0) - (left.lastActivity ?? 0));
     const statuses = new Map(items.map((item) => [item.id, workflowStatus(item)]));
-    const results = new Map(items.map((item) => [item.id, latestPhaseResult(item)]));
-    const clarificationCount = items.filter((item) => workflowSteps().some((step) => item.phases?.[step.instanceKey]?.clarificationCount > 0)).length;
+    const clarificationCount = state.snapshot?.clarificationTag !== false
+        ? items.filter((item) => workflowSteps().some((step) => item.phases?.[step.instanceKey]?.clarificationCount > 0)).length : null;
     const review = state.snapshot?.artifactReview;
-    const resultCounts = (review?.labels ?? []).map((label, index) => ({
-        label, count: items.filter((item) => results.get(item.id).statusId === `result-${index + 1}`).length,
+    const resultCounts = (review?.labels ?? []).map((label) => ({
+        label, count: items.filter((item) => item.resultTags?.includes(label)).length,
     }));
     const collectionPath = state.snapshot?.pipeline?.runtime?.itemRoot?.replaceAll("\\", "/").replace(/\/<slug>$/, "");
     collection.hidden = false;
@@ -111,8 +111,8 @@ function renderInstanceCollection() {
         ${state.snapshot?.pipeline?.metadata?.description ? `<p class="collection-description muted">${esc(state.snapshot.pipeline.metadata.description)}</p>` : ""}
         ${collectionPath ? `<button type="button" class="phase-artifact-link collection-folder" id="browse-collection-folder" data-folder-path="${esc(collectionPath)}" title="Open ${esc(collectionPath)}/ in file explorer"><code>${esc(collectionPath)}/</code></button>` : ""}
         <div class="collection-summary" aria-label="Workflow counts">
-            ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows whose latest dispatched phase matches this result label; not verified code correctness.")).join("")}
-            ${phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.")}
+            ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows with this tag in any current phase result, counted once per tag. Freshness is best-effort, not verified code correctness.")).join("")}
+            ${clarificationCount !== null ? phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.") : ""}
         </div>
         <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
@@ -251,12 +251,12 @@ function phasePresentation(step, item = selectedItem()) {
     const run = phaseHasRun(step, item)
         ? { className: "phase-run", label: "Run requested; completion not verified", symbol: "✓", notice: "" }
         : { className: "", label: "Not run", symbol: "", notice: "" };
-    if (phase?.clarificationCount > 0) {
+    if (state.snapshot?.clarificationTag !== false && phase?.clarificationCount > 0) {
         return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
     }
     const review = phase?.review;
     const config = state.snapshot?.artifactReview;
-    const artifactError = phase?.artifactError || (phase?.artifact
+    const artifactError = phase?.artifactError || (state.snapshot?.clarificationTag !== false && phase?.artifact
         && (!Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) ? "Artifact status unavailable" : "");
     const index = config?.labels.findIndex((_label, index) => review?.statusId === `result-${index + 1}`) ?? -1;
     const statusId = review?.state === "reviewed" && !review.error && index >= 0 ? review.statusId : null;

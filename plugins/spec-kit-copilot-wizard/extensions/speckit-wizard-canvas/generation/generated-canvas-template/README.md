@@ -48,20 +48,33 @@ after normalizing only application-specific navigation and queue copy. No phase 
 
 The collection summary beneath the workflow heading contains the shared parent
 folder link and neutral count pills. With result labels configured, it counts
-explicit current matches for each configured label separately. Untagged results are not counted.
+workflows with each tag across all current phase results, once per workflow per tag.
+Untagged results are not counted.
 Counts exclude New and are independent of search or selection; they are not
 adjusted to add up to the workflow total. Unstarted, unreviewed, and unavailable
 workflows are not assigned a result to fill a remainder. **Clarification needed**
 counts workflows with one or more unresolved markers in any workflow phase,
-not individual questions, and overlaps the result counts.
+not individual questions, and overlaps the result counts. This built-in reporting is
+enabled by default. Removing the **Needs clarification** tag during generation sets
+`clarificationTag: false`, skipping background marker scans and hiding clarification
+status pills and counts. Artifact viewing and interactive question answering remain available.
 
 With result labels, every workflow row uses its latest dispatched phase's result,
-including reruns of earlier phases. Clarifications in any phase take precedence.
+including reruns of earlier phases. Clarifications in any phase take precedence when enabled.
 Before any phase is dispatched, it shows **Run &lt;next phase&gt;**, using the first phase
 without a recorded dispatch. Navigating to a later page does not advance progress.
 Counts reuse phase reviews without additional review requests or stored counters.
 Automatic snapshot refresh updates the rows and totals.
-Without result labels, only clarification pills and counts are displayed.
+Accepted matches are retained in the existing phase-run state while a rerun is pending.
+A new accepted result replaces that phase's old tag, including when it no longer matches.
+Pipeline order defines upstream phases. Known artifact modification times determine
+freshness; completed run order is the fallback for phases without known artifacts.
+Stale downstream results do not count until refreshed, and phases sharing an artifact
+do not invalidate themselves. Previously known artifacts that disappear stop counting.
+Implement requires a nonempty, fully checked task list when task evidence is available;
+unknown artifacts do not disqualify response-backed matches. This is best-effort reporting,
+not an execution gate: file copies or timestamp-only edits can affect counts.
+Without result labels, only enabled clarification pills and counts are displayed.
 Rows show clarification when any workflow phase has unresolved questions.
 Artifact-readiness and next-phase pills are omitted; errors remain explicit inline text.
 The folder link opens only the blueprint's shared collection root, remains enabled
@@ -123,12 +136,12 @@ plans, examples and intermediate findings; neither the first keyword match nor
 the last section is presumed authoritative. Unclear, unsupported, or conflicting
 evidence leaves the phase untagged rather than forcing a configured result.
 The review fingerprint includes this guidance, invalidating cached assessments
-when it changes. Empty result settings mean clarification-only pills and no review requests.
+when it changes. Empty custom result settings mean only enabled clarification pills and no review requests.
 
 When configured, Copilot selects a fixed status ID from the configured labels.
 All phases and workflow instances use the same 1-3 word
 labels. The neutral pill displays that label; unresolved clarification markers
-always take precedence. Green remains the independent dispatch indicator.
+take precedence when clarification reporting is enabled. Green remains the independent dispatch indicator.
 Only completed reviews with a matching configured result display a tag;
 clarification and error feedback remain visible.
 
@@ -421,7 +434,10 @@ or whitespace. Generation validates the list and its order against the captured 
 exactly. Runtime classification binds to the actual final workflow phase and returns
 only the configured positional IDs (`result-1` through `result-5`) or `not-determined`;
 no free-form labels are accepted. Missing/null settings normalize to an empty list.
-Empty settings show only clarification pills. Effective skills are consulted
+Optional `clarificationTag` is a boolean, defaulting to `true` for existing configurations.
+Generation preserves this setting independently of the custom tags and validates it
+against the captured settings. Empty tag settings show only enabled clarification pills.
+Effective skills are consulted
 for phase-input guidance only, not for result labels.
 The runtime always retains user input, chooses the command from the blueprint, and
 inserts the workflow slug once. Configuration cannot change item identities, discovery,

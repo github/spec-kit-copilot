@@ -84,9 +84,9 @@ function validateCapturedTemplate(requestPath, request) {
 
 describe("generation server lifecycle", () => {
     test("fresh generation seeds exact optional result labels without workflow artifacts", async () => {
-        for (const resultLabels of [[], ["Implemented"], ["Implemented", "Partially implemented", "Not implemented"], ["One", "Two", "Three", "Four", "Five"]]) {
+        for (const clarificationTag of [true, false]) for (const resultLabels of [[], ["Implemented"], ["Implemented", "Partially implemented", "Not implemented"], ["One", "Two", "Three", "Four", "Five"]]) {
             const ctx = await setup();
-            const metadata = { extensionId: "results", displayName: "Results", description: "Configured results.", resultLabels };
+            const metadata = { extensionId: "results", displayName: "Results", description: "Configured results.", resultLabels, clarificationTag };
             const preflight = await preflightGeneration(metadata, {
                 getInstance: () => ctx.inst,
                 getState: async () => ({
@@ -103,13 +103,19 @@ describe("generation server lifecycle", () => {
             const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", JSON.parse(started.body).requestId, "request.json");
             const request = JSON.parse(await readFile(requestPath, "utf8"));
             assert.deepEqual(request.metadata.resultLabels, resultLabels);
+            assert.equal(request.metadata.clarificationTag, clarificationTag);
             assert.equal(Object.hasOwn(request, "example"), false);
             await mkdir(request.target.directory, { recursive: true });
             await materialize({ requestFile: requestPath, targetDirectory: request.target.directory, request });
             const configPath = join(request.target.directory, "workflow-config.json");
             const config = JSON.parse(await readFile(configPath, "utf8"));
             assert.deepEqual(config.resultLabels, resultLabels);
+            assert.equal(config.clarificationTag, clarificationTag);
             await validateCapturedTemplate(requestPath, request);
+            config.clarificationTag = !clarificationTag;
+            await writeFile(configPath, JSON.stringify(config));
+            await assert.rejects(validateCapturedTemplate(requestPath, request), /Needs clarification tag must match/);
+            config.clarificationTag = clarificationTag;
             config.resultLabels = resultLabels.length ? [] : ["Approved"];
             await writeFile(configPath, JSON.stringify(config));
             await assert.rejects(validateCapturedTemplate(requestPath, request), /match the generation settings exactly/);
@@ -313,7 +319,7 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 30);
+        assert.equal(request.template.version, 32);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-response.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-runs.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
@@ -398,7 +404,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 30);
+        assert.equal(requestBody.template.version, 32);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }

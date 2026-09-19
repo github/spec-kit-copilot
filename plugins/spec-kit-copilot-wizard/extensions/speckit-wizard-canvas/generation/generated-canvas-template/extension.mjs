@@ -8,7 +8,7 @@ import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./workflow-adapter.mjs";
 import { createAmendmentRuntime } from "./amendment-runtime.mjs";
 import { createArtifactReviewer } from "./artifact-review.mjs";
-import { createPhaseRunStore } from "./phase-runs.mjs";
+import { createPhaseRunStore, milestoneTags } from "./phase-runs.mjs";
 import { phaseResponse } from "./phase-response.mjs";
 import { commandViews } from "./ui/command-views.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
@@ -213,8 +213,8 @@ async function phaseArtifact(inst, item, step) {
     try {
         artifact = await artifactPath(step, item, inst);
         if (!artifact) return { artifact: null, content: null, clarificationCount: null, artifactError: null };
-        const content = await readWorkflowArtifact(inst.cwd, artifact, pipeline);
-        return { artifact, content, clarificationCount: content.trim() ? visibleMarkers(content).length : null,
+        const { content, mtimeMs } = await readWorkflowArtifact(inst.cwd, artifact, pipeline, { metadata: true });
+        return { artifact, content, mtimeMs, clarificationCount: content.trim() ? (adapter.clarificationTag ? visibleMarkers(content).length : 0) : null,
             artifactError: content.trim() ? null : "Artifact is empty or still being written." };
     } catch (error) {
         if (error.code === "ENOENT") return { artifact: null, content: null, clarificationCount: null, artifactError: null };
@@ -393,10 +393,12 @@ async function snapshot(inst, allowReview = false) {
     const runs = await phaseRuns.read(inst);
     for (const item of items) {
         item.phases = {};
-        const itemRuns = phaseRuns.forItem(runs, item);
+        let itemRuns = phaseRuns.forItem(runs, item);
+        const phaseEvidence = {}, results = [];
         item.latestPhase = itemRuns.reduce((latest, run) => !latest || latest.sequence < run.sequence ? run : latest, null)?.phase ?? null;
         for (const step of commands.workflow) {
             const evidence = await phaseArtifact(inst, item, step);
+            phaseEvidence[step.instanceKey] = evidence;
             const { artifact, clarificationCount, artifactError } = evidence;
             const run = itemRuns.find((entry) => entry.phase === step.instanceKey);
             item.phases[step.instanceKey] = {
@@ -422,6 +424,23 @@ async function snapshot(inst, allowReview = false) {
                     review = run ? undetermined() : null;
                 }
                 if (review) item.phases[step.instanceKey].review = review;
+                if (run?.completed && review?.state === "reviewed") {
+                    const index = reviewConfig.labels.findIndex((_label, index) => review.statusId === `result-${index + 1}`);
+                    const label = index >= 0 && !review.error ? reviewConfig.labels[index] : null;
+                    const resultArtifact = Number.isFinite(evidence.mtimeMs) ? artifact : run.result?.artifact ?? null;
+                    if (run.result?.sequence !== run.sequence || run.result?.label !== label || run.result?.artifact !== resultArtifact) {
+                        results.push({ runId: run.runId, label, artifact: resultArtifact });
+                    }
+                }
+            }
+        }
+        if (reviewConfig && !item.isNew) {
+            try {
+                if (results.length) itemRuns = phaseRuns.forItem(await phaseRuns.rememberResults(inst, item.id, results), item);
+                item.resultTags = milestoneTags(commands.workflow, phaseEvidence, itemRuns, reviewConfig.labels);
+            } catch {
+                statusDiagnostic("milestone-reporting-unavailable", { itemId: item.id });
+                item.resultTags = [];
             }
         }
     }
@@ -433,6 +452,7 @@ async function snapshot(inst, allowReview = false) {
     return {
         clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
+        clarificationTag: adapter.clarificationTag,
         artifactReview: reviewConfig ? {
             labels: reviewConfig.labels,
         } : null,

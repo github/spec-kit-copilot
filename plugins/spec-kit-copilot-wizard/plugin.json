@@ -1,7 +1,7 @@
 {
   "name": "spec-kit-copilot-wizard",
   "description": "A GitHub Copilot App canvas that guides the Spec Kit lifecycle and generates project canvases from composed phase pipelines.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "author": {
     "name": "GitHub",
     "url": "https://github.com/github/spec-kit-copilot"
