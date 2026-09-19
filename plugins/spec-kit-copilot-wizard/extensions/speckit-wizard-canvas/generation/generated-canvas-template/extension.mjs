@@ -1,5 +1,5 @@
 // speckit-generated-workflow-template v1
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile, readdir, lstat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -8,6 +8,8 @@ import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./workflow-adapter.mjs";
 import { createAmendmentRuntime } from "./amendment-runtime.mjs";
 import { createArtifactReviewer } from "./artifact-review.mjs";
+import { createPhaseRunStore } from "./phase-runs.mjs";
+import { phaseResponse } from "./phase-response.mjs";
 import { commandViews } from "./ui/command-views.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
 import { visibleMarkers } from "./ui/clarifications.mjs";
@@ -48,7 +50,7 @@ const instances = new Map();
 const instanceAliases = new Map();
 const automaticSetupDispatches = new Map();
 const workspaceSetupReadiness = new Map();
-const singleInstanceBindings = new Map();
+const phaseRuns = createPhaseRunStore({ extensionId: __EXTENSION_ID_JSON__, pipeline });
 const workflowSlugReservations = new Map();
 const approvedSetupDispatches = new Map();
 const skillsReloads = new Map();
@@ -56,18 +58,19 @@ const BODY_CAP = 256 * 1024;
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".mjs": "application/javascript; charset=utf-8" };
 let session;
 let agentBusy = true;
+let responseRevision = 0;
+const responseScans = new Map();
 const reviewConfig = adapter.artifactReview();
 const artifactReviewer = createArtifactReviewer({
     config: reviewConfig,
     dispatch: (input) => session.send(input),
-    readCurrent: async (inst, itemId) => {
-        const item = (await listItems(inst)).find((candidate) => candidate.id === itemId && !candidate.isNew);
-        if (!item) return null;
-        const artifact = await artifactPath(commands.workflow.at(-1), item, inst);
-        if (!artifact) return null;
-        const content = await readWorkflowArtifact(inst.cwd, artifact, pipeline);
-        if (!content.trim() || visibleMarkers(content).length) return null;
-        return { artifact, content };
+    readCurrent: async (inst, itemId, phase) => {
+        const item = (await listItems(inst)).find((candidate) => candidate.id === itemId);
+        const step = commands.workflow.find((entry) => entry.instanceKey === phase);
+        if (!item || !step) return null;
+        const run = phaseRuns.forItem(await phaseRuns.read(inst), item).find((entry) => entry.phase === phase);
+        if (!run || run.error) return null;
+        return { ...run, ...await phaseArtifact(inst, item, step) };
     },
 });
 const amendArtifact = createAmendmentRuntime({
@@ -194,6 +197,48 @@ async function artifactPath(step, item, inst) {
     return resolveDeclaredArtifact(inst.cwd, step?.artifact?.pathTemplate, item?.slug, pipeline);
 }
 
+async function phaseArtifact(inst, item, step) {
+    let artifact = null;
+    try {
+        artifact = await artifactPath(step, item, inst);
+        if (!artifact) return { artifact: null, content: null, clarificationCount: null, artifactError: null };
+        const content = await readWorkflowArtifact(inst.cwd, artifact, pipeline);
+        return { artifact, content, clarificationCount: content.trim() ? visibleMarkers(content).length : null,
+            artifactError: content.trim() ? null : "Artifact is empty or still being written." };
+    } catch (error) {
+        if (error.code === "ENOENT") return { artifact: null, content: null, clarificationCount: null, artifactError: null };
+        return { artifact, content: null, clarificationCount: null,
+            artifactError: "Could not read the artifact safely. Automatic refresh will retry." };
+    }
+}
+
+async function captureResponses(inst) {
+    const record = await phaseRuns.read(inst);
+    const pending = [...record.items, ...record.pending].flatMap((entry) => entry.runs ?? [])
+        .filter((run) => !run.completed && responseScans.get(run.runId) !== responseRevision);
+    if (!pending.length) return;
+    let events;
+    for (const run of pending) {
+        let captured;
+        if (!run.messageId || !run.sessionId || run.sessionId !== session.sessionId) {
+            captured = { response: null, error: "The phase response is unavailable in this session. Rerun the phase to capture its result." };
+        } else {
+            try {
+                events ??= await session.getEvents();
+                captured = phaseResponse(events, run.messageId);
+            } catch {
+                captured = { response: null, error: "Could not read the phase response. Rerun the phase to capture its result." };
+            }
+        }
+        if (captured) {
+            await phaseRuns.complete(inst, run.runId, captured);
+            responseScans.delete(run.runId);
+        } else {
+            responseScans.set(run.runId, responseRevision);
+        }
+    }
+}
+
 function newItem() {
     return { id: "__new__", slug: null, label: "New", isNew: true };
 }
@@ -242,29 +287,19 @@ async function defaultItems(inst) {
     const rootTemplate = pipeline.runtime?.itemRoot;
     if (!rootTemplate) return [{ id: "project", slug: null, label: "Project" }];
     const discovered = await discoveredItems(inst);
-    if (pipeline.runtime?.multiInstance === true) return [...discovered, newItem()];
-
-    const key = bindingKey(inst);
-    const binding = singleInstanceBindings.get(key);
-    if (binding?.state === "bound") {
-        const item = discovered.find((entry) => entry.slug === binding.slug);
-        return [item ?? { id: binding.slug, slug: binding.slug, label: binding.slug }];
+    const { record, error } = await phaseRuns.reconcile(inst, discovered);
+    inst.runBinding = error ? { state: "error", error }
+        : record.binding ? { state: "bound", slug: record.binding }
+            : { state: record.pending.length ? "pending" : "unbound" };
+    if (pipeline.runtime?.multiInstance === true) {
+        const pendingItems = record.pending.filter((entry) => entry.slug).map((entry) => ({
+            id: entry.slug, slug: entry.slug, label: entry.slug, pendingFolder: true,
+        }));
+        return [...discovered, ...pendingItems, newItem()];
     }
-    if (binding?.state === "pending") {
-        const candidates = discovered.filter((entry) => (
-            binding.baseline[entry.slug] == null
-            || entry.lastActivity > binding.baseline[entry.slug]
-        ));
-        if (candidates.length === 1) {
-            singleInstanceBindings.set(key, { state: "bound", slug: candidates[0].slug });
-            return [candidates[0]];
-        }
-        if (candidates.length > 1) {
-            singleInstanceBindings.set(key, {
-                state: "error",
-                error: "Spec Kit created multiple workflow directories, so the canvas could not determine which slug to reuse.",
-            });
-        }
+    if (record.binding) {
+        const item = discovered.find((entry) => entry.slug === record.binding);
+        return [item ?? { id: record.binding, slug: record.binding, label: record.binding }];
     }
     return [newItem()];
 }
@@ -334,55 +369,46 @@ async function executionSetupStatus(inst) {
 
 async function snapshot(inst, allowReview = false) {
     const setup = await setupStatus(inst);
+    if (reviewConfig && allowReview && !agentBusy) await captureResponses(inst);
     const items = await listItems(inst);
+    const runs = await phaseRuns.read(inst);
     for (const item of items) {
         item.phases = {};
+        const itemRuns = phaseRuns.forItem(runs, item);
+        item.latestPhase = itemRuns.reduce((latest, run) => !latest || latest.sequence < run.sequence ? run : latest, null)?.phase ?? null;
         for (const step of commands.workflow) {
-            const path = await artifactPath(step, item, inst);
-            let exists = false;
-            let clarificationCount = null;
-            let artifactError = null;
-            let content = null;
-            if (path) {
-                try {
-                    await resolveWorkflowPath(inst.cwd, path, pipeline, "artifact");
-                    exists = true;
-                    try {
-                        content = await readWorkflowArtifact(inst.cwd, path, pipeline);
-                        if (content.trim()) clarificationCount = visibleMarkers(content).length;
-                        else artifactError = "Artifact is empty or still being written.";
-                    } catch (error) {
-                        if (error.code === "ENOENT") exists = false;
-                        else artifactError = "Could not read the artifact safely. Automatic refresh will retry.";
-                    }
-                } catch (error) {
-                    if (error.code !== "ENOENT") throw error;
-                }
-            }
+            const evidence = await phaseArtifact(inst, item, step);
+            const { artifact, clarificationCount, artifactError } = evidence;
+            const run = itemRuns.find((entry) => entry.phase === step.instanceKey);
             item.phases[step.instanceKey] = {
-                artifact: exists ? path : null,
+                hasRun: (runs.pending.find((entry) => entry.slug === (item.isNew ? null : item.slug))?.phases
+                    ?.includes(step.instanceKey) === true)
+                    || (!item.isNew && runs.items.find((entry) => entry.id === item.id)?.phases.includes(step.instanceKey) === true),
+                artifact,
                 clarificationCount,
                 ...(artifactError ? { artifactError } : {}),
             };
-            if (reviewConfig && step === commands.workflow.at(-1) && !item.isNew) {
-                const review = await artifactReviewer.observe(inst, {
-                    itemId: item.id, artifact: exists ? path : null, content, clarificationCount,
+            if (reviewConfig) {
+                const review = run?.error ? { state: "failed", label: "Review unavailable", error: run.error }
+                    : await artifactReviewer.observe(inst, {
+                    ...evidence, phase: step.instanceKey, runId: run?.runId ?? null,
+                    completed: run?.completed === true, response: run?.response ?? null,
+                    itemId: item.id,
                     canDispatch: allowReview && setup.ready && !agentBusy,
                 });
                 if (review) item.phases[step.instanceKey].review = review;
             }
         }
     }
-    const binding = pipeline.runtime?.multiInstance === true
-        ? null
-        : (singleInstanceBindings.get(bindingKey(inst)) ?? { state: pipeline.runtime?.itemRoot ? "unbound" : "bound", slug: null });
+    const binding = inst.runBinding?.state === "error" ? inst.runBinding
+        : pipeline.runtime?.multiInstance === true ? null
+            : (inst.runBinding ?? { state: pipeline.runtime?.itemRoot ? "unbound" : "bound", slug: null });
     const phaseInputs = Object.fromEntries(pipeline.pipeline.steps.map((phase) => [phase.instanceKey, adapter.phaseInput(phase)]));
     const constitution = commands.constitution ? await inspectConstitution(inst.cwd, pipeline) : null;
     return {
         clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
         artifactReview: reviewConfig ? {
-            phase: reviewConfig.phase,
             labels: reviewConfig.labels,
         } : null,
         ...(constitution ? { projectArtifacts: { constitution } } : {}),
@@ -438,10 +464,12 @@ async function runPhase(inst, input) {
         return { ok: true, phase: step.instanceKey, invocation: step.invocation };
     }
     const items = await listItems(inst);
+    const runs = await phaseRuns.read(inst);
     const staleSingleNew = pipeline.runtime?.multiInstance !== true && input?.itemId === "__new__"
-        && singleInstanceBindings.get(bindingKey(inst))?.state === "bound";
+        && Boolean(runs.binding);
     if (input?.itemId != null && !items.some((entry) => entry.id === input.itemId) && !staleSingleNew) throw new Error("unknown workflow item");
     let item = items.find((entry) => entry.id === input?.itemId) ?? items[0] ?? null;
+    if (inst.runBinding?.state === "error") throw new Error(inst.runBinding.error);
     let reservedNow = false;
     let reservationKey = null;
     if (pipeline.runtime?.itemRoot && item?.isNew && pipeline.runtime?.userProvidesSlug === true) {
@@ -474,21 +502,13 @@ async function runPhase(inst, input) {
     } else if (requestedSlug && item?.slug && requestedSlug !== item.slug) {
         throw new Error("a workflow slug cannot be changed after it is set");
     }
-    let bindAfterSend = null;
     if (pipeline.runtime?.multiInstance !== true && pipeline.runtime?.itemRoot) {
-        const key = bindingKey(inst);
-        const binding = singleInstanceBindings.get(key);
-        if (binding?.state === "error") throw new Error(binding.error);
-        if (binding?.state === "bound") {
-            if (requestedSlug && requestedSlug !== binding.slug) throw new Error("this workflow is already bound to another slug");
-            if (pipeline.runtime?.userProvidesSlug === true) requestedSlug = binding.slug;
-            item = { ...item, id: binding.slug, slug: binding.slug, isNew: false };
+        if (runs.binding) {
+            if (requestedSlug && requestedSlug !== runs.binding) throw new Error("this workflow is already bound to another slug");
+            if (pipeline.runtime?.userProvidesSlug === true) requestedSlug = runs.binding;
+            item = { ...item, id: runs.binding, slug: runs.binding, isNew: false };
         } else if (requestedSlug) {
             item = { id: requestedSlug, slug: requestedSlug, label: requestedSlug, isNew: false };
-            bindAfterSend = requestedSlug;
-        } else if (item?.isNew) {
-            const baseline = Object.fromEntries((await discoveredItems(inst)).map((entry) => [entry.slug, entry.lastActivity]));
-            singleInstanceBindings.set(key, { state: "pending", baseline });
         }
     }
     if (
@@ -504,17 +524,28 @@ async function runPhase(inst, input) {
         requestedSlug ? `slug=${requestedSlug}` : (item?.slug ?? ""),
         args.trim(),
     ].filter(Boolean).join(" ");
+    const baseline = item?.isNew
+        ? Object.fromEntries((await discoveredItems(inst)).map((entry) => [entry.slug, entry.lastActivity])) : {};
+    const runId = randomUUID();
+    let messageId;
     try {
-        await session.send({ prompt: `${step.invocation}${promptArgs ? ` ${promptArgs}` : ""}` });
+        messageId = await session.send({ prompt: `${step.invocation}${promptArgs ? ` ${promptArgs}` : ""}` });
     } catch (error) {
         if (reservedNow && reservationKey) workflowSlugReservations.delete(reservationKey);
         if (reservedNow) inst.pendingWorkflowSlug = null;
         throw error;
     }
-    if (bindAfterSend) singleInstanceBindings.set(bindingKey(inst), { state: "bound", slug: bindAfterSend });
-    if (reviewConfig && step === commands.workflow.at(-1) && item && !item.isNew) artifactReviewer.retry(inst, item.id);
+    try {
+        await phaseRuns.mark(inst, item, step.instanceKey, { slug: requestedSlug || null, baseline,
+            run: reviewConfig ? { runId, messageId: messageId ?? "", sessionId: session.sessionId ?? "" } : null });
+    } catch {
+        const error = "The command was sent, but its run state could not be saved. Check .speckit-wizard/phase-runs before rerunning.";
+        await session.log(error, { level: "error" });
+        return { ok: false, dispatched: true, error };
+    }
     inst.broadcast();
-    return { ok: true, phase: step.instanceKey, invocation: step.invocation };
+    return { ok: true, phase: step.instanceKey, invocation: step.invocation, hasRun: true,
+        itemId: item.isNew ? requestedSlug || item.id : item.id };
 }
 
 async function deleteWorkflow(inst, input) {
@@ -524,9 +555,12 @@ async function deleteWorkflow(inst, input) {
     const { slug, error } = validateWorkflowSlug(input?.slug);
     if (!slug || error) throw new Error("invalid workflow slug");
     const item = (await discoveredItems(inst)).find((entry) => entry.slug === slug);
-    if (!item) throw new Error("workflow does not exist");
-    const relativeDirectory = pipeline.runtime.itemRoot.replaceAll("<slug>", slug);
-    await deleteWorkspaceDirectory(inst.cwd, relativeDirectory, pipeline);
+    if (!item && !(await phaseRuns.read(inst)).pending.some((entry) => entry.slug === slug)) throw new Error("workflow does not exist");
+    if (item) {
+        const relativeDirectory = pipeline.runtime.itemRoot.replaceAll("<slug>", slug);
+        await deleteWorkspaceDirectory(inst.cwd, relativeDirectory, pipeline);
+    }
+    await phaseRuns.forget(inst, slug);
     if (inst.pendingWorkflowSlug === slug) inst.pendingWorkflowSlug = null;
     workflowSlugReservations.delete(slugReservationKey(inst, slug));
     inst.broadcast();
@@ -836,6 +870,9 @@ async function startHttp(inst) {
             return send(res, 404, { error: "not found" });
         } catch (error) {
             // Never serialize caught exceptions: filesystem and SDK errors can contain private details.
+            if (error?.code === "PHASE_RUN_STATE") {
+                return send(res, 400, { error: "Cannot read phase run state. Check .speckit-wizard/phase-runs and reopen the canvas." });
+            }
             if (error?.code === "ARTIFACT_UNAVAILABLE") {
                 return send(res, 413, { error: "Artifact is unavailable or exceeds the 512 KiB limit." });
             }
@@ -872,7 +909,7 @@ async function startHttp(inst) {
 const actions = [
     ...(reviewConfig ? [{
         name: "report_artifact_review",
-        description: "Report a fixed status ID for a pending read-only final-artifact review.",
+        description: "Report a fixed status ID for a pending read-only phase-result review.",
         inputSchema: {
             type: "object", required: ["requestId", "statusId"], additionalProperties: false,
             properties: { requestId: { type: "string" },
@@ -1013,8 +1050,8 @@ session = await joinSession({
     })],
 });
 if (reviewConfig) {
-    session.on("user.message", () => { agentBusy = true; });
-    session.on("tool.execution_start", () => { agentBusy = true; });
-    session.on("session.idle", () => { agentBusy = false; });
+    session.on("user.message", () => { agentBusy = true; responseRevision++; });
+    session.on("tool.execution_start", () => { agentBusy = true; responseRevision++; });
+    session.on("session.idle", () => { agentBusy = false; responseRevision++; });
 }
 await session.log(`${__EXTENSION_ID_JSON__} canvas ready`, { level: "info", ephemeral: true });

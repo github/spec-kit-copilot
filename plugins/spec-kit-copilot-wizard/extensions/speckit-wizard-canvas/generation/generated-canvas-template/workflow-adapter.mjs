@@ -57,9 +57,6 @@ export function validateWorkflowConfig(config, pipeline, { resultLabels } = {}) 
     const { all } = commandViews(pipeline);
     record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "resultLabels"]);
     const configuredLabels = validateResultLabels(config.resultLabels);
-    if (configuredLabels.length && !commandViews(pipeline).workflow.at(-1)?.artifact?.persistent) {
-        throw new Error("Workflow results require a persistent artifact from the final workflow phase.");
-    }
     if (resultLabels !== undefined && JSON.stringify(configuredLabels) !== JSON.stringify(validateResultLabels(resultLabels))) {
         throw new Error("Result labels must match the generation settings exactly.");
     }
@@ -101,7 +98,7 @@ export function createWorkflowAdapter(config, pipeline) {
     const { constitution, workflow } = commandViews(pipeline);
     return Object.freeze({
         artifactReview() {
-            return settings.resultLabels?.length ? { phase: workflow.at(-1).instanceKey, labels: [...settings.resultLabels] } : null;
+            return settings.resultLabels?.length && workflow.length ? { labels: [...settings.resultLabels] } : null;
         },
         phaseInput(phase) {
             return { ...(settings.phaseInputs?.[phase.instanceKey] ?? defaultPhaseInput(

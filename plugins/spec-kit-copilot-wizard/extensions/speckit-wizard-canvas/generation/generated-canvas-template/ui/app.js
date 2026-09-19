@@ -5,13 +5,10 @@ import { clarificationKey, createClarificationQueue } from "./clarifications.mjs
 import { observationMessage, refreshDraftControls, selectedDrafts } from "./clarification-controls.mjs";
 import { validateWorkflowSlug } from "./workflow-slug.mjs";
 
-const RUN_ACK_MS = 15 * 1000;
 const state = {
     snapshot: null,
     current: 0,
     runningPhase: null,
-    runTimer: null,
-    submitted: new Set(),
     selectedItemId: null,
     workflowSlugDraft: "",
     newWorkflowDraftId: 0,
@@ -44,14 +41,9 @@ function phaseRunKey(step, item = selectedItem()) {
 }
 
 function resetNewWorkflowDraft() {
-    if (state.runTimer) clearTimeout(state.runTimer);
-    state.runTimer = null;
     state.runningPhase = null;
     state.newWorkflowDraftId += 1;
     state.workflowSlugDraft = "";
-    for (const key of state.submitted) {
-        if (key.startsWith("__new__#")) state.submitted.delete(key);
-    }
 }
 
 function resolvedOutputPath(step, item = selectedItem()) {
@@ -103,12 +95,13 @@ function renderInstanceCollection() {
         .filter((item) => !item.isNew)
         .sort((left, right) => (right.lastActivity ?? 0) - (left.lastActivity ?? 0));
     const statuses = new Map(items.map((item) => [item.id, workflowStatus(item)]));
+    const results = new Map(items.map((item) => [item.id, latestPhaseResult(item)]));
     const clarificationCount = items.filter((item) => workflowSteps().some((step) => item.phases?.[step.instanceKey]?.clarificationCount > 0)).length;
     const review = state.snapshot?.artifactReview;
     const resultCounts = (review?.labels ?? []).map((label, index) => ({
-        label, count: items.filter((item) => statuses.get(item.id).statusId === `result-${index + 1}`).length,
+        label, count: items.filter((item) => results.get(item.id).statusId === `result-${index + 1}`).length,
     }));
-    const undeterminedCount = review ? items.filter((item) => statuses.get(item.id).statusId === "not-determined").length : 0;
+    const undeterminedCount = review ? items.filter((item) => results.get(item.id).statusId === "not-determined").length : 0;
     const collectionPath = state.snapshot?.pipeline?.runtime?.itemRoot?.replaceAll("\\", "/").replace(/\/<slug>$/, "");
     collection.hidden = false;
     collection.innerHTML = `
@@ -116,11 +109,12 @@ function renderInstanceCollection() {
             <h2>${esc(state.snapshot?.pipeline?.metadata?.workflowListName ?? "Workflows")} <span class="muted">(${items.length})</span></h2>
             <button class="btn btn-secondary" id="new-workflow" type="button">+ New</button>
         </div>
+        ${state.snapshot?.pipeline?.metadata?.description ? `<p class="collection-description muted">${esc(state.snapshot.pipeline.metadata.description)}</p>` : ""}
         ${collectionPath ? `<button type="button" class="phase-artifact-link collection-folder" id="browse-collection-folder" data-folder-path="${esc(collectionPath)}" title="Open ${esc(collectionPath)}/ in file explorer"><code>${esc(collectionPath)}/</code></button>` : ""}
         <div class="collection-summary" aria-label="Workflow counts">
-            ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows whose current final-artifact evidence matches this result label; not verified code correctness.")).join("")}
+            ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows whose latest dispatched phase matches this result label; not verified code correctness.")).join("")}
             ${phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.")}
-            ${undeterminedCount > 0 ? phaseNotice(`Not determined: ${undeterminedCount}`, "Workflows whose current final-artifact review explicitly returned Not determined.") : ""}
+            ${undeterminedCount > 0 ? phaseNotice(`Not determined: ${undeterminedCount}`, "Workflows whose latest phase review explicitly returned Not determined.") : ""}
         </div>
         <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
@@ -250,29 +244,37 @@ function openConstitutionDialog(step) {
     });
 }
 
+function phaseHasRun(step, item = selectedItem()) {
+    return item?.phases?.[step.instanceKey]?.hasRun === true;
+}
+
 function phasePresentation(step, item = selectedItem()) {
     const phase = item?.phases?.[step.instanceKey];
-    const final = step.instanceKey === workflowSteps().at(-1)?.instanceKey;
-    if (!phase?.artifact) return { className: "", label: "No artifact", symbol: "", notice: "" };
-    if (phase.artifactError || !Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) {
-        return { className: "", label: phase.artifactError || "Artifact status unavailable", symbol: "!",
-            notice: state.snapshot?.artifactReview ? "Artifact unavailable" : "", error: phase.artifactError || "Artifact status unavailable" };
-    }
-    if (phase.clarificationCount > 0) {
+    const run = phaseHasRun(step, item)
+        ? { className: "phase-run", label: "Run requested; completion not verified", symbol: "✓", notice: "" }
+        : { className: "", label: "Not run", symbol: "", notice: "" };
+    if (phase?.clarificationCount > 0) {
         return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
     }
-    const review = final ? phase.review : null;
-    const config = final ? state.snapshot?.artifactReview : null;
+    const review = phase?.review;
+    const config = state.snapshot?.artifactReview;
+    const artifactError = phase?.artifactError || (phase?.artifact
+        && (!Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) ? "Artifact status unavailable" : "");
     const index = config?.labels.findIndex((_label, index) => review?.statusId === `result-${index + 1}`) ?? -1;
     const statusId = config && review?.state === "reviewed" && !review.error && (index >= 0 || review.statusId === "not-determined")
         ? review.statusId : null;
     const notice = config
-        ? statusId && index >= 0 ? config.labels[index]
-            : review?.state === "reviewing" ? "Reviewing" : review?.state === "failed" ? "Review unavailable" : "Not determined"
+        ? statusId ? index >= 0 ? config.labels[index] : "Not determined"
+            : review?.state === "failed" ? "Review unavailable" : artifactError ? "Artifact unavailable" : ""
         : "";
-    return { className: "artifact-ready", label: "Artifact created; no open clarifications", symbol: "✓",
+    return { ...run,
         notice, statusId,
-        error: review?.error };
+        error: review?.error || artifactError };
+}
+
+function latestPhaseResult(item) {
+    const step = workflowSteps().find((step) => step.instanceKey === item.latestPhase);
+    return step ? phasePresentation(step, item) : { notice: "" };
 }
 
 function workflowStatus(item) {
@@ -284,13 +286,12 @@ function workflowStatus(item) {
         return { notice: phases.some((phase) => phase.notice === "Clarification needed") ? "Clarification needed" : "",
             error: phases.filter((phase) => phase.error).map((phase) => phase.error).join(" ") };
     }
-    if (item.phases?.[final.instanceKey]?.artifact) {
-        const presentation = phasePresentation(final, item);
-        return presentation;
-    }
-    const next = steps.find((step) => !item.phases?.[step.instanceKey]?.artifact
-        && (step.artifact?.persistent || !state.submitted.has(phaseRunKey(step, item)))) ?? final;
-    return { notice: `Run ${next.label}` };
+    const clarification = steps.map((step) => phasePresentation(step, item))
+        .find((phase) => phase.notice === "Clarification needed");
+    if (clarification) return clarification;
+    if (item.latestPhase) return latestPhaseResult(item);
+    const next = steps.find((step) => !phaseHasRun(step, item));
+    return { notice: next ? `Run ${next.label}` : "" };
 }
 
 function phaseNotice(text, detail = "") {
@@ -353,9 +354,7 @@ function renderPhaseCard() {
     }
     const runKey = phaseRunKey(step, item);
     const running = state.runningPhase === runKey;
-    const submitted = state.submitted.has(runKey);
-    const artifact = item?.phases?.[step.instanceKey]?.artifact ?? null;
-    const completed = Boolean(artifact);
+    const submitted = phaseHasRun(step, item);
     const inputGuidance = phaseInputGuidance(step);
     const outputPath = resolvedOutputPath(step, item);
     const outputUnresolved = !outputPath || outputPath.includes("<slug>");
@@ -384,7 +383,7 @@ function renderPhaseCard() {
         <footer class="phase-actions phase-actions-nav">
             <div class="phase-actions-left"><button class="btn btn-secondary" id="previous-phase" type="button" ${backDisabled ? "disabled" : ""}>◀ Back</button></div>
             <div class="phase-actions-center">
-                <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Running…' : (completed || submitted ? "Run again" : "Run phase")}</button>
+                <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Sending…' : (submitted ? "Run again" : "Run phase")}</button>
                 <button class="btn btn-secondary" id="view-artifact" type="button">View artifact</button>
             </div>
             <div class="phase-actions-right"><button class="btn btn-secondary" id="next-phase" type="button" ${continueDisabled ? "disabled" : ""}>Continue ▶</button></div>
@@ -397,7 +396,7 @@ function renderPhaseCard() {
         state.workflowSlugDraft = event.target.value;
         updateWritesTo(step, item);
     });
-    $("run-phase")?.addEventListener("click", () => runPhase(step, completed));
+    $("run-phase")?.addEventListener("click", () => runPhase(step));
     $("view-artifact")?.addEventListener("click", () => openArtifact(resolvedOutputPath(step, item), step, item));
     $("browse-output-folder")?.addEventListener("click", revealOutputFolder);
     $("previous-phase")?.addEventListener("click", () => {
@@ -414,7 +413,7 @@ function renderPhaseCard() {
     });
 }
 
-async function runPhase(step, completed) {
+async function runPhase(step) {
     const runKey = phaseRunKey(step);
     if (state.runningPhase === runKey) return;
     const item = selectedItem();
@@ -432,11 +431,10 @@ async function runPhase(step, completed) {
         await reviewInstallation("review");
         return;
     }
-    if ((completed || state.submitted.has(runKey)) && !await confirmRerun(step)) return;
+    if (phaseHasRun(step, item) && !await confirmRerun(step)) return;
     const args = $("phase-args")?.value ?? "";
     state.phaseDrafts.set(runKey, args);
     const slug = usesSlugDraft ? validation.slug : null;
-    if (state.runTimer) clearTimeout(state.runTimer);
     state.runningPhase = runKey;
     renderPhaseCard();
     try {
@@ -467,18 +465,12 @@ async function runPhase(step, completed) {
         }
         if (result.ok === false) throw new Error(result.error || "Workflow could not run.");
         state.lastSubmitted.set(runKey, args);
-        if (phaseRunKey(step) !== runKey) {
-            if (state.runningPhase === runKey) state.runningPhase = null;
-            return;
+        const followItem = phaseRunKey(step) === runKey ? result.itemId : null;
+        if (state.runningPhase === runKey) state.runningPhase = null;
+        await refresh(followItem);
+        if (result.queued && phaseRunKey(step) === runKey) {
+            $("phase-message").textContent = "Queued until setup is ready. This phase has not been sent yet.";
         }
-
-        state.submitted.add(runKey);
-        state.runTimer = setTimeout(() => {
-            if (state.runningPhase === runKey) state.runningPhase = null;
-            state.runTimer = null;
-            renderPhaseCard();
-        }, RUN_ACK_MS);
-        state.runTimer.unref?.();
     } catch (error) {
         state.runningPhase = null;
         renderPhaseCard();
@@ -819,8 +811,9 @@ async function reviewInstallation(action) {
     }
 }
 
-async function refresh() {
+async function refresh(preferredItemId = null) {
     const phaseDraft = $("phase-args")?.value;
+    const previousItem = selectedItem();
     const previousIds = new Set((state.snapshot?.items ?? []).filter((item) => !item.isNew).map((item) => item.id));
     const previousSelection = state.selectedItemId;
     state.snapshot = await json("/api/state");
@@ -833,6 +826,17 @@ async function refresh() {
     }
     if (!state.snapshot.items?.some((item) => item.id === state.selectedItemId)) {
         state.selectedItemId = state.snapshot.selectedItemId ?? state.snapshot.items?.[0]?.id ?? null;
+    }
+    if (preferredItemId && state.snapshot.items?.some((item) => item.id === preferredItemId)) {
+        state.selectedItemId = preferredItemId;
+    }
+    if (previousItem?.isNew && selectedItem() && !selectedItem().isNew) {
+        for (const step of workflowSteps()) {
+            const previousKey = phaseRunKey(step, previousItem);
+            const nextKey = phaseRunKey(step);
+            if (state.phaseDrafts.has(previousKey)) state.phaseDrafts.set(nextKey, state.phaseDrafts.get(previousKey));
+            if (state.lastSubmitted.has(previousKey)) state.lastSubmitted.set(nextKey, state.lastSubmitted.get(previousKey));
+        }
     }
     const setup = $("setup-message");
     const failed = !state.snapshot.setup?.approval?.required && state.snapshot.setup?.ready === false && state.snapshot.setup?.state === "failed";
@@ -866,7 +870,10 @@ if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 const events = new EventSource("/api/events");
 events.onopen = () => { $("connection").className = "conn conn-live"; $("connection").textContent = "live"; };
 events.onerror = () => { $("connection").className = "conn conn-lost"; $("connection").textContent = "reconnecting…"; };
-events.onmessage = () => refresh().catch(() => {});
+events.onmessage = () => refresh().catch((error) => {
+    $("setup-message").hidden = false;
+    $("setup-message").textContent = error.message;
+});
 refresh().catch((error) => {
     $("phase-card").innerHTML = `<div class="workflow-error">${esc(error.message)}</div>`;
 });

@@ -18,13 +18,15 @@ const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const realFs = { mkdir, lstat, readFile, readdir, realpath, rename, stat, writeFile };
 const here = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_VERSION = 26;
+const TEMPLATE_VERSION = 28;
 const TEMPLATE_FILES = [
     ["generated-canvas-template/extension.mjs", "template/extension.mjs"],
     ["generated-canvas-template/setup-runtime.mjs", "template/setup-runtime.mjs"],
     ["generated-canvas-template/approval-runtime.mjs", "template/approval-runtime.mjs"],
     ["generated-canvas-template/amendment-runtime.mjs", "template/amendment-runtime.mjs"],
     ["generated-canvas-template/artifact-review.mjs", "template/artifact-review.mjs"],
+    ["generated-canvas-template/phase-runs.mjs", "template/phase-runs.mjs"],
+    ["generated-canvas-template/phase-response.mjs", "template/phase-response.mjs"],
     ["generated-canvas-template/project-artifacts.mjs", "template/project-artifacts.mjs"],
     ["generated-canvas-template/README.md", "template/README.md"],
     ["generated-canvas-template/workflow-adapter.mjs", "template/workflow-adapter.mjs"],
@@ -49,6 +51,8 @@ const PROTECTED_TEMPLATE_FILES = new Set([
     "approval-runtime.mjs",
     "amendment-runtime.mjs",
     "artifact-review.mjs",
+    "phase-runs.mjs",
+    "phase-response.mjs",
     "project-artifacts.mjs",
     "workspace-files.mjs",
     "ui/app.js",

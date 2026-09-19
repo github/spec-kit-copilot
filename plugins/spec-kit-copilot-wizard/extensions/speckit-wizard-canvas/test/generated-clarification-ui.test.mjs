@@ -85,7 +85,7 @@ async function fixture() {
         pipeline, setup: { ready: true }, selectedItemId: "alpha",
         projectArtifacts: { constitution: { state: "ready", ready: true, viewable: true, path: constitution.artifact.pathTemplate } },
         items: ["alpha", "beta"].map((id) => ({
-            id, slug: id, label: id, phases: {
+            id, slug: id, label: id, latestPhase: plan.instanceKey, phases: {
                 [specify.instanceKey]: { artifact: `specs/${id}/spec.md` },
                 [plan.instanceKey]: { artifact: `specs/${id}/plan.md` },
             },
@@ -132,7 +132,7 @@ async function fixture() {
 test("collection counts use final status IDs and distinct workflows, not marker totals or labels", async () => {
     const f = await fixture();
     f.snapshot.artifactReview = {
-        phase: f.plan.instanceKey, labels: ["Decision made", "Decision deferred", "Decision not made"],
+        labels: ["Decision made", "Decision deferred", "Decision not made"],
     };
     const [alpha, beta] = f.snapshot.items;
     for (const item of [alpha, beta]) {
@@ -170,9 +170,17 @@ test("collection counts use final status IDs and distinct workflows, not marker 
     assert.doesNotMatch(summary(), />Not determined:/);
     assert.match(f.get("instance-collection").innerHTML, />Clarification needed<\/span>/);
     beta.phases[f.plan.instanceKey].artifact = null;
+    beta.phases[f.plan.instanceKey].clarificationCount = null;
+    delete beta.phases[f.plan.instanceKey].review;
+    beta.latestPhase = null;
     await f.refresh();
-    assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
+    assert.match(f.get("instance-collection").innerHTML, />Clarification needed<\/span>/);
+    assert.doesNotMatch(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
     await f.get("next-phase").emit("click");
+    assert.doesNotMatch(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
+    beta.phases[f.specify.instanceKey].clarificationCount = 0;
+    beta.phases[f.specify.instanceKey].hasRun = true;
+    await f.refresh();
     assert.match(f.get("instance-collection").innerHTML, />Run Plan<\/span>/);
     assert.equal(f.posts.length, 0);
 });
@@ -182,6 +190,7 @@ test("unconfigured results show only clarification pills while retaining inline 
     const [alpha, beta] = f.snapshot.items;
     alpha.phases[f.specify.instanceKey].clarificationCount = 3;
     alpha.phases[f.plan.instanceKey].clarificationCount = 0;
+    alpha.phases[f.plan.instanceKey].hasRun = true;
     beta.phases[f.specify.instanceKey].clarificationCount = 0;
     beta.phases[f.plan.instanceKey] = { artifact: "specs/beta/plan.md", clarificationCount: null, artifactError: "Cannot read <artifact>" };
     await f.refresh();
@@ -197,7 +206,7 @@ test("unconfigured results show only clarification pills while retaining inline 
     assert.doesNotMatch(f.get("phase-card").innerHTML, /class="phase-notice"/);
     await f.select("alpha");
     assert.match(f.get("phase-navigation").innerHTML, /needs-clarification/);
-    assert.match(f.get("phase-navigation").innerHTML, /artifact-ready/);
+    assert.match(f.get("phase-navigation").innerHTML, /phase-run/);
     f.snapshot.pipeline.runtime.multiInstance = false;
     await f.refresh();
     assert.equal(f.get("instance-collection").hidden, true);

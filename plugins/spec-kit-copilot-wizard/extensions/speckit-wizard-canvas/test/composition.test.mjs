@@ -597,12 +597,13 @@ test("renderMoreCommandsPanel hides Core canonicals when presets customize them"
     }
 });
 
-test("renderGraphPhaseCard omits file viewer action for folder-only checklist fallback", () => {
+test("renderGraphPhaseCard offers the folder-aware viewer for a folder-only checklist", () => {
     let openedArtifact = 0;
+    let view;
     const el = {
         innerHTML: "",
         querySelector(selector) {
-            if (selector === '[data-phase-action="view"]') return null;
+            if (selector === '[data-phase-action="view"]') return { addEventListener: (_event, handler) => { view = handler; } };
             if (selector === "form.graph-phase-form" && this.innerHTML.includes("graph-phase-form")) {
                 return {
                     querySelector: () => null,
@@ -638,9 +639,11 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
         });
         assert.match(el.innerHTML, /data-phase-action="browse-folder"/);
         assert.match(el.innerHTML, /data-folder-path="specs\/feature\/checklists"/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.equal(openedArtifact, 0);
+        view();
+        assert.equal(openedArtifact, 1);
     } finally {
         state.snapshot = null;
         setGraphPhaseCardDeps({

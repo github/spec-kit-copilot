@@ -96,13 +96,15 @@ The agent opens the wizard in a side panel. See
 ## Generating a canvas from a pipeline
 
 Generated canvases show a shared collection-folder link and independent count pills.
-Each configured result label counts its explicit current final-artifact classifications.
+The configured description appears beneath the collection heading, before the folder link.
+Each configured result label counts current classifications of each workflow's latest dispatched phase.
 **Not determined** counts explicit uncertain reviews and is shown only when greater
 than zero. Counts are not adjusted to add up to the workflow total.
 **Clarification needed** independently counts workflows with unresolved
 questions in any phase and can overlap the result counts. With result settings,
-rows reuse the final-phase pill or show **Run &lt;next phase&gt;** when the final artifact
-is not yet available. Counts
+rows reuse that phase's result, including when an earlier phase is rerun.
+Before any phase is dispatched, rows show **Run &lt;next phase&gt;**.
+Unresolved clarifications in any phase take precedence until they are resolved. Counts
 ignore search/selection and exclude the unsaved New form. They reuse existing
 snapshots and reviews without additional LLM requests or persisted counters.
 Without result settings, only clarification pills are shown. Artifact indicators,
@@ -121,24 +123,38 @@ extension id and canvas name.
 The optional **Workflow results** settings accept up to five result labels, such as
 **Implemented / Partially implemented / Not implemented** or **Go / Hold / Kill**.
 Use **Add result** and **Remove** to edit the list, or leave it empty. Labels must be distinct,
-nonreserved, single-line phrases of 1-3 words and at most 60 characters. The actual
-last workflow phase must declare a persistent artifact to support result labels.
+nonreserved, single-line phrases of 1-3 words and at most 60 characters.
+Labels can be configured for any pipeline without running it or creating artifacts.
+Runtime review classifies every phase after its normal final agent response is captured;
+no artifact is required.
+Phases without a known local artifact target, such as `taskstoissues`, do not produce
+a generation warning; their artifact metadata remains available to the viewer.
 **Needs clarification** and **Clarification needed** are reserved because clarification
 is built in; entering either displays a validation message rather than adding a duplicate.
 Generation uses these exact settings and does not read workflow artifacts.
 
-Configured canvases ask Copilot to interpret each final artifact after it settles
-and the agent is idle, selecting one configured label or **Not determined**.
+Checklist generation uses its declared `checklists/<name>.md` output, even before
+a checklist exists. In the Wizard, a folder-only Checklist target opens the Markdown
+file list; a resolved checklist opens directly in the artifact viewer.
+
+Configured canvases ask Copilot to interpret each phase's genuine final agent response
+when the agent is idle. Only if no configured label is supported there do they
+review that phase's Markdown artifact, if available. If neither source resolves a
+label, the result is **Not determined**. Phase prompts do not request custom reports,
+and phase names are not evidence of success.
 List order controls display order, not classification priority.
+No result pill appears while a review is pending or running. **Not determined**
+is shown only for a completed, inconclusive review; clarification and error feedback remain visible.
 Goal outcome, status, verdict, decision and result are semantic cues, not required
 keywords or headings. Actual conclusions take precedence over goals, future plans,
 and intermediate findings; ambiguous evidence never forces a binary choice.
 The same labels apply to every
-workflow; the existing neutral pill displays them, with **Clarification needed**
+phase and workflow; the existing neutral pill displays them, with **Clarification needed**
 taking precedence. Standard canvases make no review requests. Reviews are read-only,
 scoped and fingerprinted; stale results are rejected. Failures show **Review unavailable**
-with accessible details; rerun the phase or reopen the canvas to retry. These labels
-describe artifact evidence, not independently verified implementation or test results.
+with accessible details. Reopen to retry failed classifications; rerun the phase if
+its response could not be captured. These labels describe the agent's response and
+artifact evidence, not independently verified implementation or test results.
 
 The wizard stores a deterministic generation request and a versioned
 canvas-template snapshot under `.speckit-wizard/generated-canvases/`.
@@ -151,7 +167,7 @@ commands to execute during generation. The agent
 customizes only the validated `workflow-config.json` (item labels, fixed phase
 argument prefixes/suffixes, and concise per-phase input labels/helpers derived from
 the effective installed skills, including preset overrides). It preserves the seeded
-user-defined final-artifact result labels unchanged. Phase input guidance
+user-defined result labels unchanged. Phase input guidance
 appears inside the empty textarea as placeholder text that disappears when typing
 and returns when cleared; it is never prefilled or submitted as input.
 The field label remains visible, and a screen-reader description retains the guidance
@@ -271,16 +287,23 @@ selected, disabling it only during the submission request. Marker presence and
 background observation never lock out a more detailed follow-up answer. Both
 viewers refresh artifacts automatically; there is no separate Refresh artifact link.
 
-Template version **19** colors generated workflow phases from current artifact
-contents: green with a checkmark for a readable, nonempty artifact without open
-clarifications, amber with an exclamation mark when clarifications remain, and
-neutral for missing or unreadable artifacts. Read failures are shown explicitly.
+Template version **27** uses one persisted dispatch flag for each workflow phase's
+green checkmark, **Run again** button and next-phase guidance. Artifact-free phases
+and phases that edit another phase's file work the same way. Existing files alone
+do not mark a phase as run, and queued, blocked or failed sends do not set the flag.
+Flags survive reopening under `.speckit-wizard/phase-runs/`; a new workflow retains
+its flags when its folder is identified. No execution history is recorded.
+Template version **28** also stores the latest run's verbatim final response per
+phase, correlated to its dispatched message. Reruns hide that phase's previous
+result while leaving other phases' results intact; stale callbacks are rejected.
+Open clarifications still take precedence, showing amber with an exclamation mark.
+Artifact read failures remain explicit and independent of run state.
 The selected phase card shows a text-only **Clarification needed** pill in a fixed
 neutral style; its color does not vary with the message. The existing refresh path
-updates these indicators without changing selection, drafts, or Run/Rerun behavior.
+updates these indicators without changing selection or drafts.
 The viewer and phase indicators share one detector for bracketed markers, including
 casing, whitespace, and Markdown emphasis around the label. Code, links and comments
-remain excluded. Green is evidence of an artifact, not a claim of semantic completion.
+remain excluded. Green means a command was sent, not verified successful completion.
 
 Drafts are isolated by workspace/canvas, item or project, phase and artifact.
 Back, navigation, failed sends and request acknowledgements do not clear them.

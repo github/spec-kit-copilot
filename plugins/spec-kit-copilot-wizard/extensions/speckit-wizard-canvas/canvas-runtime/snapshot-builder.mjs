@@ -11,6 +11,7 @@
 // server does not emit HTML fragments.
 
 import { PHASE_ORDER, PHASE_BY_ID } from "./wizard-phases.mjs";
+import { CORE_CAPABILITIES } from "../pipeline/canonical.mjs";
 import { deriveSetupPhaseStatus } from "../state/store.mjs";
 
 // -------- Compact state snapshot ------------------------------------------
@@ -55,6 +56,12 @@ export function buildStateSnapshot(scan) {
             formValues: scanned.formValues ?? {},
             artifactPath: scanned.artifactPath ?? null,
         };
+        if (id === "checklist") {
+            const folder = scanned.artifactPath?.endsWith("/") ? scanned.artifactPath : scanned.folderPath;
+            phases[id].artifactTemplatePath = scanned.artifactTemplatePath ?? CORE_CAPABILITIES["speckit.checklist"].writesTo;
+            if (folder) phases[id].folderPath = folder.replace(/<slug>/g, scan.slug ?? "<slug>").replace(/\/$/, "");
+            if (scanned.artifactPath?.endsWith("/")) phases[id].artifactPath = null;
+        }
     }
     // Forward any extension-command status slices set by the scanner (keyed
     // `commands/<full-cmd-id>`). PHASE_ORDER only enumerates core phases, so
@@ -207,7 +214,11 @@ function buildCommands(scan, statusPhases) {
             optional: !!cmd.optional,
             artifact: cmd.artifact ?? null,
             artifactPath,
-            ...(phaseSlice?.artifactTemplatePath ? { artifactTemplatePath: phaseSlice.artifactTemplatePath } : {}),
+            ...(phaseSlice?.artifactTemplatePath ? {
+                artifactTemplatePath: phaseSlice.id === "checklist"
+                    ? cmd.artifact ?? phaseSlice.artifactTemplatePath : phaseSlice.artifactTemplatePath,
+            } : {}),
+            ...(phaseSlice?.folderPath ? { folderPath: phaseSlice.folderPath } : {}),
             ...(phaseSlice?.argsHint ? { argsHint: phaseSlice.argsHint } : {}),
             ...(phaseSlice?.argsWhenEmpty ? { argsWhenEmpty: phaseSlice.argsWhenEmpty } : {}),
             status,

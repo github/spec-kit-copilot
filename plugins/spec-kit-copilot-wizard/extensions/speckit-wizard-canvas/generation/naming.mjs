@@ -32,15 +32,15 @@ export function validateGenerationMetadata(input) {
         errors.push({ code: "extension_id_protected", field: "extensionId", message: "Choose a different extension ID; the Spec Kit Wizard extension is protected." });
     }
     if (!displayName || displayName.length > 80) {
-        errors.push({ code: "display_name_invalid", field: "displayName", message: "Canvas name must be between 1 and 80 characters." });
+        errors.push({ code: "display_name_invalid", field: "displayName", message: "Name must be between 1 and 80 characters." });
     } else if (/\bgenerated\b/i.test(displayName)) {
-        errors.push({ code: "display_name_generated", field: "displayName", message: "Canvas names describe the workflow and must not include “Generated”." });
+        errors.push({ code: "display_name_generated", field: "displayName", message: "Name must describe the workflow and must not include “Generated”." });
     }
     if (!description || description.length > 240) {
         errors.push({ code: "description_invalid", field: "description", message: "Description must be between 1 and 240 characters." });
     }
     if (!workflowListName || workflowListName.length > 80 || /[\x00-\x1f\x7f\u2028\u2029]/.test(workflowListName)) {
-        errors.push({ code: "workflow_list_name_invalid", field: "workflowListName", message: "Canvas workflow header must be between 1 and 80 characters on a single line." });
+        errors.push({ code: "workflow_list_name_invalid", field: "workflowListName", message: "Workflow header must be between 1 and 80 characters on a single line." });
     }
     if (description && !/[.!?]$/.test(description)) {
         warnings.push({ code: "description_sentence", field: "description", message: "Consider ending the description with punctuation." });

@@ -1,4 +1,4 @@
-// Check artifact-derived phase states and neutral notices in the materialized browser UI.
+// Check dispatch-derived phase states and clarification precedence in the materialized UI.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
@@ -39,20 +39,31 @@ test("phase status and neutral notices refresh without losing selection or draft
                 const errors = [];
                 page.on("pageerror", (error) => errors.push(error.message));
                 const phases = {
-                    [specify.instanceKey]: { artifact: "specs/alpha/spec.md", clarificationCount: 0 },
-                    [plan.instanceKey]: { artifact: "specs/alpha/plan.md", clarificationCount: 2 },
-                    [tasks.instanceKey]: { artifact: null, clarificationCount: null },
-                    [implement.instanceKey]: { artifact: "specs/alpha/implementation.md", clarificationCount: null,
+                    [specify.instanceKey]: { hasRun: true, artifact: null, clarificationCount: null },
+                    [plan.instanceKey]: { hasRun: true, artifact: "specs/alpha/plan.md", clarificationCount: 2 },
+                    [tasks.instanceKey]: { hasRun: false, artifact: "specs/alpha/tasks.md", clarificationCount: 0 },
+                    [implement.instanceKey]: { hasRun: false, artifact: "specs/alpha/tasks.md", clarificationCount: null,
                         artifactError: "Could not read the artifact safely. Automatic refresh will retry." },
                 };
                 const snapshot = {
                     pipeline: blueprint, selectedItemId: "alpha", setup: { ready: true },
                     items: [{ id: "alpha", slug: "alpha", label: "Alpha", phases }],
                 };
+                let dispatch = "failed";
+                const posts = [];
                 await page.route("**/*", async (route) => {
                     const url = new URL(route.request().url());
                     assert.equal(url.origin, "http://127.0.0.1:43220");
-                    assert.equal(route.request().method(), "GET", "status checks never execute a phase");
+                    if (route.request().method() === "POST") {
+                        assert.equal(url.pathname, "/api/run");
+                        const input = route.request().postDataJSON();
+                        posts.push(input);
+                        if (dispatch === "failed") return route.fulfill({ status: 400, json: { error: "Dispatch failed." } });
+                        if (dispatch === "queued") return route.fulfill({ json: { ok: true, queued: true } });
+                        await new Promise((resolve) => setTimeout(resolve, 200));
+                        phases[input.phase].hasRun = true;
+                        return route.fulfill({ json: { ok: true, hasRun: true, itemId: "alpha" } });
+                    }
                     if (url.pathname === "/api/state") return route.fulfill({ json: snapshot });
                     const path = url.pathname === "/" ? "ui/index.html" : url.pathname.slice(1);
                     const contentType = path.endsWith(".html") ? "text/html" : path.endsWith(".css") ? "text/css" : "application/javascript";
@@ -65,13 +76,14 @@ test("phase status and neutral notices refresh without losing selection or draft
                 await page.goto("http://127.0.0.1:43220/");
                 const buttons = page.locator("#phase-navigation .step");
                 await buttons.nth(3).waitFor();
-                assert.match(await buttons.nth(0).getAttribute("class"), /artifact-ready/);
+                assert.match(await buttons.nth(0).getAttribute("class"), /phase-run/);
+                assert.match(await buttons.nth(0).getAttribute("title"), /completion not verified/);
                 assert.equal(await buttons.nth(0).locator(".step-order").textContent(), "✓");
                 assert.match(await buttons.nth(1).getAttribute("aria-label"), /Clarification needed/);
                 assert.equal(await buttons.nth(1).locator(".step-order").textContent(), "!");
-                assert.doesNotMatch(await buttons.nth(2).getAttribute("class"), /artifact-ready|needs-clarification/);
+                assert.doesNotMatch(await buttons.nth(2).getAttribute("class"), /phase-run|needs-clarification/);
                 assert.equal(await buttons.nth(2).locator(".step-order").textContent(), "3");
-                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /artifact-ready|needs-clarification/);
+                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /phase-run|needs-clarification/);
                 await buttons.nth(1).click();
                 const pill = page.locator("#phase-card .phase-notice");
                 assert.equal(await pill.textContent(), "Clarification needed");
@@ -97,7 +109,7 @@ test("phase status and neutral notices refresh without losing selection or draft
                 phases[plan.instanceKey].clarificationCount = 0;
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.count(), 0);
-                assert.match(await buttons.nth(1).getAttribute("class"), /artifact-ready/);
+                assert.match(await buttons.nth(1).getAttribute("class"), /phase-run/);
                 assert.equal(await buttons.nth(1).getAttribute("aria-current"), "step");
                 assert.equal(await page.locator("#phase-args").inputValue(), "Retain these phase details");
                 await buttons.nth(3).click();
@@ -109,7 +121,34 @@ test("phase status and neutral notices refresh without losing selection or draft
                 last.review = { state: "reviewed", label: "Goal met" };
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.count(), 0, "review metadata cannot introduce result pills without configured labels");
-                assert.match(await buttons.nth(3).getAttribute("class"), /artifact-ready/);
+                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /phase-run/, "shared artifact does not imply execution");
+                assert.equal(await page.locator("#run-phase").textContent(), "Run phase");
+                await page.locator("#run-phase").click();
+                await page.getByText("Dispatch failed.", { exact: true }).waitFor();
+                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /phase-run/);
+                dispatch = "queued";
+                await page.locator("#run-phase").click();
+                await page.getByText("Queued until setup is ready. This phase has not been sent yet.", { exact: true }).waitFor();
+                assert.equal(await page.locator("#run-phase").textContent(), "Run phase");
+                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /phase-run/);
+                dispatch = "sent";
+                await page.locator("#run-phase").click();
+                await page.getByRole("button", { name: "Sending…" }).waitFor();
+                assert.equal(await page.locator("#run-phase").isDisabled(), true);
+                assert.doesNotMatch(await buttons.nth(3).getAttribute("class"), /phase-run/);
+                await page.getByRole("button", { name: "Run again", exact: true }).waitFor();
+                assert.match(await buttons.nth(3).getAttribute("class"), /phase-run/);
+                assert.doesNotMatch(await buttons.nth(2).getAttribute("class"), /phase-run/, "running Implement does not mark Tasks");
+                assert.equal(posts.length, 3);
+                await page.reload();
+                await buttons.nth(3).click();
+                assert.equal(await page.locator("#run-phase").textContent(), "Run again");
+                assert.match(await buttons.nth(3).getAttribute("class"), /phase-run/);
+                dispatch = "failed";
+                await page.locator("#run-phase").click();
+                await page.locator('[data-answer="confirm"]').click();
+                await page.getByText("Dispatch failed.", { exact: true }).waitFor();
+                assert.match(await buttons.nth(3).getAttribute("class"), /phase-run/, "failed rerun preserves previous dispatch");
                 last.clarificationCount = 1;
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.textContent(), "Clarification needed");

@@ -314,13 +314,6 @@ export function compileBlueprint(snapshot, metadata, options = {}) {
                 : (canonical ? canonicalGuidance.whenEmpty : ""),
         };
         const persistent = Boolean(artifactPath) && !TRANSIENT_COMPLETION.has(commandName);
-        if (!artifactPath) {
-            warnings.push({
-                code: "artifact_unknown",
-                path: `pipeline[${index}]`,
-                message: `No artifact target is known for "${commandName}"; the generated canvas must show it as a transient phase.`,
-            });
-        }
         steps.push({
             index,
             instanceKey: `${index}:${normalizedId}`,

@@ -366,6 +366,8 @@ function pollArtifactAmendment(view) {
 export async function openArtifactViewer(p) {
     const root = document.getElementById("phase-artifact-viewer");
     if (!root) return;
+    const folder = p?.artifactPath?.endsWith("/") ? p.artifactPath : !p?.artifactPath ? p?.folderPath : null;
+    if (folder) return openFolderBrowser(p, folder.replace(/\/$/, ""));
     if (!p?.artifactPath) return;
 
     const view = { context: artifactContext(p), content: null, marks: [], message: "" };

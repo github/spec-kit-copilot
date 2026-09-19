@@ -96,7 +96,6 @@ describe("generation server lifecycle", () => {
                 fs: { ...generationFs, readFile: async () => assert.fail("preflight must not read workflow artifacts") },
             });
             assert.equal(preflight.ok, true);
-            assert.equal(preflight.supportsResultLabels, true);
             assert.equal(Object.hasOwn(preflight, "example"), false);
             const started = res();
             await ctx.handler(req("/api/generation/start", metadata), started);
@@ -122,22 +121,25 @@ describe("generation server lifecycle", () => {
         }
     });
 
-    test("result labels require the actual final phase to declare an artifact", async () => {
-        const ctx = await setup({ snapshot: { pipeline: [{ id: "specify" }, { id: "analyze" }] } });
-        const metadata = { extensionId: "analysis", displayName: "Analysis", description: "Final phase without artifact." };
-        const standard = res();
-        await ctx.handler(req("/api/generation/preflight", metadata), standard);
-        assert.equal(JSON.parse(standard.body).ok, true);
-        assert.equal(JSON.parse(standard.body).supportsResultLabels, false);
-        for (const endpoint of ["/api/generation/preflight", "/api/generation/start"]) {
-            const response = res();
-            await ctx.handler(req(endpoint, { ...metadata, resultLabels: ["Go", "Kill"] }), response);
-            assert.ok(JSON.parse(response.body).errors.some((error) => error.code === "result_labels_unsupported"));
+    test("result labels work with transient and artifact-free final phases", async () => {
+        for (const id of ["implement", "analyze", "taskstoissues"]) {
+            const ctx = await setup({ snapshot: { pipeline: [{ id: "specify" }, { id }] } });
+            const metadata = { extensionId: "results", displayName: "Results", description: "No prior execution.", resultLabels: ["Go", "Kill"] };
+            const preflight = res();
+            await ctx.handler(req("/api/generation/preflight", metadata), preflight);
+            assert.equal(JSON.parse(preflight.body).ok, true, preflight.body);
+            assert.equal(ctx.calls.length, 0);
+            const started = res();
+            await ctx.handler(req("/api/generation/start", metadata), started);
+            assert.equal(started.statusCode, 202, started.body);
+            const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", JSON.parse(started.body).requestId, "request.json");
+            const request = JSON.parse(await readFile(requestPath, "utf8"));
+            await mkdir(request.target.directory, { recursive: true });
+            await materialize({ requestFile: requestPath, targetDirectory: request.target.directory, request });
+            await validateCapturedTemplate(requestPath, request);
+            const config = JSON.parse(await readFile(join(request.target.directory, "workflow-config.json"), "utf8"));
+            assert.deepEqual(config.resultLabels, metadata.resultLabels);
         }
-        assert.equal(ctx.calls.length, 0);
-        const started = res();
-        await ctx.handler(req("/api/generation/start", metadata), started);
-        assert.equal(started.statusCode, 202);
     });
 
     test("invalid result settings are rejected before generation is dispatched", async () => {
@@ -311,7 +313,9 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 26);
+        assert.equal(request.template.version, 28);
+        assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-response.mjs"));
+        assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-runs.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "amendment-runtime.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "project-artifacts.mjs"));
@@ -394,7 +398,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 26);
+        assert.equal(requestBody.template.version, 28);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }

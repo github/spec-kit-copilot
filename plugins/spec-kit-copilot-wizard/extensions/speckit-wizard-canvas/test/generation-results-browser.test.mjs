@@ -37,7 +37,6 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
                 const { validateResultLabels } = await import("/generation/generated-canvas-template/workflow-adapter.mjs");
                 state.snapshot = { setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
                     pipeline: [{ id: "specify" }, { id: "plan" }] };
-                window.supportsResults = true;
                 window.started = 0;
                 window.failStart = false;
                 window.deferred = [];
@@ -53,11 +52,8 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
                     const errors = [];
                     try { validateResultLabels(body.resultLabels); }
                     catch (error) { errors.push({ field: "resultLabels", message: error.message }); }
-                    if (!window.supportsResults && body.resultLabels.length) {
-                        errors.push({ field: "resultLabels", message: "The final phase must produce an artifact." });
-                    }
                     const response = {
-                        ok: errors.length === 0, supportsResultLabels: window.supportsResults, errors,
+                        ok: errors.length === 0, errors,
                         target: { relativeDirectory: `.github/extensions/${body.extensionId}` },
                     };
                     if (window.defer) return new Promise((resolve) => window.deferred.push(() => resolve(response)));
@@ -72,6 +68,24 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await first.waitFor();
             assert.equal(await first.inputValue(), "");
             assert.equal(await page.locator("[data-result-label]").count(), 1);
+            assert.equal(await page.evaluate(() => {
+                const reference = getComputedStyle(document.querySelector("#generation-description-label"));
+                return [...document.querySelectorAll("#generation-results-title, .generation-modal .wizard-modal-check strong")]
+                    .every((element) => {
+                        const style = getComputedStyle(element);
+                        return style.fontSize === reference.fontSize && style.fontWeight === reference.fontWeight;
+                    });
+            }), true, "result and checkbox labels match the Description field typography");
+            assert.deepEqual(await page.locator(".generation-results").evaluate((element) => {
+                const style = getComputedStyle(element);
+                const gap = parseFloat(getComputedStyle(element.parentElement).rowGap);
+                return {
+                    top: style.borderTopWidth, bottom: style.borderBottomWidth,
+                    themeBorder: style.borderTopColor === getComputedStyle(document.querySelector(".wizard-modal")).borderTopColor,
+                    insideTop: style.paddingTop, insideBottom: style.paddingBottom,
+                    outsideTop: gap + parseFloat(style.marginTop), outsideBottom: gap + parseFloat(style.marginBottom),
+                };
+            }), { top: "1px", bottom: "1px", themeBorder: true, insideTop: "16px", insideBottom: "16px", outsideTop: 16, outsideBottom: 16 });
             assert.equal(await page.locator("#generation-example").count(), 0);
             assert.equal(await page.locator("#generation-results-help").textContent(), "The canvas displays result counts for the workflow based on these labels.");
             assert.match(await page.locator("#generation-results-examples").textContent(), /Examples: Go \/ Kill, or Implemented \/ Partially implemented \/ Not implemented/);
@@ -124,10 +138,9 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await first.waitFor();
             assert.equal(await first.inputValue(), "");
             assert.equal(await generate.isEnabled(), true);
-            // An earlier applicability response must not overwrite a newer check.
+            // An earlier preflight response must not overwrite a newer check.
             await page.evaluate(() => {
                 window.defer = true;
-                window.supportsResults = false;
                 window.buttonLabels = [];
                 new MutationObserver(() => window.buttonLabels.push(document.querySelector("#generation-submit").textContent))
                     .observe(document.querySelector("#generation-submit"), { childList: true, characterData: true, subtree: true });
@@ -135,7 +148,6 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await page.locator("#generation-extension-id").fill("older");
             await page.waitForFunction(() => window.deferred.length === 1);
             assert.equal(await generate.textContent(), "Generate");
-            await page.evaluate(() => { window.supportsResults = true; });
             await page.locator("#generation-extension-id").fill("newer");
             await page.waitForFunction(() => window.deferred.length === 2);
             assert.equal(await generate.textContent(), "Generate");
@@ -143,7 +155,7 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await page.waitForFunction(() => document.querySelector("#generation-target").value.endsWith("/newer"));
             await page.evaluate(() => window.deferred[0]());
             assert.equal(await first.isEnabled(), true);
-            assert.equal(await page.locator("#generation-results-unavailable").isVisible(), false);
+            assert.equal(await page.locator("#generation-results-unavailable").count(), 0);
             assert.equal(await generate.isEnabled(), true);
             assert.equal(await generate.textContent(), "Generate");
             assert.deepEqual(await page.evaluate(() => window.buttonLabels), [], "typing and preflight responses never rewrite the button label");
@@ -156,18 +168,22 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await first.fill("Go");
             await add.click();
             await page.locator("#generation-result-1").fill("Kill");
-            await page.evaluate(() => { window.supportsResults = false; });
+            await page.evaluate(async () => {
+                const { state } = await import("/ui/state.js");
+                state.snapshot.pipeline = [{ id: "specify" }, { id: "implement" }];
+            });
             await page.locator("#generation-extension-id").fill("no-final-artifact");
-            await page.locator("#generation-results-unavailable").waitFor();
-            assert.equal(await first.isEnabled(), true, "entered labels can be cleared if the pipeline becomes unsupported");
+            assert.equal(await first.isEnabled(), true);
+            assert.equal(await add.isEnabled(), true);
             await page.getByRole("button", { name: "Remove result label 2", exact: true }).click();
             await page.getByRole("button", { name: "Remove result label 1", exact: true }).click();
             assert.equal(await page.locator("[data-result-label]").count(), 0);
-            assert.equal(await add.isDisabled(), true);
-            assert.equal(await page.locator("#generation-results-unavailable").isVisible(), true);
+            assert.equal(await add.isEnabled(), true, "labels remain configurable when the final phase is Implement");
+            await add.click();
+            await first.fill("Implemented");
             await generate.click();
             await page.locator(".generation-modal").waitFor({ state: "detached" });
-            assert.deepEqual(await page.evaluate(() => window.lastStart.resultLabels), []);
+            assert.deepEqual(await page.evaluate(() => window.lastStart.resultLabels), ["Implemented"]);
             assert.deepEqual(errors, []);
             await page.close();
         }

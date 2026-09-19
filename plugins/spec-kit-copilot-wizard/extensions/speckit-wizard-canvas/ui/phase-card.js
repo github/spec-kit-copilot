@@ -491,7 +491,7 @@ export function renderGraphPhaseCard(el, p) {
 
     const disabledAttr = p.locked ? "disabled" : "";
     const hasSubmitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
-    const canViewArtifact = !!p.artifactPath;
+    const canViewArtifact = !!(p.artifactPath || p.folderPath);
 
     // View follows scanner-confirmed artifacts even after a later rerun fails.
     // Run/Rerun wording follows either scanner terminal status or local

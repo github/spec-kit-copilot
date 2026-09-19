@@ -62,6 +62,8 @@ async function loadGeneratedExtension(root, sdk, {
     await copyFile(join(template, "approval-runtime.mjs"), join(extensionRoot, "approval-runtime.mjs"));
     await copyFile(join(template, "amendment-runtime.mjs"), join(extensionRoot, "amendment-runtime.mjs"));
     await copyFile(join(template, "artifact-review.mjs"), join(extensionRoot, "artifact-review.mjs"));
+    await copyFile(join(template, "phase-runs.mjs"), join(extensionRoot, "phase-runs.mjs"));
+    await copyFile(join(template, "phase-response.mjs"), join(extensionRoot, "phase-response.mjs"));
     await copyFile(join(here, "..", "shared-workflow-ui", "markdown.mjs"), join(extensionRoot, "ui", "markdown.mjs"));
     for (const file of ["clarifications.mjs", "clarification-controls.mjs", "amendment.mjs"]) {
         await copyFile(join(here, "..", "shared-workflow-ui", file), join(extensionRoot, "ui", file));
@@ -234,6 +236,21 @@ describe("generated extension setup lifecycle", () => {
         assert.deepEqual(JSON.parse(await readFile(registry, "utf8")).extensions.unrelated, { enabled: false, priority: 99 });
     });
 
+    test("queued phases become run only after setup drains the actual dispatch", async () => {
+        const f = await matchedSetupFixture();
+        await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
+        await f.settledSetup();
+        const phase = async () => (await f.action("list_items")).items[0].phases["speckit.specify#0"];
+        await writeFile(f.init, '{"integration":"copilot","ai_skills":false}');
+        assert.equal((await f.action("run_phase", "ready", { phase: "speckit.specify#0", itemId: "project" })).queued, true);
+        assert.equal((await phase()).hasRun, false);
+        assert.equal(f.sent.filter((prompt) => prompt.startsWith("/skill:")).length, 0);
+        await writeFile(f.init, f.initContent);
+        await f.action("reloadSessionSkills");
+        await waitFor(async () => (await phase()).hasRun);
+        assert.equal(f.sent.filter((prompt) => prompt.startsWith("/skill:")).length, 1);
+    });
+
     test("amendments recheck missing skills and never dispatch with a stale ready UI snapshot", async () => {
         const f = await matchedSetupFixture();
         const opened = await f.canvas.open({ instanceId: "ready", input: { cwd: f.workspace } });
@@ -318,7 +335,7 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(f.sent.length, 1);
     });
 
-    test("optional artifact review waits for idle, reports fixed labels, and hides them while clarification is needed", async () => {
+    test("every phase captures its normal response, and an earlier rerun becomes the latest workflow result", async () => {
         const root = await mkdtemp(join(here, ".artifact-review-lifecycle-"));
         roots.push(root);
         const workspace = join(root, "workspace");
@@ -327,49 +344,174 @@ describe("generated extension setup lifecycle", () => {
         await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
         const file = join(workspace, "specs", "alpha", "spec.md");
         await writeFile(file, "# Spec\nDocumented scope.");
-        const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }] },
+        const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }, { id: "plan" }] },
             { extensionId: "review", displayName: "Review", description: "Test." });
         blueprint.setup.requiresSpecKit = false;
         blueprint.setup.requiredSkills = [];
-        const final = blueprint.pipeline.steps[0];
+        const [specify, plan] = blueprint.pipeline.steps;
         const events = new EventEmitter();
         const sent = [];
+        const history = [];
         let canvas;
-        await loadGeneratedExtension(root, {
+        const sdk = {
             createCanvas: (definition) => (canvas = definition),
             joinSession: async () => ({
-                send: async (input) => { sent.push(input); },
+                sessionId: "review-session",
+                getEvents: async () => history,
+                send: async (input) => {
+                    sent.push(input);
+                    const messageId = `request-${sent.length}`;
+                    if (input.prompt.startsWith("/skill:")) {
+                        assert.doesNotMatch(input.prompt, /report|summary|result-/i, "phase prompts have no reporting instructions");
+                        history.push(
+                            { type: "user.message", data: { messageId, interactionId: messageId } },
+                            { type: "assistant.turn_start", data: { turnId: "0", interactionId: messageId } },
+                            { type: "assistant.message", data: { turnId: "0", interactionId: messageId, content: "Documented the requested scope." } },
+                            { type: "assistant.turn_end", data: { turnId: "0" } },
+                        );
+                    }
+                    return messageId;
+                },
                 on: (type, handler) => events.on(type, handler),
                 rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
                 log: async () => {},
             }),
-        }, { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, resultLabels: [
+        };
+        const options = { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, resultLabels: [
             "Scope documented", "Scope incomplete", "Scope not documented",
-        ] } });
+        ] } };
+        await loadGeneratedExtension(root, sdk, options);
         const opened = await canvas.open({ instanceId: "review-panel", input: { cwd: workspace } });
         const list = canvas.actions.find((action) => action.name === "list_items");
         const stateUrl = new URL(opened.url);
         stateUrl.pathname = "/api/state";
         assert.deepEqual((await (await fetch(stateUrl)).json()).artifactReview, {
-            phase: final.instanceKey, labels: ["Scope documented", "Scope incomplete", "Scope not documented"],
+            labels: ["Scope documented", "Scope incomplete", "Scope not documented"],
         });
-        const phase = async () => (await list.handler({ instanceId: "review-panel", input: {} })).items
-            .find((item) => item.id === "alpha").phases[final.instanceKey];
-        assert.equal((await phase()).review.label, "Not determined");
+        const item = async () => (await list.handler({ instanceId: "review-panel", input: {} })).items.find((item) => item.id === "alpha");
+        const phase = async (step = specify) => (await item()).phases[step.instanceKey];
+        assert.equal((await phase()).review, undefined, "existing Markdown alone does not classify an unrun phase");
         assert.equal(sent.length, 0);
+        await canvas.actions.find((action) => action.name === "reloadSessionSkills").handler({ instanceId: "review-panel", input: {} });
+        const run = (step) => canvas.actions.find((action) => action.name === "run_phase").handler({
+            instanceId: "review-panel", input: { itemId: "alpha", phase: step.instanceKey },
+        });
+        await run(specify);
         events.emit("session.idle", {});
-        await waitFor(() => sent.length === 1, 7000);
-        assert.equal((await phase()).review.label, "Reviewing");
-        const requestId = sent[0].prompt.match(/"requestId":"([^"]+)"/)[1];
+        await waitFor(() => sent.length === 2, 7000);
+        assert.deepEqual((await phase()).review, { state: "reviewing", label: "" });
+        assert.match(sent[1].prompt, /Documented the requested scope/);
+        assert.doesNotMatch(sent[1].prompt, /# Spec/, "response review does not include Markdown evidence");
+        const requestId = sent[1].prompt.match(/"requestId":"([^"]+)"/)[1];
         const report = canvas.actions.find((action) => action.name === "report_artifact_review");
         assert.deepEqual(report.inputSchema.properties.statusId.enum, ["result-1", "result-2", "result-3", "not-determined"]);
         await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-1" } });
         assert.equal((await phase()).review.label, "Scope documented");
         assert.equal((await phase()).review.statusId, "result-1");
+        await run(plan);
+        events.emit("session.idle", {});
+        await waitFor(() => sent.length === 4, 7000);
+        const secondId = sent[3].prompt.match(/"requestId":"([^"]+)"/)[1];
+        await report.handler({ instanceId: "review-panel", input: { requestId: secondId, statusId: "result-2" } });
+        assert.equal((await phase(plan)).artifact, null);
+        assert.equal((await phase(plan)).review.statusId, "result-2", "no Markdown is required");
+        assert.equal((await item()).latestPhase, plan.instanceKey);
+        assert.equal((await phase()).review.statusId, "result-1");
+        await run(specify);
+        assert.equal((await item()).latestPhase, specify.instanceKey, "dispatch order, not pipeline order, selects workflow result");
+        assert.equal((await phase()).review?.statusId, undefined, "rerun hides the prior result immediately");
+        await assert.rejects(report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-3" } }));
+        events.emit("session.idle", {});
+        await waitFor(() => sent.length === 6, 7000);
+        const thirdId = sent[5].prompt.match(/"requestId":"([^"]+)"/)[1];
+        await report.handler({ instanceId: "review-panel", input: { requestId: thirdId, statusId: "result-1" } });
+        await canvas.onClose({ instanceId: "review-panel" });
+        const restart = await mkdtemp(join(here, ".phase-review-restart-"));
+        roots.push(restart);
+        await loadGeneratedExtension(restart, sdk, options);
+        await canvas.open({ instanceId: "review-reopened", input: { cwd: workspace } });
+        const restored = (await canvas.actions.find((action) => action.name === "list_items")
+            .handler({ instanceId: "review-reopened", input: {} })).items.find((item) => item.id === "alpha");
+        assert.equal(restored.latestPhase, specify.instanceKey);
+        assert.equal(restored.phases[specify.instanceKey].review.statusId, "result-1");
+        assert.equal(restored.phases[plan.instanceKey].review.statusId, "result-2");
         await writeFile(file, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
-        assert.equal((await phase()).review, undefined);
-        assert.equal((await phase()).clarificationCount, 1);
-        assert.equal(sent.length, 1);
+        const updated = (await canvas.actions.find((action) => action.name === "list_items")
+            .handler({ instanceId: "review-reopened", input: {} })).items.find((item) => item.id === "alpha");
+        assert.equal(updated.phases[specify.instanceKey].review, undefined);
+        assert.equal(updated.phases[specify.instanceKey].clarificationCount, 1);
+        assert.equal(sent.length, 6);
+    });
+
+    test("dispatch flags ignore shared files, survive provider restart, and follow new workflow identities", async () => {
+        const root = await mkdtemp(join(here, ".phase-dispatch-lifecycle-"));
+        roots.push(root);
+        const workspace = join(root, "workspace");
+        await mkdir(join(workspace, ".specify"), { recursive: true });
+        await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+        await mkdir(join(workspace, "specs", "alpha"), { recursive: true });
+        await mkdir(join(workspace, "specs", "beta"), { recursive: true });
+        await writeFile(join(workspace, "specs", "alpha", "tasks.md"), "# Existing tasks");
+        const blueprint = compileBlueprint({ pipeline: ["tasks", "implement", "analyze"].map((id) => ({ id })) },
+            { extensionId: "dispatch-status", displayName: "Status", description: "Test." }, { multiInstance: true, userProvidesSlug: true });
+        blueprint.setup.requiresSpecKit = false;
+        blueprint.setup.requiredSkills = [];
+        const [tasks, implement, analyze] = blueprint.pipeline.steps;
+        analyze.artifact = { ...analyze.artifact, pathTemplate: null, persistent: false };
+        let canvas, fail = true, sent = 0;
+        const sdk = {
+            createCanvas: (definition) => (canvas = definition),
+            joinSession: async () => ({
+                send: async () => { if (fail) throw new Error("Dispatch failed"); sent++; },
+                rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                log: async () => {},
+            }),
+        };
+        await loadGeneratedExtension(root, sdk, { blueprint });
+        let panel = "dispatch";
+        await canvas.open({ instanceId: panel, input: { cwd: workspace } });
+        const action = (name, input = {}) => canvas.actions.find((entry) => entry.name === name).handler({ instanceId: panel, input });
+        await action("reloadSessionSkills");
+        const phase = async (id, step) => (await action("list_items")).items.find((item) => item.id === id).phases[step.instanceKey];
+        const run = (id, step, extra = {}) => action("run_phase", { itemId: id, phase: step.instanceKey, ...extra });
+        assert.equal((await phase("alpha", tasks)).hasRun, false);
+        assert.equal((await phase("alpha", implement)).hasRun, false);
+        await assert.rejects(run("alpha", implement), /Dispatch failed/);
+        assert.equal((await phase("alpha", implement)).hasRun, false);
+        fail = false;
+        assert.equal((await run("alpha", implement)).hasRun, true);
+        assert.equal((await phase("alpha", implement)).hasRun, true);
+        assert.equal((await phase("alpha", tasks)).hasRun, false, "shared tasks.md is not phase execution evidence");
+        assert.equal((await phase("beta", implement)).hasRun, false);
+        await run("alpha", analyze);
+        assert.deepEqual(await phase("alpha", analyze), { hasRun: true, artifact: null, clarificationCount: null });
+        fail = true;
+        await assert.rejects(run("alpha", implement), /Dispatch failed/);
+        assert.equal((await phase("alpha", implement)).hasRun, true, "failed rerun does not erase the earlier dispatch");
+        fail = false;
+        await run("__new__", tasks);
+        assert.equal((await phase("__new__", tasks)).hasRun, true);
+        await canvas.onClose({ instanceId: panel });
+        const restart = await mkdtemp(join(here, ".phase-dispatch-restart-"));
+        roots.push(restart);
+        await loadGeneratedExtension(restart, sdk, { blueprint });
+        panel = "reopened";
+        await canvas.open({ instanceId: panel, input: { cwd: workspace } });
+        await action("reloadSessionSkills");
+        assert.equal((await phase("alpha", implement)).hasRun, true);
+        assert.equal((await phase("__new__", tasks)).hasRun, true, "unbound first run survives restart");
+        await mkdir(join(workspace, "specs", "automatic"));
+        assert.equal((await phase("automatic", tasks)).hasRun, true, "folder identity transfers the first phase without an artifact");
+        assert.equal((await phase("__new__", tasks)).hasRun, false, "fresh New does not inherit the previous workflow");
+        const named = await run("__new__", tasks, { slug: "named" });
+        assert.equal(named.itemId, "named");
+        assert.equal((await phase("named", tasks)).hasRun, true, "named workflow is visible before its folder is created");
+        await mkdir(join(workspace, "specs", "named"));
+        assert.equal((await phase("named", tasks)).hasRun, true);
+        await action("delete_workflow", { slug: "alpha" });
+        await mkdir(join(workspace, "specs", "alpha"));
+        assert.equal((await phase("alpha", implement)).hasRun, false, "recreated workflow does not inherit deleted flags");
+        assert.equal(sent, 4);
     });
 
     test("phase snapshots derive clarification counts from fresh, bounded artifact reads", async () => {
@@ -398,7 +540,7 @@ describe("generated extension setup lifecycle", () => {
         const list = canvas.actions.find((action) => action.name === "list_items");
         const scan = async () => (await list.handler({ instanceId: "phase-status", input: {} })).items;
         const phase = async () => (await scan()).find((item) => item.id === "alpha").phases[specify.instanceKey];
-        assert.deepEqual(await phase(), { artifact: null, clarificationCount: null });
+        assert.deepEqual(await phase(), { hasRun: false, artifact: null, clarificationCount: null });
         const one = "[**NEEDS CLARIFICATION:** Scope?]";
         const two = "[ needs   clarification : Tests? ]";
         await writeFile(artifact, `# Alpha\n${one}\n${two}\n\`[NEEDS CLARIFICATION: Example?]\``);
@@ -418,9 +560,9 @@ describe("generated extension setup lifecycle", () => {
         }
         const items = await scan();
         assert.equal(items.find((item) => item.id === "beta").phases[specify.instanceKey].clarificationCount, 0);
-        assert.deepEqual(items.find((item) => item.id === "alpha").phases[plan.instanceKey], { artifact: null, clarificationCount: null });
+        assert.deepEqual(items.find((item) => item.id === "alpha").phases[plan.instanceKey], { hasRun: false, artifact: null, clarificationCount: null });
         await rm(artifact);
-        assert.deepEqual(await phase(), { artifact: null, clarificationCount: null });
+        assert.deepEqual(await phase(), { hasRun: false, artifact: null, clarificationCount: null });
     });
 
     test("HTTP Apply answers amends an observed artifact without dispatching the original skill", async () => {

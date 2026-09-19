@@ -11,7 +11,6 @@ import {
     writeGenerationResult,
 } from "../generation/storage.mjs";
 import { buildGenerationPrompt } from "../generation/prompt.mjs";
-import { commandViews } from "../generation/generated-canvas-template/ui/command-views.mjs";
 import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
 
@@ -51,7 +50,6 @@ export async function preflightGeneration(body, { getState, getInstance, fs = ge
     const errors = [...validation.errors];
     let target = null;
     let blueprint = null;
-    let supportsResultLabels = null;
     if (!workspacePath) {
         errors.push({ code: "workspace_unavailable", message: "Workspace path is unavailable." });
     } else if (!errors.length) {
@@ -76,15 +74,6 @@ export async function preflightGeneration(body, { getState, getInstance, fs = ge
             });
             const safe = await inspectSafeTarget(workspacePath, target, fs);
             if (!safe.ok) errors.push(safe.error);
-            if (blueprint) {
-                supportsResultLabels = Boolean(commandViews(blueprint).workflow.at(-1)?.artifact?.persistent);
-                if (validation.metadata.resultLabels.length && !supportsResultLabels) {
-                    errors.push({
-                        code: "result_labels_unsupported", field: "resultLabels",
-                        message: "Workflow results require a persistent artifact from the final workflow phase.",
-                    });
-                }
-            }
         } catch (err) {
             if (err instanceof BlueprintValidationError) errors.push(...err.errors);
             else errors.push({ code: "preflight_failed", message: err?.message ?? String(err) });
@@ -99,7 +88,6 @@ export async function preflightGeneration(body, { getState, getInstance, fs = ge
         target,
         targetExists: exists,
         blueprint,
-        supportsResultLabels,
     };
     return result;
 }

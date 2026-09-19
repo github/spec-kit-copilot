@@ -7,6 +7,33 @@ import {
 import { state } from "../ui/state.js";
 import { isPhaseRunning } from "../ui/phase-runtime.js";
 
+test("Wizard browses checklist folders instead of reading them as Markdown files", async (t) => {
+    const saved = { document: globalThis.document, fetch: globalThis.fetch };
+    const body = { innerHTML: "", querySelectorAll: () => [] };
+    const root = {
+        innerHTML: "", hidden: true,
+        querySelector: (selector) => selector === ".artifact-viewer-body" ? body : null,
+    };
+    globalThis.document = { getElementById: () => root };
+    t.after(() => { globalThis.document = saved.document; globalThis.fetch = saved.fetch; });
+    const folder = "specs/alpha/checklists";
+    for (const phase of [{ artifactPath: `${folder}/` }, { artifactPath: null, folderPath: folder }]) {
+        for (const files of [[], [{ name: "security.md" }, { name: "accessibility.md" }]]) {
+            const requests = [];
+            globalThis.fetch = async (url) => {
+                const parsed = new URL(url, "http://127.0.0.1");
+                requests.push(parsed.pathname);
+                assert.equal(parsed.searchParams.get("p"), folder);
+                return { ok: true, json: async () => ({ files }) };
+            };
+            await openArtifactViewer({ ...phase, title: "Checklist" });
+            assert.deepEqual(requests, ["/api/artifact-list"]);
+            assert.equal(root.hidden, false);
+            assert.match(body.innerHTML, files.length ? /security\.md[\s\S]*accessibility\.md/ : /No <code>\.md<\/code> files/);
+        }
+    }
+});
+
 test("Wizard drafts are artifact-scoped; Apply answers never invokes the phase or clears in-flight edits", async () => {
     state.snapshot = { workspacePath: "wizard-test" };
     const context = artifactContext({ commandName: "speckit.plan", artifactPath: "specs/alpha/plan.md" });

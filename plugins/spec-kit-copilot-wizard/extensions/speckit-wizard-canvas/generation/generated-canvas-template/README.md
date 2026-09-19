@@ -56,51 +56,65 @@ workflows are not assigned a result to fill a remainder. **Clarification needed*
 counts workflows with one or more unresolved markers in any workflow phase,
 not individual questions, and overlaps the result counts.
 
-With result labels, every workflow row reuses the final-phase pill once its final artifact exists.
-Otherwise it shows **Run &lt;next phase&gt;**, using the first phase without artifact
-evidence (or a current-session submission for a transient phase). Navigating to a
-later page does not advance progress. No new execution history, LLM calls or stored
-counters are introduced. Automatic snapshot refresh updates the rows and totals.
+With result labels, every workflow row uses its latest dispatched phase's result,
+including reruns of earlier phases. Clarifications in any phase take precedence.
+Before any phase is dispatched, it shows **Run &lt;next phase&gt;**, using the first phase
+without a recorded dispatch. Navigating to a later page does not advance progress.
+Counts reuse phase reviews without additional review requests or stored counters.
+Automatic snapshot refresh updates the rows and totals.
 Without result labels, only clarification pills and counts are displayed.
 Rows show clarification when any workflow phase has unresolved questions.
 Artifact-readiness and next-phase pills are omitted; errors remain explicit inline text.
 The folder link opens only the blueprint's shared collection root, remains enabled
 when empty, and reports missing-folder or reveal errors inline.
 
-Phase indicators use fresh, safely bounded artifact reads.
-A readable, nonempty artifact with no open clarification markers is green
-with a checkmark; remaining markers make the phase amber with an exclamation mark.
-Missing artifacts stay neutral. Empty, oversized or unreadable artifacts stay
-neutral with an unavailable notice, rather than being mistaken for completion.
+Phase indicators and **Run again** share a persisted per-workflow, per-phase dispatch flag.
+A successful command send turns the phase green with a checkmark, including phases
+that create no file or edit another phase's artifact. Existing artifacts alone never
+mark a phase as run. Queued, blocked and failed sends do not set the flag.
+Flags live under `.speckit-wizard/phase-runs/`, survive reopening, and follow a new
+workflow when its folder is identified. With result labels, the latest run's message
+identity and verbatim final response are also stored per phase, not a run history.
+Fresh, safely bounded artifact reads still make a phase amber with an exclamation
+mark while clarification markers remain. Resolving markers restores green only
+if that phase has been dispatched. Empty, oversized or unreadable artifacts show
+explicit errors independently of run state.
 The selected-phase outline remains independent of these colors.
 
 The phase card displays a text-only **Clarification needed** pill with one neutral
 background and border, also used for other notices. No warning color or icon is
 attached to the pill. Existing automatic refresh updates the indicators; submitting
-answers alone does not change them. Run, Run again and navigation are unchanged.
+answers alone does not change them. Artifact viewing and result classification
+remain independent of dispatch flags.
 
 The shared viewer detector recognizes bracketed markers such as
 `[NEEDS CLARIFICATION: Scope?]`, `[ needs clarification : Scope? ]`,
 `[**NEEDS CLARIFICATION:** Scope?]` and `[**NEEDS CLARIFICATION**: Scope?]`,
 including italic/underscore label variants. Exact marker text is retained for
 amendments. Ordinary mentions, code, links and comments are not open questions.
-Green describes artifact presence and absence of detected markers, not correctness.
+Green means a run was requested, not that Copilot finished or verified correctness.
 
 Maintainers can run `node --test test/generated-phase-status-browser.test.mjs`
 with the same Playwright environment as the viewer parity check above. It checks
 desktop/mobile and light/dark layouts, partial/final clarification transitions,
 selection and input retention, and neutral notices without executing any phase.
 
-## Optional final-artifact status
+## Optional per-phase results
 
 An optional list of up to five result labels is supplied in the
 Generate settings, such as **Implemented / Partially implemented / Not implemented**
 or **Go / Hold / Kill**. Labels are preserved exactly and ordered for display, not priority;
 generation does not inspect workflow artifacts to choose them.
 
+Template version 28 classifies every dispatched workflow phase using its genuine
+final agent response first. Only if that response supports none of the configured
+labels does review fall back to the phase's Markdown artifact, if available.
+Neither source resolving a label yields **Not determined**. No custom report is
+requested from the executing agent, and phase names never imply success.
+
 Runtime review uses format-independent reading guidance. Concepts such as **goal outcome**, **status**,
 **verdict**, **decision**, and **result** are illustrative semantic cues, not
-required keywords or headings. Copilot considers the whole artifact and locates
+required keywords or headings. Copilot considers the whole response or fallback artifact and locates
 the passages that most closely express its current overall outcome, in any
 Markdown structure. Actual outcomes take precedence over aspirations, future
 plans, examples and intermediate findings; neither the first keyword match nor
@@ -109,20 +123,25 @@ evidence yields **Not determined** rather than forcing a configured result.
 The review fingerprint includes this guidance, invalidating cached assessments
 when it changes. Empty result settings mean clarification-only pills and no review requests.
 
-When configured, Copilot selects a fixed status ID using only the current final
-artifact and configured labels. All workflow instances use the same 1-3 word
+When configured, Copilot selects a fixed status ID from the configured labels.
+All phases and workflow instances use the same 1-3 word
 labels. The neutral pill displays that label; unresolved clarification markers
-always take precedence. Green/amber phase colors retain their artifact-based meaning.
+always take precedence. Green remains the independent dispatch indicator.
 Insufficient evidence yields **Not determined**, not an assumed result.
+Pending and running reviews show no result pill. Only completed reviews display a
+configured result or **Not determined**; clarification and error feedback remain visible.
 
 The existing refresh loop waits for settled content and an idle session, with one
 pending review at a time. Its read-only prompt requests a scoped canvas-action
-callback; arbitrary labels, stale snapshots and cross-workflow results are rejected.
-Only the latest accepted result per workflow is stored under
+callback; arbitrary labels, stale runs and cross-workflow/phase results are rejected.
+Reruns hide the phase's previous result without clearing other phases' results.
+Only the latest accepted result per workflow phase is stored under
 `.speckit-wizard/artifact-reviews/`, keyed by workspace/canvas/item/phase and
-fingerprinted against artifact content and configuration. Review errors surface as **Review unavailable**, with
-accessible details. Existing rerun/reopen actions retry failed reviews without
-automatic retry loops. These are assessments of document evidence, not independent
+fingerprinted against the run, evidence and configuration. Decisive response results
+do not depend on later artifact edits. Review errors surface as **Review unavailable**, with
+accessible details. Reopen to retry failed classifications; rerun the phase if its
+response could not be captured. There are no automatic retry loops.
+These are assessments of response and document evidence, not independent
 verification of code, tests or skill execution.
 
 ## Automatic setup

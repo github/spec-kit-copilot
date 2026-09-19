@@ -25,7 +25,7 @@ function renderResultInputs(root, values, onChange) {
                 <span class="wizard-modal-field-label">Result label ${index + 1}</span>
                 <input id="generation-result-${index}" data-result-label class="wizard-modal-input" maxlength="60"
                     value="${escapeHtml(value)}" placeholder="e.g. ${["Implemented", "Partially implemented", "Not implemented"][index] ?? "Deferred"}"
-                    aria-describedby="generation-results-help generation-results-examples generation-results-unavailable generation-messages" />
+                    aria-describedby="generation-results-help generation-results-examples generation-messages" />
             </label>
             <button type="button" class="btn btn-secondary btn-sm" data-remove-result="${index}" aria-label="Remove result label ${index + 1}">Remove</button>
         </div>`).join("");
@@ -46,15 +46,11 @@ function renderResultInputs(root, values, onChange) {
 function renderResultSettings(root, result) {
     const invalid = result?.errors?.some((error) => error.field === "resultLabels");
     const inputs = resultInputs(root);
-    const hasLabels = resultLabels(root).length > 0;
     for (const input of inputs) {
         input.setAttribute("aria-invalid", invalid ? "true" : "false");
-        if (typeof result?.supportsResultLabels === "boolean") input.disabled = !result.supportsResultLabels && !hasLabels;
     }
     const add = root.querySelector("#generation-add-result");
-    if (add) add.disabled = inputs.length >= 5 || result?.supportsResultLabels === false;
-    const unavailable = root.querySelector("#generation-results-unavailable");
-    if (unavailable && typeof result?.supportsResultLabels === "boolean") unavailable.hidden = result.supportsResultLabels;
+    if (add) add.disabled = inputs.length >= 5;
 }
 
 function escapeHtml(value) {
@@ -304,39 +300,38 @@ export function openGenerationDialog() {
                         <input id="generation-extension-id" class="wizard-modal-input" value="${escapeHtml(metadata.extensionId)}" aria-labelledby="generation-extension-id-label" aria-describedby="generation-extension-id-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-display-name">
-                        <span class="wizard-modal-field-label" id="generation-display-name-label">Canvas name</span>
+                        <span class="wizard-modal-field-label" id="generation-display-name-label">Name</span>
                         <span class="wizard-modal-desc" id="generation-display-name-help">Text displayed as the canvas title.</span>
                         <input id="generation-display-name" class="wizard-modal-input" value="${escapeHtml(metadata.displayName)}" aria-labelledby="generation-display-name-label" aria-describedby="generation-display-name-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-workflow-list-name">
-                        <span class="wizard-modal-field-label" id="generation-workflow-list-name-label">Canvas workflow header</span>
+                        <span class="wizard-modal-field-label" id="generation-workflow-list-name-label">Workflow header</span>
                         <span class="wizard-modal-desc" id="generation-workflow-list-name-help">Text displayed as the workflow collection heading, such as Assessments or Bugs.</span>
                         <input id="generation-workflow-list-name" class="wizard-modal-input" value="${escapeHtml(metadata.workflowListName)}" maxlength="80" aria-labelledby="generation-workflow-list-name-label" aria-describedby="generation-workflow-list-name-help" />
                     </label>
                     <label class="wizard-modal-field" for="generation-description">
                         <span class="wizard-modal-field-label" id="generation-description-label">Description</span>
-                        <span class="wizard-modal-desc" id="generation-description-help">Text used to describe what the canvas does.</span>
+                        <span class="wizard-modal-desc" id="generation-description-help">Text displayed beneath the workflow collection heading, before the folder link.</span>
                         <textarea id="generation-description" class="wizard-modal-textarea generation-description" aria-labelledby="generation-description-label" aria-describedby="generation-description-help">${escapeHtml(metadata.description)}</textarea>
                     </label>
                     <div class="generation-results" role="group" aria-labelledby="generation-results-title" aria-describedby="generation-results-help">
-                        <h4 id="generation-results-title">Workflow results <span class="muted">(optional)</span></h4>
+                        <h4 id="generation-results-title" class="wizard-modal-field-label">Workflow results <span class="muted">(optional)</span></h4>
                         <p class="wizard-modal-desc" id="generation-results-help">The canvas displays result counts for the workflow based on these labels.</p>
                         <p class="wizard-modal-desc" id="generation-results-examples">Examples: Go / Kill, or Implemented / Partially implemented / Not implemented. Add up to 5 labels of 1-3 words. Clarification needed is built in.</p>
                         <div id="generation-result-list"></div>
                         <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add result</button></div>
-                        <p class="wizard-modal-desc" id="generation-results-unavailable" hidden>The final workflow phase does not declare a persistent artifact. Remove custom labels to generate without result pills.</p>
                     </div>
                     <label class="wizard-modal-check">
                         <input id="generation-user-provides-slug" type="checkbox" />
                         <span>
-                            <strong>Allow custom slug</strong>
+                            <strong class="wizard-modal-field-label">Allow custom slug</strong>
                             <small>Lets users specify the slug used as the directory name for generated artifacts. Otherwise, Spec Kit chooses a default or Copilot may ask the user in the chat session.</small>
                         </span>
                     </label>
                     <label class="wizard-modal-check">
                         <input id="generation-require-installation-approval" type="checkbox" aria-labelledby="generation-approval-label" aria-describedby="generation-approval-help" />
                         <span>
-                            <strong id="generation-approval-label">Require installation approval</strong>
+                            <strong id="generation-approval-label" class="wizard-modal-field-label">Require installation approval</strong>
                             <small id="generation-approval-help">Ask users to approve all included presets and extensions before installation. Otherwise, the app automatically installs missing components without asking for installation approval.</small>
                         </span>
                     </label>
@@ -371,7 +366,7 @@ export function openGenerationDialog() {
     renderResultInputs(root, [""], syncMetadata);
     root.querySelector("#generation-add-result")?.addEventListener("click", () => {
         const values = resultInputs(root).map((input) => input.value);
-        if (values.length >= 5 || root._generationPreflight?.supportsResultLabels === false) return;
+        if (values.length >= 5) return;
         renderResultInputs(root, [...values, ""], syncMetadata);
         syncMetadata();
         resultInputs(root).at(-1)?.focus();

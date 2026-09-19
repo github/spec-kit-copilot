@@ -46,7 +46,7 @@ function fakeElement() {
 }
 
 describe("generated workflow renderer", () => {
-    for (const scenario of ["ready", "approval", "rerun", "blank"]) {
+    for (const scenario of ["ready", "approval", "blank"]) {
         test(`validates slugs before ${scenario} submission without losing drafts`, async () => {
             const elements = new Map();
             globalThis.document = {
@@ -66,7 +66,7 @@ describe("generated workflow renderer", () => {
                 setup: { ready: scenario !== "approval", approval: { required: scenario === "approval", approved: false, components: [] } },
                 items: [{
                     id: "__new__", isNew: true, slug: null, label: "New",
-                    phases: { [phase.instanceKey]: { artifact: scenario === "rerun" ? "specs/example/spec.md" : null } },
+                    phases: { [phase.instanceKey]: { hasRun: false, artifact: null } },
                 }],
             };
             const requests = [];
@@ -106,23 +106,17 @@ describe("generated workflow renderer", () => {
             slugControl.value = scenario === "blank" ? " \t " : "  fixed-slug  ";
             await slugControl.emit("input", { target: slugControl });
             assert.equal(slugControl.validationMessage, "");
-            if (scenario !== "rerun") {
-                await elements.get("next-phase").emit("click");
-                await elements.get("previous-phase").emit("click");
-                assert.match(elements.get("phase-card").innerHTML, scenario === "blank" ? /value=" \t "/ : /value="  fixed-slug  "/);
-                assert.equal(argsControl.value, "Keep my phase draft");
-            }
+            await elements.get("next-phase").emit("click");
+            await elements.get("previous-phase").emit("click");
+            assert.match(elements.get("phase-card").innerHTML, scenario === "blank" ? /value=" \t "/ : /value="  fixed-slug  "/);
+            assert.equal(argsControl.value, "Keep my phase draft");
             const running = elements.get("run-phase").emit("click");
-            if (scenario === "rerun") {
-                assert.match(elements.get("modal-root").innerHTML, /Run again/);
-                await elements.get("modal-root").querySelector('[data-answer="confirm"]').emit("click");
-            }
             await running;
             if (scenario === "approval") {
                 assert.ok(requests.some(({ url }) => url === "/api/installation-approval"));
                 assert.ok(!requests.some(({ url }) => url === "/api/run"));
             } else {
-                assert.deepEqual(requests.at(-1), {
+                assert.deepEqual(requests.find(({ url }) => url === "/api/run"), {
                     url: "/api/run",
                     input: { phase: phase.instanceKey, itemId: "__new__", args: "Keep my phase draft", slug: scenario === "blank" ? "" : "fixed-slug" },
                 });
@@ -706,8 +700,8 @@ describe("generated workflow renderer", () => {
         assert.doesNotMatch(elements.get("phase-card").innerHTML, /id="run-phase"[^>]*disabled/);
         await elements.get("run-phase").emit("click");
         await new Promise((resolve) => setTimeout(resolve, 10));
-        assert.match(elements.get("phase-card").innerHTML, /btn-spinner/);
-        assert.match(elements.get("phase-card").innerHTML, /Running…/);
+        assert.doesNotMatch(elements.get("phase-card").innerHTML, /btn-spinner/);
+        assert.doesNotMatch(elements.get("phase-card").innerHTML, /Running…|Sending…/);
         assert.doesNotMatch(elements.get("phase-card").innerHTML, /Preparing this workflow/);
 
         failed = true;
@@ -891,14 +885,14 @@ describe("generated workflow renderer", () => {
             args: "Assess the onboarding idea",
             slug: "beta",
         });
-        assert.match(elements.get("phase-card").innerHTML, /Running…/);
+        assert.doesNotMatch(elements.get("phase-card").innerHTML, /Running…|Sending…/);
         snapshot = {
             ...snapshot,
             items: [snapshot.items[0], {
                 id: "beta",
                 slug: "beta",
                 label: "Beta",
-                phases: { intake: { artifact: ".specify/assessments/beta/intake.md" } },
+                phases: { intake: { hasRun: true, artifact: ".specify/assessments/beta/intake.md" } },
             }, newItem],
         };
         await events.onmessage?.();

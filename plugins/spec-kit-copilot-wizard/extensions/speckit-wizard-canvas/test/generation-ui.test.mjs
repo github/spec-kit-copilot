@@ -138,9 +138,11 @@ describe("generation UI helpers", () => {
         assert.match(source, /Clarification needed is built in/);
         assert.doesNotMatch(source, /submit\.disabled\s*=/, "preflight checks and submissions do not disable Generate");
         assert.equal((source.match(/id="generation-target"/g) ?? []).length, 1);
-        assert.match(source, />Canvas workflow header<\/span>/);
+        assert.match(source, />Workflow header<\/span>/);
+        assert.match(source, />Name<\/span>/);
         assert.match(source, />Text displayed as the workflow collection heading, such as Assessments or Bugs\.<\/span>/);
         assert.match(source, />Text displayed as the canvas title\.<\/span>/);
+        assert.match(source, />Text displayed beneath the workflow collection heading, before the folder link\.<\/span>/);
         assert.match(source, />The canvas displays result counts for the workflow based on these labels\.<\/p>/);
         assert.doesNotMatch(source, /Copilot checks|Leave both blank to use standard artifact and clarification indicators/);
         assert.match(source, /Result label \$\{index \+ 1\}/);

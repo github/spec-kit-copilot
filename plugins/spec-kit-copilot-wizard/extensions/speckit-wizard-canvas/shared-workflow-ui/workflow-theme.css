@@ -183,7 +183,7 @@ code, pre { font-family: var(--font-mono); }
 .stepper .step:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .step-order { color: var(--text-color-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .step.active .step-order { color: currentColor; }
-#phase-navigation .step.artifact-ready {
+#phase-navigation .step.phase-run {
     color: var(--text-color-default);
     background: color-mix(in srgb, var(--success-color) 12%, var(--background-color-elevated));
     border-color: var(--success-color);
@@ -193,7 +193,7 @@ code, pre { font-family: var(--font-mono); }
     background: color-mix(in srgb, var(--warn-color) 15%, var(--background-color-elevated));
     border-color: var(--warn-color);
 }
-#phase-navigation .step.artifact-ready .step-order,
+#phase-navigation .step.phase-run .step-order,
 #phase-navigation .step.needs-clarification .step-order { color: currentColor; font-weight: 600; }
 #phase-navigation .step.active { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 #phase-navigation .step:focus-visible { outline-width: 3px; outline-offset: 3px; }
@@ -313,6 +313,7 @@ code, pre { font-family: var(--font-mono); }
 .instance-collection-head { display: flex; align-items: center; gap: 1rem; }
 .instance-collection-head h2 { margin: 0; font-size: 18px; min-width: 0; overflow-wrap: anywhere; }
 .instance-collection-head .btn { margin-left: auto; flex-shrink: 0; }
+.collection-description { margin: 0; overflow-wrap: anywhere; }
 .collection-folder { justify-self: start; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
 .collection-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 #collection-message:empty { display: none; }

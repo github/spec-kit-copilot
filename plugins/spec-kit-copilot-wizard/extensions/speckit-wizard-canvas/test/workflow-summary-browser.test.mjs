@@ -19,7 +19,7 @@ test("workflow summaries independently count current reviews across refresh, sel
     }
     const workspace = join(dirname(fileURLToPath(import.meta.url)), `.workflow-summary-${randomUUID()}`);
     const target = join(workspace, ".github", "extensions", "summary-fixture");
-    const metadata = { extensionId: "summary-fixture", displayName: "Workflow", workflowListName: "Assessments", description: "Summary fixture" };
+    const metadata = { extensionId: "summary-fixture", displayName: "Workflow", workflowListName: "Assessments", description: "Review ideas & decide <next steps>." };
     const blueprint = compileBlueprint({ pipeline: ["specify", "plan", "tasks"].map((id) => ({ id })) }, metadata);
     const [first, middle, last] = blueprint.pipeline.steps;
     let browser;
@@ -36,7 +36,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             let failReveal = false;
             page.on("pageerror", (error) => errors.push(error.message));
             const item = (id, overrides = {}) => ({
-                id, slug: id, label: id, phases: Object.fromEntries([first, middle, last].map((step) => [
+                id, slug: id, label: id, latestPhase: last.instanceKey, phases: Object.fromEntries([first, middle, last].map((step) => [
                     step.instanceKey, { artifact: step.artifact.pathTemplate.replace("<slug>", id), clarificationCount: 0 },
                 ])), ...overrides,
             });
@@ -59,14 +59,15 @@ test("workflow summaries independently count current reviews across refresh, sel
             const unavailable = item("unavailable");
             unavailable.phases[last.instanceKey].artifactError = "Cannot read";
             unavailable.phases[last.instanceKey].clarificationCount = null;
-            const partial = item("partial");
+            const partial = item("partial", { latestPhase: null });
+            partial.phases[first.instanceKey].hasRun = true;
             partial.phases[middle.instanceKey].artifact = null;
             partial.phases[last.instanceKey].artifact = null;
             const snapshot = {
                 pipeline: blueprint, selectedItemId: "approved", setup: { ready: true },
-                artifactReview: { phase: last.instanceKey, labels: ["Approved", "Deferred", "Rejected"] },
+                artifactReview: { labels: ["Approved", "Deferred", "Rejected"] },
                 items: [approved, clarification, reviewing, failed, rejected, unavailable, partial,
-                    item("unstarted", { phases: {} }), item("pending"), uncertain, deferred, { id: "__new__", label: "New", isNew: true, phases: {} }],
+                    item("unstarted", { phases: {}, latestPhase: null }), item("pending"), uncertain, deferred, { id: "__new__", label: "New", isNew: true, phases: {} }],
             };
             await page.route("**/*", async (route) => {
                 const url = new URL(route.request().url());
@@ -91,10 +92,18 @@ test("workflow summaries independently count current reviews across refresh, sel
             const row = (id) => page.locator(`[data-instance="${id}"] .phase-notice`);
             const phasePill = page.locator("#phase-card .phase-notice");
             await counts.first().waitFor();
+            const description = page.locator(".collection-description");
+            assert.equal(await description.textContent(), metadata.description);
+            assert.equal(await description.locator("*").count(), 0, "description is plain text, not HTML");
+            assert.equal(await description.evaluate((element) =>
+                element.previousElementSibling.classList.contains("instance-collection-head")
+                && element.nextElementSibling.id === "browse-collection-folder"), true);
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
             assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 1"]);
             assert.equal(await row("partial").textContent(), `Run ${middle.label}`);
             assert.equal(await row("unstarted").textContent(), `Run ${first.label}`);
-            assert.equal(await row("pending").textContent(), "Not determined");
+            assert.equal(await row("pending").count(), 0);
+            assert.equal(await row("reviewing").count(), 0);
             assert.equal(await row("rejected").textContent(), "Rejected", "fixed IDs, not review labels, choose the result");
             assert.equal(await row("uncertain").textContent(), "Not determined");
             assert.match(await row("failed").getAttribute("title"), /Reopen to retry/);
@@ -108,7 +117,8 @@ test("workflow summaries independently count current reviews across refresh, sel
             for (const id of ["approved", "clarification", "reviewing", "failed", "rejected", "unavailable", "pending", "uncertain", "deferred"]) {
                 await page.locator(`[data-instance="${id}"]`).click();
                 await page.locator('[data-phase-index="2"]').click();
-                assert.equal(await phasePill.textContent(), await row(id).textContent());
+                if (id === "approved") assert.equal(await row(id).textContent(), "Clarification needed", "earlier questions take precedence over a later phase result");
+                else assert.deepEqual(await phasePill.allTextContents(), await row(id).allTextContents());
             }
             await page.locator('[data-instance="partial"]').click();
             await page.locator('[data-phase-index="2"]').click();
@@ -122,7 +132,18 @@ test("workflow summaries independently count current reviews across refresh, sel
                 await page.screenshot({ path: join(process.env.VIEWER_SCREENSHOT_DIR, `workflow-summary-${width}-${theme}.png`), fullPage: true });
             }
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "summary and rows fit panel width");
-            partial.phases[middle.instanceKey] = { artifact: "specs/partial/plan.md", clarificationCount: 0 };
+            for (const clarificationCount of [2, 1]) {
+                partial.phases[first.instanceKey].clarificationCount = clarificationCount;
+                await page.evaluate(() => window.workflowEvents.onmessage());
+                await page.waitForFunction(() => document.querySelector('[data-instance="partial"] .phase-notice').textContent === "Clarification needed");
+                assert.equal(await row("partial").textContent(), "Clarification needed", "earlier unresolved questions override the next-phase hint");
+                assert.equal(await page.locator("#phase-args").inputValue(), "Keep my draft");
+                assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 3", "Not determined: 1"]);
+            }
+            partial.phases[first.instanceKey].clarificationCount = 0;
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction((label) => document.querySelector('[data-instance="partial"] .phase-notice').textContent === label, `Run ${middle.label}`);
+            partial.phases[middle.instanceKey] = { hasRun: true, artifact: "specs/partial/plan.md", clarificationCount: 0 };
             await page.evaluate(() => window.workflowEvents.onmessage());
             await page.waitForFunction((label) => document.querySelector('[data-instance="partial"] .phase-notice').textContent === label, `Run ${last.label}`);
             assert.equal(await page.locator("#phase-args").inputValue(), "Keep my draft");
@@ -130,6 +151,10 @@ test("workflow summaries independently count current reviews across refresh, sel
             await page.evaluate(() => window.workflowEvents.onmessage());
             await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent === "Approved: 0");
             assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 1"]);
+            assert.equal(await row("approved").textContent(), "Clarification needed", "stale results are hidden without hiding open clarifications");
+            approved.phases[last.instanceKey].review = { state: "reviewing", label: "Reviewing" };
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            assert.equal(await row("approved").textContent(), "Clarification needed", "running reviews do not introduce a temporary result label");
             const savedItems = snapshot.items;
             snapshot.items = [approved, deferred, rejected];
             approved.phases[last.instanceKey].review = { state: "reviewed", statusId: "result-1", label: "Approved" };
@@ -141,8 +166,8 @@ test("workflow summaries independently count current reviews across refresh, sel
                 { review: { state: "pending", label: "Not determined" } },
                 { review: { state: "reviewing", label: "Reviewing" } },
                 { review: { state: "failed", label: "Review unavailable", error: "Reopen to retry." } },
-                { review: { state: "reviewed", statusId: "result-1", label: "Approved" }, artifactError: "Artifact is empty", clarificationCount: null },
-                { review: { state: "reviewed", statusId: "result-1", label: "Approved" }, artifactError: "Cannot read", clarificationCount: null },
+                { review: { state: "failed", label: "Review unavailable", error: "Artifact is empty" }, artifactError: "Artifact is empty", clarificationCount: null },
+                { review: { state: "failed", label: "Review unavailable", error: "Cannot read" }, artifactError: "Cannot read", clarificationCount: null },
                 { review: { state: "reviewed", statusId: "result-1", label: "Approved" }, clarificationCount: 1 },
             ]) {
                 approved.phases[last.instanceKey] = { artifact: "specs/approved/tasks.md", clarificationCount: 0, ...blocked };
@@ -153,15 +178,40 @@ test("workflow summaries independently count current reviews across refresh, sel
                     ...(explicitUnknown ? ["Not determined: 1"] : [])]);
                 await page.locator('[data-instance="approved"]').click();
                 await page.locator('[data-phase-index="2"]').click();
-                assert.equal(await phasePill.textContent(), await row("approved").textContent());
+                assert.equal(await row("approved").textContent(), "Clarification needed");
             }
+            approved.phases[first.instanceKey].clarificationCount = 0;
+            approved.phases[middle.instanceKey] = { artifact: null, hasRun: true, clarificationCount: null,
+                review: { state: "reviewed", statusId: "result-2", label: "Deferred" } };
+            approved.phases[last.instanceKey] = { artifact: "specs/approved/tasks.md", clarificationCount: 0,
+                review: { state: "reviewed", statusId: "result-1", label: "Approved" } };
+            approved.latestPhase = middle.instanceKey;
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => document.querySelector('[data-instance="approved"] .phase-notice').textContent === "Deferred");
+            await page.locator('[data-phase-index="1"]').click();
+            assert.equal(await phasePill.textContent(), "Deferred", "an intermediate artifact-free phase displays its own result");
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 2", "Rejected: 1", "Clarification needed: 0"]);
+            approved.latestPhase = first.instanceKey;
+            approved.phases[first.instanceKey].review = { state: "pending" };
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => !document.querySelector('[data-instance="approved"] .phase-notice'));
+            assert.equal(await phasePill.textContent(), "Deferred", "rerunning an earlier phase preserves other phase results");
+            approved.phases[first.instanceKey] = { artifact: null, clarificationCount: null,
+                artifactError: "Cannot read", review: { state: "reviewed", statusId: "result-3", label: "Rejected" } };
+            await page.evaluate(() => window.workflowEvents.onmessage());
+            await page.waitForFunction(() => document.querySelector('[data-instance="approved"] .phase-notice').textContent === "Rejected");
+            await page.locator('[data-phase-index="0"]').click();
+            assert.equal(await phasePill.textContent(), "Rejected", "a decisive response result survives an artifact read error");
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 2", "Clarification needed: 0"]);
+            approved.latestPhase = last.instanceKey;
+            approved.phases[first.instanceKey] = { artifact: "specs/approved/spec.md", clarificationCount: 4 };
             snapshot.items = savedItems.filter((entry) => entry.isNew);
             await page.evaluate(() => window.workflowEvents.onmessage());
             await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent === "Approved: 0"
                 && document.querySelectorAll(".collection-summary .phase-notice").length === 4);
             assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 0", "Rejected: 0", "Clarification needed: 0"]);
             for (const labels of [["Implemented"], ["Implemented", "Partially implemented", "Not implemented", "Blocked", "Cancelled"]]) {
-                snapshot.artifactReview = { phase: last.instanceKey, labels };
+                snapshot.artifactReview = { labels };
                 snapshot.items = labels.map((label, index) => {
                     const entry = item(`classified-${index}`);
                     entry.phases[last.instanceKey].review = { state: "reviewed", statusId: `result-${index + 1}`, label };
@@ -194,7 +244,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             assert.equal(await phasePill.count(), 0);
             assert.equal(await page.locator('#phase-card [role="status"].workflow-error').textContent(), "Cannot read");
             assert.equal(await page.locator('[data-instance="unavailable"] [role="status"].workflow-error').textContent(), "Cannot read");
-            assert.equal(await page.locator('#phase-navigation .artifact-ready').count(), 2);
+            assert.equal(await page.locator('#phase-navigation .phase-run').count(), 0, "existing files alone do not mark phases as run");
             await page.locator('[data-instance="approved"]').click();
             assert.equal(await page.locator('#phase-navigation .needs-clarification').count(), 1);
             assert.equal(await page.locator("#view-artifact").isEnabled(), true);

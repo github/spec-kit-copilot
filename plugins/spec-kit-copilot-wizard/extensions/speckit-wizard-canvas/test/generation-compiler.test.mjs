@@ -11,6 +11,7 @@ import {
     skillNameForCommand,
 } from "../generation/compiler.mjs";
 import { assessVisualizationApplicability } from "../generation/applicability.mjs";
+import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const metadata = {
@@ -24,6 +25,50 @@ async function fixture(name) {
 }
 
 describe("generation compiler", () => {
+    test("phases without an artifact target compile without warnings and retain their metadata", () => {
+        const blueprint = compileBlueprint({ pipeline: [{ id: "taskstoissues" }] }, metadata);
+        assert.deepEqual(blueprint.warnings, []);
+        assert.equal(blueprint.pipeline.steps[0].commandName, "speckit.taskstoissues");
+        assert.deepEqual(blueprint.pipeline.steps[0].artifact, {
+            pathTemplate: null, persistent: false, completionSignal: "transient",
+        });
+    });
+
+    test("Checklist generation uses the declared Markdown template before and after execution", () => {
+        for (const artifactPath of ["specs/<slug>/checklists/", "specs/alpha/checklists/security.md", "specs/alpha/checklists/accessibility.md"]) {
+            const snapshot = buildStateSnapshot({
+                slug: "alpha", pipeline: [{ id: "checklist" }],
+                phases: { checklist: { artifactPath } },
+                phaseGraph: { commands: [{ id: "checklist", name: "speckit.checklist", source: "preset:copilot-sub-agents" }] },
+            });
+            const phase = snapshot.phases.checklist;
+            assert.equal(phase.artifactTemplatePath, "specs/<slug>/checklists/<name>.md");
+            assert.equal(phase.artifactPath, artifactPath.endsWith("/") ? null : artifactPath);
+            assert.equal(snapshot.commands[0].artifactPath, phase.artifactPath);
+            if (artifactPath.endsWith("/")) {
+                assert.equal(phase.folderPath, "specs/alpha/checklists");
+                assert.equal(snapshot.commands[0].folderPath, phase.folderPath);
+            }
+            assert.equal(compileBlueprint(snapshot, metadata).pipeline.steps[0].artifact.pathTemplate,
+                "specs/<slug>/checklists/<name>.md");
+        }
+    });
+
+    test("Checklist output overrides remain authoritative, including unsupported non-Markdown outputs", () => {
+        for (const artifact of ["specs/<slug>/reviews/<name>.md", "specs/<slug>/checklist.json"]) {
+            const snapshot = buildStateSnapshot({
+                pipeline: [{ id: "checklist" }],
+                phases: { checklist: { artifactPath: "specs/<slug>/checklists/" } },
+                phaseGraph: { commands: [{ id: "checklist", name: "speckit.checklist", source: "preset:custom", artifact }] },
+            });
+            if (artifact.endsWith(".md")) {
+                assert.equal(compileBlueprint(snapshot, metadata).pipeline.steps[0].artifact.pathTemplate, artifact);
+            } else {
+                assert.throws(() => compileBlueprint(snapshot, metadata), /non-Markdown artifact viewer/);
+            }
+        }
+    });
+
     test("installation approval is opt-in and preserves the captured workflow contract", async () => {
         for (const name of ["assess", "bugfix", "sdd"]) {
             const { snapshot } = await fixture(name);
