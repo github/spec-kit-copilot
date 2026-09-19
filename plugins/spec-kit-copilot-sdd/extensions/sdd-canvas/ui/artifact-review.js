@@ -83,16 +83,20 @@ export function createArtifactReview({
 
     function optionsFor(content) {
         const renderGeneration = generation;
+        const neighbors = folderNeighbors();
+        const navigationAvailable = baseState !== "loading" && canNavigate?.() !== false;
         return {
             readerId, state: baseState, connectionState,
             document: content ?? undefined, artifacts, selectedArtifactId, scrollElement,
             clarifications: content ? getClarifications?.(content, activeContext) ?? content.clarifications ?? [] : [],
             onClarification,
-            navigationEnabled: true, canNavigateBack: historyIndex > 0, canNavigateForward: historyIndex < history.length - 1,
+            navigationEnabled: true,
+            canNavigateBack: navigationAvailable && Boolean(neighbors.back),
+            canNavigateForward: navigationAvailable && Boolean(neighbors.forward),
             fragment: currentFragment || undefined,
             onSelectArtifact: (artifactId) => selectArtifact(artifactId),
             onNavigateReference: (target) => navigateReference(target),
-            onNavigateHistory: (direction) => navigateHistory(direction),
+            onNavigateHistory: (direction) => navigateSibling(direction),
             onReturnToWorkflow: () => { if (onReturn) onReturn(); else close(); },
             onRefresh: () => refresh({ renewContext: true }),
             onRendered: (event) => {
@@ -255,10 +259,10 @@ export function createArtifactReview({
                 content = await json("/api/review/content", { context: context.contextId, artifactId }, signal);
             }
             if (requestGeneration !== generation) return false;
-            if (previousDocument?.revision === content.revision) {
+            if (previousDocument?.revision === content.revision && mounted) {
                 currentDocument = content;
                 container.dataset.reviewState = baseState;
-                mounted?.update(optionsFor(content));
+                mounted.update(optionsFor(content));
                 return true;
             }
             return await present(content, requestGeneration, { targetIndex: historyIndex >= 0 ? historyIndex : undefined, fragment: currentFragment });
@@ -283,6 +287,27 @@ export function createArtifactReview({
     function setConnected(connected) {
         connectionState = connected ? "connected" : "disconnected";
         mounted?.update(optionsFor(currentDocument));
+    }
+
+    function folderNeighbors() {
+        const selected = artifacts.find((artifact) => artifact.id === selectedArtifactId);
+        if (!selected) return {};
+        const directory = selected.relativePath.slice(0, selected.relativePath.lastIndexOf("/") + 1);
+        const siblings = artifacts.filter((artifact) => artifact.availability === "available" &&
+            /\.(?:md|markdown)$/i.test(artifact.relativePath) &&
+            artifact.relativePath.slice(0, artifact.relativePath.lastIndexOf("/") + 1) === directory)
+            .sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en", { numeric: true, sensitivity: "base" }) ||
+                left.relativePath.localeCompare(right.relativePath, "en"));
+        const index = siblings.findIndex((artifact) => artifact.id === selectedArtifactId);
+        return index < 0 ? {} : { back: siblings[index - 1], forward: siblings[index + 1] };
+    }
+
+    function navigateSibling(direction) {
+        if (baseState === "loading" || !["back", "forward"].includes(direction)) return false;
+        const artifact = folderNeighbors()[direction];
+        if (!artifact) return false;
+        const targetIndex = history.findLastIndex((entry) => entry.artifactId === artifact.id);
+        return selectArtifact(artifact.id, targetIndex < 0 ? {} : { targetIndex });
     }
 
     function navigateHistory(direction) {

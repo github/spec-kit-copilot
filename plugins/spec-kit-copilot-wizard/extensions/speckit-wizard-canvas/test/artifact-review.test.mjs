@@ -90,7 +90,7 @@ async function adapterFixture(run) {
             return { update: (next) => mounted.push(next), unmount: () => disposed++ };
         },
     });
-    try { await run({ review, container, scrollElement, trigger, calls, mounted, revisions, disposed: () => disposed }); }
+    try { await run({ review, container, scrollElement, trigger, calls, mounted, artifacts, revisions, disposed: () => disposed }); }
     finally { review.close(); dom.window.close(); }
 }
 
@@ -200,6 +200,78 @@ test("Wizard history retains at most fifty entries and discards forward history 
     assert.equal(review.document.artifact.id, "artifact_50");
     await review.selectArtifact("artifact_fixture");
     assert.equal(review.navigateHistory("forward"), false);
+}));
+
+test("Wizard toolbar navigates filename neighbors without browsing history", () => adapterFixture(async ({ review, mounted, artifacts }) => {
+    const primary = artifacts[0];
+    artifacts.splice(1, artifacts.length - 1,
+        { ...primary, id: "tasks", relativePath: "specs/001-fixture/tasks.md", label: "Tasks" },
+        { ...primary, id: "plan", relativePath: "specs/001-fixture/plan.md", label: "Plan" },
+        { ...primary, id: "research", relativePath: "specs/001-fixture/research.md", label: "Research" },
+    );
+    await review.open({ stage: "specify" });
+    assert.equal(mounted.at(-1).canNavigateBack, true);
+    assert.equal(mounted.at(-1).canNavigateForward, true);
+    await mounted.at(-1).onNavigateHistory("forward");
+    assert.equal(review.document.artifact.id, "tasks");
+    assert.equal(mounted.at(-1).canNavigateForward, false);
+    await mounted.at(-1).onNavigateHistory("back");
+    assert.equal(review.document.artifact.id, primary.id);
+    await mounted.at(-1).onNavigateHistory("back");
+    assert.equal(review.document.artifact.id, "research");
+    await mounted.at(-1).onNavigateHistory("back");
+    assert.equal(review.document.artifact.id, "plan");
+    assert.equal(mounted.at(-1).canNavigateBack, false);
+    assert.equal(await mounted.at(-1).onNavigateHistory("back"), false);
+}));
+
+test("Wizard toolbar skips unavailable files and stays in the selected folder", () => adapterFixture(async ({ review, mounted, artifacts }) => {
+    const primary = artifacts[0];
+    artifacts.splice(1, artifacts.length - 1,
+        { ...primary, id: "missing", relativePath: "specs/001-fixture/plan.md", availability: "expected" },
+        { ...primary, id: "unsupported", relativePath: "specs/001-fixture/notes.txt", suffix: ".txt" },
+        { ...primary, id: "nested", relativePath: "specs/001-fixture/checklists/requirements.md" },
+        { ...primary, id: "other", relativePath: ".specify/memory/constitution.md" },
+        { ...primary, id: "tasks", relativePath: "specs/001-fixture/tasks.MARKDOWN", suffix: ".MARKDOWN" },
+    );
+    await review.open({ stage: "specify" });
+    assert.equal(mounted.at(-1).canNavigateBack, false);
+    assert.equal(mounted.at(-1).canNavigateForward, true);
+    await mounted.at(-1).onNavigateHistory("forward");
+    assert.equal(review.document.artifact.id, "tasks");
+    await review.selectArtifact("nested");
+    assert.equal(mounted.at(-1).canNavigateBack, false);
+    assert.equal(mounted.at(-1).canNavigateForward, false);
+    assert.equal(await mounted.at(-1).onNavigateHistory("forward"), false);
+}));
+
+test("Wizard toolbar sorts numbered filenames naturally and restores unchanged scroll positions", () => adapterFixture(async ({ review, mounted, scrollElement, revisions }) => {
+    await review.open({ stage: "specify" });
+    await review.selectArtifact("artifact_10");
+    scrollElement.scrollTop = 225;
+    await mounted.at(-1).onNavigateHistory("back");
+    assert.equal(review.document.artifact.id, "artifact_9");
+    scrollElement.scrollTop = 140;
+    await mounted.at(-1).onNavigateHistory("forward");
+    assert.equal(review.document.artifact.id, "artifact_10");
+    assert.equal(scrollElement.scrollTop, 225);
+    await mounted.at(-1).onNavigateHistory("back");
+    assert.equal(scrollElement.scrollTop, 140);
+    revisions.set("artifact_10", `sha256:${"c".repeat(64)}`);
+    await mounted.at(-1).onNavigateHistory("forward");
+    assert.equal(scrollElement.scrollTop, 0);
+}));
+
+test("Wizard toolbar disables neighboring navigation while a document loads", () => adapterFixture(async ({ review, mounted }) => {
+    await review.open({ stage: "specify" });
+    const loading = review.selectArtifact("artifact_10");
+    assert.equal(mounted.at(-1).canNavigateBack, false);
+    assert.equal(mounted.at(-1).canNavigateForward, false);
+    assert.equal(await mounted.at(-1).onNavigateHistory("back"), false);
+    await loading;
+    assert.equal(review.document.artifact.id, "artifact_10");
+    assert.equal(mounted.at(-1).canNavigateBack, true);
+    assert.equal(mounted.at(-1).canNavigateForward, true);
 }));
 
 test("Wizard history restores scroll only for the same revision", () => adapterFixture(async ({ review, scrollElement, revisions }) => {

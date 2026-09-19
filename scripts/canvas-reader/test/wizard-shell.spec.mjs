@@ -44,7 +44,7 @@ test("Wizard primary review stays in its overlay and returns without workflow ex
     }
 });
 
-test("Wizard related artifacts, references, and history preserve the selected stage", async ({ page }) => {
+test("Wizard related artifacts, references, and folder navigation preserve the selected stage", async ({ page }) => {
     const fixture = await startFixture({ canvas: "wizard" });
     const url = new URL(fixture.url);
     try {
@@ -55,15 +55,28 @@ test("Wizard related artifacts, references, and history preserve the selected st
         await trigger.click();
         const selector = page.getByRole("combobox", { name: "Artifacts", exact: true });
         await expect(selector).toBeVisible({ timeout: 3000 });
-        await selector.selectOption({ label: "research.md" });
-        await expect(page.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Previous artifact", exact: true }).click();
+        const previous = page.getByRole("button", { name: "Previous artifact", exact: true });
+        const next = page.getByRole("button", { name: "Next artifact", exact: true });
+        await expect(previous).toBeEnabled();
+        await expect(next).toBeEnabled();
+        await next.click();
+        await expect(page.getByRole("heading", { name: "Fixture tasks", exact: true })).toBeVisible();
+        await expect(next).toBeDisabled();
+        await previous.click();
         await expect(page.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Next artifact", exact: true }).click();
+        await previous.click();
         await expect(page.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Previous artifact", exact: true }).click();
+        await previous.click();
+        await expect(page.getByRole("heading", { name: "Fixture plan", exact: true })).toBeVisible();
+        await expect(previous).toBeDisabled();
+        await selector.selectOption({ label: "tasks.md" });
+        await expect(page.getByRole("heading", { name: "Fixture tasks", exact: true })).toBeVisible();
+        await previous.click();
+        await expect(page.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
         await page.getByRole("link", { name: "Research", exact: true }).click();
         await expect(page.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
+        await next.click();
+        await expect(page.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
         await page.locator(".artifact-viewer-back").click();
         expect(await page.locator("#phase-card").textContent()).toBe(before);
         await expect(trigger).toBeFocused();

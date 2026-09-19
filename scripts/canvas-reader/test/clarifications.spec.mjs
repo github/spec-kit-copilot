@@ -29,8 +29,9 @@ test("Wizard retains cross-file clarification drafts and blocks close during a v
         await page.getByRole("button", { name: "Save answer", exact: true }).click();
         await expect(page.getByRole("button", { name: "Clarify: Which scope?", exact: true })).toHaveText("Answer queued");
         await page.getByRole("combobox", { name: "Artifacts", exact: true }).selectOption({ label: "research.md" });
+        await expect(page.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
         await expect(page.locator(".md-reader__article [data-clarification-id]")).toHaveCount(0);
-        await page.getByRole("button", { name: "Previous artifact", exact: true }).click();
+        await page.getByRole("button", { name: "Next artifact", exact: true }).click();
         await expect(page.getByRole("button", { name: "Clarify: Which scope?", exact: true })).toHaveText("Answer queued");
         await page.getByRole("button", { name: "Clarify: Which scope?", exact: true }).click();
         await expect(page.locator(".wizard-modal-textarea")).toHaveValue("Only the synthetic feature.");

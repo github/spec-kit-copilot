@@ -6,7 +6,7 @@ import { test } from "node:test";
 const require = createRequire(new URL("../ui/markdown-reader/package.json", import.meta.url));
 const { JSDOM } = require("jsdom");
 
-async function withReview(adapterUrl, run) {
+async function withReview(adapterUrl, run, { onDocument } = {}) {
     const { createArtifactReview } = await import(adapterUrl);
     const dom = new JSDOM('<button id="trigger">Review</button><div id="scroll"><div id="reader"></div></div>', { url: "http://127.0.0.1:32199/?token=fixture&cap=fixture" });
     const container = dom.window.document.getElementById("reader");
@@ -69,6 +69,7 @@ async function withReview(adapterUrl, run) {
     };
     const review = createArtifactReview({
         container, scrollElement: container.parentElement, readerId: "freshness-fixture", fetch: request,
+        onDocument,
         mount: (_element, options) => { rememberRender(options); return { update: rememberRender, unmount() {} }; },
     });
     try { await run({ review, documents, descriptors, renders, remote, calls, container }); }
@@ -76,6 +77,33 @@ async function withReview(adapterUrl, run) {
 }
 
 export function reviewFreshnessTests(canvas, adapterUrl) {
+    for (const mode of ["initial", "selection"]) {
+        test(`${canvas} refresh during ${mode} presentation still mounts the current document`, async () => {
+            let enter;
+            let release;
+            let presentations = 0;
+            const entered = new Promise((resolve) => { enter = resolve; });
+            const pending = new Promise((resolve) => { release = resolve; });
+            try {
+                await withReview(adapterUrl, async ({ review, renders }) => {
+                    if (mode === "selection") await review.open({ stage: "specify" });
+                    const presenting = mode === "initial" ? review.open({ stage: "specify" }) : review.selectArtifact("related");
+                    await entered;
+                    await review.refresh();
+                    release();
+                    await presenting;
+                    assert.equal(renders.at(-1)?.state, "ready");
+                    assert.equal(renders.at(-1)?.document?.artifact.id, mode === "initial" ? "primary" : "related");
+                }, { onDocument: () => {
+                    presentations++;
+                    if (presentations !== (mode === "initial" ? 1 : 2)) return;
+                    enter();
+                    return pending;
+                } });
+            } finally { release(); }
+        });
+    }
+
     test(`${canvas} refresh labels changed content before replacing its revision`, () => withReview(adapterUrl, async ({ review, documents, renders, calls }) => {
         await review.open({ stage: "specify" });
         const first = review.document.revision;

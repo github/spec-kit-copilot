@@ -15,7 +15,11 @@ The artifact selector includes the selected feature's supporting documents,
 contracts, checklists, and available project constitution. Wizard also
 supports command and template sources already known to its composition.
 Relative Markdown links open scoped documents in the same reader. Back and
-forward history preserve each document's scroll position for its revision.
+forward arrows select the previous or next available Markdown document in the
+current folder, in natural filename order, without requiring prior visits.
+They skip unavailable files, do not cross into subfolders, and stop at the first
+and last document. Returning to a visited document preserves its reading position
+when its revision is unchanged.
 Returning to the canvas restores the invoking control and current workflow
 state, including progress received while reading.
 

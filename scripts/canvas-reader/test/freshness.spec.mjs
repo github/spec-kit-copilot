@@ -37,7 +37,8 @@ for (const canvas of ["wizard", "sdd"]) {
             await reader.getByRole("button", { name: "Refresh artifact", exact: true }).click();
             await expect(context).not.toHaveAttribute("data-review-context", originalContext);
             await expect(reader.getByRole("heading", { name: "Fixture research", exact: true })).toBeVisible();
-            await expect(reader.getByRole("button", { name: "Previous artifact", exact: true })).toBeDisabled();
+            await reader.getByRole("button", { name: "Previous artifact", exact: true }).click();
+            await expect(reader.getByRole("heading", { name: "Fixture plan", exact: true })).toBeVisible();
             expect(fixture.dispatchCount()).toBe(0);
             expect(fixture.workspaceChanged()).toBe(false);
         } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
