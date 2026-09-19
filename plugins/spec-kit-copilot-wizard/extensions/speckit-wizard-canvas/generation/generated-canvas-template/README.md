@@ -106,8 +106,11 @@ Generate settings, such as **Implemented / Partially implemented / Not implement
 or **Go / Hold / Kill**. Labels are preserved exactly and ordered for display, not priority;
 generation does not inspect workflow artifacts to choose them.
 
-Template version 28 classifies every dispatched workflow phase using its genuine
-final agent response first. Only if that response supports none of the configured
+Template version 29 classifies every dispatched workflow phase using its latest
+available genuine final agent response first. Follow-up messages do not invalidate
+the phase, and later replies from background continuations refresh its result.
+This is best-effort status display, not proof that execution has finished.
+Only if that response supports none of the configured
 labels does review fall back to the phase's Markdown artifact, if available.
 Neither source resolving a label yields **Not determined**. No custom report is
 requested from the executing agent, and phase names never imply success.
@@ -138,9 +141,13 @@ Reruns hide the phase's previous result without clearing other phases' results.
 Only the latest accepted result per workflow phase is stored under
 `.speckit-wizard/artifact-reviews/`, keyed by workspace/canvas/item/phase and
 fingerprinted against the run, evidence and configuration. Decisive response results
-do not depend on later artifact edits. Review errors surface as **Review unavailable**, with
-accessible details. Reopen to retry failed classifications; rerun the phase if its
-response could not be captured. There are no automatic retry loops.
+do not depend on later artifact edits. Optional capture and review failures resolve
+to **Not determined**, not error pills or messages; details stay in provider logs.
+Available Markdown remains a fallback when a response cannot be captured. Saved
+capture errors are reconsidered without rerunning the phase. New evidence or
+reopening can retry a classification; unchanged failed evidence does not trigger
+automatic retry loops. Actual setup, execution, and artifact-viewer errors remain
+visible independently.
 These are assessments of response and document evidence, not independent
 verification of code, tests or skill execution.
 

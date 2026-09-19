@@ -140,7 +140,7 @@ export function createPhaseRunStore({ extensionId, pipeline }) {
             await update(inst, (record) => {
                 for (const entry of [...record.items, ...record.pending]) {
                     const run = entry.runs?.find((run) => run.runId === runId);
-                    if (run && !run.completed) {
+                    if (run && (!run.completed || run.response !== result.response || run.error !== result.error)) {
                         Object.assign(run, { completed: true, response: result.response, error: result.error });
                         accepted = true;
                     }

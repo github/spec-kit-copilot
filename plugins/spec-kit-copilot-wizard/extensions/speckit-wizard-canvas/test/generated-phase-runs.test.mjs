@@ -122,9 +122,27 @@ test("first-run capture follows a new workflow when its folder is identified", a
     await f.store.mark(f.inst, { isNew: true, id: "__new__" }, "tasks", {
         run: { runId: "new-run", messageId: "request", sessionId: "session" },
     });
+
     await f.store.reconcile(f.inst, [{ id: "alpha", slug: "alpha", lastActivity: 1 }]);
     assert.equal(await f.store.complete(f.inst, "new-run", { response: "Created tasks for alpha.", error: null }), true);
     const runs = f.store.forItem(await f.store.read(f.inst), { id: "alpha", slug: "alpha" });
     assert.equal(runs[0].response, "Created tasks for alpha.");
     assert.equal(runs[0].completed, true);
+});
+
+test("current runs recover capture errors and replace earlier replies without rewriting unchanged evidence", async () => {
+    const f = await fixture();
+    const alpha = { id: "alpha", slug: "alpha" };
+    await f.store.mark(f.inst, alpha, "tasks", {
+        run: { runId: "current", messageId: "request", sessionId: "session" },
+    });
+    await f.store.complete(f.inst, "current", { response: null, error: "Multiple requests shared this interaction" });
+    assert.equal(await f.store.complete(f.inst, "current", { response: "Still validating.", error: null }), true);
+    assert.equal(await f.store.complete(f.inst, "current", { response: "Validation passed.", error: null }), true);
+    assert.equal(await f.store.complete(f.inst, "current", { response: "Validation passed.", error: null }), false);
+    const saved = f.store.forItem(await f.store.read(f.inst), alpha)[0];
+    assert.equal(saved.sequence, 1);
+    assert.equal(saved.response, "Validation passed.");
+    assert.equal(saved.error, null);
+    assert.deepEqual((await f.store.read(f.inst)).items[0].phases, ["tasks"]);
 });

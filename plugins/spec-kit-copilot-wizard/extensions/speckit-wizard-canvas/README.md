@@ -120,12 +120,12 @@ pipeline on the **Phases** page. Click **Generate canvas**, review the
 ordered commands and inferred artifact targets, then choose the generated
 extension id and canvas name.
 
-The optional **Workflow results** settings accept up to five result labels, such as
+The optional **Phase result tags** settings accept up to five custom tags, such as
 **Implemented / Partially implemented / Not implemented** or **Go / Hold / Kill**.
-Use **Add result** and **Remove** to edit the list, or leave it empty. Labels must be distinct,
+Use **Add tag** and **Remove** to edit the list, or leave it empty. Tags must be distinct,
 nonreserved, single-line phrases of 1-3 words and at most 60 characters.
-Labels can be configured for any pipeline without running it or creating artifacts.
-Runtime review classifies every phase after its normal final agent response is captured;
+Tags can be configured for any pipeline without running it or creating artifacts.
+Runtime review classifies every phase from its latest available normal final agent response;
 no artifact is required.
 Phases without a known local artifact target, such as `taskstoissues`, do not produce
 a generation warning; their artifact metadata remains available to the viewer.
@@ -151,9 +151,11 @@ and intermediate findings; ambiguous evidence never forces a binary choice.
 The same labels apply to every
 phase and workflow; the existing neutral pill displays them, with **Clarification needed**
 taking precedence. Standard canvases make no review requests. Reviews are read-only,
-scoped and fingerprinted; stale results are rejected. Failures show **Review unavailable**
-with accessible details. Reopen to retry failed classifications; rerun the phase if
-its response could not be captured. These labels describe the agent's response and
+scoped and fingerprinted; stale callbacks are ignored. Optional status failures show
+**Not determined**, with diagnostic details confined to provider logs. Available
+Markdown remains a fallback when response capture is unavailable. Newer replies
+refresh the classification without rerunning the phase; unchanged evidence does
+not repeatedly request reviews. These labels describe the agent's response and
 artifact evidence, not independently verified implementation or test results.
 
 The wizard stores a deterministic generation request and a versioned
@@ -293,8 +295,12 @@ and phases that edit another phase's file work the same way. Existing files alon
 do not mark a phase as run, and queued, blocked or failed sends do not set the flag.
 Flags survive reopening under `.speckit-wizard/phase-runs/`; a new workflow retains
 its flags when its folder is identified. No execution history is recorded.
-Template version **28** also stores the latest run's verbatim final response per
-phase, correlated to its dispatched message. Reruns hide that phase's previous
+Template version **29** keeps the latest available verbatim final response per
+phase, correlated to its dispatched message. Follow-up messages in the same
+interaction do not invalidate capture, and later background continuations can
+replace an interim final reply. Labels are best-effort, not completion tracking.
+Saved capture errors are recoverable without re-executing the phase.
+Reruns hide that phase's previous
 result while leaving other phases' results intact; stale callbacks are rejected.
 Open clarifications still take precedence, showing amber with an exclamation mark.
 Artifact read failures remain explicit and independent of run state.

@@ -313,7 +313,7 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 28);
+        assert.equal(request.template.version, 29);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-response.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-runs.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
@@ -398,7 +398,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 28);
+        assert.equal(requestBody.template.version, 29);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }

@@ -7,6 +7,7 @@ export function phaseResponse(events, messageId) {
     let turn = null;
     let text = "";
     let hasTools = false;
+    let latest = null;
     const complete = (response) => Buffer.byteLength(response, "utf8") > RESPONSE_LIMIT
         ? { response: null, error: "The phase response exceeds the 64 KiB capture limit." }
         : { response, error: null };
@@ -17,8 +18,6 @@ export function phaseResponse(events, messageId) {
         if (event.type === "user.message" && data.messageId === messageId) {
             if (!data.interactionId) return { response: null, error: "The phase response could not be associated with its dispatched message." };
             interaction = data.interactionId;
-        } else if (interaction && event.type === "user.message" && data.interactionId === interaction && data.messageId !== messageId) {
-            return { response: null, error: "Multiple requests shared this interaction; the phase response cannot be identified safely." };
         }
         if (event.type === "assistant.turn_start") {
             active = data.interactionId;
@@ -34,11 +33,11 @@ export function phaseResponse(events, messageId) {
         }
         if (event.type === "tool.execution_start" && data.turnId === turn) hasTools = true;
         // Copilot App presents task_complete's summary as the agent's final reply.
-        if (event.type === "session.task_complete" && data.success === true) return complete(data.summary ?? "");
+        if (event.type === "session.task_complete" && data.success === true) latest = complete(data.summary ?? "");
         if (event.type === "assistant.turn_end" && data.turnId === turn) {
-            if (text && !hasTools) return complete(text);
+            if (text && !hasTools) latest = complete(text);
             active = null;
         }
     }
-    return null;
+    return latest;
 }

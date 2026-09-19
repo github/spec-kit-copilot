@@ -60,16 +60,27 @@ let session;
 let agentBusy = true;
 let responseRevision = 0;
 const responseScans = new Map();
+const responseFailures = new Set();
+const statusDiagnostics = new Set();
+function statusDiagnostic(category, scope = {}) {
+    const key = JSON.stringify([category, scope]);
+    if (statusDiagnostics.has(key)) return;
+    if (statusDiagnostics.size >= 256) statusDiagnostics.delete(statusDiagnostics.values().next().value);
+    statusDiagnostics.add(key);
+    console.error(`[workflow-status] ${key}`);
+}
+const undetermined = () => ({ state: "reviewed", statusId: "not-determined", label: "Not determined" });
 const reviewConfig = adapter.artifactReview();
 const artifactReviewer = createArtifactReviewer({
     config: reviewConfig,
+    onDiagnostic: statusDiagnostic,
     dispatch: (input) => session.send(input),
     readCurrent: async (inst, itemId, phase) => {
         const item = (await listItems(inst)).find((candidate) => candidate.id === itemId);
         const step = commands.workflow.find((entry) => entry.instanceKey === phase);
         if (!item || !step) return null;
         const run = phaseRuns.forItem(await phaseRuns.read(inst), item).find((entry) => entry.phase === phase);
-        if (!run || run.error) return null;
+        if (!run) return null;
         return { ...run, ...await phaseArtifact(inst, item, step) };
     },
 });
@@ -215,26 +226,34 @@ async function phaseArtifact(inst, item, step) {
 async function captureResponses(inst) {
     const record = await phaseRuns.read(inst);
     const pending = [...record.items, ...record.pending].flatMap((entry) => entry.runs ?? [])
-        .filter((run) => !run.completed && responseScans.get(run.runId) !== responseRevision);
+        .filter((run) => responseScans.get(run.runId) !== responseRevision);
     if (!pending.length) return;
-    let events;
+    let events = null;
+    if (pending.some((run) => run.messageId && run.sessionId && run.sessionId === session.sessionId)) {
+        try { events = await session.getEvents(); }
+        catch { statusDiagnostic("response-history-unavailable"); }
+    }
     for (const run of pending) {
-        let captured;
-        if (!run.messageId || !run.sessionId || run.sessionId !== session.sessionId) {
-            captured = { response: null, error: "The phase response is unavailable in this session. Rerun the phase to capture its result." };
-        } else {
-            try {
-                events ??= await session.getEvents();
-                captured = phaseResponse(events, run.messageId);
-            } catch {
-                captured = { response: null, error: "Could not read the phase response. Rerun the phase to capture its result." };
+        const scope = { runId: run.runId, phase: run.phase };
+        responseScans.set(run.runId, responseRevision);
+        let response = run.response;
+        try {
+            if (run.messageId && run.sessionId === session.sessionId && events) {
+                const captured = phaseResponse(events, run.messageId);
+                if (captured?.error) statusDiagnostic("response-unavailable", scope);
+                if (captured) response = captured.response;
+            } else if (!response) {
+                statusDiagnostic("response-unavailable", scope);
             }
+        } catch {
+            statusDiagnostic("response-capture-failed", scope);
         }
-        if (captured) {
-            await phaseRuns.complete(inst, run.runId, captured);
-            responseScans.delete(run.runId);
-        } else {
-            responseScans.set(run.runId, responseRevision);
+        try {
+            await phaseRuns.complete(inst, run.runId, { response, error: null });
+            responseFailures.delete(run.runId);
+        } catch {
+            responseFailures.add(run.runId);
+            statusDiagnostic("response-save-failed", scope);
         }
     }
 }
@@ -389,13 +408,19 @@ async function snapshot(inst, allowReview = false) {
                 ...(artifactError ? { artifactError } : {}),
             };
             if (reviewConfig) {
-                const review = run?.error ? { state: "failed", label: "Review unavailable", error: run.error }
-                    : await artifactReviewer.observe(inst, {
-                    ...evidence, phase: step.instanceKey, runId: run?.runId ?? null,
-                    completed: run?.completed === true, response: run?.response ?? null,
-                    itemId: item.id,
-                    canDispatch: allowReview && setup.ready && !agentBusy,
-                });
+                let review;
+                try {
+                    review = run?.error || responseFailures.has(run?.runId) ? undetermined()
+                        : await artifactReviewer.observe(inst, {
+                            ...evidence, phase: step.instanceKey, runId: run?.runId ?? null,
+                            completed: run?.completed === true, response: run?.response ?? null,
+                            itemId: item.id,
+                            canDispatch: allowReview && setup.ready && !agentBusy,
+                        });
+                } catch {
+                    statusDiagnostic("review-unavailable", { itemId: item.id, phase: step.instanceKey });
+                    review = run ? undetermined() : null;
+                }
                 if (review) item.phases[step.instanceKey].review = review;
             }
         }

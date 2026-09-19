@@ -261,15 +261,16 @@ function phasePresentation(step, item = selectedItem()) {
     const artifactError = phase?.artifactError || (phase?.artifact
         && (!Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) ? "Artifact status unavailable" : "");
     const index = config?.labels.findIndex((_label, index) => review?.statusId === `result-${index + 1}`) ?? -1;
-    const statusId = config && review?.state === "reviewed" && !review.error && (index >= 0 || review.statusId === "not-determined")
-        ? review.statusId : null;
+    const statusId = config && (review?.state === "failed" || review?.error) ? "not-determined"
+        : config && review?.state === "reviewed" && (index >= 0 || review.statusId === "not-determined")
+            ? review.statusId : null;
     const notice = config
-        ? statusId ? index >= 0 ? config.labels[index] : "Not determined"
-            : review?.state === "failed" ? "Review unavailable" : artifactError ? "Artifact unavailable" : ""
+        ? statusId ? statusId === "not-determined" ? "Not determined" : config.labels[index]
+            : artifactError ? "Artifact unavailable" : ""
         : "";
     return { ...run,
         notice, statusId,
-        error: review?.error || artifactError };
+        error: artifactError };
 }
 
 function latestPhaseResult(item) {

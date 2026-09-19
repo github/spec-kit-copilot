@@ -49,7 +49,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             const reviewing = item("reviewing");
             reviewing.phases[last.instanceKey].review = { state: "reviewing", label: "Reviewing" };
             const failed = item("failed");
-            failed.phases[last.instanceKey].review = { state: "failed", label: "Review unavailable", error: "Reopen to retry." };
+            failed.phases[last.instanceKey].review = { state: "failed", statusId: "result-1", label: "Review unavailable", error: "Reopen to retry." };
             const rejected = item("rejected");
             rejected.phases[last.instanceKey].review = { state: "reviewed", statusId: "result-3", label: "Approved" };
             const deferred = item("deferred");
@@ -99,14 +99,16 @@ test("workflow summaries independently count current reviews across refresh, sel
                 element.previousElementSibling.classList.contains("instance-collection-head")
                 && element.nextElementSibling.id === "browse-collection-folder"), true);
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 1"]);
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 2"]);
             assert.equal(await row("partial").textContent(), `Run ${middle.label}`);
             assert.equal(await row("unstarted").textContent(), `Run ${first.label}`);
             assert.equal(await row("pending").count(), 0);
             assert.equal(await row("reviewing").count(), 0);
             assert.equal(await row("rejected").textContent(), "Rejected", "fixed IDs, not review labels, choose the result");
             assert.equal(await row("uncertain").textContent(), "Not determined");
-            assert.match(await row("failed").getAttribute("title"), /Reopen to retry/);
+            assert.equal(await row("failed").textContent(), "Not determined");
+            assert.doesNotMatch(await page.locator("body").innerText(), /Review unavailable|Reopen to retry/);
+            assert.doesNotMatch(await row("failed").getAttribute("title") ?? "", /Reopen to retry/);
             assert.match(await row("unavailable").getAttribute("title"), /Cannot read/);
             await page.locator("#browse-collection-folder").click();
             assert.deepEqual(posts, [{ path: "specs" }]);
@@ -125,7 +127,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             assert.equal(await row("partial").textContent(), `Run ${middle.label}`, "navigation does not advance progress");
             await page.locator("#phase-args").fill("Keep my draft");
             await page.locator("#workflow-search").fill("approved");
-            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 1"]);
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 2"]);
             await page.locator("#workflow-search").fill("");
             if (process.env.VIEWER_SCREENSHOT_DIR) {
                 await mkdir(process.env.VIEWER_SCREENSHOT_DIR, { recursive: true });
@@ -138,7 +140,7 @@ test("workflow summaries independently count current reviews across refresh, sel
                 await page.waitForFunction(() => document.querySelector('[data-instance="partial"] .phase-notice').textContent === "Clarification needed");
                 assert.equal(await row("partial").textContent(), "Clarification needed", "earlier unresolved questions override the next-phase hint");
                 assert.equal(await page.locator("#phase-args").inputValue(), "Keep my draft");
-                assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 3", "Not determined: 1"]);
+                assert.deepEqual(await counts.allTextContents(), ["Approved: 1", "Deferred: 1", "Rejected: 1", "Clarification needed: 3", "Not determined: 2"]);
             }
             partial.phases[first.instanceKey].clarificationCount = 0;
             await page.evaluate(() => window.workflowEvents.onmessage());
@@ -150,7 +152,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             approved.phases[last.instanceKey].review = { state: "pending", label: "Not determined" };
             await page.evaluate(() => window.workflowEvents.onmessage());
             await page.waitForFunction(() => document.querySelector(".collection-summary .phase-notice").textContent === "Approved: 0");
-            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 1"]);
+            assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 1", "Clarification needed: 2", "Not determined: 2"]);
             assert.equal(await row("approved").textContent(), "Clarification needed", "stale results are hidden without hiding open clarifications");
             approved.phases[last.instanceKey].review = { state: "reviewing", label: "Reviewing" };
             await page.evaluate(() => window.workflowEvents.onmessage());
@@ -172,7 +174,7 @@ test("workflow summaries independently count current reviews across refresh, sel
             ]) {
                 approved.phases[last.instanceKey] = { artifact: "specs/approved/tasks.md", clarificationCount: 0, ...blocked };
                 await page.evaluate(() => window.workflowEvents.onmessage());
-                const explicitUnknown = blocked.review.statusId === "not-determined";
+                const explicitUnknown = blocked.review.statusId === "not-determined" || blocked.review.state === "failed";
                 await page.waitForFunction((count) => document.querySelectorAll(".collection-summary .phase-notice").length === count, explicitUnknown ? 5 : 4);
                 assert.deepEqual(await counts.allTextContents(), ["Approved: 0", "Deferred: 1", "Rejected: 1", "Clarification needed: 1",
                     ...(explicitUnknown ? ["Not determined: 1"] : [])]);

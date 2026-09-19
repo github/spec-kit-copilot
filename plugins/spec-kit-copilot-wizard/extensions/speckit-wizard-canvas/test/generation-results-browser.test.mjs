@@ -87,14 +87,17 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
                 };
             }), { top: "1px", bottom: "1px", themeBorder: true, insideTop: "16px", insideBottom: "16px", outsideTop: 16, outsideBottom: 16 });
             assert.equal(await page.locator("#generation-example").count(), 0);
-            assert.equal(await page.locator("#generation-results-help").textContent(), "The canvas displays result counts for the workflow based on these labels.");
-            assert.match(await page.locator("#generation-results-examples").textContent(), /Examples: Go \/ Kill, or Implemented \/ Partially implemented \/ Not implemented/);
-            assert.match(await page.locator("#generation-results-examples").textContent(), /Clarification needed is built in/);
+            assert.equal(await page.locator("#generation-results-title").textContent(), "Phase result tags (optional)");
+            assert.equal(await page.getByLabel("Tag 1", { exact: true }).count(), 1);
+            assert.equal(await add.textContent(), "+ Add tag");
+            assert.equal(await page.locator("#generation-results-help").textContent(), "Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, it shows Not determined.");
+            assert.equal(await page.locator("#generation-results-examples").textContent(), "Add up to 5 custom tags of 1-3 words. Needs clarification is built in.");
+            assert.doesNotMatch(await page.locator(".generation-results").innerText(), /Workflow results|Result label|Add result/);
             assert.equal(await generate.isEnabled(), true);
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
             await first.fill("Needs clarification");
             await generate.click();
-            await page.getByText('"Needs clarification" is built in. Remove it from the custom result labels.', { exact: true }).waitFor();
+            await page.getByText('"Needs clarification" is built in. Remove it from the custom tags.', { exact: true }).waitFor();
             assert.equal(await first.getAttribute("aria-invalid"), "true");
             assert.equal(await page.evaluate(() => window.started), 0);
             await first.fill("Implemented");
@@ -105,8 +108,8 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             assert.equal(await page.locator("[data-result-label]").count(), 5);
             assert.equal(await add.isDisabled(), true);
             assert.equal(await page.locator(".generation-modal").evaluate((modal) => modal.scrollWidth <= modal.clientWidth), true);
-            await page.getByRole("button", { name: "Remove result label 5", exact: true }).click();
-            await page.getByRole("button", { name: "Remove result label 4", exact: true }).click();
+            await page.getByRole("button", { name: "Remove tag 5", exact: true }).click();
+            await page.getByRole("button", { name: "Remove tag 4", exact: true }).click();
             assert.equal(await add.isEnabled(), true);
             assert.deepEqual(await page.locator("[data-result-label]").evaluateAll((inputs) => inputs.map((input) => input.value)),
                 ["Implemented", "Partially implemented", "Not implemented"]);
@@ -175,8 +178,8 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             await page.locator("#generation-extension-id").fill("no-final-artifact");
             assert.equal(await first.isEnabled(), true);
             assert.equal(await add.isEnabled(), true);
-            await page.getByRole("button", { name: "Remove result label 2", exact: true }).click();
-            await page.getByRole("button", { name: "Remove result label 1", exact: true }).click();
+            await page.getByRole("button", { name: "Remove tag 2", exact: true }).click();
+            await page.getByRole("button", { name: "Remove tag 1", exact: true }).click();
             assert.equal(await page.locator("[data-result-label]").count(), 0);
             assert.equal(await add.isEnabled(), true, "labels remain configurable when the final phase is Implement");
             await add.click();

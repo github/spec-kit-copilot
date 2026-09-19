@@ -1,6 +1,6 @@
 // Exercise standalone extension lifecycle, setup readiness, and execution boundaries.
 import assert from "node:assert/strict";
-import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, test } from "node:test";
@@ -352,12 +352,16 @@ describe("generated extension setup lifecycle", () => {
         const events = new EventEmitter();
         const sent = [];
         const history = [];
+        let failHistory = false;
         let canvas;
         const sdk = {
             createCanvas: (definition) => (canvas = definition),
             joinSession: async () => ({
                 sessionId: "review-session",
-                getEvents: async () => history,
+                getEvents: async () => {
+                    if (failHistory) throw new Error("Private SDK failure");
+                    return history;
+                },
                 send: async (input) => {
                     sent.push(input);
                     const messageId = `request-${sent.length}`;
@@ -420,18 +424,30 @@ describe("generated extension setup lifecycle", () => {
         await run(specify);
         assert.equal((await item()).latestPhase, specify.instanceKey, "dispatch order, not pipeline order, selects workflow result");
         assert.equal((await phase()).review?.statusId, undefined, "rerun hides the prior result immediately");
-        await assert.rejects(report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-3" } }));
+        assert.deepEqual(await report.handler({ instanceId: "review-panel", input: { requestId, statusId: "result-3" } }), { ignored: true });
         events.emit("session.idle", {});
         await waitFor(() => sent.length === 6, 7000);
         const thirdId = sent[5].prompt.match(/"requestId":"([^"]+)"/)[1];
         await report.handler({ instanceId: "review-panel", input: { requestId: thirdId, statusId: "result-1" } });
         await canvas.onClose({ instanceId: "review-panel" });
+        const runDirectory = join(workspace, ".speckit-wizard", "phase-runs");
+        const runFile = join(runDirectory, (await readdir(runDirectory))[0]);
+        const savedRuns = JSON.parse(await readFile(runFile, "utf8"));
+        const savedRun = savedRuns.items[0].runs.find((entry) => entry.phase === specify.instanceKey);
+        Object.assign(savedRun, { response: null, error: "Multiple requests shared this interaction; the phase response cannot be identified safely." });
+        await writeFile(runFile, JSON.stringify(savedRuns));
         const restart = await mkdtemp(join(here, ".phase-review-restart-"));
         roots.push(restart);
         await loadGeneratedExtension(restart, sdk, options);
         await canvas.open({ instanceId: "review-reopened", input: { cwd: workspace } });
-        const restored = (await canvas.actions.find((action) => action.name === "list_items")
+        const restoredItem = async () => (await canvas.actions.find((action) => action.name === "list_items")
             .handler({ instanceId: "review-reopened", input: {} })).items.find((item) => item.id === "alpha");
+        assert.deepEqual((await restoredItem()).phases[specify.instanceKey].review, {
+            state: "reviewed", statusId: "not-determined", label: "Not determined",
+        }, "legacy capture errors render unknown without an error message");
+        events.emit("session.idle", {});
+        await waitFor(async () => (await restoredItem()).phases[specify.instanceKey].review?.statusId === "result-1", 7000);
+        const restored = await restoredItem();
         assert.equal(restored.latestPhase, specify.instanceKey);
         assert.equal(restored.phases[specify.instanceKey].review.statusId, "result-1");
         assert.equal(restored.phases[plan.instanceKey].review.statusId, "result-2");
@@ -441,6 +457,36 @@ describe("generated extension setup lifecycle", () => {
         assert.equal(updated.phases[specify.instanceKey].review, undefined);
         assert.equal(updated.phases[specify.instanceKey].clarificationCount, 1);
         assert.equal(sent.length, 6);
+        await writeFile(file, "# Spec\nDocumented scope.");
+        history.push(
+            { type: "user.message", data: { messageId: "navigation", interactionId: savedRun.messageId, delivery: "steering" } },
+            { type: "assistant.turn_start", data: { interactionId: savedRun.messageId, turnId: "0" } },
+            { type: "assistant.message", data: { interactionId: savedRun.messageId, turnId: "0", phase: "final_answer",
+                content: "A newer response: scope is incomplete." } },
+            { type: "assistant.turn_end", data: { turnId: "0" } },
+        );
+        events.emit("session.idle", {});
+        await waitFor(() => sent.length === 7, 7000);
+        assert.match(sent[6].prompt, /A newer response: scope is incomplete/);
+        const refreshedReport = canvas.actions.find((action) => action.name === "report_artifact_review");
+        await refreshedReport.handler({ instanceId: "review-reopened", input: {
+            requestId: sent[6].prompt.match(/"requestId":"([^"]+)"/)[1], statusId: "result-2",
+        } });
+        assert.equal((await restoredItem()).phases[specify.instanceKey].review.statusId, "result-2");
+        events.emit("session.idle", {});
+        await restoredItem();
+        assert.equal(sent.length, 7, "unchanged evidence does not dispatch another classification");
+        failHistory = true;
+        await canvas.actions.find((action) => action.name === "run_phase").handler({
+            instanceId: "review-reopened", input: { itemId: "alpha", phase: plan.instanceKey },
+        });
+        events.emit("session.idle", {});
+        await waitFor(async () => (await restoredItem()).phases[plan.instanceKey].review?.statusId === "not-determined", 7000);
+        const unavailable = (await restoredItem()).phases[plan.instanceKey];
+        assert.equal(unavailable.hasRun, true);
+        assert.equal(unavailable.review.error, undefined);
+        assert.equal(unavailable.review.label, "Not determined");
+        assert.equal(sent.length, 8, "response lookup failure does not rerun the phase or loop classification");
     });
 
     test("dispatch flags ignore shared files, survive provider restart, and follow new workflow identities", async () => {

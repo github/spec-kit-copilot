@@ -1,6 +1,6 @@
 // Validate response-first, per-phase classification and bounded, scoped persistence.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, test } from "node:test";
@@ -33,9 +33,9 @@ test("result labels are optional and do not require a persistent final artifact"
 
 test("built-in clarification labels are rejected with an actionable validation message", () => {
     for (const label of ["Needs clarification", "Clarification needed", "NEEDS   CLARIFICATION", "clarification   needed"]) {
-        assert.throws(() => validateResultLabels([label]), /is built in\. Remove it from the custom result labels\./);
+        assert.throws(() => validateResultLabels([label]), /is built in\. Remove it from the custom tags\./);
         assert.throws(() => validateWorkflowConfig(settings(["Implemented", label]), pipeline),
-            /is built in\. Remove it from the custom result labels\./);
+            /is built in\. Remove it from the custom tags\./);
     }
 });
 
@@ -56,8 +56,10 @@ async function fixture(config = reviewConfig()) {
     update({});
     let clock = 0, failing = false;
     const sends = [];
+    const diagnostics = [];
     const options = {
         config, now: () => clock,
+        onDiagnostic: (category, scope) => diagnostics.push({ category, scope }),
         dispatch: async (input) => { if (failing) throw new Error("SDK private detail"); sends.push(input); },
         readCurrent: async (panel, itemId, phase) => get(itemId, phase, panel) ?? null,
     };
@@ -67,7 +69,7 @@ async function fixture(config = reviewConfig()) {
         return runtime.observe(panel, { ...update(changes, id, phase, panel), itemId: id, phase, canDispatch });
     };
     const response = () => ({ requestId: sends.at(-1).prompt.match(/"requestId":"([^"]+)"/)[1], statusId: "result-1" });
-    return { inst, reviewer, options, get, update, sends, observe, response,
+    return { inst, reviewer, options, get, update, sends, diagnostics, observe, response,
         remove: (id = "alpha", phase = "last") => evidence.delete(key(id, phase, inst)),
         advance: (ms = 3100) => { clock += ms; }, fail: () => { failing = true; } };
 }
@@ -75,6 +77,8 @@ async function fixture(config = reviewConfig()) {
 const pending = { state: "pending", label: "" };
 const reviewing = { state: "reviewing", label: "" };
 const uncertain = { statusId: "not-determined", label: "Not determined" };
+const unknown = { state: "reviewed", ...uncertain };
+const ignored = { ignored: true };
 async function start(f, overrides = {}, id = "alpha", runtime = f.reviewer, panel = f.inst) {
     assert.deepEqual(await f.observe(id, overrides, runtime, panel), pending);
     f.advance();
@@ -103,11 +107,10 @@ test("settled responses get one read-only review across panels and reloads", asy
     assert.ok(f.sends[0].prompt.includes(JSON.stringify(f.get().response)));
     assert.ok(!f.sends[0].prompt.includes(f.get().content));
     assert.ok(!f.sends[0].prompt.includes(f.get().artifact));
-    await assert.rejects(f.reviewer.report({ ...f.inst, identity: "other" }, f.response()), /Unknown/);
-    await assert.rejects(f.reviewer.report({ ...f.inst, cwd: `${f.inst.cwd}-other` }, f.response()), /Unknown/);
-    await assert.rejects(f.reviewer.report(f.inst, { ...f.response(), statusId: "invented" }), /fixed status/);
+    assert.deepEqual(await f.reviewer.report({ ...f.inst, identity: "other" }, f.response()), ignored);
+    assert.deepEqual(await f.reviewer.report({ ...f.inst, cwd: `${f.inst.cwd}-other` }, f.response()), ignored);
     assert.equal((await f.reviewer.report(f.inst, f.response())).label, "Decision made");
-    await assert.rejects(f.reviewer.report(f.inst, f.response()), /Unknown/);
+    assert.deepEqual(await f.reviewer.report(f.inst, f.response()), ignored);
     const reloaded = createArtifactReviewer(f.options);
     assert.equal((await f.observe("alpha", {}, reloaded)).label, "Decision made");
     assert.equal((await f.observe("alpha", {}, reloaded)).statusId, "result-1");
@@ -201,7 +204,7 @@ test("inconclusive response with no Markdown finalizes not-determined only after
     assert.equal(f.sends.length, 1);
 });
 
-test("unreadable fallback gives explicit sanitized failure, never an outcome", async () => {
+test("unreadable fallback quietly resolves unknown without repeated diagnostics", async () => {
     for (const response of [null, "Finished evaluating."]) {
         const f = await fixture();
         f.update({ response, artifactError: "Private filesystem details" });
@@ -212,10 +215,12 @@ test("unreadable fallback gives explicit sanitized failure, never an outcome", a
         } else {
             result = await f.observe();
         }
-        assert.equal(result.state, "failed");
-        assert.equal(result.label, "Review unavailable");
-        assert.match(result.error, /artifact could not be read/);
-        assert.doesNotMatch(result.error, /Private/);
+        assert.deepEqual(result, unknown);
+        assert.deepEqual(await f.observe(), unknown);
+        assert.deepEqual(await f.observe(), unknown);
+        assert.equal(f.diagnostics.length, 1);
+        assert.equal(f.diagnostics[0].category, "artifact-read");
+        assert.doesNotMatch(JSON.stringify(f.diagnostics), /Private/);
         assert.equal(f.sends.length, response ? 1 : 0);
         await start(f, { artifactError: null });
         assert.match(f.sends.at(-1).prompt, /Artifact snapshot/);
@@ -271,14 +276,29 @@ test("one, three and five labels accept only the exact configured ordinal IDs", 
         for (let index = 0; index < count; index++) {
             f.update({ response: `Current result: ${labels[index]}. Evidence has been evaluated.` });
             await f.observe(); f.advance(); await f.observe();
-            for (const invalid of ["result-0", `result-${count + 1}`, "result-01", labels[index]]) {
-                await assert.rejects(f.reviewer.report(f.inst, { ...f.response(), statusId: invalid }), /fixed status/);
-            }
             assert.deepEqual(await f.reviewer.report(f.inst, { ...f.response(), statusId: `result-${index + 1}` }),
                 { statusId: `result-${index + 1}`, label: labels[index] });
         }
         assert.equal(f.sends.length, count);
     }
+});
+
+test("malformed output for a current request settles unknown instead of throwing or retrying", async () => {
+    const f = await fixture();
+    const invalid = ["result-0", "result-4", "result-01", "Decision made", null, 1, ""]
+        .map((statusId) => ({ statusId }));
+    invalid.push({}, { statusId: "result-1", report: "Private classifier text" });
+    for (const [index, input] of invalid.entries()) {
+        await start(f, { runId: `run-${index}` });
+        const report = { requestId: f.response().requestId, ...input };
+        assert.deepEqual(await f.reviewer.report(f.inst, report), unknown);
+        assert.deepEqual(await f.observe(), unknown);
+        f.advance();
+        assert.deepEqual(await f.observe(), unknown);
+    }
+    assert.equal(f.sends.length, invalid.length);
+    assert.deepEqual(f.diagnostics.map(({ category }) => category), invalid.map(() => "invalid-output"));
+    assert.doesNotMatch(JSON.stringify(f.diagnostics), /Private/);
 });
 
 test("absent labels do no work or persistence", async () => {
@@ -351,7 +371,7 @@ test("fresh run IDs invalidate identical evidence and pending execution hides ol
     }
     await start(f, { completed: true });
     assert.equal(f.sends.length, 2);
-    await assert.rejects(f.reviewer.report(f.inst, old), /Unknown/);
+    assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
     assert.equal((await f.reviewer.report(f.inst, f.response())).statusId, "result-1");
 });
 
@@ -370,6 +390,55 @@ test("response changes reset settling and old persisted results cannot skip a ne
     assert.doesNotMatch(f.sends.at(-1).prompt, /Artifact snapshot/);
 });
 
+test("a newer response in the same run promptly supersedes an active response or Markdown review", async () => {
+    for (const fallback of [false, true]) {
+        const f = await fixture();
+        await start(f);
+        if (fallback) {
+            await f.reviewer.report(f.inst, { ...f.response(), statusId: "not-determined" });
+            f.advance(); await f.observe();
+        }
+        const old = f.response();
+        await start(f, { response: "Newer genuine final reply from the same run." });
+        assert.equal(f.get().runId, "run-1");
+        assert.match(f.sends.at(-1).prompt, /Final response/);
+        assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
+        assert.deepEqual(await f.observe(), reviewing);
+        assert.equal((await f.reviewer.report(f.inst, { ...f.response(), statusId: "result-2" })).statusId, "result-2");
+        assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
+        assert.equal((await f.observe()).statusId, "result-2");
+        assert.equal((await f.observe("alpha", {}, createArtifactReviewer(f.options))).statusId, "result-2");
+    }
+});
+
+test("late obsolete dispatch failures cannot affect a newer response's review", async () => {
+    const f = await fixture();
+    let rejectDispatch, entered;
+    const blocked = new Promise((resolve) => { entered = resolve; });
+    const gate = new Promise((_, reject) => { rejectDispatch = reject; });
+    let first = true;
+    const runtime = createArtifactReviewer({ ...f.options, dispatch: async (input) => {
+        await f.options.dispatch(input);
+        if (first) {
+            first = false;
+            entered();
+            await gate;
+        }
+    } });
+    await f.observe("alpha", {}, runtime);
+    f.advance();
+    const obsolete = f.observe("alpha", {}, runtime);
+    await blocked;
+    const old = f.response();
+    await start(f, { response: "New final response." }, "alpha", runtime);
+    assert.deepEqual(await runtime.report(f.inst, old), ignored);
+    await runtime.report(f.inst, f.response());
+    rejectDispatch(new Error("Private old dispatch error"));
+    assert.deepEqual(await obsolete, pending);
+    assert.equal((await f.observe("alpha", {}, runtime)).statusId, "result-1");
+    assert.ok(!f.diagnostics.some(({ category }) => category === "review-dispatch"));
+});
+
 test("clarification markers suppress every source and saved status", async () => {
     const f = await fixture();
     await start(f);
@@ -381,11 +450,11 @@ test("clarification markers suppress every source and saved status", async () =>
     assert.equal(f.sends.length, 1);
     await start(f, { clarificationCount: 0 });
     f.update({ clarificationCount: 2 });
-    await assert.rejects(f.reviewer.report(f.inst, f.response()), /stale/);
+    assert.deepEqual(await f.reviewer.report(f.inst, f.response()), ignored);
     assert.equal(await f.observe(), null);
 });
 
-test("changed responses, runs, pending execution and deleted items reject stale callbacks", async () => {
+test("changed responses, runs, pending execution and deleted items ignore stale callbacks", async () => {
     for (const change of [{ response: "Different final reply." }, { runId: "run-2" }, { runId: null },
         { completed: false }, { clarificationCount: 1 }, null]) {
         const f = await fixture();
@@ -393,8 +462,8 @@ test("changed responses, runs, pending execution and deleted items reject stale 
         const old = f.response();
         if (change) f.update(change);
         else f.remove();
-        await assert.rejects(f.reviewer.report(f.inst, old), /stale/);
-        await assert.rejects(f.reviewer.report(f.inst, old), /Unknown/);
+        assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
+        assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
     }
 });
 
@@ -414,11 +483,12 @@ test("a stale callback cannot overwrite a newer run while persistence is in flig
         return current;
     } });
     await start(f, {}, "alpha", runtime);
-    const saving = assert.rejects(runtime.report(f.inst, f.response()), /stale/);
+    const saving = runtime.report(f.inst, f.response());
     await blocked;
+    assert.deepEqual(await runtime.report(f.inst, f.response()), ignored);
     const newer = f.observe("alpha", { runId: "run-2", response: null, artifact: null, content: null }, runtime);
     release();
-    await saving;
+    assert.deepEqual(await saving, ignored);
     assert.deepEqual(await newer, { state: "reviewed", ...uncertain });
     assert.deepEqual(await f.observe("alpha", {}, createArtifactReviewer(f.options)), { state: "reviewed", ...uncertain });
 });
@@ -430,7 +500,7 @@ test("changed Markdown invalidates fallback callbacks without repeating response
     f.advance(); await f.observe();
     const old = f.response();
     assert.deepEqual(await f.observe("alpha", { content: "New Markdown evidence." }), pending);
-    await assert.rejects(f.reviewer.report(f.inst, old), /stale/);
+    assert.deepEqual(await f.reviewer.report(f.inst, old), ignored);
     assert.deepEqual(await f.observe(), pending);
     f.advance(); await f.observe();
     assert.match(f.sends.at(-1).prompt, /Artifact snapshot/);
@@ -444,12 +514,14 @@ test("timeouts and failures have bounded dispatch and recover on existing rerun 
         if (failedSend) f.fail();
         await f.observe(); f.advance(); await f.observe(); f.advance(121_000);
         const status = await f.observe();
-        assert.equal(status.label, "Review unavailable");
-        assert.doesNotMatch(status.error, /SDK private/);
+        assert.deepEqual(status, unknown);
         await f.observe(); f.advance(); await f.observe();
         assert.equal(f.sends.length, failedSend ? 0 : 1);
+        assert.equal(f.diagnostics.length, 1);
+        assert.equal(f.diagnostics[0].category, failedSend ? "review-dispatch" : "review-timeout");
+        if (!failedSend) assert.deepEqual(await f.reviewer.report(f.inst, f.response()), ignored);
         f.reviewer.retry(f.inst, "alpha", "first");
-        assert.equal((await f.observe()).state, "failed");
+        assert.deepEqual(await f.observe(), unknown);
         f.reviewer.retry(f.inst, "alpha", "last");
         assert.equal((await f.observe()).state, "pending");
         f.reviewer.close(f.inst);
@@ -457,12 +529,78 @@ test("timeouts and failures have bounded dispatch and recover on existing rerun 
     }
 });
 
-test("bad saved records produce explicit failure, not invented completion", async () => {
+test("bad saved records quietly resolve unknown without retrying every poll", async () => {
     const f = await fixture();
     await f.observe(); f.advance(); await f.observe();
     await f.reviewer.report(f.inst, f.response());
     const directory = join(f.inst.cwd, ".speckit-wizard", "artifact-reviews");
     await writeFile(join(directory, (await readdir(directory))[0]), "{bad");
-    assert.equal((await f.observe("alpha", {}, createArtifactReviewer(f.options))).label, "Review unavailable");
+    const reopened = createArtifactReviewer(f.options);
+    assert.deepEqual(await f.observe("alpha", {}, reopened), unknown);
+    f.advance();
+    assert.deepEqual(await f.observe("alpha", {}, reopened), unknown);
+    assert.deepEqual(f.diagnostics.map(({ category }) => category), ["review-cache-read"]);
     assert.equal(f.sends.length, 1);
+});
+
+test("review-cache write failures resolve unknown for classified and missing evidence", async () => {
+    for (const hasResponse of [false, true]) {
+        const f = await fixture();
+        let obstruct = true;
+        const runtime = createArtifactReviewer({ ...f.options, readCurrent: async (...args) => {
+            if (obstruct) {
+                obstruct = false;
+                await mkdir(join(f.inst.cwd, ".speckit-wizard"));
+                await writeFile(join(f.inst.cwd, ".speckit-wizard", "artifact-reviews"), "Private obstruction");
+            }
+            return f.options.readCurrent(...args);
+        } });
+        if (hasResponse) {
+            await start(f, {}, "alpha", runtime);
+            assert.deepEqual(await runtime.report(f.inst, f.response()), unknown);
+        } else {
+            assert.deepEqual(await f.observe("alpha", { response: null, artifact: null, content: null }, runtime), unknown);
+        }
+        f.advance();
+        assert.deepEqual(await f.observe("alpha", {}, runtime), unknown);
+        assert.deepEqual(f.diagnostics.map(({ category }) => category), ["review-cache-write"]);
+        assert.equal(f.sends.length, hasResponse ? 1 : 0);
+    }
+});
+
+test("optional evidence-read failures log only safe categories and hashed item/phase scope", async () => {
+    const f = await fixture();
+    const runtime = createArtifactReviewer({ ...f.options, readCurrent: async () => {
+        throw new Error("secret-token private error response prompt");
+    } });
+    await start(f, { phase: "secret-token", response: "private response" }, "private-item", runtime);
+    assert.deepEqual(await runtime.report(f.inst, f.response()), unknown);
+    assert.deepEqual(await f.observe("private-item", { phase: "secret-token" }, runtime), unknown);
+    assert.equal(f.diagnostics.length, 1);
+    const [{ category, scope }] = f.diagnostics;
+    assert.equal(category, "evidence-read");
+    assert.deepEqual(Object.keys(scope).sort(), ["itemId", "phase"]);
+    assert.match(scope.itemId, /^[a-f0-9]{12}$/);
+    assert.match(scope.phase, /^[a-f0-9]{12}$/);
+    assert.doesNotMatch(JSON.stringify(f.diagnostics), /secret-token|private|response|prompt/);
+});
+
+test("default diagnostics use stderr and throwing diagnostic callbacks cannot break optional status", async (t) => {
+    const messages = [];
+    t.mock.method(console, "error", (message) => messages.push(message));
+    const stdout = t.mock.method(console, "log", () => {});
+    for (const onDiagnostic of [undefined, () => { throw new Error("Private logging failure"); }]) {
+        const f = await fixture();
+        f.fail();
+        const runtime = createArtifactReviewer({ ...f.options, onDiagnostic });
+        await f.observe("alpha", {}, runtime);
+        f.advance();
+        assert.deepEqual(await f.observe("alpha", {}, runtime), unknown);
+        assert.deepEqual(await f.observe("alpha", {}, runtime), unknown);
+    }
+    assert.equal(messages.length, 2);
+    assert.match(messages[0], /review-dispatch/);
+    assert.match(messages[1], /diagnostic-failed/);
+    assert.doesNotMatch(messages.join("\n"), /Private|SDK|Decision|example-canvas|alpha/);
+    assert.equal(stdout.mock.callCount(), 0);
 });

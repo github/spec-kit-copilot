@@ -134,8 +134,8 @@ describe("generation UI helpers", () => {
         assert.match(source, />Ask users to approve all included presets and extensions before installation\. Otherwise, the app automatically installs missing components without asking for installation approval\.<\/small>/);
         assert.match(source, /<div class="wizard-modal-body">\s*<label class="wizard-modal-field" for="generation-target">/);
         assert.doesNotMatch(source, /generation-example|Run once|run the full pipeline|Example artifacts available/);
-        assert.match(source, /Examples: Go \/ Kill, or Implemented \/ Partially implemented \/ Not implemented/);
-        assert.match(source, /Clarification needed is built in/);
+        assert.match(source, /such as Go, Kill, or Needs clarification/);
+        assert.match(source, /Needs clarification is built in/);
         assert.doesNotMatch(source, /submit\.disabled\s*=/, "preflight checks and submissions do not disable Generate");
         assert.equal((source.match(/id="generation-target"/g) ?? []).length, 1);
         assert.match(source, />Workflow header<\/span>/);
@@ -143,9 +143,11 @@ describe("generation UI helpers", () => {
         assert.match(source, />Text displayed as the workflow collection heading, such as Assessments or Bugs\.<\/span>/);
         assert.match(source, />Text displayed as the canvas title\.<\/span>/);
         assert.match(source, />Text displayed beneath the workflow collection heading, before the folder link\.<\/span>/);
-        assert.match(source, />The canvas displays result counts for the workflow based on these labels\.<\/p>/);
+        assert.match(source, /Define tags to categorize phase results/);
+        assert.match(source, /Phase result tags <span/);
+        assert.match(source, />\+ Add tag<\/button>/);
         assert.doesNotMatch(source, /Copilot checks|Leave both blank to use standard artifact and clarification indicators/);
-        assert.match(source, /Result label \$\{index \+ 1\}/);
+        assert.match(source, /Tag \$\{index \+ 1\}/);
         assert.match(source, /aria-describedby="generation-results-help generation-results-examples/);
         assert.doesNotMatch(source, /Workflow list name|What should this canvas|Singular name|Plural name|generation-target-row/);
         for (const id of ["target", "extension-id", "display-name", "workflow-list-name", "description"]) {

@@ -156,7 +156,7 @@ test("phase status and neutral notices refresh without losing selection or draft
                 last.review = { state: "failed", label: "Review unavailable", error: "Rerun or reopen to retry." };
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.count(), 0);
-                assert.equal(await page.locator("#phase-card").getByText("Rerun or reopen to retry.", { exact: true }).isVisible(), true);
+                assert.equal(await page.locator("#phase-card").getByText("Rerun or reopen to retry.", { exact: true }).isVisible(), false);
                 delete last.review;
                 await page.evaluate(() => window.workflowEvents.onmessage());
                 assert.equal(await pill.count(), 0, "unconfigured final phases have no readiness pill");

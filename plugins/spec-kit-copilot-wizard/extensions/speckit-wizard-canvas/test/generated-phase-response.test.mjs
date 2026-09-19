@@ -42,10 +42,34 @@ test("idle, rejected completion, and reasoning are not a final phase response", 
     assert.equal(phaseResponse(events, "phase"), null);
 });
 
-test("missing correlation, merged requests and oversized replies fail explicitly", () => {
+test("missing correlation and oversized replies are diagnostics, not invented response text", () => {
     assert.match(phaseResponse([event("user.message", { messageId: "phase" })], "phase").error, /associated/);
-    assert.match(phaseResponse([user("phase"), user("another", "phase")], "phase").error, /Multiple requests/);
+    assert.equal(phaseResponse([user("phase"), user("another", "phase")], "phase"), null);
     const result = phaseResponse([user("phase"), start("phase"), reply("phase", "x".repeat(RESPONSE_LIMIT + 1)), end()], "phase");
     assert.equal(result.response, null);
     assert.match(result.error, /64 KiB/);
+});
+
+test("steering and background continuations select the latest reply, not the first final answer", () => {
+    const events = [user("phase"), start("phase"),
+        reply("phase", "Starting the specification", { phase: "commentary", toolRequests: [{ name: "task" }] }), end(),
+        start("phase", "5"), event("user.message", {
+            messageId: "navigation", interactionId: "phase", turnId: "5", delivery: "steering",
+            content: "Open the canvas",
+        }), end("5"),
+        start("phase", "6"), reply("phase", "Canvas open; validation is still running.", { turnId: "6", phase: "final_answer" }), end("6")];
+    assert.equal(phaseResponse(events, "phase").response, "Canvas open; validation is still running.");
+    events.push(start("phase", "1"), reply("phase", "Created and validated the specification. 17/17 checks passed.",
+        { turnId: "1", phase: "final_answer" }), end("1"));
+    assert.equal(phaseResponse(events, "phase").response, "Created and validated the specification. 17/17 checks passed.");
+    assert.equal(phaseResponse(events.slice(0, -1), "phase").response, "Canvas open; validation is still running.",
+        "a reply without its turn end does not replace the last complete reply");
+});
+
+test("a later App completion replaces an earlier reply without admitting unrelated or child replies", () => {
+    const events = [user("phase"), start("phase"), reply("phase", "Waiting for validation."), end(),
+        start("phase", "1"), event("session.task_complete", { summary: "Validation passed.", success: true }), end("1"),
+        event("session.task_complete", { summary: "Child result", success: true }, { agentId: "child" }),
+        user("other"), start("other"), reply("other", "Unrelated reply"), end()];
+    assert.deepEqual(phaseResponse(events, "phase"), { response: "Validation passed.", error: null });
 });

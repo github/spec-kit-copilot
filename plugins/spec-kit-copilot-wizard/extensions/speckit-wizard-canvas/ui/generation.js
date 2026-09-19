@@ -22,12 +22,12 @@ function renderResultInputs(root, values, onChange) {
     list.innerHTML = values.map((value, index) => `
         <div class="generation-result-row">
             <label class="wizard-modal-field" for="generation-result-${index}">
-                <span class="wizard-modal-field-label">Result label ${index + 1}</span>
+                <span class="wizard-modal-field-label">Tag ${index + 1}</span>
                 <input id="generation-result-${index}" data-result-label class="wizard-modal-input" maxlength="60"
                     value="${escapeHtml(value)}" placeholder="e.g. ${["Implemented", "Partially implemented", "Not implemented"][index] ?? "Deferred"}"
                     aria-describedby="generation-results-help generation-results-examples generation-messages" />
             </label>
-            <button type="button" class="btn btn-secondary btn-sm" data-remove-result="${index}" aria-label="Remove result label ${index + 1}">Remove</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-remove-result="${index}" aria-label="Remove tag ${index + 1}">Remove</button>
         </div>`).join("");
     for (const input of resultInputs(root)) input.addEventListener("input", onChange);
     for (const button of root.querySelectorAll("[data-remove-result]")) {
@@ -315,11 +315,11 @@ export function openGenerationDialog() {
                         <textarea id="generation-description" class="wizard-modal-textarea generation-description" aria-labelledby="generation-description-label" aria-describedby="generation-description-help">${escapeHtml(metadata.description)}</textarea>
                     </label>
                     <div class="generation-results" role="group" aria-labelledby="generation-results-title" aria-describedby="generation-results-help">
-                        <h4 id="generation-results-title" class="wizard-modal-field-label">Workflow results <span class="muted">(optional)</span></h4>
-                        <p class="wizard-modal-desc" id="generation-results-help">The canvas displays result counts for the workflow based on these labels.</p>
-                        <p class="wizard-modal-desc" id="generation-results-examples">Examples: Go / Kill, or Implemented / Partially implemented / Not implemented. Add up to 5 labels of 1-3 words. Clarification needed is built in.</p>
+                        <h4 id="generation-results-title" class="wizard-modal-field-label">Phase result tags <span class="muted">(optional)</span></h4>
+                        <p class="wizard-modal-desc" id="generation-results-help">Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, it shows Not determined.</p>
+                        <p class="wizard-modal-desc" id="generation-results-examples">Add up to 5 custom tags of 1-3 words. Needs clarification is built in.</p>
                         <div id="generation-result-list"></div>
-                        <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add result</button></div>
+                        <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add tag</button></div>
                     </div>
                     <label class="wizard-modal-check">
                         <input id="generation-user-provides-slug" type="checkbox" />

@@ -33,21 +33,21 @@ function validatePhaseInput(input, phase) {
 
 export function validateResultLabels(value) {
     if (value == null) return [];
-    if (!Array.isArray(value) || value.length > 5) throw new Error("Workflow results must be a list of up to 5 labels.");
+    if (!Array.isArray(value) || value.length > 5) throw new Error("Phase result tags must be a list of up to 5 tags.");
     const reserved = new Set(["not determined", "clarification needed", "needs clarification",
         "reviewing", "review unavailable", "artifact unavailable", "artifact ready", "artifact not ready"]);
     const labels = new Set();
     for (const text of value) {
         if (typeof text !== "string" || !text.trim()) {
-            throw new Error("Each result label must be nonempty text.");
+            throw new Error("Each tag must be nonempty text.");
         }
         if (text !== text.trim() || text.length > 60 || /[\x00-\x1f\x7f\u2028\u2029]/.test(text)
             || text.split(/\s+/).length > 3) {
-            throw new Error("Result labels must be trimmed single-line text of 1-3 words and at most 60 characters.");
+            throw new Error("Tags must be trimmed single-line text of 1-3 words and at most 60 characters.");
         }
         const normalized = text.toLowerCase().replace(/\s+/g, " ");
-        if (reserved.has(normalized)) throw new Error(`"${text}" is built in. Remove it from the custom result labels.`);
-        if (labels.has(normalized)) throw new Error("Result labels must be different.");
+        if (reserved.has(normalized)) throw new Error(`"${text}" is built in. Remove it from the custom tags.`);
+        if (labels.has(normalized)) throw new Error("Tags must be different.");
         labels.add(normalized);
     }
     return [...value];
@@ -58,7 +58,7 @@ export function validateWorkflowConfig(config, pipeline, { resultLabels } = {}) 
     record(config, "workflow config", ["version", "itemLabels", "phaseArguments", "phaseInputs", "resultLabels"]);
     const configuredLabels = validateResultLabels(config.resultLabels);
     if (resultLabels !== undefined && JSON.stringify(configuredLabels) !== JSON.stringify(validateResultLabels(resultLabels))) {
-        throw new Error("Result labels must match the generation settings exactly.");
+        throw new Error("Tags must match the generation settings exactly.");
     }
     if (config.version !== 1) throw new Error("unsupported workflow config version");
     record(config.itemLabels, "itemLabels");
