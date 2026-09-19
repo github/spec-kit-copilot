@@ -149,7 +149,7 @@ test("collection counts use final status IDs and distinct workflows, not marker 
     assert.doesNotMatch(summary(), />Not determined:/);
     beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "not-determined", label: "Not determined" };
     await f.refresh();
-    assert.match(summary(), />Not determined: 1</);
+    assert.doesNotMatch(f.get("instance-collection").innerHTML, /Not determined/);
     assert.match(summary(), />Decision deferred: 0</);
     beta.phases[f.plan.instanceKey].review = { state: "reviewed", statusId: "result-3", label: "Decision made" };
     await f.refresh();

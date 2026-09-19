@@ -101,7 +101,6 @@ function renderInstanceCollection() {
     const resultCounts = (review?.labels ?? []).map((label, index) => ({
         label, count: items.filter((item) => results.get(item.id).statusId === `result-${index + 1}`).length,
     }));
-    const undeterminedCount = review ? items.filter((item) => results.get(item.id).statusId === "not-determined").length : 0;
     const collectionPath = state.snapshot?.pipeline?.runtime?.itemRoot?.replaceAll("\\", "/").replace(/\/<slug>$/, "");
     collection.hidden = false;
     collection.innerHTML = `
@@ -114,7 +113,6 @@ function renderInstanceCollection() {
         <div class="collection-summary" aria-label="Workflow counts">
             ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows whose latest dispatched phase matches this result label; not verified code correctness.")).join("")}
             ${phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.")}
-            ${undeterminedCount > 0 ? phaseNotice(`Not determined: ${undeterminedCount}`, "Workflows whose latest phase review explicitly returned Not determined.") : ""}
         </div>
         <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
@@ -261,12 +259,9 @@ function phasePresentation(step, item = selectedItem()) {
     const artifactError = phase?.artifactError || (phase?.artifact
         && (!Number.isInteger(phase.clarificationCount) || phase.clarificationCount < 0) ? "Artifact status unavailable" : "");
     const index = config?.labels.findIndex((_label, index) => review?.statusId === `result-${index + 1}`) ?? -1;
-    const statusId = config && (review?.state === "failed" || review?.error) ? "not-determined"
-        : config && review?.state === "reviewed" && (index >= 0 || review.statusId === "not-determined")
-            ? review.statusId : null;
+    const statusId = review?.state === "reviewed" && !review.error && index >= 0 ? review.statusId : null;
     const notice = config
-        ? statusId ? statusId === "not-determined" ? "Not determined" : config.labels[index]
-            : artifactError ? "Artifact unavailable" : ""
+        ? statusId ? config.labels[index] : artifactError ? "Artifact unavailable" : ""
         : "";
     return { ...run,
         notice, statusId,

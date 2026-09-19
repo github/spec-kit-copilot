@@ -90,7 +90,7 @@ test("result settings remain usable on desktop/mobile in both themes", async (t)
             assert.equal(await page.locator("#generation-results-title").textContent(), "Phase result tags (optional)");
             assert.equal(await page.getByLabel("Tag 1", { exact: true }).count(), 1);
             assert.equal(await add.textContent(), "+ Add tag");
-            assert.equal(await page.locator("#generation-results-help").textContent(), "Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, it shows Not determined.");
+            assert.equal(await page.locator("#generation-results-help").textContent(), "Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, no tag is applied.");
             assert.equal(await page.locator("#generation-results-examples").textContent(), "Add up to 5 custom tags of 1-3 words. Needs clarification is built in.");
             assert.doesNotMatch(await page.locator(".generation-results").innerText(), /Workflow results|Result label|Add result/);
             assert.equal(await generate.isEnabled(), true);

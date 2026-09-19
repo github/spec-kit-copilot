@@ -98,8 +98,7 @@ The agent opens the wizard in a side panel. See
 Generated canvases show a shared collection-folder link and independent count pills.
 The configured description appears beneath the collection heading, before the folder link.
 Each configured result label counts current classifications of each workflow's latest dispatched phase.
-**Not determined** counts explicit uncertain reviews and is shown only when greater
-than zero. Counts are not adjusted to add up to the workflow total.
+Untagged results are not counted. Counts need not add up to the workflow total.
 **Clarification needed** independently counts workflows with unresolved
 questions in any phase and can overlap the result counts. With result settings,
 rows reuse that phase's result, including when an earlier phase is rerun.
@@ -140,11 +139,10 @@ file list; a resolved checklist opens directly in the artifact viewer.
 Configured canvases ask Copilot to interpret each phase's genuine final agent response
 when the agent is idle. Only if no configured label is supported there do they
 review that phase's Markdown artifact, if available. If neither source resolves a
-label, the result is **Not determined**. Phase prompts do not request custom reports,
+label, no tag is applied. Phase prompts do not request custom reports,
 and phase names are not evidence of success.
 List order controls display order, not classification priority.
-No result pill appears while a review is pending or running. **Not determined**
-is shown only for a completed, inconclusive review; clarification and error feedback remain visible.
+Pending, running, and inconclusive reviews show no tag; clarification and error feedback remain visible.
 Goal outcome, status, verdict, decision and result are semantic cues, not required
 keywords or headings. Actual conclusions take precedence over goals, future plans,
 and intermediate findings; ambiguous evidence never forces a binary choice.
@@ -152,7 +150,7 @@ The same labels apply to every
 phase and workflow; the existing neutral pill displays them, with **Clarification needed**
 taking precedence. Standard canvases make no review requests. Reviews are read-only,
 scoped and fingerprinted; stale callbacks are ignored. Optional status failures show
-**Not determined**, with diagnostic details confined to provider logs. Available
+no tag, with diagnostic details confined to provider logs. Available
 Markdown remains a fallback when response capture is unavailable. Newer replies
 refresh the classification without rerunning the phase; unchanged evidence does
 not repeatedly request reviews. These labels describe the agent's response and

@@ -48,8 +48,7 @@ after normalizing only application-specific navigation and queue copy. No phase 
 
 The collection summary beneath the workflow heading contains the shared parent
 folder link and neutral count pills. With result labels configured, it counts
-explicit current matches for each configured label separately. **Not determined**
-counts explicit uncertain reviews and appears only when greater than zero.
+explicit current matches for each configured label separately. Untagged results are not counted.
 Counts exclude New and are independent of search or selection; they are not
 adjusted to add up to the workflow total. Unstarted, unreviewed, and unavailable
 workflows are not assigned a result to fill a remainder. **Clarification needed**
@@ -112,7 +111,7 @@ the phase, and later replies from background continuations refresh its result.
 This is best-effort status display, not proof that execution has finished.
 Only if that response supports none of the configured
 labels does review fall back to the phase's Markdown artifact, if available.
-Neither source resolving a label yields **Not determined**. No custom report is
+If neither source resolves a label, no tag is applied. No custom report is
 requested from the executing agent, and phase names never imply success.
 
 Runtime review uses format-independent reading guidance. Concepts such as **goal outcome**, **status**,
@@ -122,7 +121,7 @@ the passages that most closely express its current overall outcome, in any
 Markdown structure. Actual outcomes take precedence over aspirations, future
 plans, examples and intermediate findings; neither the first keyword match nor
 the last section is presumed authoritative. Unclear, unsupported, or conflicting
-evidence yields **Not determined** rather than forcing a configured result.
+evidence leaves the phase untagged rather than forcing a configured result.
 The review fingerprint includes this guidance, invalidating cached assessments
 when it changes. Empty result settings mean clarification-only pills and no review requests.
 
@@ -130,9 +129,8 @@ When configured, Copilot selects a fixed status ID from the configured labels.
 All phases and workflow instances use the same 1-3 word
 labels. The neutral pill displays that label; unresolved clarification markers
 always take precedence. Green remains the independent dispatch indicator.
-Insufficient evidence yields **Not determined**, not an assumed result.
-Pending and running reviews show no result pill. Only completed reviews display a
-configured result or **Not determined**; clarification and error feedback remain visible.
+Only completed reviews with a matching configured result display a tag;
+clarification and error feedback remain visible.
 
 The existing refresh loop waits for settled content and an idle session, with one
 pending review at a time. Its read-only prompt requests a scoped canvas-action
@@ -142,7 +140,7 @@ Only the latest accepted result per workflow phase is stored under
 `.speckit-wizard/artifact-reviews/`, keyed by workspace/canvas/item/phase and
 fingerprinted against the run, evidence and configuration. Decisive response results
 do not depend on later artifact edits. Optional capture and review failures resolve
-to **Not determined**, not error pills or messages; details stay in provider logs.
+to no tag, not error pills or messages; details stay in provider logs.
 Available Markdown remains a fallback when a response cannot be captured. Saved
 capture errors are reconsidered without rerunning the phase. New evidence or
 reopening can retry a classification; unchanged failed evidence does not trigger
@@ -416,7 +414,7 @@ A supplied `phaseInputs` map must cover every phase. Empty labels/fixed-argument
 maps use standard behavior.
 Optional `resultLabels` is an array of zero to five labels, each a trimmed,
 single-line label of 1-3 words and at most 60 characters. Labels must be distinct
-case-insensitively and must not use built-in notice labels such as Not determined,
+case-insensitively and must not use reserved labels such as Not determined,
 Clarification needed, Reviewing, Review unavailable, or Artifact unavailable.
 Both Needs clarification and Clarification needed are reserved, regardless of case
 or whitespace. Generation validates the list and its order against the captured settings

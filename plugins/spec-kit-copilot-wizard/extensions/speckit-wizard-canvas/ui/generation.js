@@ -316,7 +316,7 @@ export function openGenerationDialog() {
                     </label>
                     <div class="generation-results" role="group" aria-labelledby="generation-results-title" aria-describedby="generation-results-help">
                         <h4 id="generation-results-title" class="wizard-modal-field-label">Phase result tags <span class="muted">(optional)</span></h4>
-                        <p class="wizard-modal-desc" id="generation-results-help">Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, it shows Not determined.</p>
+                        <p class="wizard-modal-desc" id="generation-results-help">Define tags to categorize phase results, such as Go, Kill, or Needs clarification. The canvas automatically applies a matching tag based on the phase's response and created Markdown artifacts. If no clear match is found, no tag is applied.</p>
                         <p class="wizard-modal-desc" id="generation-results-examples">Add up to 5 custom tags of 1-3 words. Needs clarification is built in.</p>
                         <div id="generation-result-list"></div>
                         <div><button type="button" id="generation-add-result" class="btn btn-secondary btn-sm">+ Add tag</button></div>
