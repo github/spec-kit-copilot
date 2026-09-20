@@ -85,9 +85,13 @@ A successful command send turns the phase green with a checkmark, including phas
 that create no file or edit another phase's artifact. Existing artifacts alone never
 mark a phase as run. Queued, blocked and failed sends do not set the flag.
 Flags live under `.speckit-wizard/phase-runs/`, survive reopening, and follow a new
-workflow when its folder is identified. With result labels, the latest run's message
-identity and verbatim final response are also stored per phase, not a run history.
-Fresh, safely bounded artifact reads still make a phase amber with an exclamation
+workflow when its folder is identified. With clarification reporting or result labels,
+the latest run's message identity is also stored per phase, not a run history.
+The verbatim final response is captured only for result labels.
+While any phase in a workflow is unfinished, clarification reporting keeps its last
+settled counts in memory instead of scanning intermediate edits, including shared
+artifacts. New workflows show no warning yet. Scanning resumes after the agent is idle.
+Fresh, safely bounded artifact reads then make a phase amber with an exclamation
 mark while clarification markers remain. Resolving markers restores green only
 if that phase has been dispatched. Empty, oversized or unreadable artifacts show
 explicit errors independently of run state.

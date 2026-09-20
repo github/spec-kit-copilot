@@ -13,6 +13,8 @@ export function buildGenerationPrompt({ request, callbackUrl }) {
     });
     const materialize = `node "${request.requestFile.replace(/request\.json$/, "materialize-template.mjs")}" --request "${request.requestFile}" --target "${request.target.relativeDirectory}"`;
     return [
+        "/create-canvas",
+        "Invoke the `skill` tool with name `create-canvas` before running any other tool call.",
         "Generate the project-scoped canvas from this request:",
         `Request file: ${request.requestFile}`,
         `Target: ${request.target.relativeDirectory}`,
@@ -20,7 +22,7 @@ export function buildGenerationPrompt({ request, callbackUrl }) {
         "Report generation failures in chat with the relevant error (without credentials) and any known recovery step, even if the result callback cannot be delivered.",
         "",
         "1. Read the request as the source of truth. Preserve its metadata and blueprint exactly. Customize only workflow-config.json; do not modify template code, pipeline.json, or unrelated workspace files.",
-        "2. Invoke /create-canvas for authoring guidance only; skip its runtime validation checklist. Call extensions_manage with operation \"guide\", then scaffold:",
+        "2. Use the loaded create-canvas skill for authoring guidance only; skip its runtime validation checklist. Call extensions_manage with operation \"guide\", then scaffold:",
         request.overwrite
             ? `   Overwrite is authorized. Remove only "${request.target.relativeDirectory}", then use extensions_manage operation "scaffold", kind "canvas", location "project", name "${request.metadata.extensionId}".`
             : `   Use extensions_manage operation "scaffold", kind "canvas", location "project", name "${request.metadata.extensionId}". Do not replace an existing target.`,

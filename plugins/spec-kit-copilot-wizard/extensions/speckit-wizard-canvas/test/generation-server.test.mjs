@@ -221,6 +221,10 @@ describe("generation server lifecycle", () => {
             request.blueprint.setup.requireInstallationApproval = approval;
             request.blueprint.setup.extensions = [{ id: "assess" }];
             const prompt = buildGenerationPrompt({ request, callbackUrl: "http://127.0.0.1:4321/report" });
+            assert.deepEqual(prompt.split("\n").slice(0, 2), [
+                "/create-canvas",
+                "Invoke the `skill` tool with name `create-canvas` before running any other tool call.",
+            ]);
             assert.match(prompt, /Preserve the seeded resultLabels array exactly, including its order and an empty list when disabled/);
             assert.match(prompt, /Do not inspect workflow artifacts or execution history to choose labels/);
             assert.doesNotMatch(prompt, /request\.example|sampleFingerprint|successStatusId|complementLabel|example-informed/);
@@ -319,7 +323,7 @@ describe("generation server lifecycle", () => {
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", requestId, "request.json");
         const request = JSON.parse(await readFile(requestPath, "utf8"));
         assert.deepEqual(request.blueprint, expected);
-        assert.equal(request.template.version, 32);
+        assert.equal(request.template.version, 33);
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-response.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "phase-runs.mjs"));
         assert.ok(request.template.protectedFiles.some((entry) => entry.path === "approval-runtime.mjs"));
@@ -404,7 +408,7 @@ describe("generation server lifecycle", () => {
         }
         const requestPath = join(ctx.root, ".speckit-wizard", "generated-canvases", startBody.requestId, "request.json");
         const requestBody = JSON.parse(await readFile(requestPath, "utf8"));
-        assert.equal(requestBody.template.version, 32);
+        assert.equal(requestBody.template.version, 33);
         for (const file of ["markdown.mjs", "clarifications.mjs", "clarification-controls.mjs", "amendment.mjs", "artifact-viewer.css", "workflow-theme.css"]) {
             assert.ok(requestBody.template.protectedFiles.some((entry) => entry.path === `ui/${file}`));
         }

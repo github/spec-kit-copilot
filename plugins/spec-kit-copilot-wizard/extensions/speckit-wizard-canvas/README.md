@@ -103,7 +103,9 @@ When the default **Needs clarification** tag is kept, **Clarification needed** i
 questions in any phase and can overlap the result counts. With result settings,
 rows still show the latest dispatched phase's result, including when an earlier phase is rerun.
 Before any phase is dispatched, rows show **Run &lt;next phase&gt;**.
-Unresolved clarifications in any phase take precedence until they are resolved. Counts
+While a phase runs, its workflow retains the last settled clarification counts; a new
+workflow shows no clarification warning until the agent finishes. This also covers
+phases sharing an artifact. After completion, unresolved clarifications take precedence. Counts
 ignore search/selection and exclude the unsaved New form. They reuse existing
 snapshots and reviews without additional LLM requests or persisted counters.
 Counts retain accepted matches while a phase runs; a new accepted result replaces that

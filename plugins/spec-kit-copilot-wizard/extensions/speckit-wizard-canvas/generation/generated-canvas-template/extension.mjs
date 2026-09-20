@@ -71,6 +71,7 @@ function statusDiagnostic(category, scope = {}) {
 }
 const undetermined = () => ({ state: "reviewed", statusId: "not-determined", label: "Not determined" });
 const reviewConfig = adapter.artifactReview();
+const trackPhaseRuns = Boolean(reviewConfig) || adapter.clarificationTag;
 const artifactReviewer = createArtifactReviewer({
     config: reviewConfig,
     onDiagnostic: statusDiagnostic,
@@ -208,13 +209,13 @@ async function artifactPath(step, item, inst) {
     return resolveDeclaredArtifact(inst.cwd, step?.artifact?.pathTemplate, item?.slug, pipeline);
 }
 
-async function phaseArtifact(inst, item, step) {
+async function phaseArtifact(inst, item, step, scanClarifications = true) {
     let artifact = null;
     try {
         artifact = await artifactPath(step, item, inst);
         if (!artifact) return { artifact: null, content: null, clarificationCount: null, artifactError: null };
         const { content, mtimeMs } = await readWorkflowArtifact(inst.cwd, artifact, pipeline, { metadata: true });
-        return { artifact, content, mtimeMs, clarificationCount: content.trim() ? (adapter.clarificationTag ? visibleMarkers(content).length : 0) : null,
+        return { artifact, content, mtimeMs, clarificationCount: content.trim() ? (adapter.clarificationTag && scanClarifications ? visibleMarkers(content).length : 0) : null,
             artifactError: content.trim() ? null : "Artifact is empty or still being written." };
     } catch (error) {
         if (error.code === "ENOENT") return { artifact: null, content: null, clarificationCount: null, artifactError: null };
@@ -229,7 +230,7 @@ async function captureResponses(inst) {
         .filter((run) => responseScans.get(run.runId) !== responseRevision);
     if (!pending.length) return;
     let events = null;
-    if (pending.some((run) => run.messageId && run.sessionId && run.sessionId === session.sessionId)) {
+    if (reviewConfig && pending.some((run) => run.messageId && run.sessionId && run.sessionId === session.sessionId)) {
         try { events = await session.getEvents(); }
         catch { statusDiagnostic("response-history-unavailable"); }
     }
@@ -242,7 +243,7 @@ async function captureResponses(inst) {
                 const captured = phaseResponse(events, run.messageId);
                 if (captured?.error) statusDiagnostic("response-unavailable", scope);
                 if (captured) response = captured.response;
-            } else if (!response) {
+            } else if (reviewConfig && !response) {
                 statusDiagnostic("response-unavailable", scope);
             }
         } catch {
@@ -388,16 +389,25 @@ async function executionSetupStatus(inst) {
 
 async function snapshot(inst, allowReview = false) {
     const setup = await setupStatus(inst);
-    if (reviewConfig && allowReview && !agentBusy) await captureResponses(inst);
+    if (trackPhaseRuns && allowReview && !agentBusy) await captureResponses(inst);
     const items = await listItems(inst);
+    for (const id of inst.clarificationCounts.keys()) {
+        if (!items.some((item) => item.id === id)) inst.clarificationCounts.delete(id);
+    }
     const runs = await phaseRuns.read(inst);
     for (const item of items) {
         item.phases = {};
         let itemRuns = phaseRuns.forItem(runs, item);
+        const deferClarifications = itemRuns.some((run) => !run.completed);
+        const clarificationCounts = inst.clarificationCounts.get(item.id) ?? {};
         const phaseEvidence = {}, results = [];
         item.latestPhase = itemRuns.reduce((latest, run) => !latest || latest.sequence < run.sequence ? run : latest, null)?.phase ?? null;
         for (const step of commands.workflow) {
-            const evidence = await phaseArtifact(inst, item, step);
+            const evidence = await phaseArtifact(inst, item, step, !deferClarifications);
+            if (adapter.clarificationTag) {
+                if (deferClarifications) evidence.clarificationCount = clarificationCounts[step.instanceKey] ?? (evidence.artifact ? 0 : null);
+                else clarificationCounts[step.instanceKey] = evidence.clarificationCount;
+            }
             phaseEvidence[step.instanceKey] = evidence;
             const { artifact, clarificationCount, artifactError } = evidence;
             const run = itemRuns.find((entry) => entry.phase === step.instanceKey);
@@ -434,6 +444,7 @@ async function snapshot(inst, allowReview = false) {
                 }
             }
         }
+        if (adapter.clarificationTag) inst.clarificationCounts.set(item.id, clarificationCounts);
         if (reviewConfig && !item.isNew) {
             try {
                 if (results.length) itemRuns = phaseRuns.forItem(await phaseRuns.rememberResults(inst, item.id, results), item);
@@ -574,6 +585,7 @@ async function runPhase(inst, input) {
     const runId = randomUUID();
     let messageId;
     try {
+        if (trackPhaseRuns) agentBusy = true;
         messageId = await session.send({ prompt: `${step.invocation}${promptArgs ? ` ${promptArgs}` : ""}` });
     } catch (error) {
         if (reservedNow && reservationKey) workflowSlugReservations.delete(reservationKey);
@@ -582,7 +594,7 @@ async function runPhase(inst, input) {
     }
     try {
         await phaseRuns.mark(inst, item, step.instanceKey, { slug: requestedSlug || null, baseline,
-            run: reviewConfig ? { runId, messageId: messageId ?? "", sessionId: session.sessionId ?? "" } : null });
+            run: trackPhaseRuns ? { runId, messageId: messageId ?? "", sessionId: session.sessionId ?? "" } : null });
     } catch {
         const error = "The command was sent, but its run state could not be saved. Check .speckit-wizard/phase-runs before rerunning.";
         await session.log(error, { level: "error" });
@@ -606,6 +618,7 @@ async function deleteWorkflow(inst, input) {
         await deleteWorkspaceDirectory(inst.cwd, relativeDirectory, pipeline);
     }
     await phaseRuns.forget(inst, slug);
+    inst.clarificationCounts.delete(slug);
     if (inst.pendingWorkflowSlug === slug) inst.pendingWorkflowSlug = null;
     workflowSlugReservations.delete(slugReservationKey(inst, slug));
     inst.broadcast();
@@ -1042,6 +1055,7 @@ async function open(ctx) {
         setupSnapshot: null,
         skillsReload: null,
         pendingRuns: new Map(),
+        clarificationCounts: new Map(),
         pendingWorkflowSlug: null,
     };
     instances.set(ctx.instanceId, inst);
@@ -1094,7 +1108,7 @@ session = await joinSession({
         onClose,
     })],
 });
-if (reviewConfig) {
+if (trackPhaseRuns) {
     session.on("user.message", () => { agentBusy = true; responseRevision++; });
     session.on("tool.execution_start", () => { agentBusy = true; responseRevision++; });
     session.on("session.idle", () => { agentBusy = false; responseRevision++; });

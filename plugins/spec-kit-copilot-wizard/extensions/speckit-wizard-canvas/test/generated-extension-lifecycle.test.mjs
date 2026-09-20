@@ -102,6 +102,7 @@ async function loadGeneratedExtension(root, sdk, {
     await writeFile(join(extensionRoot, "extension.mjs"), source, "utf8");
     globalThis.__generatedCanvasSdk = {
         ...sdk,
+        joinSession: async (...args) => ({ on: () => {}, ...await sdk.joinSession(...args) }),
         createCanvas(definition) {
             const ids = new Set();
             const open = definition.open;
@@ -618,6 +619,82 @@ describe("generated extension setup lifecycle", () => {
         assert.deepEqual(items.find((item) => item.id === "alpha").phases[plan.instanceKey], { hasRun: false, artifact: null, clarificationCount: null });
         await rm(artifact);
         assert.deepEqual(await phase(), { hasRun: false, artifact: null, clarificationCount: null });
+    });
+
+    test("clarification reporting waits for idle across shared artifacts and reruns, with or without custom tags", async () => {
+        for (const resultLabels of [[], ["Ready"]]) {
+            const root = await mkdtemp(join(here, ".settled-clarification-"));
+            roots.push(root);
+            const workspace = join(root, "workspace");
+            await mkdir(join(workspace, ".specify"), { recursive: true });
+            await writeFile(join(workspace, ".specify", "init-options.json"), '{"integration":"copilot","ai_skills":true}');
+            const artifact = join(workspace, "specs", "alpha", "spec.md");
+            const blueprint = compileBlueprint({ pipeline: [{ id: "specify" }, { id: "clarify" }] },
+                { extensionId: "settled-clarification", displayName: "Test", description: "Test." }, { multiInstance: true });
+            blueprint.setup.requiresSpecKit = false;
+            blueprint.setup.requiredSkills = [];
+            const events = new EventEmitter();
+            let canvas, scans = 0, sent = 0, historyReads = 0;
+            await loadGeneratedExtension(root, {
+                onClarificationScan: () => scans++,
+                createCanvas: (definition) => (canvas = definition),
+                joinSession: async () => ({
+                    sessionId: "clarification-session",
+                    getEvents: async () => { historyReads++; return []; },
+                    send: async () => `message-${++sent}`,
+                    on: (type, handler) => events.on(type, handler),
+                    rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+                    log: async () => {},
+                }),
+            }, { blueprint, workflowConfig: { version: 1, itemLabels: {}, phaseArguments: {}, resultLabels } });
+            const instanceId = "settled-clarification";
+            await canvas.open({ instanceId, input: { cwd: workspace } });
+            const action = (name, input = {}) => canvas.actions.find((entry) => entry.name === name).handler({ instanceId, input });
+            const counts = async (id = "alpha") => {
+                const item = (await action("list_items")).items.find((entry) => entry.id === id);
+                return blueprint.pipeline.steps.map((step) => item.phases[step.instanceKey].clarificationCount);
+            };
+            const [specify, clarify] = blueprint.pipeline.steps;
+            await action("reloadSessionSkills");
+            events.emit("session.idle");
+            const started = await action("run_phase", { itemId: "__new__", phase: specify.instanceKey });
+            assert.equal(started.hasRun, true, JSON.stringify(started));
+            await mkdir(dirname(artifact), { recursive: true });
+            await writeFile(artifact, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
+            assert.deepEqual(await counts(), [0, 0], "new workflow and shared-artifact phase ignore intermediate markers");
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            assert.deepEqual(await counts(), [0, 0], "polling must not finish a dispatched phase before idle");
+            assert.equal(scans, 0, "unfinished workflow does not scan markers");
+            await writeFile(artifact, "# Spec\nFinal scope.");
+            events.emit("session.idle");
+            await waitFor(() => scans > 0);
+            assert.deepEqual(await counts(), [0, 0], "temporary markers never become a warning");
+
+            await action("run_phase", { itemId: "alpha", phase: specify.instanceKey });
+            await writeFile(artifact, "# Spec\n[NEEDS CLARIFICATION: Scope?]");
+            const settledScans = scans;
+            assert.deepEqual(await counts(), [0, 0]);
+            assert.equal(scans, settledScans);
+            events.emit("session.idle");
+            await waitFor(async () => (await counts()).every((count) => count === 1));
+
+            const other = join(workspace, "specs", "beta", "spec.md");
+            await mkdir(dirname(other), { recursive: true });
+            await writeFile(other, "# Beta\n[NEEDS CLARIFICATION: Other scope?]");
+            assert.deepEqual(await counts("beta"), [1, 1]);
+            await action("run_phase", { itemId: "alpha", phase: clarify.instanceKey });
+            await writeFile(artifact, "# Spec\nResolved scope.");
+            await writeFile(other, "# Beta\nResolved independently.");
+            assert.deepEqual(await counts(), [1, 1], "rerun retains settled warnings across the workflow");
+            assert.deepEqual(await counts("beta"), [0, 0], "other workflows continue refreshing");
+            events.emit("session.idle");
+            await waitFor(async () => (await counts()).every((count) => count === 0));
+            if (!resultLabels.length) {
+                assert.equal(historyReads, 0, "clarification reporting does not need response capture");
+                assert.equal(sent, 3, "clarification reporting does not request result reviews");
+            }
+            await canvas.onClose({ instanceId });
+        }
     });
 
     test("removed clarification tag skips background marker scans without removing artifact access", async () => {

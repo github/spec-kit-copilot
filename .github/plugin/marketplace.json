@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.19.4"
+    "version": "0.19.5"
   },
   "plugins": [
     {
@@ -35,7 +35,7 @@
     {
       "name": "spec-kit-copilot-wizard",
       "description": "Adds a guided Spec Kit Wizard canvas that drives composed pipelines and generates project canvases from selected phases.",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "source": "plugins/spec-kit-copilot-wizard"
     }
   ]
