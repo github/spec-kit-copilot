@@ -196,7 +196,8 @@ export function renderStepper() {
         const li = document.createElement("li");
         li.className = "step";
         if (id === state.currentPhase && !orphan) li.classList.add("active");
-        if (p.locked) li.classList.add("locked");
+        const canReview = Boolean(state.snapshot.phases?.[id]?.artifactPath || lookup.get(id)?.artifactPath);
+        if (p.locked && !canReview) li.classList.add("locked");
         if (p.optional) li.classList.add("is-optional");
         if (orphan) li.classList.add("orphan");
         if (synthesized) li.classList.add("is-canonical-fallback");
@@ -287,7 +288,7 @@ export function renderStepper() {
         `;
         li.addEventListener("click", (ev) => {
             if (ev.target?.closest?.('[data-action="pipeline-remove"]')) return;
-            if (p.locked || orphan) return;
+            if (orphan || (p.locked && !canReview)) return;
             state.currentPhase = id;
             __stepperRenderPhaseCard();
             renderStepper();
@@ -339,7 +340,14 @@ export function synthesizeCanonicalPhase(id) {
 export function renderPhaseCard() {
     const el = document.getElementById("phase-card");
     if (!el || !state.snapshot) return;
-    const all = commands();
+    const all = [...commands()];
+    if (!all.length) {
+        for (const id of PHASE_ORDER) {
+            const phase = state.snapshot.phases?.[id];
+            if (id === "setup" || !phase?.artifactPath) continue;
+            all.push({ ...synthesizeCanonicalPhase(id), status: phase.status, artifactPath: phase.artifactPath });
+        }
+    }
     if (all.length) {
         // The phase card is now strictly a projection of the pipeline: only
         // commands that are currently in the pipeline can be viewed here.
@@ -520,11 +528,11 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (hasSubmitted) {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
               <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Rerun phase"}</button>`;
     } else {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}${running ? " disabled" : ""}>View artifact</button>` : ""}
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
               <button type="submit" class="btn btn-primary" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Run phase"}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">

@@ -271,6 +271,7 @@
 }
 .artifact-viewer-clarify-banner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -282,6 +283,8 @@
     font-size: 13px;
 }
 .artifact-viewer-clarify-banner[hidden] { display: none; }
+.artifact-viewer-saved-answer { flex-basis: 100%; min-width: 0; }
+.artifact-viewer-saved-answer p { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 
 /* Phase card source/strategy chip (detail panel <dd>Source</dd>). */

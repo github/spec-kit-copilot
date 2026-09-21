@@ -14,6 +14,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
+import { createSddReviewService } from "./artifact-review.mjs";
+import { handleArtifactReview } from "./vendor/artifact-review.mjs";
+import { ArtifactReadError } from "./vendor/artifact-read.mjs";
 import {
     scanFeatures,
     readArtifact,
@@ -31,6 +34,12 @@ import {
 
 let PROJECT_ROOT = findProjectRoot();
 const INDEX_HTML = readFileSync(fileURLToPath(new URL("./index.html", import.meta.url)), "utf8");
+const READER_ASSETS = new Map([
+    ["/ui/vendor/markdown-reader/markdown-reader.js", ["markdown-reader.js", "text/javascript; charset=utf-8"]],
+    ["/ui/vendor/markdown-reader/markdown-reader.css", ["markdown-reader.css", "text/css; charset=utf-8"]],
+    ["/ui/vendor/markdown-reader/manifest.json", ["manifest.json", "application/json; charset=utf-8"]],
+    ["/ui/vendor/markdown-reader/THIRD_PARTY_NOTICES.txt", ["THIRD_PARTY_NOTICES.txt", "text/plain; charset=utf-8"]],
+]);
 const SETUP_PROMPT = [
     "Set up Spec Kit spec-driven development in this repository.",
     "If `.specify/` is missing or the project is not configured for Copilot skills mode, run `specify init --here --force --integration copilot --integration-options=\"--skills\" --script py --ignore-agent-tools`.",
@@ -171,7 +180,7 @@ function buildPrompt(key, slugInput, description, instructions, overwrite = fals
 
 // Clarifications live in spec.md, so resolving one runs the clarify command for
 // that feature with the user's answer applied.
-async function clarificationRun(slugInput, indexInput, questionInput, answerInput) {
+async function clarificationRun(slugInput, indexInput, questionInput, answerInput, review) {
     const slug = normalizeSlug(slugInput || "");
     const index = Number(indexInput);
     const expectedQuestion = typeof questionInput === "string" ? questionInput.trim() : "";
@@ -185,11 +194,25 @@ async function clarificationRun(slugInput, indexInput, questionInput, answerInpu
 
     const state = currentState();
     if (state.prerequisites.setupRequired) return { error: "Set up Spec Kit spec-driven development first" };
-    const artifact = readArtifact(PROJECT_ROOT, slug, "specify");
-    if (!artifact.ok) return { error: artifact.error };
-    const clarification = extractClarifications(artifact.content)[index];
-    if (!clarification) return { error: "clarification no longer exists" };
-    if (clarification.question !== expectedQuestion) return { error: "clarification changed; reopen the artifact" };
+    let artifact;
+    let clarification;
+    if (review) {
+        try {
+            const [validated] = await review.service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision,
+                [{ questionId: review.questionId, index, question: expectedQuestion, answer }], "speckit-clarify");
+            if (validated.relativePath !== `specs/${slug}/spec.md`) return { error: "clarification context does not match this feature" };
+            clarification = validated;
+            artifact = { file: "spec.md" };
+        } catch {
+            return { error: "clarification source changed; refresh before submitting" };
+        }
+    } else {
+        artifact = readArtifact(PROJECT_ROOT, slug, "specify");
+        if (!artifact.ok) return { error: artifact.error };
+        clarification = extractClarifications(artifact.content)[index];
+        if (!clarification) return { error: "clarification no longer exists" };
+        if (clarification.question !== expectedQuestion) return { error: "clarification changed; reopen the artifact" };
+    }
 
     const clarifyCommand = commandForKey("clarify");
     const prompt = [
@@ -208,19 +231,21 @@ async function clarificationRun(slugInput, indexInput, questionInput, answerInpu
     };
 }
 
-function broadcast(entry) {
-    const state = currentState();
-    const sig = stateSignature(state);
-    if (sig === entry.lastSig) return;
-    entry.lastSig = sig;
-    const payload = `event: state\ndata: ${JSON.stringify(state)}\n\n`;
-    for (const client of entry.clients) {
-        try {
-            client.write(payload);
-        } catch {
-            // client gone; cleaned up on its own 'close'
+async function broadcast(entry) {
+    if (entry.broadcasting || !entry.clients.size) return;
+    entry.broadcasting = true;
+    try {
+        const state = currentState();
+        const signature = await entry.review.signature();
+        const sig = stateSignature(state, signature);
+        if (sig === entry.lastSig) return;
+        entry.lastSig = sig;
+        const payload = `event: state\ndata: ${JSON.stringify(state)}\n\nevent: review\ndata: ${JSON.stringify({ kind: "artifact-set" })}\n\n`;
+        for (const client of entry.clients) {
+            try { client.write(payload); } catch { /* disconnected subscriber */ }
         }
-    }
+    } catch { /* existing polling will retry */ }
+    finally { entry.broadcasting = false; }
 }
 
 function makeHandler(entry) {
@@ -233,16 +258,61 @@ function makeHandler(entry) {
             return;
         }
         const path = url.pathname;
+        const reviewing = path.startsWith("/api/review/") || path.startsWith("/ui/vendor/markdown-reader/") || path === "/ui/artifact-review.js";
+        const reviewFailure = (code) => {
+            const failure = new ArtifactReadError(code);
+            sendJson(res, failure.status, { ok: false, error: { code: failure.code, message: failure.message, retryable: failure.retryable } });
+        };
+        if (reviewing) {
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("Referrer-Policy", "no-referrer");
+            res.setHeader("X-Content-Type-Options", "nosniff");
+            if (url.searchParams.getAll("cap").length > 1 || url.searchParams.getAll("token").length > 1) {
+                reviewFailure("invalid_request");
+                return;
+            }
+        }
         const origin = req.headers.origin;
         if (req.headers.host !== entry.host || (origin && origin !== entry.origin) || !hasCapability(entry, url.searchParams.get("cap"))) {
+            if (reviewing) { reviewFailure("forbidden"); return; }
             sendJson(res, 403, { ok: false, error: "forbidden" });
             return;
         }
-        if (req.method === "POST" && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
+        if (!path.startsWith("/api/review/") && req.method === "POST" && !/^application\/json(?:;|$)/i.test(String(req.headers["content-type"] || ""))) {
             sendJson(res, 415, { ok: false, error: "application/json required" });
             return;
         }
         try {
+            if (path.startsWith("/api/review/")) {
+                return await handleArtifactReview(req, res, url, entry.review);
+            }
+            if (req.method === "GET" && path === "/ui/artifact-review.js") {
+                const content = readFileSync(new URL("./ui/artifact-review.js", import.meta.url));
+                res.writeHead(200, {
+                    "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+                });
+                res.end(content);
+                return;
+            }
+            if (req.method === "GET" && READER_ASSETS.has(path)) {
+                const [file, contentType] = READER_ASSETS.get(path);
+                let content;
+                try { content = readFileSync(new URL(`./vendor/markdown-reader/${file}`, import.meta.url)); }
+                catch {
+                    reviewFailure("artifact_unavailable");
+                    return;
+                }
+                res.writeHead(200, {
+                    "Content-Type": contentType,
+                    "Cache-Control": "no-store",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                });
+                res.end(content);
+                return;
+            }
+            if (reviewing) { reviewFailure("artifact_unavailable"); return; }
             if (path === "/" || path === "/index.html") {
                 res.writeHead(200, {
                     "Content-Type": "text/html; charset=utf-8",
@@ -271,7 +341,10 @@ function makeHandler(entry) {
             }
             if (path === "/api/clarify" && req.method === "POST") {
                 const body = await readBody(req);
-                const result = await clarificationRun(body.feature, body.index, body.question, body.answer);
+                const hasReview = ["contextId", "artifactId", "expectedRevision", "questionId"].some((key) => Object.hasOwn(body, key));
+                const review = hasReview ? { service: entry.review, contextId: body.contextId, artifactId: body.artifactId,
+                    expectedRevision: body.expectedRevision, questionId: body.questionId } : undefined;
+                const result = await clarificationRun(body.feature, body.index, body.question, body.answer, review);
                 sendJson(res, result.error ? 400 : 200, result.error ? { ok: false, error: result.error } : result);
                 return;
             }
@@ -319,12 +392,14 @@ function makeHandler(entry) {
             res.writeHead(404, { "Content-Type": "text/plain" });
             res.end("not found");
         } catch (err) {
+            if (reviewing) { reviewFailure("read_failed"); return; }
             sendJson(res, 500, { ok: false, error: String((err && err.message) || err) });
         }
     };
 }
 
-async function startServer() {
+export async function startServer() {
+    const workspacePath = PROJECT_ROOT;
     const entry = {
         cap: randomBytes(32).toString("base64url"),
         clients: new Set(),
@@ -334,8 +409,10 @@ async function startServer() {
         server: null,
         url: "",
         timer: null,
+        review: createSddReviewService({ workspacePath, instanceId: randomBytes(16).toString("hex") }),
     };
     const server = createServer(makeHandler(entry));
+    server.once("close", () => entry.review.dispose());
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = server.address().port;
     entry.server = server;
@@ -354,6 +431,10 @@ const canvas = createCanvas({
     id: "sdd-canvas",
     displayName: "Spec-Driven Development",
     description: "Visual dashboard for the core SDD workflow: track, preview, and run constitution, specify, clarify, plan, tasks, analyze, checklist, and implement per feature.",
+    inputSchema: {
+        type: "object",
+        properties: {},
+    },
     actions: [
         {
             name: "list_features",
