@@ -9,6 +9,59 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { compositionFromSpecify } from "../composition/snapshot.mjs";
+import { isRuntimeCatalogItem } from "../ui/design-filter.js";
+
+test("Specify JSON retains effective stack order and provider priority without catalog transcription", () => {
+    const inventory = {
+        presets: [{ id: "canvas-design", name: "Canvas Design", priority: 3, enabled: true }],
+        extensions: [{ id: "runtime", name: "Runtime", priority: 20, enabled: true }],
+        artifacts: [{
+            id: "command:speckit.plan", kind: "command",
+            stack: [
+                { sourceId: "canvas-design", layer: "preset", strategy: "wrap", active: true },
+                { sourceId: "runtime", layer: "extension", strategy: "replace", active: true },
+                { sourceId: null, layer: null, strategy: "replace", active: false },
+            ],
+        }],
+    };
+    const composition = compositionFromSpecify(inventory);
+    assert.equal(composition.artifacts[0].id, "commands/speckit.plan");
+    assert.equal(composition.artifacts[0].specifyId, inventory.artifacts[0].id);
+    assert.deepEqual(composition.artifacts[0].stack.map((layer) => layer.presetId),
+        ["canvas-design", "runtime", undefined]);
+    assert.deepEqual(composition.artifacts[0].stack.map((layer) => layer.active), [true, true, false]);
+    assert.equal(composition.presets[0].priority, 3);
+    assert.equal(composition.extensions[0].priority, 20);
+    assert.equal(computeStage2Necessity(composition).hasStackDirectives, true);
+    assert.deepEqual(inventory.artifacts[0].stack[0], {
+        sourceId: "canvas-design", layer: "preset", strategy: "wrap", active: true,
+    });
+
+});
+test("hiding Canvas Design catalog rows never filters Specify effective stacks", () => {
+    const inventory = {
+        presets: [{ id: "design", priority: 7, enabled: true }],
+        extensions: [{ id: "other", priority: 9, enabled: true }],
+        artifacts: [{
+            id: "command:speckit.plan", kind: "command",
+            stack: [
+                { sourceId: "design", layer: "preset", active: true },
+                { sourceId: "other", layer: "extension", active: false },
+            ],
+        }],
+    };
+    const catalog = [
+        { id: "design", tags: ["canvas-design"] },
+        { id: "other", tags: [] },
+    ];
+    assert.deepEqual(catalog.filter(isRuntimeCatalogItem).map((item) => item.id), ["other"]);
+    const composition = compositionFromSpecify(inventory);
+    assert.deepEqual(composition.artifacts[0].stack.map((layer) => layer.presetId),
+        ["design", "other"]);
+    assert.deepEqual(composition.artifacts[0].stack.map((layer) => layer.active), [true, false]);
+    assert.deepEqual([composition.presets[0].priority, composition.extensions[0].priority], [7, 9]);
+});
 import {
     IS_CASE_INSENSITIVE_FS,
     parseHookDeclarations,

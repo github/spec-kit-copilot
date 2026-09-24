@@ -1,6 +1,15 @@
 .DS_Store
 node_modules/
 .playwright-mcp/
+dist/
+build/
+*.log
+.env*
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
 
 # Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)
 .speckit-wizard/
@@ -8,4 +17,3 @@ node_modules/
 .github/skills/
 css-baseline-*.png
 css-c*.png
-

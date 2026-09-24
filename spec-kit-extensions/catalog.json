@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json",
+  "extensions": {
+    "pipeline-canvas-generator": {
+      "id": "pipeline-canvas-generator",
+      "name": "Pipeline Canvas Generator",
+      "version": "0.2.0",
+      "description": "Generate standalone Copilot workflow canvases from resolved Spec Kit pipelines.",
+      "author": "spec-kit-copilot",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/pipeline-canvas-generator-v0.2.0/pipeline-canvas-generator.zip",
+      "manifest_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/pipeline-canvas-generator/extension.yml",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-extensions/pipeline-canvas-generator/README.md",
+      "license": "MIT",
+      "requires": { "speckit_version": ">=1.0.7" },
+      "tags": ["canvas-design"]
+    }
+  }
+}

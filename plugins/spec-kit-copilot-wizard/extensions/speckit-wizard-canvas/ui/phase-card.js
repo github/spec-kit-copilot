@@ -3,6 +3,7 @@
 import { escapeHtml, dispatchKind } from "./client.js";
 import {
     state,
+    TOKEN,
     PHASE_ORDER,
     commands,
     displayCommand,
@@ -76,6 +77,31 @@ function wireEnvironmentCard(el) {
                     name: "copilot-sub-agents",
                     downloadUrl: "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
                 });
+            } else if (action === "generator") {
+                btn.disabled = true;
+                btn.setAttribute("aria-busy", "true");
+                try {
+                    const next = state.snapshot?.generatorStatus?.action;
+                    if (next === "Retry") {
+                        const response = await fetch(`/api/generator/readiness?token=${encodeURIComponent(TOKEN)}`);
+                        const payload = await response.json();
+                        if (!response.ok) throw new Error(payload.error ?? `Status ${response.status}`);
+                        state.snapshot.generatorStatus = payload.generatorStatus;
+                        renderEnvironmentCard();
+                    } else {
+                        const response = await dispatchKind(
+                            next === "Update Specify" ? "setup.updateSpecify" : "extension.install",
+                            next === "Update Specify" ? {} : { name: "pipeline-canvas-generator" },
+                        );
+                        if (!response?.queued) throw new Error("Could not queue the generator action.");
+                    }
+                } catch (error) {
+                    const status = el.querySelector('section[aria-label="Canvas generator"] [role="status"]');
+                    if (status) status.textContent = error.message;
+                } finally {
+                    btn.removeAttribute("aria-busy");
+                    btn.disabled = false;
+                }
             }
         });
     });
@@ -98,6 +124,11 @@ export function renderEnvironmentCard() {
             <p class="tagline">${escapeHtml(p.tagline || "Get this project ready for Spec-Driven Development.")}</p>
         </header>
         ${renderSetupBody(p)}
+        ${state.snapshot.generatorStatus ? `<section class="setup-row" aria-label="Canvas generator">
+            <h3>Canvas generator <span class="badge ${state.snapshot.generatorStatus.ready ? "active" : "pending"}">${state.snapshot.generatorStatus.ready ? "Ready" : "Required"}</span></h3>
+            <p role="status">${escapeHtml(state.snapshot.generatorStatus.message)}</p>
+            ${state.snapshot.generatorStatus.ready ? "" : `<button type="button" class="btn btn-secondary" data-setup-action="generator">${escapeHtml(state.snapshot.generatorStatus.action)}</button>`}
+        </section>` : ""}
     `;
     wireEnvironmentCard(el);
 }

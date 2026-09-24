@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "generation-result.schema.json",
+  "title": "Authoritative controlled generation outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "warnings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["succeeded", "failed"] },
+    "target": { "type": "string", "minLength": 1 },
+    "designProviders": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "errorCode": { "type": "string", "minLength": 1 },
+    "details": { "type": "string", "minLength": 1 }
+  },
+  "oneOf": [
+    { "properties": { "status": { "const": "succeeded" } }, "required": ["target", "designProviders"], "not": { "required": ["errorCode"] } },
+    { "properties": { "status": { "const": "failed" } }, "required": ["errorCode", "details"] }
+  ]
+}

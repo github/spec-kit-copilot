@@ -1,0 +1,15 @@
+schema_version: "1.0"
+extension:
+  id: pipeline-canvas-generator
+  name: Pipeline Canvas Generator
+  version: "0.1.0"
+provides:
+  templates:
+    - name: phase-output-737065636b69742e636f6e737469747574696f6e
+      file: config/phase-output-constitution.json
+    - name: phase-output-737065636b69742e706c616e
+      file: config/phase-output-plan.json
+    - name: phase-output-737065636b69742e616e616c797a65
+      file: config/phase-output-analyze.json
+tags:
+  - canvas-design

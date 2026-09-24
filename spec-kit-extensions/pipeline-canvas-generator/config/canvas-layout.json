@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "navigation": { "style": "stepper" },
+  "pipeline": { "orientation": "horizontal" },
+  "phases": { "showDescriptions": true },
+  "artifacts": { "presentation": "in-canvas", "showMetadata": true },
+  "clarification": { "placement": "artifact" },
+  "amendment": { "placement": "artifact" }
+}

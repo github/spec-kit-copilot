@@ -1,0 +1,24 @@
+[
+  {
+    "id": "runtime-assess",
+    "name": "Runtime Assess",
+    "description": "Local runtime package without a catalog entry",
+    "version": "0.1.0",
+    "author": "customer",
+    "priority": 10,
+    "enabled": true,
+    "source": { "kind": "local" },
+    "provides": { "commands": 1, "templates": 2, "scripts": 0, "hooks": 0 }
+  },
+  {
+    "id": "pipeline-canvas-generator",
+    "name": "Pipeline Canvas Generator",
+    "description": "Tagged base generator",
+    "version": "0.1.0",
+    "author": "spec-kit-copilot",
+    "priority": 100,
+    "enabled": true,
+    "source": { "kind": "local" },
+    "provides": { "commands": 3, "templates": 17, "scripts": 0, "hooks": 0 }
+  }
+]

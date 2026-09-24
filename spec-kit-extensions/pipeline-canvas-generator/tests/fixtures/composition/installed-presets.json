@@ -1,0 +1,13 @@
+[
+  {
+    "id": "customer-canvas-design",
+    "name": "Customer Canvas Design",
+    "description": "Local design preset without a catalog entry",
+    "version": "0.1.0",
+    "author": "customer",
+    "priority": 10,
+    "enabled": true,
+    "source": { "kind": "local" },
+    "provides": { "commands": 1, "templates": 2, "scripts": 0, "hooks": 0 }
+  }
+]

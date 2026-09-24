@@ -1,0 +1,19 @@
+schema_version: "1.0"
+extension:
+  id: sample-canvas-design
+  name: Sample Canvas Design
+  version: "0.1.0"
+  description: Exercises the released Specify installed-package contract.
+  author: spec-kit-copilot
+  license: MIT
+requires:
+  speckit_version: ">=1.0.7"
+provides:
+  commands:
+    - name: speckit.sample-canvas-design.helper
+      file: commands/helper.md
+  templates:
+    - name: canvas-content
+      file: config/canvas-content.json
+tags:
+  - canvas-design

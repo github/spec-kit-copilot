@@ -48,6 +48,7 @@ export async function hydrateBundlesForSources(inst, sources) {
         outputField: "cachedBundleItems",
         listInstalled: listInstalledBundles,
         extraFields: (raw) => ({
+            members: Array.isArray(raw?.members) ? raw.members : [],
             // TODO: temp only — carries an inline bundle.yml body for the
             // wizard-shipped `test` catalog. The install prompt materializes
             // it to a temp dir and runs `specify bundle install <dir>`.

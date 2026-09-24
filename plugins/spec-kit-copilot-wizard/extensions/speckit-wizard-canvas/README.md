@@ -50,6 +50,41 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
+### Generating a standalone canvas
+
+Environment checks **Specify CLI >=1.0.7** and the separately versioned
+`pipeline-canvas-generator` Spec Kit extension (>=0.2.0, enabled at priority
+100). Install the generator there; if it is disabled or at the wrong priority,
+use the repair action rather than reinstalling. Generate stays disabled until
+the check passes. The generator is not part of the Wizard Copilot plugin and
+must be released and updated independently.
+
+In Phases, select Generate canvas from the Pipeline header. The PR #32-style
+dialog holds the extension ID, name, read-only target, and installation-approval
+choice. Presentation copy, result tags, and slug behavior come from Canvas Design
+packages rather than duplicate dialog fields. Its Canvas
+Design area searches tagged presets, extensions, and bundles separately
+from the ordinary Catalogs page. Add or Remove operates immediately through
+the existing Spec Kit catalog skills; closing Generate does not undo a
+completed change. A community source still requires the normal trust prompt.
+A package is eligible only when its catalog tag and available manifest agree
+(or a local installed manifest identifies it as design-only), an installed
+manifest agrees, and it does not contribute a selected runtime phase. Bundle
+members must match the available bundle manifest and each member must be
+verified as design-only. If an available manifest or release cannot be fetched,
+Add remains unavailable rather than trusting a catalog label.
+Catalog/search filtering never changes Specify's effective composition
+precedence. The generator extension is Required, not an optional design
+choice. Confirming an existing target replaces its whole directory, including
+manual edits, without backup; cancellation leaves it untouched.
+
+The older Wizard pipeline remains a phase launcher. Generate creates a
+portable **project-scoped** canvas using the same Specify JSON inventories as
+the standalone generator command; the resulting canvas neither imports this
+Wizard nor needs its plugin at runtime. Continue using Catalogs for runtime
+phase providers and Environment for setup; do not install Canvas Design
+packages as runtime prerequisites when transferring the generated canvas.
+
 ## Quickstart
 
 > This is a **canvas extension** — it opens in the **GitHub Copilot app**

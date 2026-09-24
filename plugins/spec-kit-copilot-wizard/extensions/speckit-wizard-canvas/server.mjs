@@ -17,7 +17,7 @@
 
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, lstat } from "node:fs/promises";
 import { join, resolve as pathResolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -42,6 +42,7 @@ import {
 } from "./server/handlers-phase.mjs";
 import {
     handlePipelineMutation,
+    handleGenerate,
     handleArtifactTargets,
     handleSkipDefaults,
     handleSkillsReload,
@@ -147,6 +148,51 @@ export function createHandler(deps) {
             if (method === "GET" && url.pathname === "/api/state") {
                 const snapshot = await getState();
                 return jsonRes(res, 200, snapshot);
+            }
+            if (method === "GET" && url.pathname === "/api/generator/readiness") {
+                const inst = getInstance();
+                if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+                inst.generatorCheck = null;
+                const snapshot = await getState();
+                return jsonRes(res, 200, { generatorStatus: snapshot.generatorStatus });
+            }
+            if (method === "GET" && url.pathname === "/api/generation/target") {
+                const id = url.searchParams.get("canvasId");
+                if (!id || !/^[a-z0-9][a-z0-9-]*$/.test(id)) return jsonError(res, 400, "invalid canvas ID");
+                const cwd = getInstance()?.workspacePath;
+                if (!cwd) return jsonError(res, 400, "workspace path unavailable");
+                const target = join(cwd, ".github", "extensions", id);
+                try {
+                    const info = await lstat(target);
+                    if (!info.isDirectory()) return jsonError(res, 422, "canvas target is not a directory");
+                    return jsonRes(res, 200, { target, exists: true });
+                } catch (error) {
+                    if (error.code !== "ENOENT") throw error;
+                    return jsonRes(res, 200, { target, exists: false });
+                }
+            }
+            if (method === "GET" && url.pathname === "/api/generation/result") {
+                const generation = getInstance()?.generation;
+                if (!generation) return jsonError(res, 404, "no generation was requested");
+                if (generation.status === "failed") return jsonRes(res, 200, generation);
+                try {
+                    const result = JSON.parse(await fs.readFile(
+                        join(dirname(generation.requestPath), "result.json"), "utf8",
+                    ));
+                    if (result?.schemaVersion !== 1 ||
+                        (result.status === "succeeded"
+                            ? result.target !== pathResolve(getInstance().workspacePath, generation.target)
+                            : result.status !== "failed" ||
+                                typeof result.errorCode !== "string" ||
+                                typeof result.details !== "string")) {
+                        return jsonError(res, 500, "generation result has an invalid outcome");
+                    }
+                    generation.status = result.status;
+                    return jsonRes(res, 200, { ...generation, result });
+                } catch (error) {
+                    if (error.code === "ENOENT") return jsonRes(res, 200, generation);
+                    return jsonError(res, 500, `generation result unreadable: ${error.message}`);
+                }
             }
 
             if (method === "GET" && url.pathname === "/api/events") {
@@ -314,6 +360,7 @@ export function createHandler(deps) {
                     "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance }),
                     "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
+                    "/api/generation": () => handleGenerate(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),
                     "/api/setup/skip-defaults": () => handleSkipDefaults(res, body, { broadcast, getInstance }),

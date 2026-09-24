@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "canvas-layout.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "navigation", "pipeline", "phases", "artifacts", "clarification", "amendment"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "navigation": { "$ref": "#/$defs/navigation" },
+    "pipeline": { "$ref": "#/$defs/pipeline" },
+    "phases": { "$ref": "#/$defs/phases" },
+    "artifacts": { "$ref": "#/$defs/artifacts" },
+    "clarification": { "$ref": "#/$defs/placement" },
+    "amendment": { "$ref": "#/$defs/placement" }
+  },
+  "$defs": {
+    "navigation": { "type": "object", "additionalProperties": false, "required": ["style"], "properties": { "style": { "const": "stepper" } } },
+    "pipeline": { "type": "object", "additionalProperties": false, "required": ["orientation"], "properties": { "orientation": { "const": "horizontal" } } },
+    "phases": { "type": "object", "additionalProperties": false, "required": ["showDescriptions"], "properties": { "showDescriptions": { "type": "boolean" } } },
+    "artifacts": { "type": "object", "additionalProperties": false, "required": ["presentation", "showMetadata"], "properties": { "presentation": { "enum": ["in-canvas", "inline"] }, "showMetadata": { "type": "boolean" } } },
+    "placement": { "type": "object", "additionalProperties": false, "required": ["placement"], "properties": { "placement": { "enum": ["artifact", "phase"] } } }
+  }
+}

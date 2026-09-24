@@ -122,6 +122,7 @@ export const SKILL_BY_KIND = Object.freeze({
     // workspace-specific customization (init in place, merge existing files,
     // script flavor).
     "setup.init": "speckit-init",
+    "setup.updateSpecify": "speckit-self",
     "setup.reloadSkills": null, // dispatched as an instruction to /skills reload, not a skill
     // Lightweight skill-registry probe. Same natural-language body as
     // setup.reloadSkills' fast path (RELOAD_VALIDATION_BLOCK). Dispatched

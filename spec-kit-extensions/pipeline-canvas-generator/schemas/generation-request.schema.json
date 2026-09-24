@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "generation-request.schema.json",
+  "title": "Immutable canvas generation request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "canvas", "workflow", "workspace", "overwrite"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "displayName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requireInstallationApproval"],
+      "properties": {
+        "requireInstallationApproval": { "type": "boolean" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectedPhases", "requiredSkillHashes", "phaseOutputs", "categoryTemplates", "artifactSnapshot"],
+      "properties": {
+        "selectedPhases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^speckit\\.[a-z0-9][a-z0-9.-]*$" }
+        },
+        "requiredSkillHashes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^speckit-[a-z0-9][a-z0-9-]*$" },
+          "additionalProperties": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "phaseOutputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "phase-output.schema.json#/$defs/binding" }
+        },
+        "categoryTemplates": {
+          "type": "object", "additionalProperties": false,
+          "required": ["canvas-content", "canvas-theme", "canvas-layout", "canvas-interactions", "canvas-results", "canvas-onboarding"],
+          "properties": {
+            "canvas-content": { "$ref": "#/$defs/categoryBinding" },
+            "canvas-theme": { "$ref": "#/$defs/categoryBinding" },
+            "canvas-layout": { "$ref": "#/$defs/categoryBinding" },
+            "canvas-interactions": { "$ref": "#/$defs/categoryBinding" },
+            "canvas-results": { "$ref": "#/$defs/categoryBinding" },
+            "canvas-onboarding": { "$ref": "#/$defs/categoryBinding" }
+          }
+        },
+        "artifactSnapshot": { "$ref": "artifact-snapshot.schema.json" }
+      }
+    },
+    "workspace": { "type": "string", "minLength": 1 },
+    "overwrite": { "type": "boolean" }
+  },
+  "$defs": {
+    "categoryBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["document", "provider", "sourcePath", "sha256", "templateStack"],
+      "properties": {
+        "document": { "type": "object" },
+        "provider": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "id", "version"],
+          "properties": {
+            "kind": { "enum": ["project", "preset", "extension"] },
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": ["string", "null"] }
+          }
+        },
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "templateStack": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}

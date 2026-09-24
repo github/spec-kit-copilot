@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-bundles/catalog.json",
+  "bundles": {
+    "copilot-canvas-studio": {
+      "id": "copilot-canvas-studio",
+      "name": "Copilot Canvas Studio",
+      "version": "1.0.0",
+      "description": "A design-only bundle for the standalone workflow canvas.",
+      "author": "spec-kit-copilot",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-canvas-studio-bundle-v1.0.0/copilot-canvas-studio-bundle.zip",
+      "manifest_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-bundles/copilot-canvas-studio/bundle.yml",
+      "requires": { "speckit_version": ">=1.0.7" },
+      "provides": { "presets": 1, "extensions": 0, "steps": 0, "workflows": 0 },
+      "members": [{ "kind": "preset", "id": "copilot-canvas-studio", "tags": ["canvas-design"] }],
+      "tags": ["canvas-design"]
+    }
+  }
+}

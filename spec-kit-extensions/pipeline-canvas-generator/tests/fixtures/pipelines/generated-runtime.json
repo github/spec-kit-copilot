@@ -1,0 +1,46 @@
+{
+  "sourceCommit": "a2497002cb1ab81b70916818d1a889f8182f172a",
+  "phaseRunStore": {
+    "sourceTest": "test/generated-phase-runs.test.mjs",
+    "pipeline": {
+      "runtime": { "itemRoot": "specs/<slug>", "multiInstance": true },
+      "pipeline": {
+        "steps": [
+          { "instanceKey": "tasks", "invocation": "/skill:speckit-tasks" },
+          { "instanceKey": "implement", "invocation": "/skill:speckit-implement" },
+          { "instanceKey": "analyze", "invocation": "/skill:speckit-analyze" }
+        ]
+      }
+    },
+    "afterDispatch": [
+      { "id": "alpha", "phases": ["tasks", "implement"] },
+      { "id": "beta", "phases": ["analyze"] }
+    ],
+    "afterForgettingAlpha": [
+      { "id": "beta", "phases": ["analyze"] }
+    ]
+  },
+  "projectConstitution": {
+    "sourceTest": "test/generated-constitution.test.mjs",
+    "selectedPhases": [
+      "speckit.assess.intake",
+      "speckit.assess.research",
+      "speckit.assess.define",
+      "speckit.assess.shape",
+      "speckit.assess.decide",
+      "speckit.constitution"
+    ],
+    "expectedSourceCommands": 6,
+    "expectedWorkflowPhases": 5,
+    "expectedConstitutionInstanceKey": "5:constitution",
+    "expectedItemRoot": ".specify/assessments/<slug>"
+  },
+  "standaloneSetup": {
+    "sourceTest": "test/generated-extension-lifecycle.test.mjs",
+    "requiresSpecKit": true,
+    "integration": { "id": "copilot", "skillsMode": true },
+    "requiredSkills": [],
+    "presets": [],
+    "extensions": []
+  }
+}

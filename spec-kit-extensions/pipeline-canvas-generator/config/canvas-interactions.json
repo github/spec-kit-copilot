@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "progression": {
+    "mode": "guided",
+    "showFuturePhases": true,
+    "collapseCompletedPhases": false
+  },
+  "rerun": { "enabled": true, "requireConfirmation": false },
+  "inputs": { "retainAfterRun": true, "phases": {} },
+  "phaseRunConfirmations": {},
+  "artifacts": { "showRevisionControls": true }
+}

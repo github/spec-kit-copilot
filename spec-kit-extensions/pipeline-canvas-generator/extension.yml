@@ -1,0 +1,69 @@
+schema_version: "1.0"
+
+extension:
+  id: pipeline-canvas-generator
+  name: Pipeline Canvas Generator
+  version: "0.2.0"
+  description: Generate a standalone Copilot workflow canvas from a resolved Spec Kit pipeline.
+  category: process
+  effect: read-write
+  author: spec-kit-copilot
+  repository: https://github.com/github/spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  commands:
+    - name: speckit.pipeline-canvas-generator.generate
+      file: commands/speckit.pipeline-canvas-generator.generate.md
+      description: Generate a standalone workflow canvas from confirmed choices.
+    - name: speckit.pipeline-canvas-generator.inspect
+      file: commands/speckit.pipeline-canvas-generator.inspect.md
+      description: Inspect a generated canvas and its provenance.
+    - name: speckit.pipeline-canvas-generator.remove
+      file: commands/speckit.pipeline-canvas-generator.remove.md
+      description: Remove an explicitly confirmed generated canvas.
+  templates:
+    - name: canvas-content
+      file: config/canvas-content.json
+      description: Complete default terminology and content configuration.
+    - name: canvas-theme
+      file: config/canvas-theme.json
+      description: Complete default colors and branding configuration.
+    - name: canvas-layout
+      file: config/canvas-layout.json
+      description: Complete default layout configuration.
+    - name: canvas-interactions
+      file: config/canvas-interactions.json
+      description: Complete default workflow interaction configuration.
+    - name: canvas-results
+      file: config/canvas-results.json
+      description: Complete default result configuration.
+    - name: canvas-onboarding
+      file: config/canvas-onboarding.json
+      description: Complete default setup and onboarding configuration.
+    - name: phase-output-737065636b69742e636f6e737469747574696f6e
+      file: config/phase-outputs/constitution.json
+    - name: phase-output-737065636b69742e73706563696679
+      file: config/phase-outputs/specify.json
+    - name: phase-output-737065636b69742e636c6172696679
+      file: config/phase-outputs/clarify.json
+    - name: phase-output-737065636b69742e706c616e
+      file: config/phase-outputs/plan.json
+    - name: phase-output-737065636b69742e7461736b73
+      file: config/phase-outputs/tasks.json
+    - name: phase-output-737065636b69742e616e616c797a65
+      file: config/phase-outputs/analyze.json
+    - name: phase-output-737065636b69742e636865636b6c697374
+      file: config/phase-outputs/checklist.json
+    - name: phase-output-737065636b69742e696d706c656d656e74
+      file: config/phase-outputs/implement.json
+    - name: phase-output-737065636b69742e7461736b73746f697373756573
+      file: config/phase-outputs/taskstoissues.json
+    - name: phase-output-737065636b69742e636f6e7665726765
+      file: config/phase-outputs/converge.json
+
+tags:
+  - canvas-design

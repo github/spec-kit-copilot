@@ -2,6 +2,7 @@
 
 import { escapeHtml, safeExternalHref, dispatchKind } from "./client.js";
 import { openCommunityInstallModal } from "./modals.js";
+import { isRuntimeCatalogItem } from "./design-filter.js";
 import {
     state,
     TOKEN,
@@ -121,7 +122,7 @@ function catalogTileBadges(p, defaultIdSet) {
 function renderCatalogItems(snapshot, filter) {
     const el = document.getElementById("catalog-grid");
     if (!el) return;
-    const presets = snapshot?.catalog?.presets ?? [];
+    const presets = (snapshot?.catalog?.presets ?? []).filter(isRuntimeCatalogItem);
     const hasSources = (snapshot?.catalog?.sources ?? []).length > 0;
     // Presets with source === "builtin" (i.e. core) don't count as "browsable"
     // items for the empty-state decision.
@@ -272,7 +273,7 @@ function renderExtensionCatalogSources(snapshot) {
 export function renderExtensionCatalogItems(snapshot, filter) {
     const el = document.getElementById("extension-grid");
     if (!el) return;
-    const items = snapshot?.catalog?.extensions ?? [];
+    const items = (snapshot?.catalog?.extensions ?? []).filter(isRuntimeCatalogItem);
     const addedOnly = currentExtensionAddedOnly();
     let list = filter
         ? items.filter((p) => `${p.name ?? ""} ${p.id ?? ""}`.toLowerCase().includes(filter))
@@ -409,7 +410,7 @@ function renderBundleCatalogSources(snapshot) {
 export function renderBundleCatalogItems(snapshot, filter) {
     const el = document.getElementById("bundle-grid");
     if (!el) return;
-    const items = snapshot?.catalog?.bundles ?? [];
+    const items = (snapshot?.catalog?.bundles ?? []).filter(isRuntimeCatalogItem);
     const addedOnly = currentBundleAddedOnly();
     let list = filter
         ? items.filter((p) => `${p.name ?? ""} ${p.id ?? ""}`.toLowerCase().includes(filter))
@@ -497,4 +498,3 @@ export function renderBundleCatalogItems(snapshot, filter) {
         });
     });
 }
-

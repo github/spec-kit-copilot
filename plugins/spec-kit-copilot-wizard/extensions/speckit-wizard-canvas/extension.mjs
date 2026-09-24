@@ -282,12 +282,20 @@ async function hydrateCatalogs(inst) {
                 priority: 1,
             },
             {
+                name: "copilot",
+                url: EXTENSION_CATALOG_URL.copilot,
+                description: "First-party Copilot extensions",
+                installAllowed: true,
+                builtin: true,
+                priority: 2,
+            },
+            {
                 name: "community",
                 url: EXTENSION_CATALOG_URL.community,
                 description: "Community-contributed extensions",
                 installAllowed: false,
                 builtin: true,
-                priority: 2,
+                priority: 3,
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
@@ -304,12 +312,20 @@ async function hydrateCatalogs(inst) {
                 priority: 1,
             },
             {
+                name: "copilot",
+                url: BUNDLE_CATALOG_URL.copilot,
+                description: "First-party Copilot design bundles",
+                installAllowed: true,
+                builtin: true,
+                priority: 2,
+            },
+            {
                 name: "community",
                 url: BUNDLE_CATALOG_URL.community,
                 description: "Community-contributed bundles",
                 installAllowed: false,
                 builtin: true,
-                priority: 2,
+                priority: 3,
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;

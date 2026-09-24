@@ -10,7 +10,8 @@
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { applyPatch, writeState, readState, validateInferredPipeline, activeFingerprint, normalizeExecutionReports } from "../state/store.mjs";
-import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { computeStage2Necessity } from "../composition/assembler.mjs";
+import { readSpecifySnapshot, invalidateSpecifySnapshot } from "../composition/snapshot.mjs";
 import { fsDeps } from "./instances.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -293,17 +294,9 @@ export async function applyComposition(inst, input) {
 export async function runFastComposition(inst, { reason } = {}) {
     if (!inst?.workspacePath) return { ok: false, reason: "no-workspace" };
     try {
-        const payload = await assembleComposition({
-            workspaceRoot: inst.workspacePath,
-            presetItems: inst.cachedPresetItems ?? [],
-            extensionItems: inst.cachedExtensionItems ?? [],
-        });
-        // `_presetManifests` is a side channel used only for Stage 2
-        // necessity detection — never persisted.
-        const presetManifests = payload._presetManifests ?? [];
-        delete payload._presetManifests;
-
-        const stage2 = computeStage2Necessity(payload, presetManifests);
+        invalidateSpecifySnapshot(inst);
+        const { composition: payload } = await readSpecifySnapshot(inst);
+        const stage2 = computeStage2Necessity(payload);
         if (!stage2.needed && stage2.syntheticPipeline) {
             payload.inferredPipeline = stage2.syntheticPipeline;
         }

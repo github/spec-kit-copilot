@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "canvas-interactions.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "progression", "rerun", "inputs", "phaseRunConfirmations", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "progression": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "showFuturePhases", "collapseCompletedPhases"],
+      "properties": {
+        "mode": { "enum": ["guided", "free"] },
+        "showFuturePhases": { "type": "boolean" },
+        "collapseCompletedPhases": { "type": "boolean" }
+      }
+    },
+    "rerun": { "type": "object", "additionalProperties": false, "required": ["enabled", "requireConfirmation"], "properties": { "enabled": { "type": "boolean" }, "requireConfirmation": { "type": "boolean" } } },
+    "inputs": { "type": "object", "additionalProperties": false, "required": ["retainAfterRun", "phases"], "properties": { "retainAfterRun": { "type": "boolean" }, "phases": { "$ref": "#/$defs/phaseText" } } },
+    "phaseRunConfirmations": { "$ref": "#/$defs/phaseText" },
+    "artifacts": { "type": "object", "additionalProperties": false, "required": ["showRevisionControls"], "properties": { "showRevisionControls": { "type": "boolean" } } }
+  },
+  "$defs": {
+    "phaseText": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 240 }
+    }
+  }
+}

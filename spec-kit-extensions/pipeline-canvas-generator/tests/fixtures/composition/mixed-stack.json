@@ -1,0 +1,239 @@
+[
+  {
+    "id": "command:speckit.assess.intake",
+    "kind": "command",
+    "name": "speckit.assess.intake",
+    "description": "Selected runtime command with a tagged contributor",
+    "stack": [
+      {
+        "id": "command:speckit.assess.intake",
+        "sourceId": "customer-canvas-design",
+        "layer": "preset",
+        "strategy": "wrap",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/presets/customer-canvas-design/preset.yml",
+        "lookupId": "preset:customer-canvas-design:command:speckit.assess.intake",
+        "sourcePath": ".specify/presets/customer-canvas-design/commands/assess.md"
+      },
+      {
+        "id": "command:speckit.assess.intake",
+        "sourceId": "runtime-assess",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": true,
+        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
+        "lookupId": "extension:runtime-assess:command:speckit.assess.intake",
+        "sourcePath": ".specify/extensions/runtime-assess/commands/assess.md"
+      }
+    ]
+  },
+  {
+    "id": "command:speckit.constitution",
+    "kind": "command",
+    "name": "speckit.constitution",
+    "description": "Core project-level Constitution command",
+    "stack": [
+      {
+        "id": "command:speckit.constitution",
+        "sourceId": null,
+        "layer": null,
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": null,
+        "lookupId": null,
+        "sourcePath": null
+      }
+    ]
+  },
+  {
+    "id": "command:speckit.plan",
+    "kind": "command",
+    "name": "speckit.plan",
+    "description": "Core plan command",
+    "stack": [
+      {
+        "id": "command:speckit.plan",
+        "sourceId": null,
+        "layer": null,
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": null,
+        "lookupId": null,
+        "sourcePath": null
+      }
+    ]
+  },
+  {
+    "id": "command:speckit.analyze",
+    "kind": "command",
+    "name": "speckit.analyze",
+    "description": "Core transient analysis command",
+    "stack": [
+      {
+        "id": "command:speckit.analyze",
+        "sourceId": null,
+        "layer": null,
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": null,
+        "lookupId": null,
+        "sourcePath": null
+      }
+    ]
+  },
+  {
+    "id": "command:speckit.bug.assess",
+    "kind": "command",
+    "name": "speckit.bug.assess",
+    "description": "Non-core bug command",
+    "stack": [
+      {
+        "id": "command:speckit.bug.assess",
+        "sourceId": "runtime-assess",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
+        "lookupId": "extension:runtime-assess:command:speckit.bug.assess",
+        "sourcePath": ".specify/extensions/runtime-assess/commands/bug-assess.md"
+      }
+    ]
+  },
+  {
+    "id": "template:phase-output-737065636b69742e636f6e737469747574696f6e",
+    "kind": "template",
+    "name": "phase-output-737065636b69742e636f6e737469747574696f6e",
+    "stack": [
+      {
+        "id": "template:phase-output-737065636b69742e636f6e737469747574696f6e",
+        "sourceId": "pipeline-canvas-generator",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
+        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e636f6e737469747574696f6e",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-constitution.json"
+      }
+    ]
+  },
+  {
+    "id": "template:phase-output-737065636b69742e706c616e",
+    "kind": "template",
+    "name": "phase-output-737065636b69742e706c616e",
+    "stack": [
+      {
+        "id": "template:phase-output-737065636b69742e706c616e",
+        "sourceId": "pipeline-canvas-generator",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
+        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e706c616e",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-plan.json"
+      }
+    ]
+  },
+  {
+    "id": "template:phase-output-737065636b69742e616e616c797a65",
+    "kind": "template",
+    "name": "phase-output-737065636b69742e616e616c797a65",
+    "stack": [
+      {
+        "id": "template:phase-output-737065636b69742e616e616c797a65",
+        "sourceId": "pipeline-canvas-generator",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
+        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e616e616c797a65",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-analyze.json"
+      }
+    ]
+  },
+  {
+    "id": "template:phase-output-737065636b69742e6275672e617373657373",
+    "kind": "template",
+    "name": "phase-output-737065636b69742e6275672e617373657373",
+    "stack": [
+      {
+        "id": "template:phase-output-737065636b69742e6275672e617373657373",
+        "sourceId": "runtime-assess",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
+        "lookupId": "extension:runtime-assess:template:phase-output-737065636b69742e6275672e617373657373",
+        "sourcePath": ".specify/extensions/runtime-assess/config/phase-output-bug-assess.json"
+      }
+    ]
+  },
+  {
+    "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
+    "kind": "template",
+    "name": "phase-output-737065636b69742e6173736573732e696e74616b65",
+    "stack": [
+      {
+        "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
+        "sourceId": "customer-canvas-design",
+        "layer": "preset",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/presets/customer-canvas-design/preset.yml",
+        "lookupId": "preset:customer-canvas-design:template:phase-output-737065636b69742e6173736573732e696e74616b65",
+        "sourcePath": ".specify/presets/customer-canvas-design/config/phase-output-assess-intake.json"
+      },
+      {
+        "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
+        "sourceId": "runtime-assess",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": false,
+        "hidden": true,
+        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
+        "lookupId": "extension:runtime-assess:template:phase-output-737065636b69742e6173736573732e696e74616b65",
+        "sourcePath": ".specify/extensions/runtime-assess/config/phase-output-assess-intake.json"
+      }
+    ]
+  },
+  {
+    "id": "template:canvas-content",
+    "kind": "template",
+    "name": "canvas-content",
+    "description": "Design-owned complete category",
+    "stack": [
+      {
+        "id": "template:canvas-content",
+        "sourceId": "customer-canvas-design",
+        "layer": "preset",
+        "strategy": "replace",
+        "active": true,
+        "hidden": false,
+        "manifestPath": ".specify/presets/customer-canvas-design/preset.yml",
+        "lookupId": "preset:customer-canvas-design:template:canvas-content",
+        "sourcePath": ".specify/presets/customer-canvas-design/config/canvas-content.json"
+      },
+      {
+        "id": "template:canvas-content",
+        "sourceId": "pipeline-canvas-generator",
+        "layer": "extension",
+        "strategy": "replace",
+        "active": false,
+        "hidden": true,
+        "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
+        "lookupId": "extension:pipeline-canvas-generator:template:canvas-content",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/canvas-content.json"
+      }
+    ]
+  }
+]

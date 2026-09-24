@@ -1,0 +1,16 @@
+schema_version: "1.0"
+extension:
+  id: pipeline-canvas-generator
+  name: Core Contract Fixture
+  version: "0.1.0"
+  description: Core output authority for isolated request tests.
+  author: spec-kit-copilot
+  license: MIT
+requires:
+  speckit_version: ">=1.0.7"
+provides:
+  templates:
+    - name: phase-output-737065636b69742e616e616c797a65
+      file: config/analyze.json
+tags:
+  - canvas-design
