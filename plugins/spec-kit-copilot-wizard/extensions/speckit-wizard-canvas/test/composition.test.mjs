@@ -9,6 +9,9 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { applyComposition, normalizeHookArtifactsInComposition } from "../canvas-runtime/composition-apply.mjs";
+import { fsDeps } from "../canvas-runtime/instances.mjs";
+import { readState } from "../state/store.mjs";
 import {
     IS_CASE_INSENSITIVE_FS,
     parseHookDeclarations,
@@ -35,6 +38,7 @@ import {
 import {
     renderPhaseCard,
     renderGraphPhaseCard,
+    renderStepper,
     setPhaseCardDeps,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
@@ -209,6 +213,61 @@ test("effectivePipelinePhases falls back to the full canonical spine and filters
         { id: "implement" },
     ]);
 });
+});
+
+test("renderStepper uses one separator per step and names every command at a hook point", () => {
+    const priorDocument = globalThis.document;
+    const parent = {
+        id: "commands/speckit.implement",
+        kind: "command",
+        hooks: [
+            { phase: "before_implement", extensionId: "cosmosdb", targetCommand: "speckit.cosmosdb.advise" },
+            { phase: "before_implement", extensionId: "guardrails", targetCommand: "speckit.guardrails.check" },
+            { phase: "after_implement", extensionId: "cosmosdb", targetCommand: "speckit.cosmosdb.review" },
+        ],
+    };
+    state.snapshot = {
+        pipeline: [{ id: "constitution" }, { id: "implement" }],
+        setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+        commands: [
+            { id: "constitution", name: "Constitution", commandName: "speckit.constitution" },
+            { id: "implement", name: "Implement", commandName: "speckit.implement" },
+        ],
+        composition: { artifacts: [parent] },
+    };
+    const stepper = {
+        children: [],
+        innerHTML: "",
+        get lastElementChild() { return this.children.at(-1) ?? null; },
+        appendChild(child) { this.children.push(child); },
+    };
+    globalThis.document = {
+        getElementById: (id) => id === "stepper" ? stepper : null,
+        createElement: () => ({
+            className: "",
+            classList: { add() {} },
+            dataset: {},
+            setAttribute() {},
+            addEventListener() {},
+            querySelector: () => null,
+        }),
+    };
+    try {
+        renderStepper();
+        assert.deepEqual(stepper.children.map((el) => el.className), [
+            "step", "step-sep", "step step-hook", "step-sep",
+            "step", "step-sep", "step step-hook",
+        ]);
+        assert.match(stepper.children[2].title, /before \/speckit-implement/);
+        assert.match(stepper.children[2].title, /\/speckit-cosmosdb-advise/);
+        assert.match(stepper.children[2].title, /\/speckit-guardrails-check/);
+        assert.match(stepper.children[6].title, /\/speckit-cosmosdb-review/);
+        assert.doesNotMatch(stepper.children[2].title, /Cosmos DB/);
+    } finally {
+        state.snapshot = null;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
 });
 
 describe("pipeline-resolver", () => {
@@ -1294,6 +1353,133 @@ test("extension adds command + hook binding: standalone hook artifact + inline a
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
+});
+
+test("multi-command extension preserves distinct hook targets through apply, persistence, and hydration", async () => {
+    const root = makeWorkspace();
+    try {
+        writeExtension(root, "example", {
+            provides: {
+                commands: [
+                    { name: "example.first" },
+                    { name: "example.advise" },
+                    { name: "example.review" },
+                ],
+            },
+            hooks: [
+                { phase: "before_implement", command: "example.advise", optional: false },
+                { phase: "after_implement", command: "example.review", optional: false },
+            ],
+        });
+        writeHooksRegistry(root, {
+            before_implement: [{ extension: "example", command: "example.advise" }],
+            after_implement: [{ extension: "example", command: "example.review" }],
+        });
+        const assembled = await assembleComposition({
+            workspaceRoot: root,
+            presetItems: [],
+            extensionItems: [extensionItem("example")],
+        });
+        const events = [];
+        const inst = {
+            workspacePath: root,
+            state: {},
+            cachedPresetItems: [],
+            cachedExtensionItems: [extensionItem("example")],
+            broadcast: (event) => events.push(event),
+        };
+        await applyComposition(inst, assembled);
+        const persisted = await readState(root, fsDeps);
+        assert.equal(persisted.present, true);
+        for (const composition of [inst.cachedComposition, persisted.state.composition]) {
+            const hooks = composition.artifacts.filter((a) => a.kind === "hook");
+            assert.deepEqual(hooks.map((a) => a.id).sort(), [
+                "commands/example.advise",
+                "commands/example.review",
+            ]);
+            assert.deepEqual(hooks.map((a) => [a.hookBinding.phase, a.hookBinding.targetCommand]).sort(), [
+                ["after_implement", "example.review"],
+                ["before_implement", "example.advise"],
+            ]);
+            assert.equal(new Set(composition.artifacts.map((a) => a.id)).size, composition.artifacts.length);
+            assert.equal(findArtifact(composition, "commands/example.first").kind, "command");
+            assert.deepEqual(findArtifact(composition, "commands/speckit.implement").hooks
+                .map((h) => h.targetCommand), ["example.advise", "example.review"]);
+            assert.deepEqual(effectivePipelinePhases({ composition: {
+                ...composition,
+                inferredPipeline: {
+                    pipeline: ["commands/example.first", "commands/example.advise", "commands/example.review"],
+                },
+            } }), [{ id: "example.first" }]);
+        }
+        assert.ok(events.some((event) => event.type === "composition"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("normalization preserves multiple bindings and repairs only unambiguous legacy hooks", () => {
+    const layer = { presetId: "example", active: true };
+    const command = (name) => ({ kind: "command", id: `commands/${name}`, stack: [layer] });
+    const hook = (fields) => ({ kind: "hook", stack: [layer], ...fields });
+    const normalized = normalizeHookArtifactsInComposition({ artifacts: [
+        command("example.first"),
+        command("example.second"),
+        hook({
+            id: "commands/example.shared",
+            hookBindings: [
+                { phase: "after_specify", targetCommand: "example.shared" },
+                { phase: "after_plan" },
+            ],
+        }),
+        hook({ id: "legacy/unresolved", hookBinding: { phase: "before_implement" } }),
+    ] }).artifacts;
+    const shared = findArtifact({ artifacts: normalized }, "commands/example.shared");
+    assert.deepEqual(shared.hookBindings.map((b) => b.targetCommand), ["example.shared", "example.shared"]);
+    assert.deepEqual(shared.hookBindings.map((b) => b.phase), ["after_specify", "after_plan"]);
+    assert.equal(shared.hookBinding, shared.hookBindings[0]);
+    assert.equal(normalized.at(-1).id, "legacy/unresolved");
+    assert.equal(normalized.at(-1).hookBinding.targetCommand, undefined);
+
+    const declared = normalizeHookArtifactsInComposition({ artifacts: [
+        command("example.first"),
+        command("example.second"),
+        hook({
+            id: "legacy/wrong-id",
+            targetCommand: "example.advise",
+            hookBindings: [
+                { phase: "before_implement", targetCommand: "example.review" },
+                { phase: "after_implement" },
+            ],
+        }),
+    ] }).artifacts.at(-1);
+    assert.equal(declared.id, "commands/example.review");
+    assert.deepEqual(declared.hookBindings.map((b) => b.targetCommand), ["example.review", "example.review"]);
+
+    const repaired = normalizeHookArtifactsInComposition({ artifacts: [
+        command("example.review"),
+        hook({ id: "legacy/wrong-id", hookBinding: { phase: "after_plan", targetCommand: "example.review" } }),
+    ] }).artifacts;
+    assert.equal(repaired.length, 1);
+    assert.equal(repaired[0].id, "commands/example.review");
+    assert.equal(repaired[0].kind, "hook");
+
+    const single = normalizeHookArtifactsInComposition({ artifacts: [
+        command("example.only"),
+        hook({ id: "legacy/incomplete", hookBinding: { phase: "after_plan" } }),
+    ] }).artifacts;
+    assert.deepEqual(single.map((a) => a.id), ["commands/example.only"]);
+    assert.equal(single[0].kind, "hook");
+    assert.equal(single[0].hookBinding.targetCommand, "example.only");
+
+    const unresolved = normalizeHookArtifactsInComposition({ artifacts: [
+        command("example.only"),
+        hook({ id: "legacy/first", hookBinding: { phase: "after_plan" } }),
+        hook({ id: "legacy/second", hookBinding: { phase: "after_specify" } }),
+    ] }).artifacts;
+    assert.deepEqual(unresolved.map((a) => a.id), [
+        "commands/example.only", "legacy/first", "legacy/second",
+    ]);
 });
 
 test("preset with a wraps: directive on a canonical command forces Stage 2", async () => {

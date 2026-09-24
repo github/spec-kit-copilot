@@ -116,7 +116,7 @@ canvas can only trigger phases that belong to your composed pipeline.
 
 You can drive the wizard with natural-language prompts at any point —
 the agent maps what you ask into canvas actions and the UI updates
-accordingly. The extension registers **11 actions** across four groups:
+accordingly. The extension registers **13 actions** across four groups:
 
 **Verbs (agent-initiated work):**
 - `runPhase` — dispatch a phase's `/speckit-<phase>` slash command with the
@@ -124,6 +124,10 @@ accordingly. The extension registers **11 actions** across four groups:
 - `addPreset` — install a preset by id (same code path as the Install button).
 - `addExtension` — install a Spec Kit extension by id (same code path as
   the Install button).
+- `addPipelinePhases` — add ordered command phases to the Phases pipeline
+  without removing or reordering existing steps. Given a README link, the
+  agent reads its workflow and supplies installed command IDs with optional
+  `after` anchors; automatic hook commands are not addable.
 - `reloadSessionSkills` — reload Copilot's in-memory skill registry for
   the session (equivalent to `/skills reload`).
 - `runNpmDiagnostics` — dispatch a scripted npm-diagnostic prompt to the
@@ -224,6 +228,18 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 `specs/<slug>/checklists/`.
 
 ## Troubleshooting
+
+**A phase status, pipeline command, or composition change looks wrong after
+overlapping wizard actions.**
+
+Concurrent updates can occasionally overwrite newer fields in
+`.speckit-wizard/state.json`. This state-write limitation predates
+`addPipelinePhases`; the new action is another possible participant. It
+affects the wizard's saved progress and pipeline, **not the generated spec,
+plan, or other artifact files**. Refresh the canvas and check the artifacts
+before rerunning a phase. If the state still looks wrong, ask the agent to
+reconcile it against the files on disk and the pipeline you intended; the
+wizard cannot detect or undo the overwritten update automatically.
 
 **First open shows "Spec Kit Wizard cannot start" or an npm error like
 `ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE`, `ECONNREFUSED`, `ETIMEDOUT`,

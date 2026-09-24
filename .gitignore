@@ -6,6 +6,6 @@ node_modules/
 .speckit-wizard/
 .specify/
 .github/skills/
+specs/
 css-baseline-*.png
 css-c*.png
-
