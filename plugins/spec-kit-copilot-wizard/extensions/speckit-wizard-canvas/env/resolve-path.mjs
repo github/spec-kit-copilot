@@ -90,6 +90,26 @@ function cmpVersion(a, b) {
     return 0;
 }
 
+function prependPathDirs(current, extras, platform = process.platform) {
+    const sep = platform === "win32" ? ";" : ":";
+    const normalize = platform === "win32"
+        ? (value) => value.trim().toLowerCase()
+        : (value) => value.trim();
+    const preferred = (extras ?? []).filter(Boolean);
+    const existing = String(current ?? "")
+        .split(sep)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    const seen = new Set(existing.map(normalize));
+    const missing = preferred.filter((entry) => {
+        const key = normalize(entry);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    return [...missing, ...existing].join(sep);
+}
+
 // Impure. Read fallback dirs from disk once and return an augmented PATH
 // string with the discovered dirs prepended to the caller's PATH.
 export async function buildAugmentedPath(env = process.env, platform = process.platform) {
@@ -97,15 +117,7 @@ export async function buildAugmentedPath(env = process.env, platform = process.p
         try { return await fsp.readdir(dir); } catch { return []; }
     };
     const extras = await pickFallbackDirs(env, platform, listDir);
-    const sep = platform === "win32" ? ";" : ":";
     const current = env.PATH ?? env.Path ?? "";
     if (!extras.length) return current;
-    // Filter to dirs the caller doesn't already have on PATH so we don't
-    // rewrite ordering for users whose PATH is already correct.
-    const currentSet = new Set(
-        current.split(sep).map((p) => p.trim().toLowerCase()).filter(Boolean),
-    );
-    const missing = extras.filter((p) => !currentSet.has(p.toLowerCase()));
-    if (!missing.length) return current;
-    return missing.join(sep) + sep + current;
+    return prependPathDirs(current, extras, platform);
 }

@@ -469,7 +469,7 @@ describe("active-artifacts", () => {
 const extensionCommand = {
     id: "commands/speckit.agent-context.update",
     kind: "command",
-    stack: [{ layer: "extension", extensionId: "agent-context", active: true }],
+    stack: [{ layer: "extension", sourceId: "agent-context", presetId: null, active: true }],
 };
 
 function compositionWithHooks() {
@@ -493,7 +493,7 @@ function compositionWithHooks() {
                     targetCommand: "speckit.agent-context.update",
                     extensionId: "agent-context",
                 },
-                stack: [{ layer: "extension", extensionId: "agent-context", active: true }],
+                stack: [{ layer: "extension", sourceId: "agent-context", presetId: null, active: true }],
             },
         ],
     };

@@ -169,10 +169,9 @@ export function computeProviderContributions(artifacts) {
         const seen = new Set();
         for (const layer of a.stack ?? []) {
             if (layer.layer !== "preset" && layer.layer !== "extension") continue;
-            const id = layer.presetId
-                || layer.extensionId
-                || layer.presetName
-                || layer.extensionName;
+            const id = layer.layer === "extension"
+                ? layer.sourceId
+                : layer.presetId;
             if (!id || seen.has(id)) continue;
             seen.add(id);
             let bucket = out.get(id);
@@ -321,11 +320,9 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     const isCore = layer.layer === "core";
     const isActive = !!layer.active;
     const layerLabel = LAYER_LABEL[layer.layer] ?? layer.layer;
-    const providerName = layer.presetName
-        || layer.extensionName
-        || layer.name
-        || layer.presetId
-        || layer.extensionId;
+    const providerName = layer.layer === "extension"
+        ? (layer.extensionName || layer.name || layer.sourceId)
+        : (layer.presetName || layer.name || layer.presetId);
     const nameParts = [];
     if (providerName && !isCore) {
         nameParts.push(`${layerLabel}:`);
@@ -381,9 +378,6 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     const strategy = meaningfulStrategy
         ? `<span class="comp-artifact-strategy-chip comp-stack-layer-strategy" title="Composition strategy applied by this layer">${escapeHtml(capitalize(layer.strategy))}</span>`
         : "<span></span>";
-    const version = layer.version
-        ? `<span class="layer-version">v${escapeHtml(layer.version)}</span>`
-        : "<span></span>";
     const title = layer.sourcePath ? ` title="${escapeHtml(layer.sourcePath)}"` : "";
     const classes = [
         "comp-stack-layer",
@@ -393,7 +387,6 @@ export function renderStackLayer(layer, artifact, layerIdx) {
     return `<div class="${classes}"${title}>
         <span class="layer-label"><span class="layer-dot layer-${escapeHtml(layer.layer)}"></span>${nameParts.join(" ")}</span>
         ${strategy}
-        ${version}
         <span class="layer-marker">${escapeHtml(marker)}</span>
     </div>`;
 }
@@ -462,9 +455,8 @@ export function renderCompositionPresetSidebar() {
     const countEl = document.getElementById("comp-group-presets-count");
     if (!host) return;
     const comp = state.snapshot.composition ?? {};
-    // Precedence is owned by the CLI (`specify preset resolve`) and passed
-    // through in composition.presets[] by the speckit-preset skill. The UI
-    // renders in payload order — no local sort, no tiebreak.
+    // Provider summaries preserve payload order. Applied precedence is shown
+    // by the CLI-provided stack on each artifact.
     const presets = orderedCompositionPresets();
 
     if (!presets.length) {
@@ -513,8 +505,8 @@ export function renderCompositionExtensionSidebar() {
     const countEl = document.getElementById("comp-group-extensions-count");
     if (!host) return;
     const comp = state.snapshot.composition ?? {};
-    // Precedence comes from the CLI via composition.extensions[]. The UI
-    // renders in payload order — no local sort, no tiebreak.
+    // Provider summaries preserve payload order. Applied precedence is shown
+    // by the CLI-provided stack on each artifact.
     const extensions = orderedCompositionExtensions();
 
     if (!extensions.length) {
@@ -641,4 +633,3 @@ export function renderComposition() {
     renderCompositionExtensionSidebar();
     renderCompositionCoreSidebar();
 }
-

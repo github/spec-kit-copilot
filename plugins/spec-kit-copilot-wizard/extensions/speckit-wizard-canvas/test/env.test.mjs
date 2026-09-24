@@ -3,7 +3,11 @@ import { EventEmitter } from "node:events";
 import path, { isAbsolute, join as pathJoin, sep } from "node:path";
 import { describe, test } from "node:test";
 import { decideChecks, runChecks, summarizeResults } from "../env/probe.mjs";
-import { pickFallbackDirs, pickNewestVersion } from "../env/resolve-path.mjs";
+import {
+    buildAugmentedPath,
+    pickFallbackDirs,
+    pickNewestVersion,
+} from "../env/resolve-path.mjs";
 import {
     fetchSessionRepoPath,
     joinIfPossible,
@@ -237,6 +241,30 @@ test("pickFallbackDirs deduplicates repeated entries", async () => {
     const dirs = await pickFallbackDirs(env, "linux", listDir);
     const localBin = dirs.filter((d) => d === "/home/me/.local/bin");
     assert.equal(localBin.length, 1);
+});
+
+test("buildAugmentedPath preserves existing POSIX fallback precedence", async () => {
+    const augmented = await buildAugmentedPath({
+        HOME: "/home/me",
+        PATH: "/custom/bin:/usr/local/bin",
+    }, "linux");
+
+    assert.equal(
+        augmented,
+        "/home/me/.local/bin:/home/me/.cargo/bin:/opt/homebrew/bin:/custom/bin:/usr/local/bin",
+    );
+});
+
+test("buildAugmentedPath preserves existing Windows fallback precedence case-insensitively", async () => {
+    const augmented = await buildAugmentedPath({
+        USERPROFILE: "C:\\Users\\me",
+        PATH: "C:\\Custom;C:\\USERS\\ME\\.LOCAL\\BIN",
+    }, "win32");
+
+    assert.equal(
+        augmented,
+        "C:\\Users\\me\\.cargo\\bin;C:\\Custom;C:\\USERS\\ME\\.LOCAL\\BIN",
+    );
 });
 });
 

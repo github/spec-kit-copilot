@@ -106,17 +106,6 @@ export function buildStateSnapshot(scan) {
         if (id === "setup") continue;
         phases[id].locked = !gateOpen;
     }
-    // Skills reload results remain available in state.json for diagnostics.
-    // taskstoissues is gated on a preset that contributes it. Ungate if a
-    // provider is discovered in the composition; otherwise leave the metadata
-    // default (gated).
-    if (phases.taskstoissues) {
-        const hasProvider = (scan.composition?.extensions ?? []).some(
-            (e) => e.name === "speckit-taskstoissues" || (e.description ?? "").includes("taskstoissues"),
-        );
-        phases.taskstoissues.gated = !hasProvider;
-    }
-
     // Re-derive phases.setup.status with the live env probe. state-store's
     // applyPatch/normalizeState derive it from persisted setup.* only —
     // which stays yellow ("in_progress") until pluginInstalled/cliInstalled
