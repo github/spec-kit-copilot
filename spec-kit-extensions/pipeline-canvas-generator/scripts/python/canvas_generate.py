@@ -23,11 +23,11 @@ def main() -> int:
         "prepare-request", help="Capture an immutable Specify request"
     )
     preparation.add_argument("--workspace", required=True, type=Path)
-    preparation.add_argument("--canvas-id", required=True)
-    preparation.add_argument("--display-name", required=True)
+    preparation.add_argument("--canvas-id")
+    preparation.add_argument("--display-name")
+    preparation.add_argument("--configuration-json", help="Wizard-confirmed canvas and instance configuration")
     preparation.add_argument("--phase", action="append", required=True)
     preparation.add_argument("--overwrite", action="store_true")
-    preparation.add_argument("--settings-json", help="Wizard-confirmed installation approval setting")
     preparation.add_argument(
         "--inventory-stdin", action="store_true",
         help="Use one freshly captured Wizard Specify inventory from standard input",
@@ -81,10 +81,16 @@ def main() -> int:
     if args.operation == "prepare-request":
         try:
             inventory = json.load(sys.stdin) if args.inventory_stdin else None
+            configuration = json.loads(args.configuration_json) if args.configuration_json else None
+            canvas = configuration.get("canvas", {}) if configuration else {}
+            canvas_id = canvas.get("id", args.canvas_id)
+            display_name = canvas.get("displayName", args.display_name)
+            if not canvas_id or not display_name:
+                raise ValueError("canvas id and display name are required")
             path = prepare_request(
-                args.workspace, args.phase, args.canvas_id, args.display_name,
+                args.workspace, args.phase, canvas_id, display_name,
                 args.overwrite, inventory=inventory,
-                settings=json.loads(args.settings_json) if args.settings_json else None,
+                configuration=configuration,
             )
         except (ValueError, json.JSONDecodeError) as error:
             parser.error(str(error))

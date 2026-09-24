@@ -132,7 +132,8 @@ own README for full details.
 > **>= 1.0.7** for the `artifact` skill and preset/extension JSON inventory. Install or
 > upgrade with `uv tool install specify-cli` / `uv tool upgrade specify-cli` (or the
 > `pipx` equivalents), or `specify self upgrade`. Each plugin's own `version` is
-> independent of the CLI version.
+> independent of the CLI version. A plugin's manifest and marketplace entry
+> must match; marketplace metadata is versioned separately when the catalog changes.
 
 ## Installation
 

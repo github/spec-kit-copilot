@@ -73,19 +73,29 @@ def _keys(value: object, required: set[str], optional: set[str] = frozenset()) -
 
 def validate_request(request: object) -> None:
     """Reject drift and unknown authority fields on a persisted request."""
-    _keys(request, {"schemaVersion", "canvas", "workflow", "workspace", "overwrite"}, {"settings"})
+    _keys(request, {"schemaVersion", "canvas", "instanceConfiguration", "workflow", "workspace", "overwrite"})
     if type(request["schemaVersion"]) is not int or request["schemaVersion"] != 1 or type(request["overwrite"]) is not bool:
         raise ValueError("Unsupported request version or overwrite decision")
-    _keys(request["canvas"], {"id", "displayName"})
+    _keys(request["canvas"], {"id", "displayName", "workflowListName", "description"})
     if not isinstance(request["canvas"]["displayName"], str) or not request["canvas"]["displayName"].strip():
         raise ValueError("Invalid canvas display name")
+    if (not isinstance(request["canvas"]["workflowListName"], str)
+        or not request["canvas"]["workflowListName"].strip()
+        or len(request["canvas"]["workflowListName"]) > 80):
+        raise ValueError("Invalid workflow header")
+    if (not isinstance(request["canvas"]["description"], str)
+        or not request["canvas"]["description"].strip()
+        or len(request["canvas"]["description"]) > 240):
+        raise ValueError("Invalid canvas description")
     if not isinstance(request["workspace"], str) or not request["workspace"]:
         raise ValueError("Invalid request workspace")
-    if "settings" in request:
-        settings = request["settings"]
-        _keys(settings, {"requireInstallationApproval"})
-        if type(settings["requireInstallationApproval"]) is not bool:
-            raise ValueError("Invalid installation approval setting")
+    instance_configuration = request["instanceConfiguration"]
+    _keys(instance_configuration, {"workflowSlug", "installationMode"})
+    _keys(instance_configuration["workflowSlug"], {"userProvided"})
+    if type(instance_configuration["workflowSlug"]["userProvided"]) is not bool:
+        raise ValueError("Invalid workflow slug setting")
+    if instance_configuration["installationMode"] not in ("automatic", "prompt"):
+        raise ValueError("Invalid installation mode")
     target_path(Path(request["workspace"]), request["canvas"]["id"])
     _keys(request["workflow"], {"selectedPhases", "phaseOutputs", "artifactSnapshot", "categoryTemplates", "requiredSkillHashes"})
     phases = request["workflow"]["selectedPhases"]
@@ -149,7 +159,7 @@ def prepare_request(
     overwrite: bool,
     *,
     inventory: dict | None = None,
-    settings: dict | None = None,
+    configuration: dict | None = None,
 ) -> Path:
     """Validate all authority and composition before creating a request file."""
     root = workspace.resolve(strict=True)
@@ -165,6 +175,24 @@ def prepare_request(
         raise ValueError("Canvas display name must contain 1 to 120 nonblank characters")
     if type(overwrite) is not bool:
         raise ValueError("Overwrite decision must be an explicit boolean")
+    if configuration is None:
+        configuration = {
+            "canvas": {
+                "id": canvas_id,
+                "displayName": display_name,
+                "workflowListName": "Workflows",
+                "description": f"{display_name.strip()} workflow canvas.",
+            },
+            "instanceConfiguration": {
+                "workflowSlug": {"userProvided": False},
+                "installationMode": "automatic",
+            },
+        }
+    _keys(configuration, {"canvas", "instanceConfiguration"})
+    canvas = configuration["canvas"]
+    instance_configuration = configuration["instanceConfiguration"]
+    if canvas.get("id") != canvas_id or canvas.get("displayName") != display_name:
+        raise ValueError("Canvas configuration must match the requested identity")
     target = target_path(root, canvas_id)
     if target.exists() and not overwrite:
         raise ValueError(f"Existing target requires explicit replacement confirmation: {target}")
@@ -253,7 +281,8 @@ def prepare_request(
         raise ValueError("Canvas renderer templates are no longer supported; update or remove the contributing package")
     request = {
         "schemaVersion": 1,
-        "canvas": {"id": canvas_id, "displayName": display_name},
+        "canvas": canvas,
+        "instanceConfiguration": instance_configuration,
         "workflow": {
             "selectedPhases": selected_phases,
             "requiredSkillHashes": skill_hashes,
@@ -264,8 +293,6 @@ def prepare_request(
         "workspace": str(root),
         "overwrite": overwrite,
     }
-    if settings is not None:
-        request["settings"] = settings
     validate_request(request)
     directory = create_request_dir(root)
     path = directory / "request.json"

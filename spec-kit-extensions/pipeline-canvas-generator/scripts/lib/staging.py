@@ -214,10 +214,14 @@ def expected_candidate_files(request_path: Path, scaffold_dir: Path) -> dict[str
             continue
         profile["categories"][name] = merge_sparse(profile["categories"][name], patch)
         validate_complete_category(name, profile["categories"][name], package)
-    settings = request.get("settings", {})
-    if settings and profile["categories"]["canvas-onboarding"]["installationMode"] != "external":
+    profile["categories"]["canvas-content"]["workflowListName"] = request["canvas"]["workflowListName"]
+    profile["categories"]["canvas-content"]["description"] = request["canvas"]["description"]
+    profile["categories"]["canvas-onboarding"]["workflowSlug"]["userProvided"] = (
+        request["instanceConfiguration"]["workflowSlug"]["userProvided"]
+    )
+    if profile["categories"]["canvas-onboarding"]["installationMode"] != "external":
         profile["categories"]["canvas-onboarding"]["installationMode"] = (
-            "prompt" if settings["requireInstallationApproval"] else "automatic"
+            request["instanceConfiguration"]["installationMode"]
         )
     for name in ("canvas-results", "canvas-onboarding"):
         validate_complete_category(name, profile["categories"][name], package)

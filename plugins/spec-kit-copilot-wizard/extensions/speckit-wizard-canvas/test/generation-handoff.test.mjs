@@ -27,8 +27,18 @@ const snapshot = {
 };
 const body = {
     phases: ["speckit.plan", "speckit.assess.intake"],
-    canvasId: "my-canvas",
-    displayName: "My Canvas",
+    configuration: {
+        canvas: {
+            id: "my-canvas",
+            displayName: "My Canvas",
+            workflowListName: "Workflows",
+            description: "Visual workflow for Plan → Intake.",
+        },
+        instanceConfiguration: {
+            workflowSlug: { userProvided: false },
+            installationMode: "automatic",
+        },
+    },
 };
 
 test("Generate request surfaces preparation errors instead of reporting a queue", async () => {
@@ -66,19 +76,29 @@ test("Wizard hands confirmed phase order to shared preparation, then dispatches 
         broadcast: () => {},
     });
     assert.equal(res.statusCode, 202);
-    assert.deepEqual(calls[0].slice(1, 5), [
-        body.phases, body.canvasId, body.displayName, false,
+    assert.deepEqual(calls[0].slice(1, 4), [
+        body.phases, body.configuration, false,
     ]);
     assert.match(calls[1], /speckit-pipeline-canvas-generator-generate/);
     assert.match(calls[1], /request\.json/);
     assert.equal(instance.generation.requestPath, calls[0][0] + "\\.specify\\.cache\\canvas-generation\\run\\request.json");
 });
 
-test("Wizard passes dialog settings to the generator request without changing phase order", async () => {
+test("Wizard passes structured configuration to the generator request without changing phase order", async () => {
     const res = response();
-    const settings = { requireInstallationApproval: true };
+    const configuration = {
+        canvas: {
+            ...body.configuration.canvas,
+            workflowListName: "Assessments",
+            description: "Review assessments before implementation.",
+        },
+        instanceConfiguration: {
+            workflowSlug: { userProvided: true },
+            installationMode: "prompt",
+        },
+    };
     let prepared;
-    await handleGenerate(res, { ...body, settings }, {
+    await handleGenerate(res, { ...body, configuration }, {
         getState: async () => snapshot,
         getInstance: () => ({ workspacePath: "C:\\work" }),
         prepare: async (...args) => {
@@ -89,7 +109,7 @@ test("Wizard passes dialog settings to the generator request without changing ph
     });
     assert.equal(res.statusCode, 202);
     assert.deepEqual(prepared[1], body.phases);
-    assert.deepEqual(prepared[6], settings);
+    assert.deepEqual(prepared[2], configuration);
 });
 
 test("Wizard rejects stale or unconfirmed phases without writing a request", async () => {
@@ -130,7 +150,7 @@ test("Wizard requires exact-target confirmation for existing and partial canvase
         const res = response();
         await handleGenerate(res, { ...body, overwrite: true, confirmedTarget: target }, deps);
         assert.equal(res.statusCode, 202);
-        assert.equal(calls[0][4], true);
+        assert.equal(calls[0][3], true);
         assert.match(calls[1], /including manual edits/);
     } finally {
         await rm(workspace, { recursive: true, force: true });
@@ -151,7 +171,19 @@ test("Wizard captures Specify JSON and prepares the same request with installed 
             cwd: workspace, encoding: "utf8", shell: process.platform === "win32",
         });
         assert.equal(installed.status, 0, installed.stderr || installed.stdout);
-        const path = await prepareWizardGeneration(workspace, ["speckit.plan"], "wizard-test", "Wizard Test");
+        const defaultConfiguration = {
+            canvas: {
+                id: "wizard-test",
+                displayName: "Wizard Test",
+                workflowListName: "Workflows",
+                description: "Wizard Test workflow canvas.",
+            },
+            instanceConfiguration: {
+                workflowSlug: { userProvided: false },
+                installationMode: "automatic",
+            },
+        };
+        const path = await prepareWizardGeneration(workspace, ["speckit.plan"], defaultConfiguration);
         const request = JSON.parse(await readFile(path, "utf8"));
         assert.deepEqual(request.workflow.selectedPhases, ["speckit.plan"]);
         assert.equal(request.canvas.id, "wizard-test");
@@ -164,13 +196,24 @@ test("Wizard captures Specify JSON and prepares the same request with installed 
         assert.equal(cli.status, 0, cli.stderr || cli.stdout);
         const cliRequest = JSON.parse(await readFile(JSON.parse(cli.stdout).requestPath, "utf8"));
         assert.deepEqual(cliRequest, request, "Wizard and standalone entries must capture identical authority");
-        const settings = { requireInstallationApproval: true };
+        const configuration = {
+            canvas: {
+                id: "wizard-settings-test",
+                displayName: "Wizard Settings Test",
+                workflowListName: "Features",
+                description: "Run the selected feature workflow.",
+            },
+            instanceConfiguration: {
+                workflowSlug: { userProvided: true },
+                installationMode: "prompt",
+            },
+        };
         const configured = await prepareWizardGeneration(
-            workspace, ["speckit.plan"], "wizard-settings-test", "Wizard Settings Test",
-            false, null, settings,
+            workspace, ["speckit.plan"], configuration, false, null,
         );
         const configuredRequest = JSON.parse(await readFile(configured, "utf8"));
-        assert.deepEqual(configuredRequest.settings, settings);
+        assert.deepEqual(configuredRequest.canvas, configuration.canvas);
+        assert.deepEqual(configuredRequest.instanceConfiguration, configuration.instanceConfiguration);
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

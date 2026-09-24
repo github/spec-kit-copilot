@@ -324,4 +324,3 @@
 }
 .step.is-canonical-fallback .step-name { color: var(--text-color-muted); }
 .step.orphan .step-name { text-decoration: line-through; color: var(--text-color-muted); }
-

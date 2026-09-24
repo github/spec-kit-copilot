@@ -68,8 +68,19 @@ class BlueprintContracts(unittest.TestCase):
         )
         self.assertEqual(blueprint["runtime"]["itemRoot"], "specs/<slug>")
 
-    def test_design_categories_own_presentation_and_consent_owns_installation(self) -> None:
-        settings = {"requireInstallationApproval": True}
+    def test_common_configuration_overrides_design_defaults(self) -> None:
+        configuration = {
+            "canvas": {
+                "id": "fixture-workflow",
+                "displayName": "Fixture Workflow",
+                "workflowListName": "Features",
+                "description": "Run the selected feature workflow.",
+            },
+            "instanceConfiguration": {
+                "workflowSlug": {"userProvided": True},
+                "installationMode": "prompt",
+            },
+        }
         content_path = self.workspace / ".specify" / "presets" / "customer-canvas-design" / "config" / "canvas-content.json"
         content = read_json(content_path)
         content["workflowListName"] = "Assessments"
@@ -77,14 +88,15 @@ class BlueprintContracts(unittest.TestCase):
         atomic_json(content_path, content)
         path = prepare_request(
             self.workspace, ["speckit.plan"], "fixture-workflow", "Fixture Workflow",
-            False, inventory=self.inventory, settings=settings,
+            False, inventory=self.inventory, configuration=configuration,
         )
         request = read_json(path)
         blueprint = compile_blueprint(request)
-        self.assertEqual(request["settings"], settings)
-        self.assertEqual(blueprint["metadata"]["description"], "Fixture Workflow workflow canvas.")
-        self.assertEqual(blueprint["metadata"]["workflowListName"], "Workflows")
-        self.assertFalse(blueprint["runtime"]["userProvidesSlug"])
+        self.assertEqual(request["canvas"], configuration["canvas"])
+        self.assertEqual(request["instanceConfiguration"], configuration["instanceConfiguration"])
+        self.assertEqual(blueprint["metadata"]["description"], "Run the selected feature workflow.")
+        self.assertEqual(blueprint["metadata"]["workflowListName"], "Features")
+        self.assertTrue(blueprint["runtime"]["userProvidesSlug"])
         self.assertTrue(blueprint["setup"]["requireInstallationApproval"])
         atomic_json(path.with_name("command-override-draft.json"), {"categories": {
             "canvas-content": {"workflowListName": "Assessments", "description": "Review each assessment."},
@@ -96,8 +108,8 @@ class BlueprintContracts(unittest.TestCase):
             path, PACKAGE / "tests" / "fixtures" / "scaffold",
         )
         profile = read_json(candidate / "canvas-experience.json")["categories"]
-        self.assertEqual(profile["canvas-content"]["workflowListName"], "Assessments")
-        self.assertEqual(profile["canvas-content"]["description"], content["description"])
+        self.assertEqual(profile["canvas-content"]["workflowListName"], "Features")
+        self.assertEqual(profile["canvas-content"]["description"], "Run the selected feature workflow.")
         self.assertTrue(profile["canvas-onboarding"]["workflowSlug"]["userProvided"])
         self.assertEqual(profile["canvas-onboarding"]["installationMode"], "prompt")
         self.assertFalse(profile["canvas-results"]["clarification"]["enabled"])
@@ -105,11 +117,11 @@ class BlueprintContracts(unittest.TestCase):
         self.assertEqual(read_json(candidate / "workflow-config.json")["resultLabels"], ["Go", "No go"])
         self.assertFalse(read_json(candidate / "workflow-config.json")["clarificationTag"])
         final_blueprint = read_json(candidate / "pipeline.json")
-        self.assertEqual(final_blueprint["metadata"]["description"], "Review each assessment.")
-        self.assertEqual(final_blueprint["metadata"]["workflowListName"], "Assessments")
+        self.assertEqual(final_blueprint["metadata"]["description"], "Run the selected feature workflow.")
+        self.assertEqual(final_blueprint["metadata"]["workflowListName"], "Features")
         self.assertTrue(final_blueprint["runtime"]["userProvidesSlug"])
         self.assertTrue(final_blueprint["setup"]["requireInstallationApproval"])
-        request["settings"]["description"] = "No longer a dialog field"
+        request["instanceConfiguration"]["advanced"] = True
         with self.assertRaisesRegex(ValueError, "Invalid request fields"):
             compile_blueprint(request)
 
@@ -127,7 +139,7 @@ class BlueprintContracts(unittest.TestCase):
     def test_external_installation_is_not_weakened_by_dialog_consent(self) -> None:
         path = prepare_request(
             self.workspace, ["speckit.plan"], "fixture-workflow", "Fixture Workflow",
-            False, inventory=self.inventory, settings={"requireInstallationApproval": False},
+            False, inventory=self.inventory,
         )
         atomic_json(path.with_name("command-override-draft.json"), {"categories": {
             "canvas-onboarding": {"installationMode": "external"},

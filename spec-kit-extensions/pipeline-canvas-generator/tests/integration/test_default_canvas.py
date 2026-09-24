@@ -110,7 +110,8 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertEqual(len(read_json(candidate / "canvas-experience.json")["categories"]), 6)
         self.assertFalse((candidate / "renderer").exists())
         app = (candidate / "ui" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('const presentation = {};', app)
+        presentation = json.loads(app.split("const presentation = ", 1)[1].split(";", 1)[0])
+        self.assertEqual(presentation["canvas-content"]["description"], "My Canvas workflow canvas.")
         self.assertNotIn("rendererHost", app)
         self.assertNotIn("selectedRenderer", app)
         self.assertIn('renderPhaseNavigation();', app)
@@ -145,9 +146,9 @@ class DefaultCanvasJourney(unittest.TestCase):
             self.request_path, PACKAGE / "tests" / "fixtures" / "scaffold"
         )
         app = (candidate / "ui" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('const presentation = {"canvas-theme": {"colors": {"accent": "#176a81"}}}', app)
-        self.assertIn('"canvas-theme": {"colors": {"accent": "#176a81"}}', app)
-        self.assertNotIn('"positive": "#238636"', app)
+        presentation = json.loads(app.split("const presentation = ", 1)[1].split(";", 1)[0])
+        self.assertEqual(presentation["canvas-theme"]["colors"], {"accent": "#176a81"})
+        self.assertEqual(presentation["canvas-content"]["description"], "My Canvas workflow canvas.")
         self.assertIn('const category = (name) => presentation[name]', app)
         if shutil.which("node"):
             result = subprocess.run(

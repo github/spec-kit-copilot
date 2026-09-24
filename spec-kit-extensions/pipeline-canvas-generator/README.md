@@ -185,9 +185,11 @@ leaves the old target intact; a publication failure may leave a partial
 target, which can be replaced through an ordinary confirmed Regenerate.
 
 The Wizard's Phases header retains only the Generate button. Its dialog
-confirms the canvas ID, name, derived target, installation-approval choice,
-Canvas Design packages (which own copy, result tags, and slug behavior), and
-for existing targets, Regenerate through the same action. It confirms
+confirms the canvas ID, name, derived target, workflow header, description,
+custom-slug and installation-approval choices, and Canvas Design packages.
+The common dialog choices override corresponding design defaults; design
+packages still supply other presentation and result settings. For existing
+targets, the dialog confirms Regenerate through the same action. It confirms
 the displayed phase order and exact destination, captures fresh Specify
 artifact/preset/extension JSON in the server, and hands the extension-owned
 prepared request to the same generate skill. The status remains queued

@@ -78,16 +78,31 @@ function slugify(value) {
 }
 
 export function defaultGenerationMetadata(snapshot = state.snapshot) {
+    const items = effectivePipelinePhases(snapshot);
     const provider = workflowProvider(snapshot);
     const extensionId = slugify(provider ? `${provider.id}-workflow` : "spec-kit-workflow");
     const providerName = provider?.name
         ? provider.name.split(/[-_]/).map(capitalize).join(" ")
         : null;
-    const displayName = providerName ? `${providerName} Workflow` : "Spec Kit Workflow";
+    const labels = items.map(({ id }) => {
+        const command = commandForPipelineId(id, snapshot);
+        const fallback = stripCommandsPrefix(id).split(".").pop();
+        return command?.shortLabel || command?.title || capitalize(fallback);
+    }).filter(Boolean);
+    const canonicalSdd = items.map(({ id }) => stripCommandsPrefix(id)).join(",") === [
+        "constitution", "specify", "clarify", "plan", "tasks", "analyze", "checklist", "implement",
+    ].join(",");
+    const displayName = canonicalSdd
+        ? "Spec-Driven Development"
+        : providerName ? `${providerName} Workflow` : "Spec Kit Workflow";
+    const sequence = labels.join(" → ");
     return {
         extensionId,
         displayName,
-        requireInstallationApproval: false,
+        workflowListName: canonicalSdd ? "Features" : "Workflows",
+        description: sequence ? `Visual workflow for ${sequence}.` : "Visual Spec Kit workflow.",
+        userProvidedSlug: false,
+        requireInstallationApproval: canonicalSdd,
     };
 }
 
@@ -119,12 +134,16 @@ async function runPreflight(root) {
     const dialog = dialogVersion;
     const extensionId = root.querySelector("#generation-extension-id")?.value.trim() ?? "";
     const displayName = root.querySelector("#generation-display-name")?.value.trim() ?? "";
+    const workflowListName = root.querySelector("#generation-workflow-list-name")?.value.trim() ?? "";
+    const description = root.querySelector("#generation-description")?.value.trim() ?? "";
     const target = root.querySelector("#generation-target");
     const errors = [];
     if (!/^[a-z0-9][a-z0-9-]*$/.test(extensionId) || extensionId.length > 80) {
         errors.push({ field: "extensionId", message: "Use a lowercase canvas ID of at most 80 characters." });
     }
     if (!displayName || displayName.length > 120) errors.push({ field: "displayName", message: "Enter a name of at most 120 characters." });
+    if (!workflowListName || workflowListName.length > 80) errors.push({ field: "workflowListName", message: "Enter a workflow header of at most 80 characters." });
+    if (!description || description.length > 240) errors.push({ field: "description", message: "Enter a description of at most 240 characters." });
     let result = { ok: false, errors, target: { relativeDirectory: `.github/extensions/${extensionId || "…"}/` } };
     if (!errors.length) {
         try {
@@ -271,8 +290,19 @@ async function submitGeneration(root) {
             return name.startsWith("speckit.") ? name : `speckit.${name}`;
         });
         const result = await __postJson("/api/generation", {
-            phases, canvasId: metadata.extensionId, displayName: metadata.displayName,
-            settings: { requireInstallationApproval: metadata.requireInstallationApproval },
+            phases,
+            configuration: {
+                canvas: {
+                    id: metadata.extensionId,
+                    displayName: metadata.displayName,
+                    workflowListName: metadata.workflowListName,
+                    description: metadata.description,
+                },
+                instanceConfiguration: {
+                    workflowSlug: { userProvided: metadata.userProvidedSlug },
+                    installationMode: metadata.requireInstallationApproval ? "prompt" : "automatic",
+                },
+            },
             ...(confirmedOverwrite ? { overwrite: true, confirmedTarget: preflight.target.absolutePath } : {}),
         }, { throwOnError: true });
         if (result?.queued !== true) throw new Error("Generator did not queue a request.");
@@ -354,11 +384,28 @@ export function openGenerationDialog() {
                         <span class="wizard-modal-desc" id="generation-display-name-help">Text displayed as the canvas title.</span>
                         <input id="generation-display-name" class="wizard-modal-input" value="${escapeHtml(metadata.displayName)}" aria-labelledby="generation-display-name-label" aria-describedby="generation-display-name-help" />
                     </label>
+                    <label class="wizard-modal-field" for="generation-workflow-list-name">
+                        <span class="wizard-modal-field-label" id="generation-workflow-list-name-label">Workflow header</span>
+                        <span class="wizard-modal-desc" id="generation-workflow-list-name-help">Text displayed as the workflow collection heading, such as Assessments or Bugs.</span>
+                        <input id="generation-workflow-list-name" class="wizard-modal-input" value="${escapeHtml(metadata.workflowListName)}" maxlength="80" aria-labelledby="generation-workflow-list-name-label" aria-describedby="generation-workflow-list-name-help" />
+                    </label>
+                    <label class="wizard-modal-field" for="generation-description">
+                        <span class="wizard-modal-field-label" id="generation-description-label">Description</span>
+                        <span class="wizard-modal-desc" id="generation-description-help">Text displayed beneath the workflow collection heading, before the folder link.</span>
+                        <textarea id="generation-description" class="wizard-modal-textarea generation-description" maxlength="240" aria-labelledby="generation-description-label" aria-describedby="generation-description-help">${escapeHtml(metadata.description)}</textarea>
+                    </label>
                     <label class="wizard-modal-check">
-                        <input id="generation-require-installation-approval" type="checkbox" aria-labelledby="generation-approval-label" aria-describedby="generation-approval-help" />
+                        <input id="generation-user-provided-slug" type="checkbox"${metadata.userProvidedSlug ? " checked" : ""} aria-labelledby="generation-slug-label" aria-describedby="generation-slug-help" />
+                        <span>
+                            <strong id="generation-slug-label" class="wizard-modal-field-label">Allow custom slug</strong>
+                            <small id="generation-slug-help">Lets users specify the slug used as the directory name for generated artifacts. Otherwise, Spec Kit chooses a default or Copilot may ask the user in the chat session.</small>
+                        </span>
+                    </label>
+                    <label class="wizard-modal-check">
+                        <input id="generation-require-installation-approval" type="checkbox"${metadata.requireInstallationApproval ? " checked" : ""} aria-labelledby="generation-approval-label" aria-describedby="generation-approval-help" />
                         <span>
                             <strong id="generation-approval-label" class="wizard-modal-field-label">Require installation approval</strong>
-                            <small id="generation-approval-help">Ask users to approve included presets and extensions before installation. Otherwise, missing components install automatically unless Canvas Design requires external installation.</small>
+                            <small id="generation-approval-help">Ask users to approve all included presets and extensions before installation. Otherwise, the app automatically installs missing components without asking for installation approval.</small>
                         </span>
                     </label>
                     <section class="generation-design" aria-label="Canvas Design">
@@ -391,11 +438,14 @@ export function openGenerationDialog() {
         root._generationMetadata = {
             extensionId: root.querySelector("#generation-extension-id")?.value.trim() ?? "",
             displayName: root.querySelector("#generation-display-name")?.value.trim() ?? "",
+            workflowListName: root.querySelector("#generation-workflow-list-name")?.value.trim() ?? "",
+            description: root.querySelector("#generation-description")?.value.trim() ?? "",
+            userProvidedSlug: root.querySelector("#generation-user-provided-slug")?.checked === true,
             requireInstallationApproval: root.querySelector("#generation-require-installation-approval")?.checked === true,
         };
         schedulePreflight(root);
     };
-    for (const input of root.querySelectorAll("input:not([readonly]):not(#generation-design-search)")) {
+    for (const input of root.querySelectorAll("input:not([readonly]):not(#generation-design-search), textarea")) {
         input.addEventListener("input", syncMetadata);
     }
     mountDesignPicker(root);

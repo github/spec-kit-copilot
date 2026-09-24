@@ -59,12 +59,11 @@ use the repair action rather than reinstalling. Generate stays disabled until
 the check passes. The generator is not part of the Wizard Copilot plugin and
 must be released and updated independently.
 
-In Phases, select Generate canvas from the Pipeline header. The PR #32-style
-dialog holds the extension ID, name, read-only target, and installation-approval
-choice. Presentation copy, result tags, and slug behavior come from Canvas Design
-packages rather than duplicate dialog fields. Its Canvas
-Design area searches tagged presets, extensions, and bundles separately
-from the ordinary Catalogs page. Add or Remove operates immediately through
+In Phases, select Generate canvas from the Pipeline header. The compact common
+form captures the target, extension ID, canvas name, workflow header, description,
+custom-slug choice, and installation-approval choice. The Canvas Design area keeps
+presentation packages available and searches tagged presets, extensions, and
+bundles separately from the ordinary Catalogs page. Add or Remove operates immediately through
 the existing Spec Kit catalog skills; closing Generate does not undo a
 completed change. A community source still requires the normal trust prompt.
 A package is eligible only when its catalog tag and available manifest agree

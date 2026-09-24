@@ -193,7 +193,10 @@ class CustomerCategoryContracts(unittest.TestCase):
         scaffold = PACKAGE / "tests" / "fixtures" / "scaffold"
         candidate = materialize_candidate(request, scaffold)
         profile = read_json(candidate / "canvas-experience.json")
-        self.assertEqual(profile["categories"]["canvas-content"], self.customer)
+        self.assertEqual(profile["categories"]["canvas-content"], {
+            **self.customer,
+            "description": "My Canvas workflow canvas.",
+        })
         self.assertFalse(profile["categories"]["canvas-layout"]["phases"]["showDescriptions"])
         receipt = read_json(write_receipt(request, scaffold))
         self.assertEqual(receipt["categories"]["canvas-content"]["owner"], "customer-canvas-design")

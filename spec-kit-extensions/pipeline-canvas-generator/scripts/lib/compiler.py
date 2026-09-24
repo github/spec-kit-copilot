@@ -125,7 +125,7 @@ def compile_blueprint(request: dict) -> dict:
     """Preserve phase order, bound outputs and Specify provider provenance."""
     validate_request(request)
     workflow = request["workflow"]
-    settings = request.get("settings", {})
+    instance_configuration = request["instanceConfiguration"]
     snapshot = workflow["artifactSnapshot"]
     commands_by_name = {
         row["name"]: row for row in snapshot["artifacts"] if row["kind"] == "command"
@@ -195,21 +195,20 @@ def compile_blueprint(request: dict) -> dict:
         "metadata": {
             "extensionId": request["canvas"]["id"],
             "displayName": request["canvas"]["displayName"],
-            "description": f"{request['canvas']['displayName']} workflow canvas.",
-            "workflowListName": "Workflows",
+            "description": request["canvas"]["description"],
+            "workflowListName": request["canvas"]["workflowListName"],
         },
         "pipeline": {"topology": "linear", "steps": steps},
         "phaseOutputs": deepcopy(workflow["phaseOutputs"]),
         "setup": {
             **_setup_requirements(snapshot, commands, steps, workflow["requiredSkillHashes"]),
-            **({"requireInstallationApproval": settings["requireInstallationApproval"]}
-               if settings else {}),
+            "requireInstallationApproval": instance_configuration["installationMode"] == "prompt",
         },
         "runtime": {
             "visualStyle": "spec-kit-wizard",
             "workflowMode": "item" if item_root else "project",
             "itemRoot": item_root,
-            "userProvidesSlug": False,
+            "userProvidesSlug": instance_configuration["workflowSlug"]["userProvided"],
             "multiInstance": bool(item_root),
             "supportsArtifactPreview": True,
             "supportsRerun": True,

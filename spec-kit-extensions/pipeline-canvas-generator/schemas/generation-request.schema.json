@@ -4,24 +4,34 @@
   "title": "Immutable canvas generation request",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "canvas", "workflow", "workspace", "overwrite"],
+  "required": ["schemaVersion", "canvas", "instanceConfiguration", "workflow", "workspace", "overwrite"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "canvas": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "displayName"],
+      "required": ["id", "displayName", "workflowListName", "description"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "displayName": { "type": "string", "minLength": 1 }
+        "displayName": { "type": "string", "minLength": 1 },
+        "workflowListName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 240 }
       }
     },
-    "settings": {
+    "instanceConfiguration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requireInstallationApproval"],
+      "required": ["workflowSlug", "installationMode"],
       "properties": {
-        "requireInstallationApproval": { "type": "boolean" }
+        "workflowSlug": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["userProvided"],
+          "properties": {
+            "userProvided": { "type": "boolean" }
+          }
+        },
+        "installationMode": { "enum": ["automatic", "prompt"] }
       }
     },
     "workflow": {

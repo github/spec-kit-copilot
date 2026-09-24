@@ -61,7 +61,7 @@ async function runGeneratorProcess(workspace, executable, args, input = null) {
     });
 }
 
-export async function prepareWizardGeneration(workspace, phases, canvasId, displayName, overwrite = false, inst = null, settings = null) {
+export async function prepareWizardGeneration(workspace, phases, configuration, overwrite = false, inst = null) {
     const generator = await checkGeneratorReadiness(inst ?? { workspacePath: workspace }, { force: true });
     if (!generator.ready) throw new Error(generator.message);
     const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
@@ -70,10 +70,10 @@ export async function prepareWizardGeneration(workspace, phases, canvasId, displ
     await access(skill);
     const { inventory } = await readSpecifySnapshot(inst ?? { workspacePath: workspace }, { refresh: true });
     const result = JSON.parse(await runGeneratorProcess(workspace, "python", [
-        script, "prepare-request", "--workspace", workspace, "--canvas-id", canvasId,
-        "--display-name", displayName, ...phases.flatMap((phase) => ["--phase", phase]),
+        script, "prepare-request", "--workspace", workspace,
+        "--configuration-json", JSON.stringify(configuration),
+        ...phases.flatMap((phase) => ["--phase", phase]),
         ...(overwrite ? ["--overwrite"] : []),
-        ...(settings == null ? [] : ["--settings-json", JSON.stringify(settings)]),
         "--inventory-stdin",
     ], JSON.stringify(inventory)));
     if (typeof result.requestPath !== "string" || !result.requestPath) {
@@ -97,7 +97,9 @@ export async function handleGenerate(res, body, {
         JSON.stringify(body.phases) !== JSON.stringify(selected)) {
         return jsonError(res, 409, "selected phase order changed; refresh before generating");
     }
-    const { canvasId, displayName } = body;
+    const configuration = body?.configuration;
+    const canvasId = configuration?.canvas?.id;
+    const displayName = configuration?.canvas?.displayName;
     if (typeof canvasId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(canvasId) ||
         typeof displayName !== "string" || !displayName.trim() || displayName.length > 120) {
         return jsonError(res, 400, "invalid canvas ID or display name");
@@ -119,7 +121,7 @@ export async function handleGenerate(res, body, {
     }
     let requestPath;
     try {
-        requestPath = await prepare(inst.workspacePath, selected, canvasId, displayName, targetExists, inst, body.settings ?? null);
+        requestPath = await prepare(inst.workspacePath, selected, configuration, targetExists, inst);
     } catch (error) {
         return jsonError(res, 422, `generation preparation failed: ${error.message}`);
     }
