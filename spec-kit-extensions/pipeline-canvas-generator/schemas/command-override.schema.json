@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "command-override.schema.json",
+  "title": "Request-bound command-derived override",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestSha256", "categories"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "requestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "categories": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "canvas-content": { "$ref": "#/$defs/sparseCategory" },
+        "canvas-theme": { "$ref": "#/$defs/sparseCategory" },
+        "canvas-layout": { "$ref": "#/$defs/sparseCategory" },
+        "canvas-interactions": { "$ref": "#/$defs/sparseCategory" },
+        "canvas-results": { "$ref": "#/$defs/sparseCategory" },
+        "canvas-onboarding": { "$ref": "#/$defs/sparseCategory" }
+      }
+    }
+  },
+  "$defs": {
+    "sparseCategory": {
+      "type": "object",
+      "not": { "anyOf": [
+        { "required": ["schemaVersion"] },
+        { "required": ["requestSha256"] }
+      ] }
+    }
+  }
+}

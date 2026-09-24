@@ -1,0 +1,35 @@
+{
+  "snapshot": {
+    "pipeline": [
+      { "id": "constitution" },
+      { "id": "specify" },
+      { "id": "clarify" },
+      { "id": "plan" },
+      { "id": "tasks" },
+      { "id": "analyze" },
+      { "id": "checklist" },
+      { "id": "implement" }
+    ],
+    "commands": []
+  },
+  "expectedSkills": [
+    "speckit-constitution",
+    "speckit-specify",
+    "speckit-clarify",
+    "speckit-plan",
+    "speckit-tasks",
+    "speckit-analyze",
+    "speckit-checklist",
+    "speckit-implement"
+  ],
+  "expectedArtifacts": [
+    ".specify/memory/constitution.md",
+    "specs/<slug>/spec.md",
+    "specs/<slug>/spec.md",
+    "specs/<slug>/plan.md",
+    "specs/<slug>/tasks.md",
+    null,
+    "specs/<slug>/checklists/<name>.md",
+    "specs/<slug>/tasks.md"
+  ]
+}

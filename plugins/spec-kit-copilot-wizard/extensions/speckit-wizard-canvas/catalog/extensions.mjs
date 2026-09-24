@@ -9,7 +9,8 @@
 // stay on the direct CLI path (same pattern as presets.mjs and
 // bundles.mjs).
 
-import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./shared.mjs";
+import { hydrateFromCatalogSources, cliOrderFromInstalled } from "./shared.mjs";
+import { readSpecifySnapshot } from "../composition/snapshot.mjs";
 
 // Query `specify extension list` to detect installed extensions. Mirrors
 // listInstalledPresets. The CLI's output format for `extension list` follows
@@ -17,41 +18,15 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 // `  <name> (<id>) v<version>`. If the format differs, the parser will simply
 // return an empty set and every extension will render as not-installed —
 // still functional, just missing the "added" badge.
-export async function listInstalledExtensions(workspacePath) {
-    const stdout = await specifyRun(["extension", "list"], workspacePath);
-    const ids = new Set();
-    const names = new Set();
-    const byName = new Map();
-    const orderedIds = [];
-    if (stdout == null) return { ids, names, byName, orderedIds };
-    // `specify extension list` prints two-line entries:
-    //     ✓ <Display Name> (v<version>)
-    //        <extension-id>
-    //        <description...>
-    // We parse the header + following non-empty line as the id.
-    const lines = stdout.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-        const header = lines[i].match(/^\s*[✓✗x]\s+(.+?)\s+\(v[^)]+\)\s*$/);
-        if (!header) continue;
-        const name = header[1].trim();
-        // Find the next non-empty line — that's the id.
-        let id = null;
-        for (let j = i + 1; j < lines.length; j++) {
-            const t = lines[j].trim();
-            if (!t) continue;
-            // Stop if we've reached the next header row.
-            if (/^[✓✗x]\s+.+\(v[^)]+\)\s*$/.test(t)) break;
-            id = t.split(/\s+/)[0];
-            break;
-        }
-        if (id) {
-            names.add(name.toLowerCase());
-            ids.add(id);
-            byName.set(name.toLowerCase(), id);
-            orderedIds.push(id);
-        }
-    }
-    return { ids, names, byName, orderedIds };
+export async function listInstalledExtensions(workspacePath, inst = { workspacePath }) {
+    const { inventory } = await readSpecifySnapshot(inst);
+    const items = inventory.extensions;
+    return {
+        ids: new Set(items.map((item) => item.id)),
+        names: new Set(items.map((item) => item.name.toLowerCase())),
+        byName: new Map(items.map((item) => [item.name.toLowerCase(), item.id])),
+        orderedIds: items.map((item) => item.id),
+    };
 }
 
 // Given extension catalog sources, fetch each source's JSON directly to

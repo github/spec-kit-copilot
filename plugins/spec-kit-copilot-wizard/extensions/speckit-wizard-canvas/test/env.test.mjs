@@ -12,6 +12,76 @@ import {
 } from "../env/workspace.mjs";
 import { isInside, resolveWorkspacePath } from "../server/http-utils.mjs";
 import { safeExternalHref } from "../ui/client.js";
+import { generatorReadinessFromInventory } from "../env/deps-check.mjs";
+import { buildPrompt } from "../prompts.mjs";
+import { sendDesignMutation } from "../ui/design-filter.js";
+import { openCommunityInstallModal } from "../ui/modals.js";
+
+test("generator readiness enforces Specify minimum, version, enablement and priority 100", () => {
+    const extension = {
+        id: "pipeline-canvas-generator", version: "0.2.0",
+        enabled: true, priority: 100,
+    };
+    assert.equal(generatorReadinessFromInventory("specify 1.0.7", [extension]).ready, true);
+    assert.equal(generatorReadinessFromInventory("specify 1.0.6", [extension]).action, "Update Specify");
+    assert.equal(generatorReadinessFromInventory("specify 1.0.7", []).action, "Add generator");
+    assert.equal(generatorReadinessFromInventory("specify 1.0.7", [{ ...extension, version: "0.0.9" }]).action,
+        "Update generator");
+    assert.deepEqual(generatorReadinessFromInventory("specify 1.0.7",
+        [{ ...extension, enabled: false, priority: 10 }]).repair, {
+        enable: true, priority: true,
+    });
+    assert.equal(generatorReadinessFromInventory("specify 1.0.7",
+        [{ ...extension, priority: 10 }]).action, "Repair generator");
+});
+
+test("incompatible Specify upgrades via its own skill, not generator install", () => {
+    const prompt = buildPrompt("setup.updateSpecify", {}, { workspacePath: "C:\\work" });
+    assert.match(prompt, /speckit-self/);
+    assert.match(prompt, /preview the upgrade/);
+    assert.doesNotMatch(prompt, /extension add|extension install/);
+});
+
+test("Generate immediately dispatches one eligible package mutation and rejects unverified bundles", async () => {
+    const calls = [];
+    const dispatch = async (...args) => { calls.push(args); return { queued: true }; };
+    await sendDesignMutation("preset", {
+        id: "canvas-theme", design: true, downloadUrl: "https://example.com/theme.zip",
+    }, dispatch);
+    await sendDesignMutation("extension", {
+        id: "design-tools", installedId: "design-tools", design: true, active: true,
+    }, dispatch);
+    assert.deepEqual(calls, [
+        ["preset.install", { name: "canvas-theme", downloadUrl: "https://example.com/theme.zip", design: true }],
+        ["extension.remove", { name: "design-tools" }],
+    ]);
+    await assert.rejects(() => sendDesignMutation("bundle",
+        { id: "mixed", design: false }, dispatch), /not eligible/);
+    assert.equal(calls.length, 2);
+    await assert.rejects(() => sendDesignMutation("preset", {
+        id: "canvas-theme", design: true,
+    }, async () => undefined), /Could not queue/);
+});
+
+test("community design packages require confirmation before Add", () => {
+    const beforeDocument = globalThis.document;
+    const beforeWindow = globalThis.window;
+    let approvals = 0;
+    globalThis.document = { getElementById: () => null };
+    globalThis.window = { confirm: () => false };
+    try {
+        openCommunityInstallModal({ kind: "bundle", displayName: "Community Bundle",
+            onConfirm: () => { approvals++; } });
+        assert.equal(approvals, 0);
+        globalThis.window.confirm = () => true;
+        openCommunityInstallModal({ kind: "bundle", displayName: "Community Bundle",
+            onConfirm: () => { approvals++; } });
+        assert.equal(approvals, 1);
+    } finally {
+        globalThis.document = beforeDocument;
+        globalThis.window = beforeWindow;
+    }
+});
 
 describe("env-probe", () => {
 // Tests for env-probe.mjs — pure decideChecks + summarizeResults; runChecks

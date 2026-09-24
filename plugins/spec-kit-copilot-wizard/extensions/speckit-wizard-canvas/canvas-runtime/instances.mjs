@@ -148,7 +148,6 @@ export function sessionAdapter() {
 // nothing to change from), so opening the wizard on a stable project
 // doesn't trigger a reload.
 export async function reloadSkillsIfInstalledSetChanged(inst, kind, currentIds) {
-    if (!_session?.rpc?.skills?.reload) return; // SDK too old — silently skip.
     const cacheKey = kind === "extension"
         ? "_lastInstalledExtensionIds"
         : "_lastInstalledPresetIds";
@@ -167,8 +166,10 @@ export async function reloadSkillsIfInstalledSetChanged(inst, kind, currentIds) 
             if (!previous.has(id)) { changed = true; break; }
         }
     }
-    inst[cacheKey] = nextSet;
     if (!changed) return;
+    if (!_session?.rpc?.skills?.reload) {
+        throw new Error(`Cannot reload session skills after ${kind} change; refresh the host and retry.`);
+    }
     // Funnel through the shared reload core — same one-way-sticky
     // persistence rules as the UI-triggered path. A failure here logs but
     // never disables the wizard: `runSkillsReload` only ever writes
@@ -178,6 +179,10 @@ export async function reloadSkillsIfInstalledSetChanged(inst, kind, currentIds) 
         broadcast: (msg) => inst.broadcast?.(msg),
         getInstance: () => inst,
     });
+    if (!result.ok) {
+        throw new Error(`Session skills reload failed after ${kind} change; retry once the host is ready.`);
+    }
+    inst[cacheKey] = nextSet;
     try {
         await _session.log(
             `speckit-wizard: reloaded session skills after ${kind} change (ok=${result.ok}, errors=${result.errors}, warnings=${result.warnings})`,

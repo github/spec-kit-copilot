@@ -1,0 +1,11 @@
+schema_version: "1.0"
+extension:
+  id: support-extension
+  name: Support Extension
+  version: "1.0.0"
+provides:
+  commands:
+    - name: speckit.support-extension.prepare
+      file: commands/prepare.md
+tags:
+  - canvas-design

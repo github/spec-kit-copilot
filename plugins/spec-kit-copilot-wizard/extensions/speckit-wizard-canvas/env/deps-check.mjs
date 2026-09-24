@@ -56,6 +56,62 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classifyNpmError } from "./deps-error-classifier.mjs";
+import { specifyRun } from "../catalog/shared.mjs";
+import { readSpecifySnapshot } from "../composition/snapshot.mjs";
+
+export const GENERATOR_VERSION = "0.2.0";
+export const SPECIFY_MINIMUM = "1.0.7";
+
+function atLeast(actual, minimum) {
+    const parse = (value) => /^\d+\.\d+\.\d+$/.test(value)
+        ? value.split(".").map(Number) : null;
+    const a = parse(actual);
+    const b = parse(minimum);
+    if (!a || !b) return false;
+    for (let index = 0; index < 3; index++) {
+        if (a[index] !== b[index]) return a[index] > b[index];
+    }
+    return true;
+}
+
+export function generatorReadinessFromInventory(version, extensions) {
+    const cli = String(version ?? "").match(/\b(\d+\.\d+\.\d+)\b/)?.[1] ?? "";
+    if (!atLeast(cli, SPECIFY_MINIMUM)) {
+        return { ready: false, action: "Update Specify", message:
+            `Specify ${SPECIFY_MINIMUM} or later is required (found ${cli || "unknown"}).` };
+    }
+    const generator = extensions.find((entry) => entry.id === "pipeline-canvas-generator");
+    if (!generator) {
+        return { ready: false, action: "Add generator", message:
+            "Install the first-party Pipeline Canvas Generator at extension priority 100." };
+    }
+    if (!atLeast(generator.version, GENERATOR_VERSION)) {
+        return { ready: false, action: "Update generator", message:
+            `Pipeline Canvas Generator ${GENERATOR_VERSION} or later is required.` };
+    }
+    if (generator.enabled !== true || generator.priority !== 100) {
+        return { ready: false, action: "Repair generator", message:
+            "Enable Pipeline Canvas Generator and set its extension priority to 100.",
+            repair: { enable: generator.enabled !== true, priority: generator.priority !== 100 } };
+    }
+    return { ready: true, action: null, message: "Pipeline Canvas Generator is ready." };
+}
+
+export async function checkGeneratorReadiness(inst, { force = false } = {}) {
+    if (!force && inst.generatorCheck && Date.now() - inst.generatorCheck.at < 30_000) {
+        return inst.generatorCheck.value;
+    }
+    const version = await specifyRun(["--version"], inst.workspacePath);
+    if (!version) return { ready: false, action: "Retry", message: "Unable to read Specify version." };
+    try {
+        const { inventory } = await readSpecifySnapshot(inst, { refresh: force });
+        const value = generatorReadinessFromInventory(version, inventory.extensions);
+        inst.generatorCheck = { at: Date.now(), value };
+        return value;
+    } catch (error) {
+        return { ready: false, action: "Retry", message: `Generator check failed: ${error.message}` };
+    }
+}
 
 const EXT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 

@@ -15,6 +15,7 @@
 import { fetchCatalogJson } from "./sources.mjs";
 import { spawn } from "node:child_process";
 import { buildAugmentedPath } from "../env/resolve-path.mjs";
+import { availableBundleMembers, availableManifestTags, installedManifestTags } from "./design.mjs";
 
 const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] });
 
@@ -52,7 +53,7 @@ export async function specifyRun(args, cwd) {
         let stdout = "";
         child.stdout?.on("data", (d) => { stdout += String(d); });
         child.on("error", () => resolve(null));
-        child.on("close", () => resolve(stdout));
+        child.on("close", (code) => resolve(code === 0 ? stdout : null));
     });
 }
 
@@ -80,11 +81,13 @@ export async function specifyRun(args, cwd) {
  */
 export async function hydrateFromCatalogSources(inst, sources, cfg) {
     const { kind, dataKey, outputField, listInstalled, extraFields } = cfg;
+    inst.catalogSourceErrors ??= {};
+    inst.catalogSourceErrors[kind] = [];
     if (!Array.isArray(sources) || !sources.length) {
         inst[outputField] = [];
         return;
     }
-    const installed = inst.workspacePath ? await listInstalled(inst.workspacePath) : EMPTY_INSTALLED;
+    const installed = inst.workspacePath ? await listInstalled(inst.workspacePath, inst) : EMPTY_INSTALLED;
     const items = [];
     for (const src of sources) {
         if (!src?.url) continue;
@@ -105,6 +108,9 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
                 else if (installed.byName.has(nameKey)) installedId = installed.byName.get(nameKey);
                 const base = {
                     id: itemId,
+                    kind,
+                    tags: Array.isArray(raw?.tags) ? raw.tags : [],
+                    manifestUrl: raw?.manifest_url ?? null,
                     // Real installed id — used by Remove to call
                     // `specify <group> remove <installedId>` correctly.
                     installedId: installedId ?? itemId,
@@ -121,11 +127,47 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
                     documentation: raw?.documentation ?? null,
                     license: raw?.license ?? null,
                 };
-                const extras = extraFields ? extraFields(raw, { installedId, installed }) : null;
+                if (base.tags.includes("canvas-design")) {
+                    try {
+                        base.availableTags = await availableManifestTags(base.manifestUrl, kind, itemId);
+                        if (!base.availableTags.includes("canvas-design")) {
+                            base.tagError = `Available ${kind} manifest is not tagged canvas-design: ${itemId}`;
+                        }
+                        if (kind === "bundle" && !base.tagError) {
+                            base.manifestMembers = await availableBundleMembers(base.manifestUrl, itemId);
+                        }
+                    } catch (error) {
+                        base.tagError = error.message;
+                    }
+                }
+                if (installedId && inst.workspacePath) {
+                    try {
+                        base.installedTags = await installedManifestTags(inst.workspacePath, kind, installedId);
+                    } catch (error) {
+                        base.tagError = error.message;
+                    }
+                }
+                const extras = extraFields ? await extraFields(raw, { installedId, installed }) : null;
                 items.push(extras ? { ...base, ...extras } : base);
             }
-        } catch {
-            // best-effort catalog hydrate; a failing source is skipped
+        } catch (error) {
+            inst.catalogSourceErrors[kind].push(`${src.name}: ${error.message}`);
+        }
+    }
+    for (const id of installed.ids) {
+        if (items.some((item) => item.installedId === id)) continue;
+        let installedTags, tagError;
+        try {
+            installedTags = await installedManifestTags(inst.workspacePath, kind, id);
+        } catch (error) {
+            tagError = error.message;
+        }
+        if (installedTags?.includes("canvas-design") || tagError) {
+            items.push({
+                id, installedId: id, name: id, kind, source: "local", active: true,
+                tags: installedTags ?? [], installedTags, tagError,
+                installAllowed: false, downloadUrl: null, description: "",
+            });
         }
     }
     inst[outputField] = items;

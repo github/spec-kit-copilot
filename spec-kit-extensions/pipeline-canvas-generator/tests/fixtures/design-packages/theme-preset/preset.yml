@@ -1,0 +1,12 @@
+schema_version: "1.0"
+preset:
+  id: theme-preset
+  name: Theme Preset
+  version: "1.0.0"
+provides:
+  templates:
+    - type: template
+      name: canvas-theme
+      file: config/canvas-theme.json
+tags:
+  - canvas-design

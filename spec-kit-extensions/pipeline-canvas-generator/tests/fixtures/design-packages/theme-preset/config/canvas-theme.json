@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "colors": {
+    "accent": "#315f82",
+    "positive": "#257347",
+    "attention": "#93620b",
+    "critical": "#bc3d4b"
+  },
+  "typography": "serif",
+  "density": "comfortable",
+  "shape": "rounded",
+  "brand": { "logo": { "mode": "default" } }
+}

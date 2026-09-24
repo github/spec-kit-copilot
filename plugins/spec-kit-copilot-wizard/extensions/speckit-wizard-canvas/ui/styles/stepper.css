@@ -299,6 +299,14 @@
     background: #2b2214;
     border-color: #6e5220;
 }
+/* Dashed teal separator around a hook step, signaling causation to
+   the adjacent parent command step. */
+.stepper .step-sep.step-sep-hook {
+    border-top: 1px dashed color-mix(in oklab, #14B8A6 55%, transparent);
+    align-self: center;
+    width: 12px;
+    background: none;
+}
 @media (prefers-color-scheme: dark) {
     .stepper .step.step-hook {
         color: #5EEAD4;
@@ -309,6 +317,9 @@
         color: #5EEAD4;
         background: color-mix(in oklab, #14B8A6 25%, transparent);
         border-color: color-mix(in oklab, #5EEAD4 45%, transparent);
+    }
+    .stepper .step-sep.step-sep-hook {
+        border-top-color: color-mix(in oklab, #5EEAD4 55%, transparent);
     }
 }
 .step.is-canonical-fallback .step-name { color: var(--text-color-muted); }

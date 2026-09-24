@@ -1,0 +1,11 @@
+schema_version: "1.0"
+extension:
+  id: runtime-extension
+  name: Runtime Extension
+  version: "1.0.0"
+provides:
+  commands:
+    - name: speckit.runtime-extension.plan
+      file: commands/plan.md
+tags:
+  - runtime

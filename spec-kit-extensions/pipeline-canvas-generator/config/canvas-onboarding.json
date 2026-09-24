@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "workflowSlug": {
+    "userProvided": false,
+    "label": "Workflow name",
+    "helperText": "A safe identifier is assigned to this workflow."
+  },
+  "installationMode": "automatic",
+  "approvalCopy": "Review the required packages before installation.",
+  "readinessCopy": "Checking Spec Kit and session skills.",
+  "firstRunCopy": "Select a phase and enter its guidance to start.",
+  "helpCopy": "View each phase artifact from its workflow card.",
+  "recoveryCopy": "Resolve setup errors and retry."
+}

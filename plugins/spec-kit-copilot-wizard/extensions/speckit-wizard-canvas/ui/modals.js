@@ -276,7 +276,7 @@ export function confirmModal(message, { confirmLabel = "Remove", cancelLabel = "
 // the HTML shell for the modal isn't present in the DOM.
 
 export function openCommunityInstallModal({ displayName, onConfirm, kind }) {
-    const kindWord = kind === "extension" ? "extension" : "preset";
+    const kindWord = ["extension", "bundle"].includes(kind) ? kind : "preset";
     const learnHref = kind === "extension"
         ? "https://github.com/github/spec-kit/blob/main/extensions/README.md"
         : "https://github.com/github/spec-kit/blob/main/presets/README.md";
@@ -428,6 +428,153 @@ export function openWizardModal(opts) {
 
 
 // -------- Section: modals/viewers.js --------
+
+export function canvasDesignSections(snapshot, query = "") {
+    const search = query.trim().toLowerCase();
+    return [
+        ["Presets", "preset", snapshot?.catalog?.presets ?? []],
+        ["Extensions", "extension", snapshot?.catalog?.extensions ?? []],
+        ["Bundles", "bundle", snapshot?.catalog?.bundles ?? []],
+    ].map(([title, kind, entries]) => [title, kind, entries.filter((entry) =>
+        entry.id !== "pipeline-canvas-generator"
+        && (entry.design || (entry.designError
+            && (entry.tags?.includes("canvas-design")
+                || entry.installedTags?.includes("canvas-design"))))
+        && `${entry.name ?? ""} ${entry.id ?? ""} ${entry.description ?? ""}`.toLowerCase().includes(search))]);
+}
+
+export function openCanvasDesignModal({ target, existing, getSnapshot, onAction }) {
+    closeWizardModal();
+    const root = document.getElementById("wizard-modal-root");
+    if (!root) throw new Error("Canvas Design dialog is unavailable");
+    return new Promise((resolve) => {
+        const backdrop = document.createElement("div");
+        backdrop.className = "wizard-modal-backdrop";
+        backdrop.innerHTML = `
+            <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="design-title">
+                <header class="wizard-modal-head">
+                    <h3 id="design-title">Canvas Design</h3>
+                    <button type="button" class="btn-icon wizard-modal-close" aria-label="Close">✕</button>
+                </header>
+                <div class="wizard-modal-body">
+                    <p>Choose presentation packages before generating. Add and Remove take effect immediately; closing this dialog does not undo them.</p>
+                    <p class="design-generator" role="status"></p>
+                    <p>${existing
+                        ? `Regenerate ${escapeHtml(target)}? Every file in this directory, including manual edits, will be deleted without backup or rollback.`
+                        : `Generate a new project canvas at ${escapeHtml(target)}?`}</p>
+                    <p class="wizard-modal-field"><label for="design-search">Search Canvas Design</label>
+                        <input id="design-search" type="search" placeholder="Search presets, extensions, bundles" /></p>
+                    <div class="design-items"></div>
+                    <p class="design-status" role="status"></p>
+                </div>
+                <footer class="wizard-modal-foot">
+                    <button type="button" class="btn btn-secondary btn-sm wizard-modal-cancel">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm wizard-modal-confirm">${existing ? "Regenerate" : "Generate"}</button>
+                </footer>
+            </div>`;
+        root.appendChild(backdrop);
+        const search = backdrop.querySelector("#design-search");
+        const items = backdrop.querySelector(".design-items");
+        const status = backdrop.querySelector(".design-status");
+        const generator = backdrop.querySelector(".design-generator");
+        const confirm = backdrop.querySelector(".wizard-modal-confirm");
+        const pending = new Map();
+        const errors = new Map();
+        let closed = false;
+        const close = (accepted = false) => {
+            if (closed) return;
+            closed = true;
+            clearInterval(refresh);
+            document.removeEventListener("keydown", onKey);
+            backdrop.remove();
+            if (__wizardModalCloser === cancel) __wizardModalCloser = null;
+            resolve(accepted);
+        };
+        const cancel = () => close();
+        const onKey = (event) => {
+            if (event.key === "Escape") { event.preventDefault(); cancel(); }
+        };
+        const render = () => {
+            const snapshot = getSnapshot();
+            const catalogErrors = Object.values(snapshot?.catalogSourceErrors ?? {}).flat();
+            if (!errors.size && !pending.size && catalogErrors.length) {
+                status.textContent = `Catalog unavailable: ${catalogErrors.join("; ")}`;
+            } else if (!catalogErrors.length && status.textContent.startsWith("Catalog unavailable:")) {
+                status.textContent = "";
+            }
+            confirm.disabled = snapshot?.generatorStatus?.ready !== true;
+            generator.textContent = `Canvas generator: ${snapshot?.generatorStatus?.ready
+                ? "Added (Required)" : `Required — ${snapshot?.generatorStatus?.message ?? "Check Environment"}`}`;
+            items.replaceChildren();
+            for (const [title, kind, filtered] of canvasDesignSections(snapshot, search.value)) {
+                const section = document.createElement("section");
+                const heading = document.createElement("h4");
+                heading.textContent = title;
+                section.append(heading);
+                if (!filtered.length) {
+                    const empty = document.createElement("p");
+                    empty.textContent = "No matching design packages.";
+                    section.append(empty);
+                }
+                for (const entry of filtered) {
+                    const id = entry.id ?? entry.name;
+                    const key = `${kind}:${id}`;
+                    if (pending.has(key) && entry.designError) {
+                        pending.delete(key);
+                        errors.set(key, entry.designError);
+                        status.textContent = entry.designError;
+                    }
+                    if (pending.has(key) && pending.get(key) === entry.active) {
+                        pending.delete(key);
+                        status.textContent = `${entry.name ?? id} ${entry.active ? "added" : "removed"}.`;
+                    }
+                    const row = document.createElement("div");
+                    row.className = "catalog-card";
+                    const label = document.createElement("span");
+                    label.textContent = `${entry.name ?? id} (${errors.get(key) ?? (entry.designError
+                        ? entry.designError : entry.active ? "Added" : "Available")})`;
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "btn btn-secondary btn-xs";
+                    button.textContent = pending.has(key) ? "Working…" : entry.active ? "Remove" : "Add";
+                    button.disabled = pending.has(key) || !entry.design;
+                    button.addEventListener("click", () => {
+                        const apply = async () => {
+                            errors.delete(key);
+                            pending.set(key, !entry.active);
+                            status.textContent = `${entry.active ? "Removing" : "Adding"} ${entry.name ?? id}…`;
+                            render();
+                            try {
+                                await onAction(kind, entry);
+                            } catch (error) {
+                                pending.delete(key);
+                                errors.set(key, error.message);
+                                status.textContent = error.message;
+                                render();
+                            }
+                        };
+                        if (!entry.active && entry.installAllowed === false) {
+                            openCommunityInstallModal({ displayName: entry.name ?? id, kind, onConfirm: apply });
+                        } else apply();
+                    });
+                    row.append(label, button);
+                    section.append(row);
+                }
+                items.append(section);
+            }
+        };
+        const refresh = setInterval(render, 1000);
+        document.addEventListener("keydown", onKey);
+        backdrop.querySelector(".wizard-modal-close").addEventListener("click", cancel);
+        backdrop.querySelector(".wizard-modal-cancel").addEventListener("click", cancel);
+        backdrop.addEventListener("click", (event) => { if (event.target === backdrop) cancel(); });
+        confirm.addEventListener("click", () => { if (!confirm.disabled) close(true); });
+        search.addEventListener("input", render);
+        __wizardModalCloser = cancel;
+        render();
+        search.focus();
+    });
+}
 
 let __postJson = async () => { throw new Error("viewers: postJson not injected"); };
 let __HEADERS = {};

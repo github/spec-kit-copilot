@@ -25,12 +25,23 @@ import {
 
 export const SETUP_KINDS = new Set([
     "setup.init",
+    "setup.updateSpecify",
     "setup.reloadSkills",
     "skills.verify",
 ]);
 
 export function buildSetupPrompt(kind, payload, context, { workspacePath, skill }) {
     switch (kind) {
+        case "setup.updateSpecify":
+            return fmtHeader({
+                skill, kind, workspacePath,
+                boundary: "Update the Specify CLI to a compatible version only after the user's requested upgrade preview.",
+            }) + [
+                "Specify 1.0.7 or later is required for Canvas Generator.",
+                "Follow the speckit-self skill: preview the upgrade, show the preview to the user,",
+                "then upgrade only with their approval. Verify `specify version` afterward.",
+                "Do not install or modify the generator extension as a substitute for updating Specify.",
+            ].join("\n");
         case "setup.init": {
             void payload;
             void workspacePath;

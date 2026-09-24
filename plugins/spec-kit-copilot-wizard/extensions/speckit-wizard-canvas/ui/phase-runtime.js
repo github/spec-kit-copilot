@@ -10,6 +10,7 @@ import {
     bareCommandId,
 } from "./state.js";
 import { popoverConfirm } from "./modals.js";
+import { generationAvailability, generationStatus, openGenerationDialog, setGenerationDeps } from "./generation.js";
 import { wireInfoPopover } from "./composition.js";
 import {
     canonicalDescription,
@@ -22,6 +23,7 @@ import {
 import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { isRuntimeCatalogItem } from "./design-filter.js";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -319,9 +321,11 @@ function resolveExtensionArtifactFromSnapshot(pipelineId, snapshot) {
 // -------- Section: phase/pipeline.js --------
 
 let __postJson = async () => {};
-
 export function setPipelineDeps({ postJson }) {
-    if (typeof postJson === "function") __postJson = postJson;
+    if (typeof postJson === "function") {
+        __postJson = postJson;
+        setGenerationDeps({ postJson, render: renderPipelineBanner });
+    }
 }
 
 /** True when the user has taken control of the pipeline (any array — even []). */
@@ -348,13 +352,9 @@ export function renderPipelineBanner() {
     if (!el) return;
     const onPhasesTab = state.activeTab === "phases" || !state.activeTab;
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
-    const items = pipelineItems();
-    const edited = pipelineIsEdited();
-    // Nothing to show when the inferred spine is empty AND user hasn't taken control.
-    if (!items.length && !edited) {
-        el.hidden = true; el.innerHTML = "";
-        return;
-    }
+    const available = generationAvailability();
+    const generation = generationStatus();
+    const generating = generation?.status === "queued" || generation?.status === "generating";
     el.hidden = false;
     // Previously a "Pipeline from <extension name>" hint rendered above
     // the chip strip when the inferred pipeline was extension-standalone.
@@ -381,11 +381,18 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
-                ${items.length ? `<button type="button" class="btn btn-ghost pipeline-clear" data-action="clear">Clear</button>` : ""}
-                ${`<button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>`}
+                <button type="button" class="btn btn-secondary pipeline-clear" data-action="clear">Clear</button>
+                <button type="button" class="btn btn-secondary pipeline-reset" data-action="reset">Reset to default</button>
+                <button type="button" class="btn btn-secondary pipeline-generate"
+                    ${available.enabled && !generating ? "" : "disabled"}
+                    ${generating ? 'aria-busy="true"' : ""}
+                    title="${escapeHtml(available.reason || generation?.message || "Generate a canvas from this pipeline")}">
+                    ${generating ? "Generating…" : "Generate canvas"}
+                </button>
             </div>
         </header>
     `;
+    el.querySelector(".pipeline-generate")?.addEventListener("click", openGenerationDialog);
     wireInfoPopover("pipeline-info-btn", "pipeline-info-popover");
     const clearBtn = el.querySelector(".pipeline-clear");
     if (clearBtn) {
@@ -593,7 +600,12 @@ export function renderExtensionCommandCard(artifact, ext, hookBindings = null) {
 export function renderMoreCommandsPanel() {
     const el = document.getElementById("more-commands");
     if (!el) return;
-    const all = commands();
+    const designIds = new Set([
+        ...(state.snapshot?.catalog?.presets ?? []),
+        ...(state.snapshot?.catalog?.extensions ?? []),
+    ].filter((item) => !isRuntimeCatalogItem(item)).map((item) => item.installedId ?? item.id));
+    const all = commands().filter((phase) =>
+        !designIds.has(String(phase.source ?? "").replace(/^(?:preset|extension):/, "")));
     if (!(state.moreCollapsedSections instanceof Set)) state.moreCollapsedSections = new Set();
 
     // `originKind` = "preset" | "core"; when preset, `presetMeta` is the
@@ -701,7 +713,7 @@ export function renderMoreCommandsPanel() {
     // payload order. Presets absent from the payload (e.g. an unknown
     // seed source referencing an uninstalled preset) are appended after,
     // in Map insertion order, so nothing silently disappears.
-    const compPresetList = orderedCompositionPresets();
+    const compPresetList = orderedCompositionPresets().filter((item) => !designIds.has(item.id));
     const presetById = new Map();
     for (const pr of compPresetList) if (pr?.id) presetById.set(pr.id, pr);
     const presetIdFromSource = (source) => {
@@ -766,7 +778,7 @@ export function renderMoreCommandsPanel() {
 
     // Extension groups. Emitted in composition.extensions[] payload order
     // (CLI-derived precedence). No local sorting.
-    const compExtensions = orderedCompositionExtensions();
+    const compExtensions = orderedCompositionExtensions().filter((item) => !designIds.has(item.id));
     const compArtifactsAll = state.snapshot?.composition?.artifacts ?? [];
     const extensionSectionHtmlParts = compExtensions.map((ext) => {
         // Extension items in the More-Commands panel: only user-invokable

@@ -8,8 +8,8 @@
 // output belongs in chat. Machine-parseable read-only queries stay on the
 // direct CLI path (same pattern as extensions.mjs and bundles.mjs).
 
-import { parsePresetListOutput } from "../composition/preset-order.mjs";
-import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./shared.mjs";
+import { hydrateFromCatalogSources, cliOrderFromInstalled } from "./shared.mjs";
+import { readSpecifySnapshot } from "../composition/snapshot.mjs";
 
 // Query `specify preset list` to detect installed / active presets. This is
 // local project state, not remote catalog data — shelling out is deterministic
@@ -22,19 +22,14 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 //
 // Parsing is delegated to preset-order.mjs so that this helper and the
 // preset loader share ONE parser — no duplicated regex.
-export async function listInstalledPresets(workspacePath) {
-    const stdout = await specifyRun(["preset", "list"], workspacePath);
-    if (stdout == null) {
-        return { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
-    }
-    const parsed = parsePresetListOutput(stdout);
+export async function listInstalledPresets(workspacePath, inst = { workspacePath }) {
+    const { inventory } = await readSpecifySnapshot(inst);
+    const items = inventory.presets;
     return {
-        ids: new Set(parsed.orderedIds),
-        names: new Set(parsed.byName.keys()),
-        byName: parsed.byName,
-        // CLI precedence order (first = winner). Consumed by the
-        // composition assembler to break priority ties correctly.
-        orderedIds: parsed.orderedIds,
+        ids: new Set(items.map((item) => item.id)),
+        names: new Set(items.map((item) => item.name.toLowerCase())),
+        byName: new Map(items.map((item) => [item.name.toLowerCase(), item.id])),
+        orderedIds: items.map((item) => item.id),
     };
 }
 

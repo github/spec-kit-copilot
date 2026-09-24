@@ -10,6 +10,7 @@ import { persistAndBroadcast, runFastComposition } from "../composition-apply.mj
 import { reloadSkillsIfInstalledSetChanged } from "../instances.mjs";
 import { UnknownActionKindError } from "../../prompts.mjs";
 import { dispatchKindPrompt } from "../dispatch.mjs";
+import { invalidateSpecifySnapshot } from "../../composition/snapshot.mjs";
 
 /**
  * Shared body of the three showXCatalog handlers.
@@ -48,6 +49,8 @@ async function applyCatalogPush(inst, ctx, cfg) {
     // install-only push from wiping the catalog grid.
     const sources = inst[cfg.sourcesField] ?? [];
     if (sources.length) {
+        invalidateSpecifySnapshot(inst);
+        inst.generatorCheck = null;
         await cfg.hydrate(inst, sources);
     }
     // If we still have nothing (no sources cached yet), fall back to

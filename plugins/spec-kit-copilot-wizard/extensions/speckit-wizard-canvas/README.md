@@ -50,6 +50,40 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
+### Generating a standalone canvas
+
+Environment checks **Specify CLI >=1.0.7** and the separately versioned
+`pipeline-canvas-generator` Spec Kit extension (>=0.2.0, enabled at priority
+100). Install the generator there; if it is disabled or at the wrong priority,
+use the repair action rather than reinstalling. Generate stays disabled until
+the check passes. The generator is not part of the Wizard Copilot plugin and
+must be released and updated independently.
+
+In Phases, select Generate canvas from the Pipeline header. The compact common
+form captures the target, extension ID, canvas name, workflow header, description,
+custom-slug choice, and installation-approval choice. The Canvas Design area keeps
+presentation packages available and searches tagged presets, extensions, and bundles separately
+from the ordinary Catalogs page. Add or Remove operates immediately through
+the existing Spec Kit catalog skills; closing Generate does not undo a
+completed change. A community source still requires the normal trust prompt.
+A package is eligible only when its catalog tag and available manifest agree
+(or a local installed manifest identifies it as design-only), an installed
+manifest agrees, and it does not contribute a selected runtime phase. Bundle
+members must match the available bundle manifest and each member must be
+verified as design-only. If an available manifest or release cannot be fetched,
+Add remains unavailable rather than trusting a catalog label.
+Catalog/search filtering never changes Specify's effective composition
+precedence. The generator extension is Required, not an optional design
+choice. Confirming an existing target replaces its whole directory, including
+manual edits, without backup; cancellation leaves it untouched.
+
+The older Wizard pipeline remains a phase launcher. Generate creates a
+portable **project-scoped** canvas using the same Specify JSON inventories as
+the standalone generator command; the resulting canvas neither imports this
+Wizard nor needs its plugin at runtime. Continue using Catalogs for runtime
+phase providers and Environment for setup; do not install Canvas Design
+packages as runtime prerequisites when transferring the generated canvas.
+
 ## Quickstart
 
 > This is a **canvas extension** — it opens in the **GitHub Copilot app**
@@ -116,7 +150,7 @@ canvas can only trigger phases that belong to your composed pipeline.
 
 You can drive the wizard with natural-language prompts at any point —
 the agent maps what you ask into canvas actions and the UI updates
-accordingly. The extension registers **13 actions** across four groups:
+accordingly. The extension registers **11 actions** across four groups:
 
 **Verbs (agent-initiated work):**
 - `runPhase` — dispatch a phase's `/speckit-<phase>` slash command with the
@@ -124,10 +158,6 @@ accordingly. The extension registers **13 actions** across four groups:
 - `addPreset` — install a preset by id (same code path as the Install button).
 - `addExtension` — install a Spec Kit extension by id (same code path as
   the Install button).
-- `addPipelinePhases` — add ordered command phases to the Phases pipeline
-  without removing or reordering existing steps. Given a README link, the
-  agent reads its workflow and supplies installed command IDs with optional
-  `after` anchors; automatic hook commands are not addable.
 - `reloadSessionSkills` — reload Copilot's in-memory skill registry for
   the session (equivalent to `/skills reload`).
 - `runNpmDiagnostics` — dispatch a scripted npm-diagnostic prompt to the
@@ -228,18 +258,6 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 `specs/<slug>/checklists/`.
 
 ## Troubleshooting
-
-**A phase status, pipeline command, or composition change looks wrong after
-overlapping wizard actions.**
-
-Concurrent updates can occasionally overwrite newer fields in
-`.speckit-wizard/state.json`. This state-write limitation predates
-`addPipelinePhases`; the new action is another possible participant. It
-affects the wizard's saved progress and pipeline, **not the generated spec,
-plan, or other artifact files**. Refresh the canvas and check the artifacts
-before rerunning a phase. If the state still looks wrong, ask the agent to
-reconcile it against the files on disk and the pipeline you intended; the
-wizard cannot detect or undo the overwritten update automatically.
 
 **First open shows "Spec Kit Wizard cannot start" or an npm error like
 `ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE`, `ECONNREFUSED`, `ETIMEDOUT`,
