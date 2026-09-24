@@ -10,6 +10,10 @@ const artifacts = [
     { id: "commands/speckit.cosmosdb.recommend", kind: "command" },
     { id: "commands/speckit.cosmosdb.model", kind: "command" },
     { id: "commands/speckit.cosmosdb.container", kind: "command" },
+    { id: "commands/speckit.cosmosdb.repository", kind: "command" },
+    { id: "commands/speckit.cosmosdb.query", kind: "command" },
+    { id: "commands/speckit.cosmosdb.partition-key", kind: "command" },
+    { id: "commands/speckit.cosmosdb.point-read", kind: "command" },
     {
         id: "commands/speckit.cosmosdb.advise",
         kind: "hook",
@@ -47,6 +51,42 @@ test("adds README commands at their anchors without changing existing phases", (
     assert.deepEqual(addPipelinePhases({ ...state, pipeline: result.pipeline }, additions).alreadyPresent, result.added);
     const partial = { ...state, pipeline: result.pipeline.filter((entry) => entry.id !== "speckit.cosmosdb.container") };
     assert.deepEqual(addPipelinePhases(partial, additions).pipeline, result.pipeline);
+});
+
+test("keeps transitive anchor chains in the supplied order", () => {
+    const state = {
+        pipeline: [{ id: "plan" }, { id: "tasks" }],
+        composition: { artifacts },
+    };
+    const additions = [
+        { id: "speckit.cosmosdb.model", after: "plan" },
+        { id: "speckit.cosmosdb.container", after: "speckit.cosmosdb.model" },
+        { id: "speckit.cosmosdb.repository", after: "plan" },
+        { id: "speckit.cosmosdb.query", after: "speckit.cosmosdb.container" },
+    ];
+    const result = addPipelinePhases(state, additions);
+    assert.deepEqual(result.pipeline.map((entry) => entry.id), [
+        "plan", "speckit.cosmosdb.model", "speckit.cosmosdb.container",
+        "speckit.cosmosdb.repository", "speckit.cosmosdb.query", "tasks",
+    ]);
+    assert.deepEqual(state.pipeline, [{ id: "plan" }, { id: "tasks" }]);
+});
+
+test("preserves order when later additions reuse ancestor anchors", () => {
+    const state = { pipeline: [{ id: "plan" }, { id: "tasks" }], composition: { artifacts } };
+    const additions = [
+        { id: "speckit.cosmosdb.model", after: "plan" },
+        { id: "speckit.cosmosdb.container", after: "speckit.cosmosdb.model" },
+        { id: "speckit.cosmosdb.repository", after: "speckit.cosmosdb.container" },
+        { id: "speckit.cosmosdb.query", after: "plan" },
+        { id: "speckit.cosmosdb.partition-key", after: "speckit.cosmosdb.model" },
+        { id: "speckit.cosmosdb.point-read", after: "speckit.cosmosdb.container" },
+    ];
+    assert.deepEqual(addPipelinePhases(state, additions).pipeline.map((entry) => entry.id), [
+        "plan", "speckit.cosmosdb.model", "speckit.cosmosdb.container",
+        "speckit.cosmosdb.repository", "speckit.cosmosdb.query",
+        "speckit.cosmosdb.partition-key", "speckit.cosmosdb.point-read", "tasks",
+    ]);
 });
 
 test("rejects unknown commands, hook targets, and missing anchors without partial results", () => {

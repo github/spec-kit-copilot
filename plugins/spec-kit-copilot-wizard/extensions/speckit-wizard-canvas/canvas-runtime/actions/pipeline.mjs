@@ -30,9 +30,9 @@ export function addPipelinePhases(state, additions) {
         if (after !== null && (typeof after !== "string" || !after.trim())) {
             throw new Error(`Invalid insertion point for "${addition.id}".`);
         }
+        const anchor = after === null ? null : (lastInsertedAfter.get(after) ?? after);
         let anchorIndex = -1;
         if (after !== null) {
-            const anchor = lastInsertedAfter.get(after) ?? after;
             anchorIndex = items.findIndex((item) => stripCommandsPrefix(item.id) === anchor);
             if (anchorIndex < 0) throw new Error(`Insertion point "${addition.after}" is not in the pipeline.`);
         }
@@ -43,7 +43,13 @@ export function addPipelinePhases(state, additions) {
             continue;
         }
         items.splice(after === null ? items.length : anchorIndex + 1, 0, { id });
-        if (after !== null) lastInsertedAfter.set(after, id);
+        if (after !== null) {
+            for (const [key, tail] of lastInsertedAfter) {
+                if (tail === anchor) lastInsertedAfter.set(key, id);
+            }
+            lastInsertedAfter.set(anchor, id);
+            lastInsertedAfter.set(after, id);
+        }
         added.push(id);
     }
     return { pipeline: items, added, alreadyPresent };
