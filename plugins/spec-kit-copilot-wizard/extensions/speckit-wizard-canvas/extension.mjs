@@ -39,10 +39,11 @@ import { runFastComposition, normalizeHookArtifactsInComposition } from "./canva
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
+import { pipelineActions } from "./canvas-runtime/actions/pipeline.mjs";
 import { wizardShellActions } from "./canvas-runtime/actions/wizard-shell.mjs";
 import { depsRecoveryActions } from "./canvas-runtime/actions/deps-recovery.mjs";
 
-const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...wizardShellActions, ...depsRecoveryActions];
+const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...pipelineActions, ...wizardShellActions, ...depsRecoveryActions];
 
 // --------------------------- per-instance registry --------------------------
 // (record shape + `instances` Map now live in instances.mjs)
