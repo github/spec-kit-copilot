@@ -38,6 +38,7 @@ import {
 import {
     renderPhaseCard,
     renderGraphPhaseCard,
+    renderStepper,
     setPhaseCardDeps,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
@@ -212,6 +213,61 @@ test("effectivePipelinePhases falls back to the full canonical spine and filters
         { id: "implement" },
     ]);
 });
+});
+
+test("renderStepper uses one separator per step and names every command at a hook point", () => {
+    const priorDocument = globalThis.document;
+    const parent = {
+        id: "commands/speckit.implement",
+        kind: "command",
+        hooks: [
+            { phase: "before_implement", extensionId: "cosmosdb", targetCommand: "speckit.cosmosdb.advise" },
+            { phase: "before_implement", extensionId: "guardrails", targetCommand: "speckit.guardrails.check" },
+            { phase: "after_implement", extensionId: "cosmosdb", targetCommand: "speckit.cosmosdb.review" },
+        ],
+    };
+    state.snapshot = {
+        pipeline: [{ id: "constitution" }, { id: "implement" }],
+        setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+        commands: [
+            { id: "constitution", name: "Constitution", commandName: "speckit.constitution" },
+            { id: "implement", name: "Implement", commandName: "speckit.implement" },
+        ],
+        composition: { artifacts: [parent] },
+    };
+    const stepper = {
+        children: [],
+        innerHTML: "",
+        get lastElementChild() { return this.children.at(-1) ?? null; },
+        appendChild(child) { this.children.push(child); },
+    };
+    globalThis.document = {
+        getElementById: (id) => id === "stepper" ? stepper : null,
+        createElement: () => ({
+            className: "",
+            classList: { add() {} },
+            dataset: {},
+            setAttribute() {},
+            addEventListener() {},
+            querySelector: () => null,
+        }),
+    };
+    try {
+        renderStepper();
+        assert.deepEqual(stepper.children.map((el) => el.className), [
+            "step", "step-sep", "step step-hook", "step-sep",
+            "step", "step-sep", "step step-hook",
+        ]);
+        assert.match(stepper.children[2].title, /before \/speckit-implement/);
+        assert.match(stepper.children[2].title, /\/speckit-cosmosdb-advise/);
+        assert.match(stepper.children[2].title, /\/speckit-guardrails-check/);
+        assert.match(stepper.children[6].title, /\/speckit-cosmosdb-review/);
+        assert.doesNotMatch(stepper.children[2].title, /Cosmos DB/);
+    } finally {
+        state.snapshot = null;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
 });
 
 describe("pipeline-resolver", () => {

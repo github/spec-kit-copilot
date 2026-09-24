@@ -186,13 +186,16 @@ export function renderStepper() {
             p: { ...entry.p, locked: true },
         }));
     }
-    visible.forEach(({ id, orphan, synthesized, extension, p }, idx) => {
-        if (idx > 0) {
+    const appendStep = (step) => {
+        if (el.lastElementChild) {
             const sep = document.createElement("li");
             sep.className = "step-sep";
             sep.setAttribute("aria-hidden", "true");
             el.appendChild(sep);
         }
+        el.appendChild(step);
+    };
+    visible.forEach(({ id, orphan, synthesized, extension, p }, idx) => {
         const li = document.createElement("li");
         li.className = "step";
         if (id === state.currentPhase && !orphan) li.classList.add("active");
@@ -241,37 +244,33 @@ export function renderStepper() {
         const phaseHooks = (!orphan)
             ? hooksForCommand(p.commandName || id)
             : [];
-        const beforeHooks = phaseHooks.filter((h) => String(h.phase || "").startsWith("before"));
-        const afterHooks = phaseHooks.filter((h) => !String(h.phase || "").startsWith("before"));
+        const hooksByPhase = new Map();
+        for (const hook of phaseHooks) {
+            const phase = String(hook.phase || "");
+            if (!hooksByPhase.has(phase)) hooksByPhase.set(phase, []);
+            hooksByPhase.get(phase).push(hook);
+        }
+        const beforeHooks = [...hooksByPhase].filter(([phase]) => phase.startsWith("before"));
+        const afterHooks = [...hooksByPhase].filter(([phase]) => !phase.startsWith("before"));
 
-        const appendHookStep = (hook) => {
-            const sep2 = document.createElement("li");
-            sep2.className = "step-sep step-sep-hook";
-            sep2.setAttribute("aria-hidden", "true");
-            el.appendChild(sep2);
+        const appendHookStep = ([phaseText, hooks]) => {
             const hookLi = document.createElement("li");
             hookLi.className = "step step-hook";
-            // Show the lifecycle trigger in the pipeline so the placement is
-            // clear even when multiple extensions provide the same hook.
-            const phaseText = String(hook.phase || "");
-            const displayName = phaseText
-                ? phaseText
-                : hook.targetCommand || "hook";
-            const extLabel = hook.extensionName || hook.extensionId || "extension";
-            const isOptional = !!hook.optional;
-            const reqLabel = isOptional ? "Optional" : "Required";
-            // Keep the Required/Optional detail in the tooltip only.
-            // The chip itself is omitted from the pipeline visualization —
-            // multiple hooks per phase make per-chip modifiers too noisy.
-            hookLi.title = `${extLabel} — auto-runs ${phaseText.startsWith("before") ? "before" : "after"} /${p.commandName || id} (${reqLabel})\nCannot be added or removed manually.`;
+            const targetCommands = [...new Set(hooks
+                .map((hook) => hook.targetCommand?.replace(/^commands\//, ""))
+                .filter(Boolean))];
+            const when = phaseText.startsWith("before") ? "before" : "after";
+            hookLi.title = `Auto-runs ${when} /${displayCommand(p.commandName || id)}:\n${targetCommands.length
+                ? targetCommands.map((command) => `/${displayCommand(command)}`).join("\n")
+                : "No hook command recorded"}\nCannot be added or removed manually.`;
             hookLi.innerHTML = `
                 <span class="step-hook-marker" aria-hidden="true">🪝</span>
                 <span class="step-label">
-                    <span class="step-name">${escapeHtml(displayName)}</span>
+                    <span class="step-name">${escapeHtml(phaseText || "hook")}</span>
                     <span class="step-hook-pill">Hook auto-run</span>
                 </span>
             `;
-            el.appendChild(hookLi);
+            appendStep(hookLi);
         };
 
         // Render before-hooks, then the real step, then after-hooks.
@@ -303,7 +302,7 @@ export function renderStepper() {
             // instance clicked when duplicates of the same command id exist.
             await dispatchPipeline("remove", { id, index: idx });
         });
-        el.appendChild(li);
+        appendStep(li);
         for (const h of afterHooks) appendHookStep(h);
     });
 }
