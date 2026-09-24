@@ -18,6 +18,13 @@ export function addPipelinePhases(state, additions) {
     const added = [];
     const alreadyPresent = [];
     const lastInsertedAfter = new Map();
+    const advanceTail = (anchor, after, id) => {
+        for (const [key, tail] of lastInsertedAfter) {
+            if (tail === anchor) lastInsertedAfter.set(key, id);
+        }
+        lastInsertedAfter.set(anchor, id);
+        lastInsertedAfter.set(after, id);
+    };
     for (const addition of additions) {
         if (!addition || typeof addition.id !== "string" || !addition.id.trim()) {
             throw new Error("Each phase needs a command id.");
@@ -39,17 +46,11 @@ export function addPipelinePhases(state, additions) {
         const existingIndex = items.findIndex((item) => stripCommandsPrefix(item.id) === id);
         if (existingIndex >= 0) {
             alreadyPresent.push(id);
-            if (after !== null && existingIndex > anchorIndex) lastInsertedAfter.set(after, id);
+            if (after !== null && existingIndex > anchorIndex) advanceTail(anchor, after, id);
             continue;
         }
         items.splice(after === null ? items.length : anchorIndex + 1, 0, { id });
-        if (after !== null) {
-            for (const [key, tail] of lastInsertedAfter) {
-                if (tail === anchor) lastInsertedAfter.set(key, id);
-            }
-            lastInsertedAfter.set(anchor, id);
-            lastInsertedAfter.set(after, id);
-        }
+        if (after !== null) advanceTail(anchor, after, id);
         added.push(id);
     }
     return { pipeline: items, added, alreadyPresent };

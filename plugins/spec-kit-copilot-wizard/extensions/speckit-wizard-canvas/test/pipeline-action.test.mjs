@@ -72,6 +72,27 @@ test("keeps transitive anchor chains in the supplied order", () => {
     assert.deepEqual(state.pipeline, [{ id: "plan" }, { id: "tasks" }]);
 });
 
+test("partial retries preserve the order of an existing anchor chain", () => {
+    const state = { pipeline: [{ id: "plan" }, { id: "tasks" }], composition: { artifacts } };
+    const additions = [
+        { id: "speckit.cosmosdb.model", after: "plan" },
+        { id: "speckit.cosmosdb.container", after: "speckit.cosmosdb.model" },
+        { id: "speckit.cosmosdb.repository", after: "plan" },
+    ];
+    const full = addPipelinePhases(state, additions).pipeline;
+    const partial = {
+        ...state,
+        pipeline: full.filter((entry) => entry.id !== "speckit.cosmosdb.repository"),
+    };
+    const retried = addPipelinePhases(partial, additions);
+    assert.deepEqual(retried.pipeline, full);
+    assert.deepEqual(retried.alreadyPresent, [
+        "speckit.cosmosdb.model", "speckit.cosmosdb.container",
+    ]);
+    assert.deepEqual(retried.added, ["speckit.cosmosdb.repository"]);
+    assert.deepEqual(addPipelinePhases({ ...state, pipeline: full }, additions).pipeline, full);
+});
+
 test("preserves order when later additions reuse ancestor anchors", () => {
     const state = { pipeline: [{ id: "plan" }, { id: "tasks" }], composition: { artifacts } };
     const additions = [
