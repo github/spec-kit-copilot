@@ -229,6 +229,18 @@ live where Spec Kit puts them: `.specify/memory/constitution.md` and
 
 ## Troubleshooting
 
+**A phase status, pipeline command, or composition change looks wrong after
+overlapping wizard actions.**
+
+Concurrent updates can occasionally overwrite newer fields in
+`.speckit-wizard/state.json`. This state-write limitation predates
+`addPipelinePhases`; the new action is another possible participant. It
+affects the wizard's saved progress and pipeline, **not the generated spec,
+plan, or other artifact files**. Refresh the canvas and check the artifacts
+before rerunning a phase. If the state still looks wrong, ask the agent to
+reconcile it against the files on disk and the pipeline you intended; the
+wizard cannot detect or undo the overwritten update automatically.
+
 **First open shows "Spec Kit Wizard cannot start" or an npm error like
 `ERR_SSL_SSL/TLS_ALERT_HANDSHAKE_FAILURE`, `ECONNREFUSED`, `ETIMEDOUT`,
 or `403 Forbidden` against `registry.npmjs.org`.**
