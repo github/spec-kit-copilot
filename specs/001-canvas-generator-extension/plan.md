@@ -5,8 +5,11 @@
 
 **Input**: Feature specification from
 `specs/001-canvas-generator-extension/spec.md`; detailed architecture and
-acceptance material from the supplied "Canvas Generation as a Spec Kit Extension"
-plan. `SPECIFY_FEATURE_DIRECTORY=specs/001-canvas-generator-extension` selects
+acceptance material from the original Copilot-authored
+[Canvas Generation as a Spec Kit Extension plan](../../docs/canvas-extension-original-plan.md).
+This source document records the original proposal; the Spec Kit plan and
+subsequent implementation decisions take precedence where they differ.
+`SPECIFY_FEATURE_DIRECTORY=specs/001-canvas-generator-extension` selects
 this feature independently of the Git branch name.
 
 ## Summary
