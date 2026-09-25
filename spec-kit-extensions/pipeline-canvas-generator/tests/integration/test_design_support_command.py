@@ -13,9 +13,9 @@ PACKAGE = Path(__file__).resolve().parents[2]
 FIXTURE = PACKAGE / "tests" / "fixtures" / "specify"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
-from experience import default_experience  # noqa: E402
 from override import prepare_override  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
+from category_contracts import stage_documents  # noqa: E402
 from staging import materialize_candidate, read_json  # noqa: E402
 from support import record_support_result, validate_support_command  # noqa: E402
 
@@ -50,16 +50,12 @@ class DesignSupportInvocation(unittest.TestCase):
         design = source / "design"
         shutil.copytree(FIXTURE / "core-generator", generator)
         shutil.copytree(FIXTURE, design, ignore=shutil.ignore_patterns("core-generator"))
-        (design / "config" / "canvas-content.json").write_text(
-            json.dumps(default_experience(PACKAGE)["categories"]["canvas-content"]),
-            encoding="utf-8",
-        )
         (design / "commands" / "helper.md").write_text(
             "# Design helper\n\n## Inputs\n\n"
             "`goal`: one named experience goal, supplied only when this command "
             "is explicitly selected during Generate.\n\n"
-            "## Result\n\nReturn a JSON object with only `categories`, "
-            "containing sparse canvas experience category values.\n",
+            "## Result\n\nReturn a JSON object with empty `categories`; "
+            "named design documents are replaced through Specify templates.\n",
             encoding="utf-8",
         )
         specify(self.workspace, "extension", "add", str(generator), "--dev", "--priority", "100")
@@ -87,7 +83,7 @@ class DesignSupportInvocation(unittest.TestCase):
 
         def invoke(command: dict, inputs: dict) -> dict:
             invocations.append((command["invocation"], inputs))
-            return {"categories": {"canvas-layout": {"phases": {"showDescriptions": False}}}}
+            return {"categories": {}}
 
         reload_skills()
         self.assertEqual(reloads, [self.command])
@@ -101,20 +97,19 @@ class DesignSupportInvocation(unittest.TestCase):
         draft = record_support_result(
             self.request, self.command, response, validated["sourceSha256"]
         )
-        self.assertEqual(
-            read_json(draft)["categories"]["canvas-layout"]["phases"]["showDescriptions"], False,
-        )
+        self.assertEqual(read_json(draft)["categories"], {})
         with self.assertRaisesRegex(ValueError, "already has"):
             record_support_result(
                 self.request, self.command, response, validated["sourceSha256"]
             )
         prepare_override(self.request)
+        stage_documents(self.request)
         candidate = materialize_candidate(
             self.request, PACKAGE / "tests" / "fixtures" / "scaffold",
         )
         self.assertEqual(
-            read_json(candidate / "canvas-experience.json")["categories"]["canvas-layout"]["phases"]["showDescriptions"],
-            False,
+            read_json(candidate / "canvas-experience.json")["presentation"]["phases"]["showDescriptions"],
+            True,
         )
         self.assertEqual(len(invocations), 1)
 
@@ -128,7 +123,7 @@ class DesignSupportInvocation(unittest.TestCase):
             failed(validated["invocation"])
         for response in (
             {"error": "design helper failed"},
-            {"categories": {"canvas-theme": {"colors": {"unknown": "#fff"}}}},
+            {"categories": {"canvas-presentation": {"colors": {"unknown": "#fff"}}}},
         ):
             with self.subTest(response=response), self.assertRaises(ValueError):
                 record_support_result(
@@ -158,7 +153,7 @@ class DesignSupportInvocation(unittest.TestCase):
         )
         invalid = run(
             *arguments, "--source-sha256", binding["sourceSha256"],
-            payload={"categories": {"canvas-content": {"copy": {"unknown": "x"}}}},
+            payload={"categories": {"canvas-presentation": {"copy": {"unknown": "x"}}}},
         )
         self.assertNotEqual(invalid.returncode, 0)
         self.assertFalse(self.request.with_name("command-override-draft.json").exists())
@@ -169,13 +164,10 @@ class DesignSupportInvocation(unittest.TestCase):
         self.assertIn("source changed", changed.stderr)
         accepted = run(
             *arguments, "--source-sha256", binding["sourceSha256"],
-            payload={"categories": {"canvas-layout": {"phases": {"showDescriptions": False}}}},
+            payload={"categories": {}},
         )
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        self.assertEqual(
-            read_json(Path(json.loads(accepted.stdout)["draftPath"]))["categories"]["canvas-layout"]["phases"]["showDescriptions"],
-            False,
-        )
+        self.assertEqual(read_json(Path(json.loads(accepted.stdout)["draftPath"]))["categories"], {})
 
 
 if __name__ == "__main__":

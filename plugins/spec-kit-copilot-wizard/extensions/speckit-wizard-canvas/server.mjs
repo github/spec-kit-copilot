@@ -43,11 +43,14 @@ import {
 import {
     handlePipelineMutation,
     handleGenerate,
+    previewGenerationConfiguration,
+    validateGenerationDocument,
     handleArtifactTargets,
     handleSkipDefaults,
     handleSkillsReload,
     handleProbeEnv,
 } from "./server/handlers-ops.mjs";
+import { effectivePipelinePhases, stripCommandsPrefix } from "./pipeline/effective-phases.mjs";
 import { handleNpmDiagnose, handleNpmRetry } from "./server/handlers-deps.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
 
@@ -169,6 +172,19 @@ export function createHandler(deps) {
                 } catch (error) {
                     if (error.code !== "ENOENT") throw error;
                     return jsonRes(res, 200, { target, exists: false });
+                }
+                if (method === "GET" && url.pathname === "/api/generation/configuration") {
+                    const inst = getInstance();
+                    if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+                    const phases = effectivePipelinePhases(await getState()).map(({ id }) => {
+                        const name = stripCommandsPrefix(id);
+                        return name.startsWith("speckit.") ? name : `speckit.${name}`;
+                    });
+                    try {
+                        return jsonRes(res, 200, await previewGenerationConfiguration(inst.workspacePath, phases, inst));
+                    } catch (error) {
+                        return jsonError(res, 422, `configuration preview failed: ${error.message}`);
+                    }
                 }
             }
             if (method === "GET" && url.pathname === "/api/generation/result") {
@@ -345,7 +361,9 @@ export function createHandler(deps) {
             if (method === "POST" && url.pathname.startsWith("/api/")) {
                 let body;
                 try {
-                    body = await readBody(req);
+                    body = await readBody(req, url.pathname === "/api/generation"
+                        ? 3 * 1024 * 1024 : url.pathname === "/api/generation/validate"
+                            ? 512 * 1024 : undefined);
                 } catch (err) {
                     if (err.code === "BODY_TOO_LARGE") return jsonError(res, 413, "body too large");
                     if (err.code === "BAD_JSON") return jsonError(res, 400, err.message);
@@ -361,6 +379,20 @@ export function createHandler(deps) {
                     "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/generation": () => handleGenerate(res, body, { getState, broadcast, getInstance }),
+                    "/api/generation/validate": async () => {
+                        const inst = getInstance();
+                        if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+                        const phases = effectivePipelinePhases(await getState()).map(({ id }) => {
+                            const name = stripCommandsPrefix(id);
+                            return name.startsWith("speckit.") ? name : `speckit.${name}`;
+                        });
+                        try {
+                            return jsonRes(res, 200, await validateGenerationDocument(
+                                inst.workspacePath, phases, body?.name, body?.json));
+                        } catch (error) {
+                            return jsonError(res, 422, error.message);
+                        }
+                    },
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),
                     "/api/setup/skip-defaults": () => handleSkipDefaults(res, body, { broadcast, getInstance }),

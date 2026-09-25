@@ -18,8 +18,10 @@ TEMPLATE = PACKAGE / "templates" / "generated-canvas"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from compiler import compile_blueprint  # noqa: E402
-from experience import default_experience  # noqa: E402
+from experience import default_document  # noqa: E402
+from contracts.handoff import handoff  # noqa: E402
 from request import prepare_request  # noqa: E402
+from category_contracts import bound_documents, stage_documents  # noqa: E402
 from staging import atomic_json, materialize_candidate, read_json, stage_canvas_scaffold  # noqa: E402
 from override import prepare_override, validate_final_override  # noqa: E402
 
@@ -38,8 +40,9 @@ class DefaultCanvasJourney(unittest.TestCase):
         with patch("request._preflight"):
             self.request_path = prepare_request(
                 self.workspace, ["speckit.plan"], "my-canvas", "My Canvas",
-                False, inventory=self.inventory,
+                False, inventory=self.inventory, phase_outputs=handoff(["speckit.plan"]),
             )
+        stage_documents(self.request_path)
         self.draft = self.request_path.with_name("command-override-draft.json")
         self.final = self.request_path.with_name("command-override.json")
 
@@ -55,7 +58,7 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertEqual(validate_final_override(self.request_path), read_json(result))
         blueprint = compile_blueprint(read_json(self.request_path))
         self.assertEqual(blueprint["pipeline"]["steps"][0]["invocation"], "/skill:speckit-plan")
-        self.assertEqual(blueprint["pipeline"]["steps"][0]["artifact"]["pathTemplate"],
+        self.assertEqual(blueprint["pipeline"]["steps"][0]["artifact"]["outputPath"],
                          "specs/<slug>/plan.md")
 
     def test_missing_draft_only_and_mismatched_final_never_materialize(self) -> None:
@@ -107,11 +110,14 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertEqual(candidate, self.request_path.parent / "staging")
         self.assertEqual(read_json(candidate / "pipeline.json"),
                          compile_blueprint(read_json(self.request_path)))
-        self.assertEqual(len(read_json(candidate / "canvas-experience.json")["categories"]), 6)
+        self.assertEqual(set(read_json(candidate / "canvas-experience.json")),
+                         {"schemaVersion", "presentation", "interactions", "setup", "results"})
         self.assertFalse((candidate / "renderer").exists())
         app = (candidate / "ui" / "app.js").read_text(encoding="utf-8")
         presentation = json.loads(app.split("const presentation = ", 1)[1].split(";", 1)[0])
-        self.assertEqual(presentation["canvas-content"]["description"], "My Canvas workflow canvas.")
+        self.assertEqual(read_json(candidate / "pipeline.json")["metadata"]["description"],
+                         "My Canvas workflow canvas.")
+        self.assertEqual(presentation["canvas-presentation"]["colors"]["accent"], "#7356c5")
         self.assertNotIn("rendererHost", app)
         self.assertNotIn("selectedRenderer", app)
         self.assertIn('renderPhaseNavigation();', app)
@@ -123,6 +129,7 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertFalse((self.workspace / ".github" / "extensions" / "my-canvas").exists())
 
     def test_authoring_scaffold_is_snapshotted_once_under_request(self) -> None:
+        self.request_path.with_name("design-documents.json").unlink()
         source = self.workspace / "authoring"
         shutil.copytree(PACKAGE / "tests" / "fixtures" / "scaffold", source)
         staged = stage_canvas_scaffold(self.request_path, source)
@@ -138,18 +145,22 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertFalse((self.workspace / ".github" / "extensions" / "my-canvas").exists())
 
     def test_native_presentation_keeps_nondefault_design_choices(self) -> None:
-        atomic_json(self.draft, {"categories": {
-            "canvas-theme": {"colors": {"accent": "#176a81"}},
-        }})
+        document = self.workspace / ".specify/extensions/pipeline-canvas-generator/config/canvas-presentation.json"
+        changed = read_json(document)
+        changed["colors"]["accent"] = "#176a81"
+        atomic_json(document, changed)
+        self.request_path.with_name("design-documents.json").unlink()
+        stage_documents(self.request_path)
+        atomic_json(self.draft, {"categories": {}})
         prepare_override(self.request_path)
         candidate = materialize_candidate(
             self.request_path, PACKAGE / "tests" / "fixtures" / "scaffold"
         )
         app = (candidate / "ui" / "app.js").read_text(encoding="utf-8")
         presentation = json.loads(app.split("const presentation = ", 1)[1].split(";", 1)[0])
-        self.assertEqual(presentation["canvas-theme"]["colors"], {"accent": "#176a81"})
-        self.assertEqual(presentation["canvas-content"]["description"], "My Canvas workflow canvas.")
-        self.assertIn('const category = (name) => presentation[name]', app)
+        self.assertEqual(presentation["canvas-presentation"]["colors"]["accent"], "#176a81")
+        self.assertEqual(read_json(candidate / "pipeline.json")["metadata"]["description"],
+                         "My Canvas workflow canvas.")
         if shutil.which("node"):
             result = subprocess.run(
                 ["node", "--check", str(candidate / "ui" / "app.js")],
@@ -222,10 +233,10 @@ await globalThis.canvas.onClose({ instanceId: 'refined-1' });
         for draft in (
             {"categories": {}, "requestSha256": "0" * 64},
             {"categories": {"unknown": {}}},
-            {"categories": {"canvas-content": {"schemaVersion": 1}}},
-            {"categories": {"canvas-content": {"name": None}}},
-            {"categories": {"canvas-content": {"protectedBackend": {"extension": "x"}}}},
-            {"categories": {"canvas-content": {"description": float("nan")}}},
+            {"categories": {"canvas-presentation": {"schemaVersion": 1}}},
+            {"categories": {"canvas-presentation": {"copy": None}}},
+            {"categories": {"canvas-presentation": {"protectedBackend": {"extension": "x"}}}},
+            {"categories": {"canvas-presentation": {"colors": {"accent": float("nan")}}}},
         ):
             with self.subTest(draft=draft):
                 atomic_json(self.draft, draft)
@@ -286,9 +297,14 @@ await import('./ui/clarifications.mjs');
             "version": 1, "itemLabels": {}, "phaseArguments": {},
             "resultLabels": [], "clarificationTag": True,
         }), encoding="utf-8")
-        (target / "canvas-experience.json").write_text(
-            json.dumps(default_experience(PACKAGE)), encoding="utf-8",
-        )
+        documents = bound_documents(self.request_path)
+        (target / "canvas-experience.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "presentation": documents["canvas-presentation"]["document"],
+            "interactions": default_document(PACKAGE, "canvas-interactions"),
+            "setup": default_document(PACKAGE, "canvas-setup"),
+            "results": documents["canvas-results"]["document"],
+        }), encoding="utf-8")
         (target / "mock-sdk.mjs").write_text("""
 globalThis.sent = [];
 export const createCanvas = (definition) => { globalThis.canvas = definition; return definition; };

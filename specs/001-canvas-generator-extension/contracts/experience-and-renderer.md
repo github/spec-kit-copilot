@@ -1,5 +1,11 @@
 # Contract: Canvas Experience and Renderer
 
+> Superseded for newly generated canvases by Section 17 of
+> `docs/canvas-extension-original-plan.md`. The current presentation document
+> contains effective UI settings only; interactions retains effective navigation,
+> rerun, input, and confirmation behavior, while onboarding retains installation,
+> slug, and approval policy. The six-category table below is historical.
+
 **Status**: Proposed schema v1. Each complete JSON category is a named Specify
 template with independent `replace` composition. No JSON text merge or
 post-generation customization script.

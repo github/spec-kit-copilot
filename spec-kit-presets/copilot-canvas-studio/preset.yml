@@ -3,8 +3,8 @@ schema_version: "1.0"
 preset:
   id: copilot-canvas-studio
   name: Copilot Canvas Studio
-  version: "1.0.0"
-  description: A complete visual theme for standalone Spec Kit canvases.
+  version: "1.0.1"
+  description: A complete presentation for standalone Spec Kit canvases.
   author: spec-kit-copilot
   repository: https://github.com/github/spec-kit-copilot
   license: MIT
@@ -15,9 +15,9 @@ requires:
 provides:
   templates:
     - type: template
-      name: canvas-theme
-      file: config/canvas-theme.json
-      description: Complete Canvas Studio theme.
+      name: canvas-presentation
+      file: config/canvas-presentation.json
+      description: Complete Canvas Studio presentation.
 
 tags:
   - canvas-design

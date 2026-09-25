@@ -8,8 +8,8 @@ import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 import { createWorkflowAdapter } from "./runtime/workflow-adapter.mjs";
 import { createAmendmentRuntime } from "./amendment-runtime.mjs";
 import { createArtifactReviewer } from "./artifact-review.mjs";
-import { createPhaseRunStore, currentPhaseSummary, milestoneTags } from "./runtime/phase-runs.mjs";
-import { phaseResult, reportInstructions } from "./runtime/phase-results.mjs";
+import { createPhaseRunStore, currentPhaseSummary, declaredInputFingerprints, milestoneTags } from "./runtime/phase-runs.mjs";
+import { phaseResult, reportInstructions, artifactReportInstructions } from "./runtime/phase-results.mjs";
 import { phaseResponse } from "./phase-response.mjs";
 import { commandViews } from "./ui/command-views.mjs";
 import { validateWorkflowSlug } from "./ui/workflow-slug.mjs";
@@ -23,6 +23,7 @@ import {
     validateWorkflowPaths,
     resolveDeclaredArtifact,
     readWorkflowArtifact,
+    authorizeReportedArtifact,
 } from "./runtime/workspace-files.mjs";
 import {
     buildSetupPrompt,
@@ -49,7 +50,10 @@ validateWorkflowPaths(pipeline);
 const commands = commandViews(pipeline);
 const adapter = createWorkflowAdapter(JSON.parse(await readFile(join(here, "workflow-config.json"), "utf8")), pipeline);
 const experience = deepFreeze(JSON.parse(await readFile(join(here, "canvas-experience.json"), "utf8")));
-const installationMode = experience.categories?.["canvas-onboarding"]?.installationMode;
+const setupPolicy = experience.setup;
+const runtimeResults = experience.results;
+const capturedPresentation = experience.presentation;
+const installationMode = setupPolicy?.installationMode;
 if (!["external", "prompt", "automatic"].includes(installationMode)) {
     throw new Error("Invalid captured installation mode");
 }
@@ -57,6 +61,8 @@ const runtimeSetup = deepFreeze({ ...pipeline.setup, installationMode });
 const phaseResults = new Map(pipeline.pipeline.steps.map((step) =>
     [step.instanceKey, phaseResult(experience, step.commandName)]));
 const hasPhaseReports = [...phaseResults.values()].some((result) => result?.source.kind === "phase-report");
+const hasHintReports = pipeline.pipeline.steps.some((step) =>
+    step.artifact?.completionSignal === "hint" && step.artifact?.outputPath === null);
 const instances = new Map();
 const instanceAliases = new Map();
 const automaticSetupDispatches = new Map();
@@ -92,7 +98,7 @@ function statusDiagnostic(category, scope = {}) {
 }
 const undetermined = () => ({ state: "reviewed", statusId: "not-determined", label: "Not determined" });
 const reviewConfig = adapter.artifactReview();
-const trackPhaseRuns = Boolean(reviewConfig) || adapter.clarificationTag || hasPhaseReports;
+const trackPhaseRuns = Boolean(reviewConfig) || adapter.clarificationTag || hasPhaseReports || hasHintReports;
 const artifactReviewer = createArtifactReviewer({
     config: reviewConfig,
     onDiagnostic: statusDiagnostic,
@@ -170,7 +176,7 @@ async function installationApproval(inst, disk) {
         const approval = await readInstallationApproval(approvalContext(inst));
         return {
             ...approval,
-            ...(approval.required ? { copy: experience.categories["canvas-onboarding"].approvalCopy } : {}),
+            ...(approval.required ? { copy: setupPolicy.installationReviewMessage } : {}),
             installationApproved: approval.required && approval.approved,
             ...(components ? { components } : {}),
             state: approval.approved ? "approved" : (inst.approvalDeferred ? "deferred" : "pending"),
@@ -291,22 +297,37 @@ function send(res, status, value, type = "application/json; charset=utf-8") {
 }
 
 async function artifactPath(step, item, inst) {
-    return resolveDeclaredArtifact(inst.cwd, step?.artifact?.pathTemplate, item?.slug, pipeline);
+    return resolveDeclaredArtifact(inst.cwd, step?.artifact?.outputPath, item?.slug, pipeline);
 }
 
-async function phaseArtifact(inst, item, step, scanClarifications = true) {
+async function phaseArtifact(inst, item, step, scanClarifications = true, run = null) {
     let artifact = null;
     try {
-        artifact = await artifactPath(step, item, inst);
+        const reported = step.artifact?.completionSignal === "hint" && step.artifact?.outputPath === null
+            && run?.completed && !run.error && run.artifactReport?.settledPath
+            ? { step, slug: run.artifactReport.slug } : null;
+        artifact = reported ? run.artifactReport.settledPath : await artifactPath(step, item, inst);
         if (!artifact) return { artifact: null, content: null, clarificationCount: null, artifactError: null };
-        const { content, mtimeMs } = await readWorkflowArtifact(inst.cwd, artifact, pipeline, { metadata: true });
+        const { content, mtimeMs } = await readWorkflowArtifact(inst.cwd, artifact, pipeline, { metadata: true, reported });
         return { artifact, content, mtimeMs, clarificationCount: content.trim() ? (adapter.clarificationTag && scanClarifications ? visibleMarkers(content).length : 0) : null,
             artifactError: content.trim() ? null : "Artifact is empty or still being written." };
     } catch (error) {
         if (error.code === "ENOENT") return { artifact: null, content: null, clarificationCount: null, artifactError: null };
-        return { artifact, content: null, clarificationCount: null,
+        return { artifact: step.artifact?.completionSignal === "hint" ? null : artifact,
+            content: null, clarificationCount: null,
             artifactError: "Could not read the artifact safely. Automatic refresh will retry." };
     }
+}
+
+async function phaseInputs(inst, item, step) {
+    const evidence = {};
+    const index = pipeline.pipeline.steps.findIndex((entry) => entry.instanceKey === step.instanceKey);
+    for (const [position, input] of pipeline.pipeline.steps.entries()) {
+        if (input.instanceKey === step.instanceKey || !input.artifact?.outputPath
+            || (position >= index && step.commandName !== "speckit.analyze")) continue;
+        evidence[input.instanceKey] = await phaseArtifact(inst, item, input, false);
+    }
+    return declaredInputFingerprints(pipeline.pipeline.steps, step, evidence);
 }
 
 async function captureResponses(inst) {
@@ -315,7 +336,7 @@ async function captureResponses(inst) {
         .filter((run) => responseScans.get(run.runId) !== responseRevision);
     if (!pending.length) return;
     let events = null;
-    if ((reviewConfig || hasPhaseReports) && pending.some((run) => run.messageId && run.sessionId && run.sessionId === session.sessionId)) {
+    if ((reviewConfig || hasPhaseReports || hasHintReports) && pending.some((run) => run.messageId && run.sessionId && run.sessionId === session.sessionId)) {
         try { events = await session.getEvents(); }
         catch { statusDiagnostic("response-history-unavailable"); }
     }
@@ -339,12 +360,18 @@ async function captureResponses(inst) {
             statusDiagnostic("response-capture-failed", scope);
         }
         try {
-            if (run.reporting && outcome === null) {
+            if ((run.reporting || run.artifactReport) && outcome === null) {
                 statusDiagnostic("phase-outcome-unavailable", scope);
                 continue;
             }
-            const error = run.reporting && outcome === false ? "Phase did not complete successfully." : null;
-            await phaseRuns.complete(inst, run.runId, { response, error });
+            const error = (run.reporting || run.artifactReport) && outcome === false ? "Phase did not complete successfully." : null;
+            const step = pipeline.pipeline.steps.find((entry) => entry.instanceKey === run.phase);
+            const owner = [...record.items, ...record.pending].find((entry) =>
+                entry.runs?.some((entryRun) => entryRun.runId === run.runId));
+            const inputs = run.reporting && !error && step
+                ? await phaseInputs(inst, { slug: owner?.slug ?? (owner?.id === "project" ? null : owner?.id) }, step)
+                : null;
+            await phaseRuns.complete(inst, run.runId, { response, error, inputs });
             if (run.reporting && !error && !run.reporting.resultId) statusDiagnostic("phase-result-missing", scope);
             responseFailures.delete(run.runId);
         } catch {
@@ -501,7 +528,7 @@ async function executionSetupStatus(inst) {
 
 async function snapshot(inst, allowReview = false) {
     const setup = await setupStatus(inst);
-    if (trackPhaseRuns && (allowReview || hasPhaseReports) && !agentBusy) await captureResponses(inst);
+    if (trackPhaseRuns && (allowReview || hasPhaseReports || hasHintReports) && !agentBusy) await captureResponses(inst);
     const items = await listItems(inst);
     for (const id of inst.clarificationCounts.keys()) {
         if (!items.some((item) => item.id === id)) inst.clarificationCounts.delete(id);
@@ -515,14 +542,14 @@ async function snapshot(inst, allowReview = false) {
         const phaseEvidence = {}, results = [];
         item.latestPhase = itemRuns.reduce((latest, run) => !latest || latest.sequence < run.sequence ? run : latest, null)?.phase ?? null;
         for (const step of commands.workflow) {
-            const evidence = await phaseArtifact(inst, item, step, !deferClarifications);
+            const run = itemRuns.find((entry) => entry.phase === step.instanceKey);
+            const evidence = await phaseArtifact(inst, item, step, !deferClarifications, run);
             if (adapter.clarificationTag) {
                 if (deferClarifications) evidence.clarificationCount = clarificationCounts[step.instanceKey] ?? (evidence.artifact ? 0 : null);
                 else clarificationCounts[step.instanceKey] = evidence.clarificationCount;
             }
             phaseEvidence[step.instanceKey] = evidence;
             const { artifact, clarificationCount, artifactError } = evidence;
-            const run = itemRuns.find((entry) => entry.phase === step.instanceKey);
             item.phases[step.instanceKey] = {
                 hasRun: (runs.pending.find((entry) => entry.slug === (item.isNew ? null : item.slug))?.phases
                     ?.includes(step.instanceKey) === true)
@@ -563,9 +590,14 @@ async function snapshot(inst, allowReview = false) {
                 }
             }
         }
+        for (const step of pipeline.pipeline.steps) {
+            if (!Object.hasOwn(phaseEvidence, step.instanceKey) && step.artifact?.outputPath) {
+                phaseEvidence[step.instanceKey] = await phaseArtifact(inst, item, step, false);
+            }
+        }
         if (adapter.clarificationTag) inst.clarificationCounts.set(item.id, clarificationCounts);
         const summary = currentPhaseSummary(commands.workflow, phaseEvidence, itemRuns, phaseResults, {
-            showProgress: experience.categories["canvas-results"].progress.enabled,
+            showProgress: runtimeResults.progress.enabled,
         });
         for (const step of commands.workflow) {
             const phase = item.phases[step.instanceKey];
@@ -595,7 +627,9 @@ async function snapshot(inst, allowReview = false) {
     return {
         clarificationScope: createHash("sha256").update(JSON.stringify([inst.cwd, inst.identity])).digest("hex"),
         pipeline, phaseInputs, items, selectedItemId: items[0]?.id ?? null, instance: binding, setup,
+        interactions: experience.interactions,
         clarificationTag: adapter.clarificationTag,
+        clarificationLabel: runtimeResults.clarification.label,
         artifactReview: reviewConfig ? {
             labels: reviewConfig.labels,
         } : null,
@@ -748,19 +782,22 @@ async function runPhase(inst, input) {
     const reporting = configuredResult?.source.kind === "phase-report"
         ? { instanceId: inst.instanceId, instanceToken: inst.reportingToken,
             allowed: configuredResult.values.map((value) => value.id) } : null;
+    const artifactReporting = step.artifact?.completionSignal === "hint" && step.artifact?.outputPath === null
+        ? { instanceId: inst.instanceId, instanceToken: inst.reportingToken } : null;
     let messageId;
     let dispatched = false;
     let undo;
     try {
-        if (reporting) undo = await phaseRuns.mark(inst, item, step.instanceKey, {
+        if (reporting || artifactReporting) undo = await phaseRuns.mark(inst, item, step.instanceKey, {
             slug: requestedSlug || null, baseline,
-            run: { runId, messageId: "", sessionId: session.sessionId ?? "" }, reporting,
+            run: { runId, messageId: "", sessionId: session.sessionId ?? "" }, reporting, artifactReporting,
         });
         if (trackPhaseRuns) agentBusy = true;
         messageId = await session.send({ prompt: `${step.invocation}${promptArgs ? ` ${promptArgs}` : ""}`
-            + (reporting ? reportInstructions(inst.instanceId, runId, configuredResult) : "") });
+            + (reporting ? reportInstructions(inst.instanceId, runId, configuredResult) : "")
+            + (artifactReporting ? artifactReportInstructions(inst.instanceId, runId) : "") });
         dispatched = true;
-        if (reporting) {
+        if (reporting || artifactReporting) {
             await phaseRuns.bindDispatch(inst, runId, messageId ?? "", session.sessionId ?? "");
             responseRevision++;
         }
@@ -776,7 +813,7 @@ async function runPhase(inst, input) {
         throw error;
     }
     try {
-        if (!reporting) await phaseRuns.mark(inst, item, step.instanceKey, { slug: requestedSlug || null, baseline,
+        if (!reporting && !artifactReporting) await phaseRuns.mark(inst, item, step.instanceKey, { slug: requestedSlug || null, baseline,
             run: trackPhaseRuns ? { runId, messageId: messageId ?? "", sessionId: session.sessionId ?? "" } : null });
     } catch {
         const error = "The command was sent, but its run state could not be saved. Check .speckit-canvas/phase-runs before rerunning.";
@@ -1100,7 +1137,7 @@ async function startHttp(inst) {
                 return send(res, 200, await readFile(file), TYPES[extname(file)] ?? "application/octet-stream");
             }
             if (req.method === "GET" && url.pathname === "/theme/logo") {
-                const logo = experience.categories["canvas-theme"].brand.logo;
+                const logo = capturedPresentation.brand.logo;
                 if (logo.mode !== "asset") return send(res, 404, { error: "logo unavailable" });
                 const root = join(here, "theme");
                 const file = resolve(root, logo.path);
@@ -1150,6 +1187,19 @@ async function startHttp(inst) {
             if (req.method === "GET" && url.pathname === "/api/artifact") {
                 const rel = url.searchParams.get("path");
                 if (!rel || isAbsolute(rel)) return send(res, 400, { error: "invalid artifact path" });
+                const phase = url.searchParams.get("phase");
+                const step = pipeline.pipeline.steps.find((entry) => entry.instanceKey === phase);
+                if (step?.artifact?.completionSignal === "hint" && step.artifact.outputPath === null) {
+                    const item = (await listItems(inst)).find((entry) => entry.id === url.searchParams.get("itemId"));
+                    const run = item && phaseRuns.forItem(await phaseRuns.read(inst), item)
+                        .find((entry) => entry.phase === phase);
+                    if (!run?.completed || run.error || run.artifactReport?.settledPath !== rel) {
+                        return send(res, 404, { error: "No verified artifact for this phase run" });
+                    }
+                    const content = await readWorkflowArtifact(inst.cwd, rel, pipeline,
+                        { reported: { step, slug: run.artifactReport.slug } });
+                    return send(res, 200, { path: rel, content });
+                }
                 return send(res, 200, { path: rel, content: await readWorkflowArtifact(inst.cwd, rel, pipeline) });
             }
             return send(res, 404, { error: "not found" });
@@ -1207,6 +1257,38 @@ const actions = [
             return result;
         },
     }] : []),
+    ...(hasHintReports ? [{
+        name: "report_phase_artifact",
+        description: "Report one existing workspace Markdown artifact from the original phase turn.",
+        inputSchema: {
+            type: "object", required: ["phaseRunId", "path"], additionalProperties: false,
+            properties: { phaseRunId: { type: "string" }, path: { type: "string" } },
+        },
+        handler: async (ctx) => {
+            const inst = instanceFor(ctx.instanceId);
+            if (!agentBusy) throw new Error("The phase reporting window has closed");
+            const record = await phaseRuns.read(inst);
+            const owner = [...record.items, ...record.pending].find((entry) =>
+                entry.runs?.some((run) => run.runId === ctx.input.phaseRunId));
+            const run = owner?.runs.find((entry) => entry.runId === ctx.input.phaseRunId);
+            if (!run?.artifactReport || run.artifactReport.instanceId !== inst.instanceId
+                || run.artifactReport.instanceToken !== inst.reportingToken) {
+                throw new Error("Unknown or stale phase artifact run");
+            }
+            if (run.messageId) await captureResponses(inst);
+            const step = pipeline.pipeline.steps.find((entry) => entry.instanceKey === run.phase);
+            const reported = authorizeReportedArtifact(pipeline, step, ctx.input.path,
+                owner.slug ?? (owner.id === "project" ? null : owner.id));
+            if (owner.baseline && reported.slug && Object.hasOwn(owner.baseline, reported.slug)) {
+                throw new Error("Reported artifact belongs to an existing workflow item");
+            }
+            await readWorkflowArtifact(inst.cwd, reported.path, pipeline,
+                { reported: { step, slug: reported.slug } });
+            const result = await phaseRuns.reportArtifact(inst, ctx.input.phaseRunId, reported.path, reported.slug);
+            inst.broadcast?.();
+            return result;
+        },
+    }] : []),
     ...(hasPhaseReports ? [{
         name: "report_phase_result",
         description: "Report an allowed result from the original configured phase turn.",
@@ -1216,6 +1298,11 @@ const actions = [
         },
         handler: async (ctx) => {
             const inst = instanceFor(ctx.instanceId);
+            if (!agentBusy) throw new Error("The phase reporting window has closed");
+            const state = await phaseRuns.read(inst);
+            const bound = [...state.items, ...state.pending].some((entry) =>
+                entry.runs?.some((run) => run.runId === ctx.input.phaseRunId && run.messageId));
+            if (bound) await captureResponses(inst);
             const result = await phaseRuns.report(inst, ctx.input.phaseRunId, ctx.input.resultId);
             inst.broadcast?.();
             return result;

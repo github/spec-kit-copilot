@@ -214,6 +214,13 @@ code, pre { font-family: var(--font-mono); }
     font-weight: 500;
     overflow-wrap: anywhere;
 }
+.phase-result[data-tone="positive"] { border-color: var(--success-color); }
+.phase-result[data-tone="attention"] { border-color: var(--warn-color); }
+.phase-result[data-tone="critical"] { border-color: var(--danger-color); }
+.workflow-results { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-block-start: 0.5rem; }
+.task-progress { display: grid; gap: 0.35rem; max-width: 18rem; margin-block-start: 0.75rem; font-size: 0.85rem; }
+.task-progress progress { width: 100%; accent-color: var(--accent-color); }
+.step-label { display: grid; gap: 0.2rem; min-width: 0; text-align: start; }
 .step-index {
     display: inline-flex;
     align-items: center;

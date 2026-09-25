@@ -13,7 +13,8 @@ from unittest.mock import patch
 PACKAGE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
+from category_contracts import stage_documents  # noqa: E402
 from staging import read_json  # noqa: E402
 
 
@@ -90,18 +91,18 @@ class StandaloneEntryContracts(unittest.TestCase):
                 encoding="utf-8",
             )
             specify(root, "extension", "add", str(package), "--dev")
-            with self.assertRaisesRegex(ValueError, "installed canvas generator is required"):
-                prepare_request(
-                    root, ["speckit.runtime-phase.phase"], "sample-canvas", "Sample Canvas", False,
-                )
-            self.assertFalse((root / ".specify" / ".cache" / "canvas-generation").exists())
+            unbound = prepare_request(
+                root, ["speckit.runtime-phase.phase"], "sample-canvas", "Sample Canvas", False,
+            )
+            with self.assertRaisesRegex(ValueError, "Missing required named Specify template"):
+                stage_documents(unbound)
             specify(root, "extension", "add", str(PACKAGE), "--dev", "--priority", "100")
             path = prepare_request(
                 root, ["speckit.runtime-phase.phase"], "sample-canvas", "Sample Canvas", False,
             )
             self.assertEqual(
-                read_json(path)["workflow"]["phaseOutputs"][0]["contract"]["result"],
-                {"kind": "unknown"},
+                read_json(path)["workflow"]["phaseOutputs"][0]["expectsArtifact"],
+                None,
             )
 
     def test_directly_installed_design_phase_rejected_without_request_or_stack_change(self) -> None:

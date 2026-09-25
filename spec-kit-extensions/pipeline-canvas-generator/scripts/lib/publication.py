@@ -144,9 +144,11 @@ def record_outcome(
             for row in request["workflow"]["artifactSnapshot"]["packageClassifications"]
             if row["classification"] == "canvas-design"
         }
+        from category_contracts import bound_documents
+
         owners = {
             (binding["provider"]["kind"], binding["provider"]["id"])
-            for binding in request["workflow"]["categoryTemplates"].values()
+            for binding in bound_documents(request_path).values()
         }
         result = {
             "schemaVersion": 1, "status": "succeeded",

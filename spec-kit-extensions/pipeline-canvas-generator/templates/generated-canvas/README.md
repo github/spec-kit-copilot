@@ -225,7 +225,7 @@ contract in the provider's memory only. New workspaces/providers recheck; no loa
 session readiness is persisted, no watchers are installed, and generation gains no
 extra setup or verification step.
 
-The captured `canvas-onboarding.installationMode` selects `external`, `prompt`,
+The captured `canvas-setup.installationMode` selects `external`, `prompt`,
 or `automatic` setup. `external` blocks missing or mismatched runtime providers
 without dispatching an installation. `automatic` permits setup of only the
 captured dependency set and portable HTTPS sources; it cannot install a missing

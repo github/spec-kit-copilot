@@ -62,19 +62,18 @@ regression fixtures), or make generated output import the draft Wizard UI
 
 ## R3. Composition snapshot, package eligibility, and authority
 
-**Phase-output authority refinement (2026-09-23)**: Specify's artifact JSON
+**Phase-output authority refinement (2026-09-24)**: Specify's artifact JSON
 exposes effective command and template stacks and their source paths, but not
 the output path of a phase command. The pinned Wizard compiler previously
 received output targets from its scanner. Replace that Wizard-only input
-with one versioned author-declared JSON template per selected command,
-resolved by existing `(template, name)` Specify composition during
-extension-owned request preparation. The template name is
-`phase-output-` plus lowercase hex of the command ID's UTF-8 bytes.
-Bind the validated output/transient declaration, effective provider,
-source path, source hash, and complete template stack to the immutable
-request. generator-owned templates cover core commands. Other callable commands may
-have no declaration: capture a safe Markdown path in the effective skill as a
-best-effort hint or record unknown output, without blocking invocation. Only
+with one complete `phase-outputs` Specify template, defaulting to `unknown`
+and containing optional per-command artifact or transient entries. A preset
+may replace the whole document; no implicit merge from the generator's known
+core overrides occurs. Bind each selected result, effective provider, source
+path, source hash, and complete shared template stack to the immutable
+request. Other callable commands may lack an entry: capture a safe Markdown
+path in the effective skill as a best-effort hint or record unknown output,
+without blocking invocation. Only
 existing workspace-confined files establish produced artifacts. This keeps
 declared outputs unambiguous without making the Wizard cache authoritative.
 

@@ -13,7 +13,7 @@
     "defaultResult": { "$ref": "#/$defs/result" },
     "phases": {
       "type": "object",
-      "propertyNames": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+      "propertyNames": { "type": "string", "pattern": "^speckit\\.[a-z0-9][a-z0-9.-]*$" },
       "additionalProperties": {
         "oneOf": [
           { "$ref": "#/$defs/result" },

@@ -14,7 +14,7 @@ FIXTURES = PACKAGE / "tests" / "fixtures" / "composition"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from override import prepare_override  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
 from staging import materialize_candidate, read_json  # noqa: E402
 from support import record_support_result, validate_support_command  # noqa: E402
 
@@ -75,17 +75,17 @@ class ExplicitSupportContracts(unittest.TestCase):
         self.assertFalse(draft.exists())
         result = record_support_result(
             self.request, "speckit.design-helper.design-help",
-            {"categories": {"canvas-layout": {"phases": {"showDescriptions": False}}}},
+            {"categories": {}},
             command["sourceSha256"],
         )
-        self.assertFalse(read_json(result)["categories"]["canvas-layout"]["phases"]["showDescriptions"])
+        self.assertEqual(read_json(result)["categories"], {})
         prepare_override(self.request)
         candidate = materialize_candidate(
             self.request, PACKAGE / "tests" / "fixtures" / "scaffold"
         )
         self.assertEqual(
-            read_json(candidate / "canvas-experience.json")["categories"]["canvas-layout"]["phases"]["showDescriptions"],
-            False,
+            read_json(candidate / "canvas-experience.json")["presentation"]["phases"]["showDescriptions"],
+            True,
         )
         with self.assertRaisesRegex(ValueError, "already has"):
             record_support_result(
@@ -105,10 +105,10 @@ class ExplicitSupportContracts(unittest.TestCase):
                 self.request, "speckit.design-helper.design-help", {"error": "failed"},
                 source_sha256,
             )
-        with self.assertRaisesRegex(ValueError, "Unsupported|Protected"):
+        with self.assertRaisesRegex(ValueError, "Sparse command overrides are unsupported"):
             record_support_result(
                 self.request, "speckit.design-helper.design-help",
-                {"categories": {"canvas-content": {"schemaVersion": 2}}},
+                {"categories": {"canvas-presentation": {"schemaVersion": 2}}},
                 source_sha256,
             )
         self.assertFalse(self.request.with_name("command-override-draft.json").exists())

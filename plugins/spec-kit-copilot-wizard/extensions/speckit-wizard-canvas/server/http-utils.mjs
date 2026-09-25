@@ -78,12 +78,12 @@ export function tokensMatch(provided, expected) {
     return timingSafeEqual(a, b);
 }
 
-export async function readBody(req) {
+export async function readBody(req, cap = BODY_CAP) {
     let received = 0;
     const chunks = [];
     for await (const c of req) {
         received += c.length;
-        if (received > BODY_CAP) {
+        if (received > cap) {
             const err = new Error("body too large");
             err.code = "BODY_TOO_LARGE";
             throw err;

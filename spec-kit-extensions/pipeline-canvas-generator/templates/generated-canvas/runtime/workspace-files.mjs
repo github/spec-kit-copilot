@@ -31,13 +31,13 @@ export function validateWorkflowPaths(pipeline) {
     const { constitution } = commandViews(pipeline);
     if (constitution) {
         try {
-            workflowPath(constitution.artifact.pathTemplate);
+            workflowPath(constitution.artifact.outputPath);
         } catch (error) {
             throw new Error(`Unsupported Constitution contract: declare a safe project-relative Markdown artifact (${error.message}).`);
         }
     }
     const artifacts = (pipeline.pipeline?.steps ?? [])
-        .map((step) => step.artifact?.pathTemplate)
+        .map((step) => step.artifact?.outputPath)
         .filter((path) => path != null)
         .map((path) => workflowPath(path, { template: true }));
     const root = pipeline.runtime?.itemRoot;
@@ -115,6 +115,26 @@ export function authorizeWorkflowPath(pipeline, relativePath, operation) {
     return path;
 }
 
+export function authorizeReportedArtifact(pipeline, step, relativePath, slug) {
+    if (step?.artifact?.completionSignal !== "hint" || step.artifact.outputPath !== null) {
+        throw new Error("This phase does not accept a reported artifact");
+    }
+    const path = workflowPath(relativePath);
+    if (!path.toLowerCase().endsWith(".md")) throw new Error("Reported artifact must be Markdown");
+    const root = pipeline.runtime?.itemRoot;
+    if (root) {
+        const [before, after] = workflowPath(root, { template: true }).split("<slug>");
+        const match = path.match(new RegExp(`^${before.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([a-z0-9]+(?:-[a-z0-9]+)*)${after.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`));
+        if (!match || slug && match[1] !== slug) throw new Error("Reported artifact is outside this workflow item");
+        return { path, slug: match[1] };
+    }
+    if (/^(?:\.git|\.github|\.speckit-canvas|node_modules)(?:\/|$)/i.test(path)
+        || /^\.specify\/(?:extensions|presets|templates)(?:\/|$)/i.test(path)) {
+        throw new Error("Reported artifact is outside the workflow scope");
+    }
+    return { path, slug: null };
+}
+
 export async function resolveWorkflowPath(workspacePath, relativePath, pipeline, operation) {
     const path = authorizeWorkflowPath(pipeline, relativePath, operation);
     if (path === ".") return realpath(resolve(workspacePath));
@@ -123,8 +143,11 @@ export async function resolveWorkflowPath(workspacePath, relativePath, pipeline,
 
 export const ARTIFACT_CAP = 512 * 1024;
 
-export async function readWorkflowArtifact(workspacePath, relativePath, pipeline, { metadata = false } = {}) {
-    const file = await resolveWorkflowPath(workspacePath, relativePath, pipeline, "artifact");
+export async function readWorkflowArtifact(workspacePath, relativePath, pipeline, { metadata = false, reported = null } = {}) {
+    if (reported) authorizeReportedArtifact(pipeline, reported.step, relativePath, reported.slug);
+    const file = reported
+        ? await resolveRegularPath(workspacePath, workflowPath(relativePath), "file")
+        : await resolveWorkflowPath(workspacePath, relativePath, pipeline, "artifact");
     const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
         const before = await handle.stat();
@@ -139,7 +162,9 @@ export async function readWorkflowArtifact(workspacePath, relativePath, pipeline
             size += bytesRead;
         }
         if (size > ARTIFACT_CAP) throw Object.assign(new Error("Artifact exceeds the 512 KiB limit."), { code: "ARTIFACT_UNAVAILABLE" });
-        const verified = await resolveWorkflowPath(workspacePath, relativePath, pipeline, "artifact");
+        const verified = reported
+            ? await resolveRegularPath(workspacePath, workflowPath(relativePath), "file")
+            : await resolveWorkflowPath(workspacePath, relativePath, pipeline, "artifact");
         const after = await lstat(verified);
         if (before.ino !== after.ino || before.dev !== after.dev || before.size !== size
             || before.size !== after.size || before.mtimeMs !== after.mtimeMs) {

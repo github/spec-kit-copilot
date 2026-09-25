@@ -4,8 +4,11 @@ Use this command only to create a standalone, project-scoped canvas from confirm
 Spec Kit phases. A design package can change its appearance, but must not supply
 any selected runtime phase command. No phase skill runs during generation.
 
-1. Use choices already supplied by the user; ask only for missing ordered
-   phase command IDs, canvas ID, display name, or recipient workspace. Confirm
+1. Use choices already supplied by the user; collect missing ordered
+   phase command IDs, each command's explicit `expectsArtifact` (`true`,
+   `false`, or `null` for unknown) and `outputPath` (string or `null`),
+   canvas ID, display name, or recipient workspace. Do not guess paths
+   from skills. `false` requires a null path. Confirm
    the derived exact target `.github/extensions/<canvas-id>/` and whether this
    is new generation or replacement. If the target
    exists, show its full path and warn that **every file in that directory,
@@ -24,13 +27,28 @@ any selected runtime phase command. No phase skill runs during generation.
    phases, and replacement decision match the Wizard confirmation. Otherwise,
    invoke `scripts/python/canvas_generate.py prepare-request` with `--workspace`,
    `--canvas-id`, `--display-name`, `--overwrite` for a confirmed replacement,
-   and one `--phase <speckit.command>` per phase
-   in confirmed order. The Wizard entry may pass its freshly captured Specify
+   and one `--phase <speckit.command>` per phase in confirmed order. Pass
+   `--phase-outputs-json '<ordered JSON array>'`, with each entry shaped
+   `{"commandName":"speckit.plan","expectsArtifact":true,"outputPath":"specs/<slug>/plan.md"}`.
+   Use `null` for genuinely unknown expectations/paths; Analyze, Taskstoissues,
+   and Implement have no direct artifact by default (`false`, `null`).
+   The Wizard entry may pass its freshly captured Specify
    `artifacts`, `presets`, and `extensions` JSON using `--inventory-stdin`; the
    CLI entry lets the operation capture those three Specify lists itself.
+   If the user explicitly supplies one or more complete, versioned JSON
+   documents, pass each to the corresponding `--presentation-json`,
+   `--phase-outputs-document-json`, `--results-json`,
+   `--interactions-json`, or `--setup-json` option. Never infer an override
+   from ordinary prose, accept partial documents, strip comments, or
+   rewrite an installed preset. Validate with `validate-config` if needed;
+   `prepare-request` validates every input again. A customer preset or
+   Canvas Design extension supplying the same named document wins as a
+   whole; disclose any overridden one-off input before continuing. The
+   generator default for phase outputs contains exactly the selected
+   commands. A customer replacement must match that exact set.
    Use the emitted `requestPath` for every subsequent operation. Complete a
    validated generation brief in this **same agent turn**: the captured choices,
-   request-bound selected phase order, default or explicitly selected design
+   request-bound selected phase order, explicit artifact handoff, design
    inputs, and project-scoped output. Never edit
    `request.json`, recompute provider stacks, infer output paths from files or
    prose, or run a phase as part of authoring.
@@ -41,7 +59,9 @@ any selected runtime phase command. No phase skill runs during generation.
    candidate passes validation. Do not reload the temporary scaffold.
    Run `stage-scaffold --request <requestPath> --scaffold <temporary-directory>`
    and retain its `scaffoldPath`; this snapshots the validated scaffold under
-   the request's confined staging before any authoring refinement.
+   the request's confined staging, then resolves the five complete JSON
+   documents with the captured Specify winners for presentation, phase
+   outputs, and results. A missing or invalid document stops generation.
 4. **Only when** the effective generation command or the confirmed Generate
    action explicitly names a distinct Canvas Design support command, call
    `support-command --request <requestPath> --command <name>`. Require its
@@ -51,8 +71,10 @@ any selected runtime phase command. No phase skill runs during generation.
    stop and surface the failure. Pass its actual JSON response to
    `record-support-result --request <requestPath> --command <name>
    --source-sha256 <sourceSha256 from support-command>
-   --result-stdin`. This validates the complete result and writes the sparse
-   draft. Do not invoke any support command merely because a package was
+   --result-stdin`. This validates the result and writes the draft; the
+   compatibility envelope permits only `{"categories":{}}`. A nonempty sparse
+   result fails visibly and must not be merged into any named design document.
+   Do not invoke any support command merely because a package was
    installed or reloaded. There is no automatic support hook. When **no**
    support command was explicitly named, write exactly
    `{"categories": {}}` as `command-override-draft.json` beside the request.

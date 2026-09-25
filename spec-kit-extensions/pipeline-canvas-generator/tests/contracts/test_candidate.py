@@ -14,7 +14,7 @@ FIXTURES = PACKAGE / "tests" / "fixtures" / "composition"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from override import prepare_override  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
 from staging import atomic_json, materialize_candidate  # noqa: E402
 from validation import validate_candidate  # noqa: E402
 

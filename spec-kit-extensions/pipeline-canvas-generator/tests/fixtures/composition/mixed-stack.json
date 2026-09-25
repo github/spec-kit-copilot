@@ -106,133 +106,57 @@
     ]
   },
   {
-    "id": "template:phase-output-737065636b69742e636f6e737469747574696f6e",
+    "id": "template:phase-outputs",
     "kind": "template",
-    "name": "phase-output-737065636b69742e636f6e737469747574696f6e",
+    "name": "phase-outputs",
     "stack": [
       {
-        "id": "template:phase-output-737065636b69742e636f6e737469747574696f6e",
+        "id": "template:phase-outputs",
         "sourceId": "pipeline-canvas-generator",
         "layer": "extension",
         "strategy": "replace",
         "active": true,
         "hidden": false,
         "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
-        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e636f6e737469747574696f6e",
-        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-constitution.json"
+        "lookupId": "extension:pipeline-canvas-generator:template:phase-outputs",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-outputs.json"
       }
     ]
   },
   {
-    "id": "template:phase-output-737065636b69742e706c616e",
+    "id": "template:canvas-presentation",
     "kind": "template",
-    "name": "phase-output-737065636b69742e706c616e",
+    "name": "canvas-presentation",
+    "description": "Complete presentation",
     "stack": [
       {
-        "id": "template:phase-output-737065636b69742e706c616e",
+        "id": "template:canvas-presentation",
         "sourceId": "pipeline-canvas-generator",
         "layer": "extension",
         "strategy": "replace",
         "active": true,
         "hidden": false,
         "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
-        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e706c616e",
-        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-plan.json"
+        "lookupId": "extension:pipeline-canvas-generator:template:canvas-presentation",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/canvas-presentation.json"
       }
     ]
   },
   {
-    "id": "template:phase-output-737065636b69742e616e616c797a65",
+    "id": "template:canvas-results",
     "kind": "template",
-    "name": "phase-output-737065636b69742e616e616c797a65",
+    "name": "canvas-results",
     "stack": [
       {
-        "id": "template:phase-output-737065636b69742e616e616c797a65",
+        "id": "template:canvas-results",
         "sourceId": "pipeline-canvas-generator",
         "layer": "extension",
         "strategy": "replace",
         "active": true,
         "hidden": false,
         "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
-        "lookupId": "extension:pipeline-canvas-generator:template:phase-output-737065636b69742e616e616c797a65",
-        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/phase-output-analyze.json"
-      }
-    ]
-  },
-  {
-    "id": "template:phase-output-737065636b69742e6275672e617373657373",
-    "kind": "template",
-    "name": "phase-output-737065636b69742e6275672e617373657373",
-    "stack": [
-      {
-        "id": "template:phase-output-737065636b69742e6275672e617373657373",
-        "sourceId": "runtime-assess",
-        "layer": "extension",
-        "strategy": "replace",
-        "active": true,
-        "hidden": false,
-        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
-        "lookupId": "extension:runtime-assess:template:phase-output-737065636b69742e6275672e617373657373",
-        "sourcePath": ".specify/extensions/runtime-assess/config/phase-output-bug-assess.json"
-      }
-    ]
-  },
-  {
-    "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
-    "kind": "template",
-    "name": "phase-output-737065636b69742e6173736573732e696e74616b65",
-    "stack": [
-      {
-        "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
-        "sourceId": "customer-canvas-design",
-        "layer": "preset",
-        "strategy": "replace",
-        "active": true,
-        "hidden": false,
-        "manifestPath": ".specify/presets/customer-canvas-design/preset.yml",
-        "lookupId": "preset:customer-canvas-design:template:phase-output-737065636b69742e6173736573732e696e74616b65",
-        "sourcePath": ".specify/presets/customer-canvas-design/config/phase-output-assess-intake.json"
-      },
-      {
-        "id": "template:phase-output-737065636b69742e6173736573732e696e74616b65",
-        "sourceId": "runtime-assess",
-        "layer": "extension",
-        "strategy": "replace",
-        "active": false,
-        "hidden": true,
-        "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
-        "lookupId": "extension:runtime-assess:template:phase-output-737065636b69742e6173736573732e696e74616b65",
-        "sourcePath": ".specify/extensions/runtime-assess/config/phase-output-assess-intake.json"
-      }
-    ]
-  },
-  {
-    "id": "template:canvas-content",
-    "kind": "template",
-    "name": "canvas-content",
-    "description": "Design-owned complete category",
-    "stack": [
-      {
-        "id": "template:canvas-content",
-        "sourceId": "customer-canvas-design",
-        "layer": "preset",
-        "strategy": "replace",
-        "active": true,
-        "hidden": false,
-        "manifestPath": ".specify/presets/customer-canvas-design/preset.yml",
-        "lookupId": "preset:customer-canvas-design:template:canvas-content",
-        "sourcePath": ".specify/presets/customer-canvas-design/config/canvas-content.json"
-      },
-      {
-        "id": "template:canvas-content",
-        "sourceId": "pipeline-canvas-generator",
-        "layer": "extension",
-        "strategy": "replace",
-        "active": false,
-        "hidden": true,
-        "manifestPath": ".specify/extensions/pipeline-canvas-generator/extension.yml",
-        "lookupId": "extension:pipeline-canvas-generator:template:canvas-content",
-        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/canvas-content.json"
+        "lookupId": "extension:pipeline-canvas-generator:template:canvas-results",
+        "sourcePath": ".specify/extensions/pipeline-canvas-generator/config/canvas-results.json"
       }
     ]
   }

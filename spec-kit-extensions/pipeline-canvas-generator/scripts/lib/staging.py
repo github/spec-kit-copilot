@@ -78,6 +78,9 @@ def stage_canvas_scaffold(request_path: Path, scaffold_dir: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
     validate_canvas_scaffold(destination)
+    from category_contracts import stage_documents
+
+    stage_documents(request_file)
     return destination
 
 
@@ -197,61 +200,41 @@ def read_json(path: Path) -> object:
 def expected_candidate_files(request_path: Path, scaffold_dir: Path) -> dict[str, bytes]:
     """Derive every allowed candidate byte from the bound request and package."""
     from compiler import compile_blueprint
-    from experience import default_experience, validate_complete_category
-    from override import merge_sparse, validate_final_override
+    from category_contracts import bound_documents
+    from override import validate_final_override
+    from phase_output import bind_phase_outputs
     from theme_asset import logo_file
 
-    final = validate_final_override(request_path)
+    validate_final_override(request_path)
     request = read_json(request_path)
-    blueprint = compile_blueprint(request)
     package = Path(__file__).resolve().parents[2]
-    bindings = request["workflow"]["categoryTemplates"]
-    profile = {"schemaVersion": 1, "categories": {
-        name: binding["document"] for name, binding in bindings.items()
-    }}
-    for name, patch in final["categories"].items():
-        if bindings[name]["provider"]["id"] != "pipeline-canvas-generator":
-            continue
-        profile["categories"][name] = merge_sparse(profile["categories"][name], patch)
-        validate_complete_category(name, profile["categories"][name], package)
-    profile["categories"]["canvas-content"]["workflowListName"] = request["canvas"]["workflowListName"]
-    profile["categories"]["canvas-content"]["description"] = request["canvas"]["description"]
-    profile["categories"]["canvas-onboarding"]["workflowSlug"]["userProvided"] = (
-        request["instanceConfiguration"]["workflowSlug"]["userProvided"]
+    bindings = bound_documents(request_path)
+    selected = request["workflow"]["selectedPhases"]
+    outputs = bind_phase_outputs(
+        request["workflow"]["phaseOutputs"], bindings["phase-outputs"]["document"],
+        selected, Path(request["workspace"]),
     )
-    if profile["categories"]["canvas-onboarding"]["installationMode"] != "external":
-        profile["categories"]["canvas-onboarding"]["installationMode"] = (
-            request["instanceConfiguration"]["installationMode"]
-        )
-    for name in ("canvas-results", "canvas-onboarding"):
-        validate_complete_category(name, profile["categories"][name], package)
-    defaults = default_experience(package)["categories"]
-    content = profile["categories"]["canvas-content"]
-    onboarding = profile["categories"]["canvas-onboarding"]
-    results = profile["categories"]["canvas-results"]
-    if content["description"] != defaults["canvas-content"]["description"]:
-        blueprint["metadata"]["description"] = content["description"]
-    blueprint["metadata"]["workflowListName"] = content["workflowListName"]
-    blueprint["runtime"]["userProvidesSlug"] = onboarding["workflowSlug"]["userProvided"]
-    blueprint["setup"]["requireInstallationApproval"] = onboarding["installationMode"] == "prompt"
+    blueprint = compile_blueprint(request, outputs)
+    profile = {
+        "schemaVersion": 1,
+        "presentation": bindings["canvas-presentation"]["document"],
+        "interactions": bindings["canvas-interactions"]["document"],
+        "setup": bindings["canvas-setup"]["document"],
+        "results": bindings["canvas-results"]["document"],
+    }
+    setup_policy = profile["setup"]
+    results = profile["results"]
+    blueprint["runtime"]["userProvidesSlug"] = setup_policy["workflowSlug"]["userProvided"]
+    blueprint["setup"]["requireInstallationApproval"] = setup_policy["installationMode"] == "prompt"
     source = package / "templates" / "generated-canvas"
-    logo = logo_file(Path(request["workspace"]), package, profile["categories"]["canvas-theme"],
-                     bindings["canvas-theme"])
+    logo = logo_file(Path(request["workspace"]), package, profile["presentation"],
+                     bindings["canvas-presentation"])
 
     files = {}
-    def changed_fields(document: dict, baseline: dict) -> dict:
-        return {
-            key: changed_fields(value, baseline[key])
-            if isinstance(value, dict) and isinstance(baseline.get(key), dict)
-            else value
-            for key, value in document.items()
-            if key not in baseline or value != baseline[key]
-        }
-
     presentation = {
-            name: changed_fields(document, defaults[name])
-            for name, document in profile["categories"].items()
-            if document != defaults[name]
+        "canvas-presentation": profile["presentation"],
+        "canvas-interactions": profile["interactions"],
+        "canvas-setup": profile["setup"],
     }
     replacements = {
         "__EXTENSION_ID_JSON__": json.dumps(request["canvas"]["id"], ensure_ascii=False),

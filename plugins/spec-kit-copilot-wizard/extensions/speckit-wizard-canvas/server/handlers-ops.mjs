@@ -3,7 +3,7 @@
 // extension's canvas action.
 
 import { join } from "node:path";
-import { access, lstat } from "node:fs/promises";
+import { access, lstat, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 import { applyPatch, writeState } from "../state/store.mjs";
@@ -13,9 +13,14 @@ import { buildAugmentedPath } from "../env/resolve-path.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
 import { readSpecifySnapshot } from "../composition/snapshot.mjs";
 import { checkGeneratorReadiness } from "../env/deps-check.mjs";
+import { PHASE_BY_ID } from "../canvas-runtime/wizard-phases.mjs";
 
 const GENERATOR_ID = "pipeline-canvas-generator";
 const GENERATE_COMMAND = "/speckit-pipeline-canvas-generator-generate";
+const INLINE_NAMES = new Set([
+    "canvas-presentation", "phase-outputs", "canvas-results",
+    "canvas-interactions", "canvas-setup",
+]);
 
 async function runGeneratorProcess(workspace, executable, args, input = null) {
     const path = await buildAugmentedPath();
@@ -61,7 +66,35 @@ async function runGeneratorProcess(workspace, executable, args, input = null) {
     });
 }
 
-export async function prepareWizardGeneration(workspace, phases, configuration, overwrite = false, inst = null) {
+export async function phaseArtifactHandoff(workspace, phases) {
+    const cachePath = join(workspace, ".speckit-wizard", "artifact-targets.json");
+    let entries = {};
+    try {
+        const cache = JSON.parse(await readFile(cachePath, "utf8"));
+        if (cache.version !== 1 || !cache.entries || typeof cache.entries !== "object" ||
+            Array.isArray(cache.entries)) {
+            throw new Error("Invalid Wizard artifact-target cache");
+        }
+        entries = cache.entries;
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+    }
+    return phases.map((commandName) => {
+        const core = PHASE_BY_ID[commandName.replace(/^speckit\./, "")];
+        const expected = core
+            ? core.artifact
+            : entries[`commands/${commandName}`]?.writesTo;
+        const outputPath = typeof expected === "string" && expected.endsWith(".md") && !expected.includes("<name>")
+            ? expected : null;
+        return {
+            commandName,
+            expectsArtifact: outputPath ? true : core?.artifact === null ? false : null,
+            outputPath,
+        };
+    });
+}
+
+export async function prepareWizardGeneration(workspace, phases, configuration, overwrite = false, inst = null, phaseOutputs = null, inlineDocuments = {}) {
     const generator = await checkGeneratorReadiness(inst ?? { workspacePath: workspace }, { force: true });
     if (!generator.ready) throw new Error(generator.message);
     const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
@@ -69,17 +102,49 @@ export async function prepareWizardGeneration(workspace, phases, configuration, 
     await access(script);
     await access(skill);
     const { inventory } = await readSpecifySnapshot(inst ?? { workspacePath: workspace }, { refresh: true });
+    const handoff = phaseOutputs ?? await phaseArtifactHandoff(workspace, phases);
+    if (!inlineDocuments || typeof inlineDocuments !== "object" || Array.isArray(inlineDocuments) ||
+        Object.keys(inlineDocuments).some((name) => !INLINE_NAMES.has(name)
+            || typeof inlineDocuments[name] !== "string"
+            || Buffer.byteLength(inlineDocuments[name], "utf8") > 256 * 1024)) {
+        throw new Error("Inline documents must be named JSON strings of at most 256 KiB");
+    }
     const result = JSON.parse(await runGeneratorProcess(workspace, "python", [
         script, "prepare-request", "--workspace", workspace,
         "--configuration-json", JSON.stringify(configuration),
+        "--phase-outputs-json", JSON.stringify(handoff),
         ...phases.flatMap((phase) => ["--phase", phase]),
         ...(overwrite ? ["--overwrite"] : []),
-        "--inventory-stdin",
-    ], JSON.stringify(inventory)));
+        "--payload-stdin",
+    ], JSON.stringify({ inventory, inlineDocuments })));
     if (typeof result.requestPath !== "string" || !result.requestPath) {
         throw new Error("Generator did not return a request path");
     }
     return result.requestPath;
+}
+
+export async function previewGenerationConfiguration(workspace, phases, inst = null) {
+    const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
+    const { inventory } = await readSpecifySnapshot(inst ?? { workspacePath: workspace }, { refresh: true });
+    const handoff = await phaseArtifactHandoff(workspace, phases);
+    return JSON.parse(await runGeneratorProcess(workspace, "python", [
+        script, "preview-config", "--workspace", workspace,
+        "--phase-outputs-json", JSON.stringify(handoff),
+        ...phases.flatMap((phase) => ["--phase", phase]),
+        "--inventory-stdin",
+    ], JSON.stringify(inventory)));
+}
+
+export async function validateGenerationDocument(workspace, phases, name, raw) {
+    if (!INLINE_NAMES.has(name) || typeof raw !== "string" || Buffer.byteLength(raw) > 256 * 1024) {
+        throw new Error("Invalid inline document name or size");
+    }
+    const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
+    return JSON.parse(await runGeneratorProcess(workspace, "python", [
+        script, "validate-config", "--workspace", workspace, "--name", name,
+        ...phases.flatMap((phase) => ["--phase", phase]),
+        "--json-stdin",
+    ], raw));
 }
 
 export async function handleGenerate(res, body, {
@@ -121,7 +186,9 @@ export async function handleGenerate(res, body, {
     }
     let requestPath;
     try {
-        requestPath = await prepare(inst.workspacePath, selected, configuration, targetExists, inst);
+        const handoff = await phaseArtifactHandoff(inst.workspacePath, selected);
+        requestPath = await prepare(inst.workspacePath, selected, configuration, targetExists, inst, handoff,
+                                    body.inlineDocuments ?? {});
     } catch (error) {
         return jsonError(res, 422, `generation preparation failed: ${error.message}`);
     }

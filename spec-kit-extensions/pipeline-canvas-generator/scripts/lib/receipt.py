@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from experience import CATEGORY_FIELDS
+from category_contracts import NAMES, bound_documents
 from staging import atomic_json, canonical_json_bytes, read_json
 
 
@@ -15,8 +15,6 @@ RECEIPT_NAME = ".speckit-canvas.json"
 
 def build_receipt(request_path: Path, file_hashes: dict[str, str]) -> dict:
     from category_contracts import category_warnings
-    from override import validate_final_override
-
     if RECEIPT_NAME in file_hashes:
         raise ValueError("The receipt must not hash itself")
     request = read_json(request_path)
@@ -27,24 +25,28 @@ def build_receipt(request_path: Path, file_hashes: dict[str, str]) -> dict:
     metadata = yaml.safe_load((package / "extension.yml").read_text(encoding="utf-8"))
     generator_id = metadata["extension"]["id"]
     generator_version = metadata["extension"]["version"]
-    bindings = request["workflow"]["categoryTemplates"]
-    logo = profile["categories"]["canvas-theme"]["brand"]["logo"]
+    bindings = bound_documents(request_path)
+    logo = profile["presentation"]["brand"]["logo"]
     categories = {
         name: {
             "owner": bindings[name]["provider"]["id"],
             "version": bindings[name]["provider"]["version"],
             "sourcePath": bindings[name]["sourcePath"],
             "sourceSha256": bindings[name]["sha256"],
-            "sha256": hashlib.sha256(canonical_json_bytes(profile["categories"][name])).hexdigest(),
+            "sha256": hashlib.sha256(canonical_json_bytes(bindings[name]["document"])).hexdigest(),
+            **({"submittedInline": {
+                "sha256": hashlib.sha256(canonical_json_bytes(
+                    request["inlineDocuments"][name])).hexdigest(),
+                "superseded": bindings[name]["provider"]["kind"] != "inline",
+            }} if name in request.get("inlineDocuments", {}) else {}),
         }
-        for name in CATEGORY_FIELDS
+        for name in NAMES
     }
     providers = [
         {"kind": kind, "id": entry["id"], "version": entry["version"]}
         for kind in ("preset", "extension")
         for entry in blueprint["setup"][f"{kind}s"]
     ]
-    snapshot = request["workflow"]["artifactSnapshot"]
     return {
         "schemaVersion": 1,
         "canvasId": request["canvas"]["id"],
@@ -57,9 +59,9 @@ def build_receipt(request_path: Path, file_hashes: dict[str, str]) -> dict:
         "blueprintSha256": file_hashes["pipeline.json"],
         "experienceSha256": file_hashes["canvas-experience.json"],
         "categories": categories,
-        "warnings": category_warnings(request, validate_final_override(request_path)),
+        "warnings": category_warnings(request, bindings),
         "logo": ({
-            "provider": bindings["canvas-theme"]["provider"],
+            "provider": bindings["canvas-presentation"]["provider"],
             "sourcePath": logo["path"],
             "generatedPath": f"theme/{logo['path']}",
             "sha256": file_hashes[f"theme/{logo['path']}"],
@@ -67,14 +69,14 @@ def build_receipt(request_path: Path, file_hashes: dict[str, str]) -> dict:
         "runtimeProviders": providers,
         "provenance": [
             {
-                "kind": row["kind"],
-                "name": row["name"],
+                "kind": "template",
+                "name": name,
                 "stack": [
                     json.dumps(layer, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-                    for layer in row["stack"]
+                    for layer in bindings[name]["templateStack"]
                 ],
             }
-            for row in snapshot["artifacts"]
+            for name in NAMES
         ],
         "files": [
             {"path": name, "sha256": digest}

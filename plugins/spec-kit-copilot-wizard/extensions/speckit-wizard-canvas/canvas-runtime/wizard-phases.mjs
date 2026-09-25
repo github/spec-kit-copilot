@@ -86,7 +86,7 @@ export const PHASES = [
     canonical("analyze", {
         tagline: "Cross-check the spec, plan, and tasks for consistency.",
         conversation: true,
-        artifact: "specs/<slug>/analysis.md",
+        artifact: null,
     }),
     canonical("taskstoissues", {
         tagline: "File the task list as GitHub issues.",

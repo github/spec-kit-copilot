@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
-import { handleGenerate, prepareWizardGeneration } from "../server/handlers-ops.mjs";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { handleGenerate, phaseArtifactHandoff, prepareWizardGeneration } from "../server/handlers-ops.mjs";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
@@ -33,10 +33,6 @@ const body = {
             displayName: "My Canvas",
             workflowListName: "Workflows",
             description: "Visual workflow for Plan → Intake.",
-        },
-        instanceConfiguration: {
-            workflowSlug: { userProvided: false },
-            installationMode: "automatic",
         },
     },
 };
@@ -79,6 +75,10 @@ test("Wizard hands confirmed phase order to shared preparation, then dispatches 
     assert.deepEqual(calls[0].slice(1, 4), [
         body.phases, body.configuration, false,
     ]);
+    assert.deepEqual(calls[0][5], [
+        { commandName: "speckit.plan", expectsArtifact: true, outputPath: "specs/<slug>/plan.md" },
+        { commandName: "speckit.assess.intake", expectsArtifact: null, outputPath: null },
+    ]);
     assert.match(calls[1], /speckit-pipeline-canvas-generator-generate/);
     assert.match(calls[1], /request\.json/);
     assert.equal(instance.generation.requestPath, calls[0][0] + "\\.specify\\.cache\\canvas-generation\\run\\request.json");
@@ -91,10 +91,6 @@ test("Wizard passes structured configuration to the generator request without ch
             ...body.configuration.canvas,
             workflowListName: "Assessments",
             description: "Review assessments before implementation.",
-        },
-        instanceConfiguration: {
-            workflowSlug: { userProvided: true },
-            installationMode: "prompt",
         },
     };
     let prepared;
@@ -123,6 +119,36 @@ test("Wizard rejects stale or unconfirmed phases without writing a request", asy
     });
     assert.equal(res.statusCode, 409);
     assert.equal(prepared, false);
+});
+
+test("Wizard hands off known, absent, and unknown direct artifact paths", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "wizard-artifact-handoff-"));
+    try {
+        const cacheDir = join(workspace, ".speckit-wizard");
+        await mkdir(cacheDir);
+        await writeFile(join(cacheDir, "artifact-targets.json"), JSON.stringify({
+            version: 1,
+            entries: {
+                "commands/speckit.assess.define": {
+                    writesTo: ".specify/assessments/<slug>/problem.md",
+                },
+            },
+        }));
+        assert.deepEqual(await phaseArtifactHandoff(workspace, [
+            "speckit.analyze", "speckit.implement", "speckit.taskstoissues",
+            "speckit.checklist", "speckit.assess.define", "speckit.assess.unknown",
+        ]), [
+            { commandName: "speckit.analyze", expectsArtifact: false, outputPath: null },
+            { commandName: "speckit.implement", expectsArtifact: false, outputPath: null },
+            { commandName: "speckit.taskstoissues", expectsArtifact: false, outputPath: null },
+            { commandName: "speckit.checklist", expectsArtifact: null, outputPath: null },
+            { commandName: "speckit.assess.define", expectsArtifact: true,
+              outputPath: ".specify/assessments/<slug>/problem.md" },
+            { commandName: "speckit.assess.unknown", expectsArtifact: null, outputPath: null },
+        ]);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
 });
 
 test("Wizard requires exact-target confirmation for existing and partial canvases", async () => {
@@ -167,7 +193,12 @@ test("Wizard captures Specify JSON and prepares the same request with installed 
         assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
         const packagePath = resolve(fileURLToPath(new URL("../../../../..", import.meta.url)),
             "spec-kit-extensions", "pipeline-canvas-generator");
-        const installed = spawnSync("specify", ["extension", "add", packagePath, "--dev", "--priority", "100"], {
+        const installSource = join(workspace, "package");
+        await cp(packagePath, installSource, {
+            recursive: true,
+            filter: (source) => !source.includes(`${sep}tests${sep}`) && !source.endsWith(`${sep}tests`),
+        });
+        const installed = spawnSync("specify", ["extension", "add", installSource, "--dev", "--priority", "100"], {
             cwd: workspace, encoding: "utf8", shell: process.platform === "win32",
         });
         assert.equal(installed.status, 0, installed.stderr || installed.stdout);
@@ -178,34 +209,30 @@ test("Wizard captures Specify JSON and prepares the same request with installed 
                 workflowListName: "Workflows",
                 description: "Wizard Test workflow canvas.",
             },
-            instanceConfiguration: {
-                workflowSlug: { userProvided: false },
-                installationMode: "automatic",
-            },
         };
         const path = await prepareWizardGeneration(workspace, ["speckit.plan"], defaultConfiguration);
         const request = JSON.parse(await readFile(path, "utf8"));
         assert.deepEqual(request.workflow.selectedPhases, ["speckit.plan"]);
+        assert.deepEqual(request.workflow.phaseOutputs, [
+            { commandName: "speckit.plan", expectsArtifact: true, outputPath: "specs/<slug>/plan.md" },
+        ]);
         assert.equal(request.canvas.id, "wizard-test");
         assert.equal(request.overwrite, false);
         const script = join(workspace, ".specify", "extensions", "pipeline-canvas-generator",
             "scripts", "python", "canvas_generate.py");
         const cli = spawnSync("python", [script, "prepare-request", "--workspace", workspace,
-            "--canvas-id", "wizard-test", "--display-name", "Wizard Test", "--phase", "speckit.plan",
+            "--configuration-json", JSON.stringify(defaultConfiguration), "--phase", "speckit.plan",
+            "--phase-outputs-json", JSON.stringify(await phaseArtifactHandoff(workspace, ["speckit.plan"])),
         ], { cwd: workspace, encoding: "utf8" });
         assert.equal(cli.status, 0, cli.stderr || cli.stdout);
         const cliRequest = JSON.parse(await readFile(JSON.parse(cli.stdout).requestPath, "utf8"));
         assert.deepEqual(cliRequest, request, "Wizard and standalone entries must capture identical authority");
         const configuration = {
             canvas: {
-                id: "wizard-settings-test",
-                displayName: "Wizard Settings Test",
+                id: "wizard-details-test",
+                displayName: "Wizard Details Test",
                 workflowListName: "Features",
                 description: "Run the selected feature workflow.",
-            },
-            instanceConfiguration: {
-                workflowSlug: { userProvided: true },
-                installationMode: "prompt",
             },
         };
         const configured = await prepareWizardGeneration(
@@ -213,7 +240,7 @@ test("Wizard captures Specify JSON and prepares the same request with installed 
         );
         const configuredRequest = JSON.parse(await readFile(configured, "utf8"));
         assert.deepEqual(configuredRequest.canvas, configuration.canvas);
-        assert.deepEqual(configuredRequest.instanceConfiguration, configuration.instanceConfiguration);
+        assert.equal(Object.hasOwn(configuredRequest, "instanceConfiguration"), false);
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

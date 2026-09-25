@@ -7,9 +7,4 @@ provides:
   commands:
     - name: speckit.bug.assess
       file: commands/bug-assess.md
-  templates:
-    - name: phase-output-737065636b69742e6275672e617373657373
-      file: config/phase-output-bug-assess.json
-    - name: phase-output-737065636b69742e6173736573732e696e74616b65
-      file: config/phase-output-assess-intake.json
 tags: []

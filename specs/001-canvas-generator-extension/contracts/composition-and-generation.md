@@ -4,6 +4,8 @@
 No composition-domain API is required. See
 [research](../research.md#r1-existing-specify-contracts-and-tag-classification).
 
+**Current configuration contract**: [Section 17 of the updated plan](../../../docs/canvas-extension-original-plan.md#17-revised-generation-configuration-and-result-behavior) supersedes the older six-category request example and phase-output template rules below. New requests pass per-phase artifact expectations; complete versioned presentation, result, and phase-output documents resolve for newly generated canvases.
+
 ## Specify JSON inputs and Canvas Design classification
 
 Use three machine-readable reads per fresh composition capture:
@@ -112,7 +114,7 @@ One immutable `request.json` per run, prepared by extension-owned code:
           "id": "assess",
           "version": "<installed-version>"
         },
-        "sourcePath": ".specify/extensions/assess/config/phase-output-intake.json",
+        "sourcePath": ".specify/extensions/assess/config/phase-outputs.json",
         "sha256": "<sha256-of-exact-template-bytes>",
         "templateStack": []
       }
@@ -170,33 +172,37 @@ preparation. The generated canvas always uses its packaged horizontal phase UI.
 
 ### Selected phase-output contracts
 
-For each selected command `phaseId`, encode its UTF-8 bytes as lowercase hex
-and resolve one `(template, phase-output-<hex>)` artifact from the **same**
-captured Specify snapshot. This injective template name uses only characters
-accepted by released Specify; no separate resolver, catalog, or inference
-path is introduced. Every author-declared template contains exactly:
+Resolve the single `(template, phase-outputs)` artifact from the **same**
+captured Specify snapshot. A preset can replace the whole document using
+Specify's normal template precedence. The selected phases still come from
+the effective commands, not the keys in this configuration. The complete
+versioned template has this shape:
 
 ```json
 {
   "schemaVersion": 1,
-  "commandName": "speckit.assess.intake",
-  "result": {
-    "kind": "artifact",
-    "pathTemplate": ".specify/assessments/<slug>/intake.md"
+  "default": { "kind": "unknown" },
+  "phases": {
+    "speckit.assess.intake": {
+      "kind": "artifact",
+      "pathTemplate": ".specify/assessments/<slug>/intake.md"
+    }
   }
 }
 ```
 
-For phases without a durable artifact, declare
-`"result": {"kind": "transient"}` explicitly. The `artifact` variant requires
-one workspace-confined Markdown path template; `transient` forbids any path.
-Generator-owned templates cover supported core commands. A preset wrapper
-does not need to redeclare the core output. For commands without a template,
-record either a safe skill-derived Markdown path hint or an unknown output;
-neither blocks invocation. An explicit transient declaration remains distinct
-from an unknown output. Validate any declared template's `commandName`, schema,
-supported placeholders, source location, regular file bounds, and unique
-effective winner. A mixed-provider stack remains intact; declared bindings
+The packaged template lists known core paths. A replacing preset must provide
+its own default and all per-command overrides it needs; missing keys are not
+merged from the generator's file. `artifact` requires one workspace-confined
+Markdown path template; `transient` forbids a path and means no single durable
+file to present. An `unknown` default still allows any selected custom phase
+to run. For an unknown phase result, capture a safe skill-derived Markdown path
+hint if available; otherwise retain `unknown`. Neither blocks invocation.
+Unknown results without a path and transient results show no artifact; a
+path hint is viewable only after a real file is verified.
+Validate the entire document, including unselected entries, supported
+placeholders, source location, regular file bounds, and unique effective winner.
+A mixed-provider stack remains intact; per-selected-phase bindings
 retain the ordered `templateStack`, effective provider kind/ID/version,
 source path, and SHA-256 of source bytes. Treat ambiguous winners as errors.
 

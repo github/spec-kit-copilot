@@ -9,6 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from request import prepare_request  # noqa: E402
+from category_contracts import baseline_documents, parse_document_json, winning_providers  # noqa: E402
+from artifact_snapshot import normalize_snapshot  # noqa: E402
+from phase_output import validate_handoff  # noqa: E402
 from override import prepare_override  # noqa: E402
 from staging import materialize_candidate, stage_canvas_scaffold  # noqa: E402
 from receipt import write_receipt  # noqa: E402
@@ -25,13 +28,31 @@ def main() -> int:
     preparation.add_argument("--workspace", required=True, type=Path)
     preparation.add_argument("--canvas-id")
     preparation.add_argument("--display-name")
-    preparation.add_argument("--configuration-json", help="Wizard-confirmed canvas and instance configuration")
+    preparation.add_argument("--configuration-json", help="Wizard-confirmed canvas metadata")
     preparation.add_argument("--phase", action="append", required=True)
+    preparation.add_argument("--phase-outputs-json", required=True,
+                             help="Ordered JSON array of {commandName,expectsArtifact,outputPath} handoffs")
+    preparation.add_argument("--presentation-json",
+                             help="Complete versioned canvas-presentation JSON for this request only")
+    for flag in ("phase-outputs-document", "results", "interactions", "setup"):
+        preparation.add_argument(f"--{flag}-json", help=f"Complete versioned {flag} JSON")
     preparation.add_argument("--overwrite", action="store_true")
     preparation.add_argument(
         "--inventory-stdin", action="store_true",
         help="Use one freshly captured Wizard Specify inventory from standard input",
     )
+    preparation.add_argument("--payload-stdin", action="store_true",
+                             help="Read inventory and named raw inline documents from standard input")
+    preview = subcommands.add_parser("preview-config", help="Show baseline documents and active providers")
+    preview.add_argument("--workspace", required=True, type=Path)
+    preview.add_argument("--phase", action="append", required=True)
+    preview.add_argument("--phase-outputs-json", required=True)
+    preview.add_argument("--inventory-stdin", action="store_true", required=True)
+    validation = subcommands.add_parser("validate-config", help="Validate one strict JSON document")
+    validation.add_argument("--workspace", required=True, type=Path)
+    validation.add_argument("--name", required=True)
+    validation.add_argument("--phase", action="append", required=True)
+    validation.add_argument("--json-stdin", action="store_true", required=True)
     finalization = subcommands.add_parser(
         "prepare-override", help="Bind a sparse override to the exact request bytes"
     )
@@ -80,8 +101,31 @@ def main() -> int:
     args = parser.parse_args()
     if args.operation == "prepare-request":
         try:
-            inventory = json.load(sys.stdin) if args.inventory_stdin else None
+            payload = json.load(sys.stdin) if args.payload_stdin else None
+            inventory = payload["inventory"] if payload is not None else (
+                json.load(sys.stdin) if args.inventory_stdin else None)
             configuration = json.loads(args.configuration_json) if args.configuration_json else None
+            phase_outputs = json.loads(args.phase_outputs_json)
+            inputs = {
+                "canvas-presentation": args.presentation_json,
+                "phase-outputs": args.phase_outputs_document_json,
+                "canvas-results": args.results_json,
+                "canvas-interactions": args.interactions_json,
+                "canvas-setup": args.setup_json,
+            }
+            if payload is not None:
+                if not isinstance(payload.get("inlineDocuments"), dict):
+                    raise ValueError("Inline documents payload must be an object")
+                if any(name not in inputs or not isinstance(raw, str)
+                       for name, raw in payload["inlineDocuments"].items()):
+                    raise ValueError("Unknown or non-string inline document")
+                inputs.update(payload["inlineDocuments"])
+            inline_documents = {}
+            for name, raw in inputs.items():
+                if raw is not None:
+                    if len(raw.encode("utf-8")) > 256 * 1024:
+                        raise ValueError(f"Inline {name} exceeds 256 KiB")
+                    inline_documents[name] = parse_document_json(raw.encode("utf-8"), name)
             canvas = configuration.get("canvas", {}) if configuration else {}
             canvas_id = canvas.get("id", args.canvas_id)
             display_name = canvas.get("displayName", args.display_name)
@@ -90,11 +134,48 @@ def main() -> int:
             path = prepare_request(
                 args.workspace, args.phase, canvas_id, display_name,
                 args.overwrite, inventory=inventory,
-                configuration=configuration,
+                configuration=configuration, phase_outputs=phase_outputs,
+                inline_documents=inline_documents,
             )
         except (ValueError, json.JSONDecodeError) as error:
             parser.error(str(error))
         print(json.dumps({"requestPath": str(path)}, ensure_ascii=False))
+        return 0
+    if args.operation == "validate-config":
+        from experience import DOCUMENTS, validate_complete_category
+        from phase_output import validate_document_commands
+
+        try:
+            if args.name not in DOCUMENTS:
+                raise ValueError(f"Unknown document: {args.name}")
+            raw = sys.stdin.buffer.read(256 * 1024 + 1)
+            if len(raw) > 256 * 1024:
+                raise ValueError(f"Inline {args.name} exceeds 256 KiB")
+            document = parse_document_json(raw, args.name)
+            validate_complete_category(args.name, document, Path(__file__).resolve().parents[2])
+            if args.name == "phase-outputs":
+                validate_document_commands(document, args.phase, args.workspace)
+            if args.name == "canvas-presentation" and document["brand"]["logo"]["mode"] == "asset":
+                raise ValueError("Inline presentation cannot supply an asset logo; use a preset")
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        print(json.dumps({"valid": True, "document": document}, ensure_ascii=False))
+        return 0
+    if args.operation == "preview-config":
+        try:
+            phases = args.phase
+            outputs = json.loads(args.phase_outputs_json)
+            validate_handoff(outputs, phases, args.workspace)
+            inventory = json.load(sys.stdin)
+            snapshot = normalize_snapshot(inventory["artifacts"], inventory["presets"],
+                                          inventory["extensions"], args.workspace)
+            documents = baseline_documents(Path(__file__).resolve().parents[2], outputs)
+            winners = winning_providers(snapshot)
+        except (ValueError, KeyError, OSError, json.JSONDecodeError) as error:
+            parser.error(str(error))
+        print(json.dumps({"documents": documents, "winners": {
+            name: winners.get(name) for name in documents
+        }}, ensure_ascii=False))
         return 0
     if args.operation == "prepare-override":
         try:

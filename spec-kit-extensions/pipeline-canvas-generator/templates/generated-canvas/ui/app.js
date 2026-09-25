@@ -7,8 +7,7 @@ import { validateWorkflowSlug } from "./workflow-slug.mjs";
 import { installationDisclosure } from "./setup-view.mjs";
 
 const presentation = __PRESENTATION_JSON__;
-const category = (name) => presentation[name];
-const contentCopy = (key, fallback) => category("canvas-content")?.copy?.[key] ?? fallback;
+const visual = presentation["canvas-presentation"] ?? presentation;
 const state = {
     snapshot: null,
     current: 0,
@@ -23,9 +22,11 @@ const state = {
     artifactView: null,
     amendmentPolls: new Map(),
 };
+const interactions = () => presentation["canvas-interactions"] ?? state.snapshot?.interactions;
 const clarifications = createClarificationQueue(globalThis.localStorage);
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+const clarificationLabel = () => state.snapshot?.clarificationLabel || "Clarification needed";
 
 async function json(url, options) {
     const response = await fetch(url, options);
@@ -52,7 +53,7 @@ function resetNewWorkflowDraft() {
 function resolvedOutputPath(step, item = selectedItem()) {
     const artifact = item?.phases?.[step.instanceKey]?.artifact;
     if (artifact) return artifact;
-    const template = step.artifact?.pathTemplate;
+    const template = step.artifact?.outputPath;
     if (!template) return null;
     const slug = item?.slug || (item?.isNew ? state.workflowSlugDraft.trim() : "");
     return slug ? template.replaceAll("<slug>", slug) : template;
@@ -68,10 +69,13 @@ function updateWritesTo(step, item = selectedItem()) {
     const button = $("browse-output-folder");
     if (!button) return;
     const outputPath = resolvedOutputPath(step, item);
-    const unresolved = !outputPath || outputPath.includes("<slug>");
+    const unresolved = !outputPath || outputPath.includes("<slug>")
+        || step.artifact?.completionSignal !== "artifact";
     button.disabled = unresolved;
     button.dataset.folderPath = unresolved ? "" : parentFolder(outputPath);
-    button.title = unresolved ? "Enter a workflow slug to resolve this path" : `Open ${button.dataset.folderPath} in file explorer`;
+    button.title = step.artifact?.completionSignal !== "artifact"
+        ? "No declared output folder to open" : unresolved
+            ? "Enter a workflow slug to resolve this path" : `Open ${button.dataset.folderPath} in file explorer`;
     button.innerHTML = `<code>${esc(outputPath || "Transient phase")}</code>`;
 }
 
@@ -108,14 +112,14 @@ function renderInstanceCollection() {
     collection.hidden = false;
     collection.innerHTML = `
         <div class="instance-collection-head">
-            <h2>${esc(category("canvas-content")?.workflowListName ?? state.snapshot?.pipeline?.metadata?.workflowListName ?? "Workflows")} <span class="muted">(${items.length})</span></h2>
-            <button class="btn btn-secondary" id="new-workflow" type="button">+ ${esc(contentCopy("new", "New"))}</button>
+            <h2>${esc(state.snapshot?.pipeline?.metadata?.workflowListName ?? "Workflows")} <span class="muted">(${items.length})</span></h2>
+            <button class="btn btn-secondary" id="new-workflow" type="button">+ New</button>
         </div>
         ${state.snapshot?.pipeline?.metadata?.description ? `<p class="collection-description muted">${esc(state.snapshot.pipeline.metadata.description)}</p>` : ""}
         ${collectionPath ? `<button type="button" class="phase-artifact-link collection-folder" id="browse-collection-folder" data-folder-path="${esc(collectionPath)}" title="Open ${esc(collectionPath)}/ in file explorer"><code>${esc(collectionPath)}/</code></button>` : ""}
         <div class="collection-summary" aria-label="Workflow counts">
             ${resultCounts.map(({ label, count }) => phaseNotice(`${label}: ${count}`, "Workflows with this tag in any current phase result, counted once per tag. Freshness is best-effort, not verified code correctness.")).join("")}
-            ${clarificationCount !== null ? phaseNotice(`Clarification needed: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.") : ""}
+            ${clarificationCount !== null ? phaseNotice(`${clarificationLabel()}: ${clarificationCount}`, "Workflows with unresolved clarifications in any phase. This count overlaps the other counts.") : ""}
         </div>
         <div id="collection-message" role="status"></div>
         ${items.length > 8 ? `<label class="workflow-search"><span class="visually-hidden">Search</span><input id="workflow-search" type="search" value="${esc(state.workflowQuery)}" placeholder="Search…" /></label>` : ""}
@@ -126,6 +130,8 @@ function renderInstanceCollection() {
                     <strong>${esc(item.label)}</strong>
                     <span class="muted">${esc(activity)}</span>
                     ${phaseFeedback(statuses.get(item.id))}
+                    ${item.results?.length ? `<span class="workflow-results" aria-label="Workflow results">${item.results.map((result) =>
+                        `<span class="phase-notice phase-result" data-tone="${esc(result.tone)}">${esc(result.label)}</span>`).join("")}</span>` : ""}
                 </button>
                 <button class="instance-delete" type="button" data-delete-workflow="${esc(item.slug)}" aria-label="Delete ${esc(item.label)}">Delete</button>
             </div>`;
@@ -167,7 +173,7 @@ function renderInstanceCollection() {
 function phaseInputGuidance(step) {
     const guidance = state.snapshot?.phaseInputs?.[step.instanceKey]
         ?? { label: "Phase input", helper: "Add details or direction for this phase.", optional: false };
-    const custom = category("canvas-interactions")?.inputs?.phases?.[step.commandName];
+    const custom = interactions()?.inputs?.phases?.[step.commandName];
     return custom ? { ...guidance, helper: custom } : guidance;
 }
 
@@ -257,7 +263,7 @@ function phasePresentation(step, item = selectedItem()) {
         ? { className: "phase-run", label: "Run requested; completion not verified", symbol: "✓", notice: "" }
         : { className: "", label: "Not run", symbol: "", notice: "" };
     if (state.snapshot?.clarificationTag !== false && phase?.clarificationCount > 0) {
-        return { className: "needs-clarification", label: "Clarification needed", symbol: "!", notice: "Clarification needed" };
+        return { className: "needs-clarification", label: clarificationLabel(), symbol: "!", notice: clarificationLabel(), statusId: "clarification" };
     }
     const review = phase?.review;
     const config = state.snapshot?.artifactReview;
@@ -284,11 +290,11 @@ function workflowStatus(item) {
     if (!final) return { notice: "" };
     if (!state.snapshot?.artifactReview) {
         const phases = steps.map((step) => phasePresentation(step, item));
-        return { notice: phases.some((phase) => phase.notice === "Clarification needed") ? "Clarification needed" : "",
+        return { notice: phases.some((phase) => phase.statusId === "clarification") ? clarificationLabel() : "",
             error: phases.filter((phase) => phase.error).map((phase) => phase.error).join(" ") };
     }
     const clarification = steps.map((step) => phasePresentation(step, item))
-        .find((phase) => phase.notice === "Clarification needed");
+        .find((phase) => phase.statusId === "clarification");
     if (clarification) return clarification;
     if (item.latestPhase) return latestPhaseResult(item);
     const next = steps.find((step) => !phaseHasRun(step, item));
@@ -299,15 +305,16 @@ function phaseNotice(text, detail = "") {
     return text ? `<span class="phase-notice"${detail ? ` title="${esc(detail)}" aria-label="${esc(`${text}: ${detail}`)}"` : ""}>${esc(text)}</span>` : "";
 }
 
-function phaseFeedback(presentation) {
+function phaseFeedback(presentation, result = null) {
     return phaseNotice(presentation.notice, presentation.error)
+        + (result ? `<span class="phase-notice phase-result" data-tone="${esc(result.tone)}">${esc(result.label)}</span>` : "")
         + (presentation.error ? `<span class="workflow-error" role="status">${esc(presentation.error)}</span>` : "");
 }
 
 function renderPhaseNavigation() {
     const steps = workflowSteps();
     const navigation = $("phase-navigation");
-    const progression = category("canvas-interactions")?.progression;
+    const progression = interactions()?.progression;
     if (!steps.length) {
         navigation.innerHTML = "";
         return;
@@ -320,7 +327,7 @@ function renderPhaseNavigation() {
         ${index > 0 && !concealed ? '<li class="step-sep" aria-hidden="true"></li>' : ""}
         <li ${concealed ? "hidden" : ""}><button class="step ${presentation.className} ${index === state.current ? "active" : ""}" type="button" data-phase-index="${index}" ${index === state.current ? 'aria-current="step"' : ""} title="${esc(presentation.label)}" aria-label="Phase ${index + 1} of ${steps.length}: ${esc(step.label)} — ${esc(presentation.label)}">
             <span class="step-order" aria-hidden="true">${presentation.symbol || index + 1}</span>
-            <span class="step-label"><span class="step-name">${esc(step.label)}</span></span>
+            <span class="step-label"><span class="step-name">${esc(step.label)}</span>${phaseFeedback({ notice: "" }, selectedItem()?.phases?.[step.instanceKey]?.result)}</span>
         </button></li>`;
     }).join("")}</ol>`;
     navigation.querySelectorAll("[data-phase-index]").forEach((button) => {
@@ -339,12 +346,16 @@ function renderCurrentWorkflow() {
         container.innerHTML = "";
         return;
     }
-    container.innerHTML = `<div>${item.isNew ? "" : '<span class="muted">Current selection</span>'}<h2>${esc(item.isNew ? contentCopy("new", "New") : item.label)}</h2></div>`;
+    const progress = item.progress;
+    container.innerHTML = `<div>${item.isNew ? "" : '<span class="muted">Current selection</span>'}<h2>${esc(item.isNew ? "New" : item.label)}</h2>
+        ${item.results?.length ? `<div class="workflow-results" aria-label="Workflow results">${item.results.map((result) =>
+            `<span class="phase-notice phase-result" data-tone="${esc(result.tone)}">${esc(result.label)}</span>`).join("")}</div>` : ""}
+        ${progress && progress.total > 0 ? `<div class="task-progress"><label for="task-progress">${esc(`${progress.complete} of ${progress.total} tasks complete`)}</label><progress id="task-progress" value="${progress.complete}" max="${progress.total}"></progress></div>` : ""}</div>`;
 }
 
 function slugPhaseIndex(steps) {
     if (state.snapshot?.pipeline?.runtime?.userProvidesSlug !== true) return -1;
-    return steps.findIndex((step) => step.artifact?.pathTemplate?.includes("<slug>"));
+    return steps.findIndex((step) => step.artifact?.outputPath?.includes("<slug>"));
 }
 
 function renderPhaseCard() {
@@ -361,23 +372,25 @@ function renderPhaseCard() {
     const submitted = phaseHasRun(step, item);
     const inputGuidance = phaseInputGuidance(step);
     const outputPath = resolvedOutputPath(step, item);
-    const outputUnresolved = !outputPath || outputPath.includes("<slug>");
+    const outputUnresolved = !outputPath || outputPath.includes("<slug>")
+        || step.artifact?.completionSignal !== "artifact";
+    const viewUnavailable = step.artifact?.completionSignal === "transient"
+        || step.artifact?.completionSignal === "hint" && !item?.phases?.[step.instanceKey]?.artifact;
     const showsSlug = state.current === slugPhaseIndex(steps);
     const slugLocked = !item?.isNew || running || submitted;
     const slugValue = item?.slug || state.workflowSlugDraft.trim();
-    const onboarding = category("canvas-onboarding");
+    const slugSettings = presentation["canvas-setup"]?.workflowSlug;
     const slugControl = showsSlug
-        ? `<label class="field" for="workflow-slug"><span class="field-label" id="workflow-slug-label">${esc(onboarding?.workflowSlug?.label ?? "Workflow slug")}${slugLocked ? "" : ' <span class="muted">(optional)</span>'}</span><span class="muted" id="workflow-slug-help">${esc(onboarding?.workflowSlug?.helperText ?? `Names the folder where this workflow’s artifacts are saved.${slugLocked ? "" : " Leave blank to let Spec Kit choose a name."}`)}</span><input class="phase-input-control" id="workflow-slug" type="text" aria-labelledby="workflow-slug-label" aria-describedby="workflow-slug-help" value="${esc(slugLocked ? slugValue : state.workflowSlugDraft)}" placeholder="${slugLocked ? "Automatically assigned" : "your-slug"}" ${slugLocked ? "readonly" : ""} /></label>`
+        ? `<label class="field" for="workflow-slug"><span class="field-label" id="workflow-slug-label">${esc(slugSettings?.label ?? "Workflow name")}${slugLocked ? "" : ' <span class="muted">(optional)</span>'}</span><span class="muted" id="workflow-slug-help">${esc(slugSettings?.helperText ?? "Names the folder where this workflow's artifacts are saved.")}</span><input class="phase-input-control" id="workflow-slug" type="text" aria-labelledby="workflow-slug-label" aria-describedby="workflow-slug-help" value="${esc(slugLocked ? slugValue : state.workflowSlugDraft)}" placeholder="${slugLocked ? "Automatically assigned" : "your-slug"}" ${slugLocked ? "readonly" : ""} /></label>`
         : "";
     const backDisabled = state.current === 0;
     const continueDisabled = state.current >= steps.length - 1;
     $("phase-card").innerHTML = `
         <header class="workflow-header">
-            <div class="workflow-header-main"><div class="phase-heading"><h2>${esc(step.label)}</h2>${phaseFeedback(phasePresentation(step))}</div>${category("canvas-layout")?.phases?.showDescriptions === false ? "" : `<p class="tagline">${esc(step.description)}</p>`}</div>
+            <div class="workflow-header-main"><div class="phase-heading"><h2>${esc(step.label)}</h2>${phaseFeedback(phasePresentation(step), item?.phases?.[step.instanceKey]?.result)}</div>${visual?.phases?.showDescriptions === false ? "" : `<p class="tagline">${esc(step.description)}</p>`}</div>
         </header>
-        ${onboarding?.firstRunCopy && !submitted ? `<p class="tagline">${esc(onboarding.firstRunCopy)}</p>` : ""}
-        <dl class="phase-facts" ${category("canvas-layout")?.artifacts?.showMetadata === false ? "hidden" : ""}>
-            <dt>Writes to</dt><dd><button class="phase-artifact-link" id="browse-output-folder" type="button" data-folder-path="${esc(outputUnresolved ? "" : parentFolder(outputPath))}" ${outputUnresolved ? "disabled" : ""} title="${esc(outputUnresolved ? "Enter a workflow slug to resolve this path" : `Open ${parentFolder(outputPath)} in file explorer`)}"><code>${esc(outputPath || "Transient phase")}</code></button></dd>
+        <dl class="phase-facts" ${visual?.artifacts?.showMetadata === false ? "hidden" : ""}>
+            <dt>Writes to</dt><dd><button class="phase-artifact-link" id="browse-output-folder" type="button" data-folder-path="${esc(outputUnresolved ? "" : parentFolder(outputPath))}" ${outputUnresolved ? "disabled" : ""} title="${esc(step.artifact?.completionSignal !== "artifact" ? "No declared output folder to open" : outputUnresolved ? "Enter a workflow slug to resolve this path" : `Open ${parentFolder(outputPath)} in file explorer`)}"><code>${esc(outputPath || "Transient phase")}</code></button></dd>
         </dl>
         <label class="field" for="phase-args">
             <span class="field-label" id="phase-input-label">${esc(inputGuidance.label)}${inputGuidance.optional ? ' <span class="muted">(optional)</span>' : ""}</span>
@@ -389,8 +402,8 @@ function renderPhaseCard() {
         <footer class="phase-actions phase-actions-nav">
             <div class="phase-actions-left"><button class="btn btn-secondary" id="previous-phase" type="button" ${backDisabled ? "disabled" : ""}>◀ Back</button></div>
             <div class="phase-actions-center">
-                <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() || (submitted && category("canvas-interactions")?.rerun?.enabled === false) ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Sending…' : (submitted ? "Run again" : "Run phase")}</button>
-                <button class="btn btn-secondary" id="view-artifact" type="button">${esc(contentCopy("viewArtifact", "View artifact"))}</button>
+                <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() || (submitted && interactions()?.rerun?.enabled === false) ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Sending…' : (submitted ? "Run again" : "Run phase")}</button>
+                <button class="btn btn-secondary" id="view-artifact" type="button" ${viewUnavailable ? "disabled" : ""}>View artifact</button>
             </div>
             <div class="phase-actions-right"><button class="btn btn-secondary" id="next-phase" type="button" ${continueDisabled ? "disabled" : ""}>Continue ▶</button></div>
         </footer>`;
@@ -437,9 +450,9 @@ async function runPhase(step) {
         await reviewInstallation("review");
         return;
     }
-    const interactions = category("canvas-interactions");
-    if (phaseHasRun(step, item) && interactions?.rerun?.enabled === false) return;
-    const confirmation = interactions?.phaseRunConfirmations?.[step.commandName];
+    const interactionPolicy = interactions();
+    if (phaseHasRun(step, item) && interactionPolicy?.rerun?.enabled === false) return;
+    const confirmation = interactionPolicy?.phaseRunConfirmations?.[step.commandName];
     if (confirmation && !await confirmRerun(step, false, confirmation)) return;
     if (!confirmation && phaseHasRun(step, item) && !await confirmRerun(step)) return;
     const args = $("phase-args")?.value ?? "";
@@ -475,14 +488,14 @@ async function runPhase(step) {
         }
         if (result.ok === false) throw new Error(result.error || "Workflow could not run.");
         state.lastSubmitted.set(runKey, args);
-        if (interactions?.inputs?.retainAfterRun === false) state.phaseDrafts.delete(runKey);
+        if (interactionPolicy?.inputs?.retainAfterRun === false) state.phaseDrafts.delete(runKey);
         const followItem = phaseRunKey(step) === runKey ? result.itemId : null;
         if (state.runningPhase === runKey) state.runningPhase = null;
         await refresh(followItem);
         if (result.queued && phaseRunKey(step) === runKey) {
             $("phase-message").textContent = "Queued until setup is ready. This phase has not been sent yet.";
         }
-        if (interactions?.inputs?.retainAfterRun === false && $("phase-args")) $("phase-args").value = "";
+        if (interactionPolicy?.inputs?.retainAfterRun === false && $("phase-args")) $("phase-args").value = "";
     } catch (error) {
         state.runningPhase = null;
         renderPhaseCard();
@@ -609,7 +622,11 @@ async function refreshArtifact(view) {
     const token = clarifications.observationToken(view.context);
     view.reading = (async () => {
         try {
-            const result = await json(`/api/artifact?path=${encodeURIComponent(view.context.artifact)}`);
+            const query = new URLSearchParams({
+                path: view.context.artifact, phase: view.context.phase,
+                ...(view.context.itemId ? { itemId: view.context.itemId } : {}),
+            });
+            const result = await json(`/api/artifact?${query}`);
             const observed = clarifications.observe(view.context, result.content, token);
             if (observed) view.message = observationMessage(observed);
             if (state.artifactView === view) {
@@ -754,8 +771,8 @@ function renderInstallationApproval() {
     }
     if (approval.approved) {
         panel.innerHTML = setup.state === "failed"
-            ? `<h2>Installation needs attention</h2><p role="alert">${esc(setup.message)}</p>${category("canvas-onboarding")?.recoveryCopy ? `<p>${esc(category("canvas-onboarding").recoveryCopy)}</p>` : ""}<button class="btn btn-secondary" id="approval-retry" type="button">Retry setup</button>`
-            : `<h2>Installing required components</h2><p role="status">${esc(category("canvas-onboarding")?.readinessCopy ?? "Waiting for setup verification and current-session skills to be ready.")}</p>`;
+            ? `<h2>Installation needs attention</h2><p role="alert">${esc(setup.message)}</p><button class="btn btn-secondary" id="approval-retry" type="button">Retry setup</button>`
+            : '<h2>Installing required components</h2><p role="status">Checking Spec Kit and session skills.</p>';
         $("approval-retry")?.addEventListener("click", () => reviewInstallation("retry"));
         return;
     }
@@ -855,7 +872,7 @@ async function refresh(preferredItemId = null) {
             });
         }
     } else if (failed) {
-        setup.innerHTML = `${esc(state.snapshot.setup?.message ?? "Workflow setup failed.")}${category("canvas-onboarding")?.recoveryCopy ? `<p>${esc(category("canvas-onboarding").recoveryCopy)}</p>` : ""} <button class="btn btn-secondary" id="retry-setup" type="button">Retry setup</button>`;
+        setup.innerHTML = `${esc(state.snapshot.setup?.message ?? "Workflow setup failed.")} <button class="btn btn-secondary" id="retry-setup" type="button">Retry setup</button>`;
     } else {
         setup.innerHTML = "";
     }
@@ -881,7 +898,7 @@ const savedTheme = localStorage.getItem("speckit-workflow-theme");
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 
 {
-    const theme = category("canvas-theme");
+    const theme = visual;
     if (theme) {
         const root = document.documentElement;
         const colors = {
@@ -897,13 +914,13 @@ if (savedTheme) document.documentElement.dataset.theme = savedTheme;
         if (theme.density === "compact") document.body.classList.add("canvas-compact");
         if (theme.shape === "square") root.style.setProperty("--radius-md", "0");
         if (theme.shape === "square") root.style.setProperty("--radius-sm", "0");
-        if (theme.brand?.logo?.mode === "none") $("brand-mark").hidden = true;
+        if (theme.brand?.logo?.mode === "hidden") $("brand-mark").hidden = true;
         if (theme.brand?.logo?.mode === "asset") {
             const mark = $("brand-mark");
             mark.textContent = "";
             const image = document.createElement("img");
             image.src = "/theme/logo";
-            image.alt = "";
+            image.alt = theme.brand.logo.alt;
             image.addEventListener("error", () => {
                 $("setup-message").hidden = false;
                 $("setup-message").textContent = "The canvas logo could not be loaded.";

@@ -1,6 +1,5 @@
 """Shared composition and request-boundary regression tests."""
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -15,7 +14,8 @@ FIXTURES = PACKAGE / "tests" / "fixtures" / "composition"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from artifact_snapshot import normalize_snapshot  # noqa: E402
-from request import prepare_request, validate_request  # noqa: E402
+from contracts.handoff import handoff, prepare_request  # noqa: E402
+from request import validate_request  # noqa: E402
 from staging import atomic_json, create_request_dir, read_json  # noqa: E402
 from validation import confined_path, target_path  # noqa: E402
 
@@ -134,8 +134,8 @@ class PreparationContracts(FixtureWorkspace):
         request = read_json(path)
         self.assertEqual(request["workflow"]["selectedPhases"], ["speckit.plan", "speckit.analyze"])
         self.assertEqual(
-            [row["contract"]["result"]["kind"] for row in request["workflow"]["phaseOutputs"]],
-            ["artifact", "transient"],
+            [row["expectsArtifact"] for row in request["workflow"]["phaseOutputs"]],
+            [True, False],
         )
         self.assertEqual(len(self.request_paths()), 1)
         self.assertEqual(request["workflow"]["artifactSnapshot"]["artifacts"][0]["name"],
@@ -191,108 +191,6 @@ class PreparationContracts(FixtureWorkspace):
         )
         self.assertEqual(read_json(path)["workflow"]["selectedPhases"], ["speckit.plan"])
 
-    def test_noncore_contract_is_bound_to_its_resolved_provider(self) -> None:
-        path = prepare_request(
-            self.workspace, ["speckit.bug.assess"], "workflow",
-            "Workflow", False, inventory=self.inventory(),
-        )
-        binding = read_json(path)["workflow"]["phaseOutputs"][0]
-        self.assertEqual(binding["provider"], {
-            "kind": "extension", "id": "runtime-assess", "version": "0.1.0",
-        })
-        self.assertEqual(binding["contract"]["result"]["pathTemplate"],
-                         ".specify/bugs/<slug>/assessment.md")
-        self.assertEqual(binding["sha256"], hashlib.sha256(
-            (self.workspace / binding["sourcePath"]).read_bytes()
-        ).hexdigest())
-        self.assertEqual(len(binding["templateStack"]), 1)
-
-    def test_command_wrapper_does_not_change_resolved_output_provider(self) -> None:
-        inventory = self.inventory()
-        command = next(row for row in inventory["artifacts"] if row["name"] == "speckit.plan")
-        command["stack"].insert(0, {
-            "sourceId": "runtime-assess", "layer": "extension",
-            "strategy": "replace", "active": True, "hidden": False,
-            "manifestPath": ".specify/extensions/runtime-assess/extension.yml",
-            "lookupId": "extension:runtime-assess:command:speckit.plan",
-            "sourcePath": ".specify/extensions/runtime-assess/commands/bug-assess.md",
-        })
-        path = prepare_request(
-            self.workspace, ["speckit.plan"], "workflow",
-            "Workflow", False, inventory=inventory,
-        )
-        self.assertEqual(read_json(path)["workflow"]["phaseOutputs"][0]["provider"]["id"],
-                         "pipeline-canvas-generator")
-
-    def test_mismatched_or_duplicated_output_declaration_writes_no_request(self) -> None:
-        file = (self.workspace / ".specify" / "extensions" /
-                "pipeline-canvas-generator" / "config" / "phase-output-plan.json")
-        file.write_text(json.dumps({
-            "schemaVersion": 1, "commandName": "speckit.tasks",
-            "result": {"kind": "artifact", "pathTemplate": "specs/<slug>/plan.md"},
-        }), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "Invalid phase-output contract"):
-            prepare_request(
-                self.workspace, ["speckit.plan"], "workflow",
-                "Workflow", False, inventory=self.inventory(),
-            )
-        file.write_text(
-            '{"schemaVersion":1,"schemaVersion":1,"commandName":"speckit.plan",'
-            '"result":{"kind":"transient"}}', encoding="utf-8",
-        )
-        with self.assertRaisesRegex(ValueError, "Duplicate phase-output JSON key"):
-            prepare_request(
-                self.workspace, ["speckit.plan"], "workflow",
-                "Workflow", False, inventory=self.inventory(),
-            )
-        self.assertEqual(self.request_paths(), [])
-
-    def test_missing_output_is_unknown_but_ambiguous_output_is_rejected(self) -> None:
-        inventory = self.inventory()
-        inventory["artifacts"] = [
-            row for row in inventory["artifacts"]
-            if row["name"] != "phase-output-" + "speckit.plan".encode().hex()
-        ]
-        path = prepare_request(
-            self.workspace, ["speckit.plan"], "workflow",
-            "Workflow", False, inventory=inventory,
-        )
-        self.assertEqual(read_json(path)["workflow"]["phaseOutputs"][0]["contract"]["result"],
-                         {"kind": "unknown"})
-        inventory = self.inventory()
-        row = next(row for row in inventory["artifacts"] if row["name"] ==
-                   "phase-output-" + "speckit.plan".encode().hex())
-        row["stack"].append(dict(row["stack"][0]))
-        with self.assertRaisesRegex(ValueError, "Ambiguous phase-output"):
-            prepare_request(
-                self.workspace, ["speckit.plan"], "workflow",
-                "Workflow", False, inventory=inventory,
-            )
-        self.assertEqual(len(self.request_paths()), 1)
-
-    def test_unsafe_or_implicit_output_contract_writes_no_request(self) -> None:
-        file = (self.workspace / ".specify" / "extensions" /
-                "pipeline-canvas-generator" / "config" / "phase-output-plan.json")
-        file.write_text(json.dumps({
-            "schemaVersion": 1, "commandName": "speckit.plan",
-            "result": {"kind": "artifact", "pathTemplate": "../escape.md"},
-        }), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "Unsafe phase-output"):
-            prepare_request(
-                self.workspace, ["speckit.plan"], "workflow",
-                "Workflow", False, inventory=self.inventory(),
-            )
-        file.write_text(json.dumps({
-            "schemaVersion": 1, "commandName": "speckit.plan",
-            "result": {"kind": "transient", "pathTemplate": ""},
-        }), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "Invalid transient"):
-            prepare_request(
-                self.workspace, ["speckit.plan"], "workflow",
-                "Workflow", False, inventory=self.inventory(),
-            )
-        self.assertEqual(self.request_paths(), [])
-
     def test_missing_binding_and_malformed_inventory_write_no_request(self) -> None:
         with self.assertRaisesRegex(ValueError, "Missing selected phase command"):
             prepare_request(
@@ -320,8 +218,8 @@ class PreparationContracts(FixtureWorkspace):
         with self.assertRaisesRegex(ValueError, "fingerprint"):
             validate_request(original)
         original["workflow"]["artifactSnapshot"]["compositionFingerprint"] = fingerprint
-        original["workflow"]["phaseOutputs"][0]["templateStack"] = []
-        with self.assertRaisesRegex(ValueError, "stack changed"):
+        original["workflow"]["phaseOutputs"][0]["commandName"] = "speckit.plan"
+        with self.assertRaisesRegex(ValueError, "unordered phase-output"):
             validate_request(original)
 
     def test_wizard_inventory_adapter_uses_shared_request(self) -> None:
@@ -333,6 +231,7 @@ class PreparationContracts(FixtureWorkspace):
                 "--phase", "speckit.assess.intake",
                 "--canvas-id", "workflow",
                 "--display-name", "Workflow",
+                "--phase-outputs-json", json.dumps(handoff(["speckit.assess.intake"])),
                 "--inventory-stdin",
             ],
             input=json.dumps(self.inventory()), text=True, capture_output=True,
@@ -360,6 +259,7 @@ class PreparationContracts(FixtureWorkspace):
                     "--phase", "speckit.analyze",
                     "--canvas-id", "workflow",
                     "--display-name", "Workflow",
+                    "--phase-outputs-json", json.dumps(handoff(["speckit.analyze"])),
                 ],
                 text=True, capture_output=True, check=False,
             )

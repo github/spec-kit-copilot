@@ -4559,3 +4559,278 @@ Neither side may alter protected runtime and security invariants.
   generated-behavior regression tests.
 - A generated canvas works in a clean recipient repository without the Wizard.
 - The implementation consumes public Spec Kit JSON/resolution contracts only.
+
+## 17. Revised generation configuration and result behavior
+
+This section supersedes the earlier six-category configuration, per-command
+phase-output template, request-snapshot, and result-presentation proposals wherever
+they conflict. It describes the intended behavior for **newly generated canvases
+only**. Migrating canvases already generated with `canvas-theme`, `canvas-content`,
+and the other existing categories is out of scope.
+
+### Updated implementation plan
+
+1. **Define three preset-replaceable and two generator-owned documents.** Add
+   `schemaVersion: 1` to `canvas-presentation.json`, `phase-outputs.json`,
+   `canvas-results.json`, `canvas-interactions.json`, and `canvas-setup.json`.
+   Each has its own strict schema; an absent or unsupported version, missing
+   required field, or unknown field fails generation with a useful error. A
+   preset replaces an entire named document for the first three categories;
+   there is no field-level merge. Unlike the other defaults, the effective
+   phase-outputs default is generated from the selected pipeline's handoff,
+   not loaded as a static empty exceptions file.
+2. **Keep presentation limited to effective UI settings.** Consolidate the
+   visual and copy settings that the generated app actually renders from
+   today's theme, content, layout, and onboarding documents. Do not move
+   progression, rerun, input, installation, slug, or result policies into
+   presentation; do not carry forward accepted-but-unused fields merely because
+   they exist. Setup failure messages and installation status are not
+   customizable, and the redundant first-run hint is omitted. Canvas title,
+   target, and setup policy remain per-app concerns. Action-button labels stay
+   fixed rather than exposing only a partial set for customization. Slug field
+   label and helper text live with slug policy in `canvas-setup.json`, not
+   in presentation; its approval paragraph is `installationReviewMessage`.
+3. **Resolve and consume the presentation document.** After the
+   `create-canvas` scaffold, use Specify's
+   `PresetResolver.resolve("canvas-presentation", template_type="template")`
+   to select the extension default or active preset's complete JSON document.
+   Validate it, place it in the generated app, and wire the UI to use it. A
+   missing required named document fails visibly. Presets provide reusable
+   whole-file replacement and take precedence over one-off inline documents
+   for the same category when a **customer preset or Canvas Design extension**
+   replaces the generator's own default. The built-in extension default is
+   the baseline, not an enforcing provider. Neither route modifies Specify
+   providers or introduces a project-local override path.
+4. **Pass phase-artifact expectations explicitly.** The Wizard sends ordered
+   command IDs and, for each, `expectsArtifact: true | false | null` and
+   `outputPath: string | null`; `null` means unknown, not "no artifact."
+   Preserve reusable `<slug>` paths rather than a current feature's concrete
+   path. Rename the public handoff, configuration, request, blueprint, and
+   generated-app artifact field consistently from `pathTemplate` to
+   `outputPath`; keep placeholder expansion behavior. Standalone generation
+   requires the same structured handoff and must mark unknowns rather than
+   guess. Correct the Wizard's core defaults: Analyze, Taskstoissues, and
+   Implement have **no direct artifact**.
+5. **Make `phase-outputs` the complete effective map, not exceptions.**
+   Build its default `{"schemaVersion":1,"byCommand":{...}}` from the Wizard
+   handoff (or the equivalent standalone handoff), including **exactly** the
+   selected commands in pipeline order. Each command has its own
+   `{ "expectsArtifact": true | false | null, "outputPath": string | null }`
+   entry, even if multiple commands share the same path and expectation.
+   Do not group keys by shared values: separate entries allow independent
+   editing and unambiguous ownership. A selected preset/extension may replace
+   the whole map with the **same full-document format**, but its command keys
+   must match the selected pipeline exactly; reject missing or extra keys
+   with the offending command names rather than merging Wizard values or
+   silently projecting a generic preset. An inline document cannot rescue a
+   mismatched winning preset; remove or correct that preset. Validate
+   all keys against the selected command inventory and preserve `false` with
+   a null path. The current shipped empty exceptions template cannot serve as
+   an effective default for a nonempty pipeline; retire it as an active
+   document or treat it only as a seed for the derived default. The existing
+   annotated `.jsonc` example remains optional standalone documentation, not
+   a loaded default or Generate editor view. An expected path is not evidence
+   of a file: **View artifact** requires a verified file, and explicit
+   `false` suppresses it.
+6. **Keep results as a distinct, versioned policy.** `canvas-results` remains
+   whole-file preset-replaceable, with no optional custom results enabled by
+   default. A configured command can define finite `(id, label, tone)` values,
+   a `defaultResult`, `summary`, and either an `artifact-field` or
+   `phase-report` source. `artifact-field` reads the specified
+   opening-frontmatter field from a verified, fresh phase artifact in code.
+   `phase-report` obtains an ID from the agent running that phase through the
+   protected action. Neither `blocked` nor `needs-clarification` is inferred
+   just from a configured label: the runtime needs the configured evidence.
+   Built-in unresolved-clarification signaling and checkbox-based task
+   progress remain distinct from optional result IDs.
+7. **Enforce `phase-report` acceptance and freshness at runtime.** Accept only
+   an ID declared for **that command on that run**, never any ID that happens
+   to exist elsewhere in `canvas-results`. Bind acceptance to the active run
+   and canvas instance. The first accepted ID wins; an identical retry is
+   idempotent, while a conflicting ID is rejected. A rerun has a new run ID
+   and cannot silently overwrite the previous run's report. Verify the
+   intended reporting window in code; an instruction to report in the
+   original agent turn is not, by itself, an enforced boundary. Suppress a
+   settled report when its run fails, is superseded, has unresolved
+   clarification, or becomes stale after an upstream rerun. Also declare the
+   input artifacts whose contents govern each phase's result, capture their
+   fingerprints for the run, and invalidate the report when those inputs
+   change, for example Analyze's `no-issues-found` after its spec or tasks
+   change. This guarantees freshness for **declared inputs**, not arbitrary
+   undeclared files; unknown dependencies must not be presented as fully
+   checked.
+8. **Render the results the backend computes.** Show current phase-result
+   pills, `summary: true` results, the configured clarification label, and
+   task progress in the generated UI. Keep stale or unverified results out
+   of both phase cards and summaries. Do not enable the separate agent-based
+   artifact-review `resultLabels` feature implicitly.
+9. **Validate the complete generation path.** Cover schema versions and
+   preset replacement and exact selected-command matching; typoed and unknown
+   command IDs; Wizard and standalone
+   handoffs; no-artifact/unknown/verified-artifact states; per-command result
+   IDs; duplicate, conflicting, late, and superseded reports; and input-file
+   changes both with and without a tracked upstream rerun. Update the
+   generator contracts and documentation to match the implemented behavior.
+10. **Migrate schemas and scripts without dropping live behavior.** Replace
+    presentation-only `canvas-theme`, `canvas-content`, and `canvas-layout` schemas
+    with `canvas-presentation.schema.json`; retain/version any effective
+    non-presentation policy split from `canvas-setup` and
+    `canvas-interactions`. Update `canvas-results.schema.json` and the local
+    `phase-outputs.schema.json`; retire the old per-command
+    `phase-output.schema.json` format after updating request/pipeline `$ref`s.
+    Retain and revise request, pipeline, snapshot, override, receipt, and result
+    schemas that still validate live contracts. Replace six-category binding
+    (`category_contracts.py`), refactor `experience.py` and `override.py`,
+    rewrite `phase_output.py`, and update `request.py`, `compiler.py`,
+    `staging.py`, `validation.py`, `receipt.py`, Wizard handoff, generated runtime,
+    and UI as needed. Keep logo asset handling and publication/lifecycle scripts
+    where their behavior remains in use; do not delete scripts solely because a
+    configuration category changed.
+11. **Limit scope to new generated apps.** Existing canvases generated with the
+    old `canvas-theme`, `canvas-content`, and other category files are out of
+    scope; only newly generated apps use this scheme.
+
+### One-off JSON documents and Generate dialog
+
+This addition supersedes the earlier Generate-dialog installation/slug
+checkboxes and any presentation-only inline override proposal. It applies to
+**new requests**, from either the Wizard or the standalone generation command;
+it does not migrate already generated canvases. Keep the five files separate:
+`canvas-presentation.json`, `phase-outputs.json`, `canvas-results.json`,
+`canvas-interactions.json`, and `canvas-setup.json`.
+
+1. **Accept up to five independent, complete inline documents.** The Wizard
+   submits named structured JSON values for presentation, phase outputs,
+   results, interactions, and setup. The generation command accepts explicit
+   named JSON inputs for the same five categories, including JSON pasted into
+   a natural-language request only when the agent passes each identified
+   document to the corresponding structured input. Do not infer values from
+   prose or accept an unlabeled JSON object as an override. Each supplied
+   document must contain `schemaVersion: 1` and satisfy its entire category
+   schema; reject sparse documents, unknown fields, unsupported versions,
+   duplicate keys, nonfinite numbers, and invalid JSON with the category and
+   offending field in the error. No implicit field-level merge with a provider
+   or generator default is permitted. An absent category uses its normal
+   resolved source.
+2. **Make precedence explicit per category.** Start from the generator or
+   extension default, replace it with a complete one-off document when
+   supplied, then let Specify's active **customer preset or Canvas Design
+   extension** replace that entire document if it contributes the **same
+   named category**. The generator's own extension default is the baseline;
+   it must not override inline input. Do not
+   merge at field or section level: an entire inline document loses even
+   when the provider differs in only one field. For phase outputs, the
+   generator default is the full selected-command handoff; a customer provider
+   winner must be a full map for precisely that pipeline. Resolve the
+   Specify winner for presentation, phase outputs, and results **even when
+   inline JSON is supplied**, distinguishing a customer replacement from
+   the built-in extension default. The phase-outputs extension default is
+   derived rather than loaded as the old empty exceptions template.
+   Interactions and setup use generator-owned defaults or inline documents,
+   not Specify resolution. Neither inline editing nor removing a draft
+   modifies installed packages or files. Strictly validate supplied JSON
+   even if a provider supersedes it; validate cross-document behavior and
+   workflow-command constraints against the **effective winners**.
+3. **Use JSON alone for setup policy.** Change the shipped `canvas-setup.json`
+   defaults to `installationMode: "prompt"` and
+   `workflowSlug.userProvided: true`. Remove the Wizard's installation-approval
+   and custom-slug checkboxes and stop overlaying
+   `instanceConfiguration.installationMode` and
+   `instanceConfiguration.workflowSlug.userProvided` onto the setup document.
+   Change either behavior for a particular canvas only through a complete
+   inline setup document; display name, workflow header, description, and
+   extension ID remain ordinary generation fields. Update the new-request
+   schema, standalone path, and handoff together so the removed overlay cannot
+   override an inline setup document. Preserve the existing explicit errors
+   and permission checks for package installation.
+4. **Bind the final documents to the immutable request.** Strictly parse and
+   validate inline inputs in `prepare-request`, store the validated documents
+   under their named categories in the request, and use those saved values
+   during staging and regeneration, never a later chat message or changed
+   editor draft. Record `inline` as the final source with a document hash
+   only when no higher-priority customer provider wins that category. Otherwise
+   record the provider as the final source and separately record the
+   submitted inline document and that it was superseded, without claiming
+   it was materialized. Verify both cases in binding and receipt validation.
+   Regeneration replays saved inputs and the same precedence; if a provider
+   changes, use the captured provider/snapshot contract or report drift,
+   never silently produce different content. Inline presentation may
+   customize non-asset settings and select `brand.logo.mode: "default"` or
+   `"hidden"`; reject inline `mode: "asset"` with an actionable error until
+   explicit inline assets are supported. When a provider wins, its **whole**
+   presentation wins, including its bundled asset logo; no borrowing or
+   rewriting `default`/`hidden` is needed. A preset/extension may use `mode: "asset"`
+   only when its declared `path` names an actual confined image in that same
+   installed provider; validate its type, dimensions, and size, then copy and
+   hash it into the generated canvas. The accepted hidden-logo mode is
+   `hidden` throughout schema and UI.
+5. **Keep Generate to Details and Canvas Design, with no Review step.**
+   Details contains the extension ID (and derived target), name, workflow
+   header, and description. Canvas Design contains the existing searchable
+   preset/extension/bundle picker, with its long list independently scrollable,
+   followed by an optional **One-off JSON overrides** area listing all five
+   documents. Each row shows Add/Edit and its current source or validation
+   state; open one focused editor at a time rather than five textareas at once.
+   Seed a newly opened editor with the complete generator/extension baseline
+   **before any preset replacement**, including all selected commands for
+   phase outputs. Show the provider winner separately when one is active;
+   do not pre-fill with a preset asset-logo document invalid as inline input.
+   For 20–50 commands, keep the document searchable and
+   navigable without grouping shared paths into a new JSON format. Merely
+   viewing the pre-filled document, or editing it and returning to the same
+   parsed values, creates **no** inline input: generate with the baseline
+   or provider source and provenance. Only a semantic change saved in the
+   editor creates a complete request-scoped inline document. A mismatched
+   phase-outputs preset remains an error even when inline JSON is supplied.
+   The editor accepts strict JSON only; do not add JSONC/comment stripping,
+   read-only example panes, or separate example
+   documents to the Generate UI. The existing standalone annotated
+   `phase-outputs.example.jsonc` remains documentation, never an active
+   template or editor input. Editing or removing the inline copy never edits
+   the provider. If packages change afterward, do not silently replace a
+   drafted inline document. Preserve unsent details/JSON while navigating
+   between the two steps; Cancel discards those drafts.
+6. **Show sources without another confirmation screen.** At the bottom of
+   Canvas Design, show a compact per-category **Configuration used** summary
+   identifying `Preset/extension`, `One-off JSON`, or `Generator default`.
+   If a changed one-off document and the active customer Specify winner target the
+   same category, warn beside the editor and in the summary: **the provider
+   replaces the entire one-off document**, not only fields that differ.
+   Identify the winning package and category; do not warn for unrelated
+   packages or non-winning providers. Keep the draft editable, but never
+   suggest its overridden values will appear in the generated canvas.
+   Validate each editor
+   before Generate, disable Generate for invalid or pending inputs, and take
+   users directly to the offending editor with a specific error. Keep the
+   existing overwrite confirmation only if the target exists. Add/Remove in
+   the package picker continues to mutate installed packages immediately;
+   label this beside those controls, state that Cancel cannot undo it, and do
+   not represent package changes and JSON drafts as one transaction. Wait for
+   pending package mutations and refresh effective sources before generating.
+   On narrow screens, retain the same two steps with a usable scrolling
+   package list or active editor.
+7. **Test the actual handoff and replay.** Cover all five categories
+   independently and in combination, default and package winners,
+   provider-over-inline precedence, category-level conflict warnings,
+   truthful receipt provenance for superseded inputs, complete versus
+   partial/invalid JSON, cross-document checks,
+   exact phase-command sets, shared output paths, 20–50 selected commands,
+   unchanged editor values producing no override, direct command and Wizard
+   request creation, removal/editing of a draft,
+   package changes while an inline draft exists, setup defaults and explicit
+   inline policy, asset-logo rejection, per-source receipt/hash drift, and
+   regeneration after package state changes. Update the command guidance,
+   request/binding/receipt schemas, generated-app documentation, and Wizard
+   tests. Reconcile the incomplete presentation-only `presentationOverride`
+   patch with the unified five-document request contract rather than
+   extending that special case.
+
+**Decisions confirmed for this iteration:** package Add/Remove remains
+immediate and Cancel does not undo it; an active provider's complete
+document takes precedence over one-off input in the same category, with
+a category-level warning for edited but superseded input. The preset's
+bundled logo stays intact when its presentation wins; inline JSON cannot
+supply a custom image when no provider wins. The strict-JSON editor starts
+from the generator/extension baseline before preset replacement; no
+example view is planned. These are planned contracts, not already
+implemented functionality.

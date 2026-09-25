@@ -4,7 +4,7 @@
   "title": "Immutable canvas generation request",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "canvas", "instanceConfiguration", "workflow", "workspace", "overwrite"],
+  "required": ["schemaVersion", "canvas", "workflow", "workspace", "overwrite"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "canvas": {
@@ -18,26 +18,10 @@
         "description": { "type": "string", "minLength": 1, "maxLength": 240 }
       }
     },
-    "instanceConfiguration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["workflowSlug", "installationMode"],
-      "properties": {
-        "workflowSlug": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["userProvided"],
-          "properties": {
-            "userProvided": { "type": "boolean" }
-          }
-        },
-        "installationMode": { "enum": ["automatic", "prompt"] }
-      }
-    },
     "workflow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["selectedPhases", "requiredSkillHashes", "phaseOutputs", "categoryTemplates", "artifactSnapshot"],
+      "required": ["selectedPhases", "requiredSkillHashes", "phaseOutputs", "artifactSnapshot"],
       "properties": {
         "selectedPhases": {
           "type": "array",
@@ -56,45 +40,22 @@
         "phaseOutputs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "phase-output.schema.json#/$defs/binding" }
-        },
-        "categoryTemplates": {
-          "type": "object", "additionalProperties": false,
-          "required": ["canvas-content", "canvas-theme", "canvas-layout", "canvas-interactions", "canvas-results", "canvas-onboarding"],
-          "properties": {
-            "canvas-content": { "$ref": "#/$defs/categoryBinding" },
-            "canvas-theme": { "$ref": "#/$defs/categoryBinding" },
-            "canvas-layout": { "$ref": "#/$defs/categoryBinding" },
-            "canvas-interactions": { "$ref": "#/$defs/categoryBinding" },
-            "canvas-results": { "$ref": "#/$defs/categoryBinding" },
-            "canvas-onboarding": { "$ref": "#/$defs/categoryBinding" }
-          }
+          "items": { "$ref": "phase-artifact-binding.schema.json#/$defs/binding" }
         },
         "artifactSnapshot": { "$ref": "artifact-snapshot.schema.json" }
       }
     },
     "workspace": { "type": "string", "minLength": 1 },
-    "overwrite": { "type": "boolean" }
-  },
-  "$defs": {
-    "categoryBinding": {
+    "inlineDocuments": {
       "type": "object", "additionalProperties": false,
-      "required": ["document", "provider", "sourcePath", "sha256", "templateStack"],
       "properties": {
-        "document": { "type": "object" },
-        "provider": {
-          "type": "object", "additionalProperties": false,
-          "required": ["kind", "id", "version"],
-          "properties": {
-            "kind": { "enum": ["project", "preset", "extension"] },
-            "id": { "type": "string", "minLength": 1 },
-            "version": { "type": ["string", "null"] }
-          }
-        },
-        "sourcePath": { "type": "string", "minLength": 1 },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "templateStack": { "type": "array", "items": { "type": "object" } }
+        "canvas-presentation": { "$ref": "canvas-presentation.schema.json" },
+        "phase-outputs": { "$ref": "phase-outputs.schema.json" },
+        "canvas-results": { "$ref": "canvas-results.schema.json" },
+        "canvas-interactions": { "$ref": "canvas-interactions.schema.json" },
+        "canvas-setup": { "$ref": "canvas-setup.schema.json" }
       }
-    }
+    },
+    "overwrite": { "type": "boolean" }
   }
 }

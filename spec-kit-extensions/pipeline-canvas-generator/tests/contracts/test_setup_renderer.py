@@ -61,7 +61,7 @@ catch (error) { if (error.message === 'Empty approval rendered') throw error; }
         self.assertIn('id="approval-defer"', host)
         self.assertIn('"/api/installation-approval"', host)
         self.assertIn('acceptInstallationApproval(approvalContext(inst), input.fingerprint)', runtime)
-        self.assertIn('copy: experience.categories["canvas-onboarding"].approvalCopy', runtime)
+        self.assertIn('copy: setupPolicy.installationReviewMessage', runtime)
 
 
 if __name__ == "__main__":

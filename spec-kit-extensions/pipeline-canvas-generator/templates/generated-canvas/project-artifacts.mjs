@@ -6,7 +6,7 @@ import { readWorkflowArtifact } from "./runtime/workspace-files.mjs";
 export async function inspectConstitution(cwd, blueprint) {
     const { constitution } = commandViews(blueprint);
     if (!constitution) return null;
-    const path = constitution.artifact.pathTemplate;
+    const path = constitution.artifact.outputPath;
     try {
         const content = await readWorkflowArtifact(cwd, path, blueprint);
         const state = !content.trim() ? "empty" : /\[[A-Z0-9_]+\]/.test(content) ? "template" : "ready";

@@ -20,8 +20,7 @@ import sys  # noqa: E402
 
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 from compiler import compile_blueprint  # noqa: E402
-from experience import default_experience  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import default_profile, prepare_request  # noqa: E402
 from staging import read_json  # noqa: E402
 
 
@@ -197,8 +196,8 @@ if (missing.diskReady || missing.contributions[0].installationState !== 'missing
                     )
                     shutil.rmtree(self.workspace / ".specify/extensions/runtime-assess")
                 (target / "pipeline.json").write_text(json.dumps(mode_blueprint), encoding="utf-8")
-                experience = default_experience(PACKAGE)
-                experience["categories"]["canvas-onboarding"]["installationMode"] = (
+                experience = default_profile(PACKAGE)
+                experience["setup"]["installationMode"] = (
                     "automatic" if mode in ("drift", "unportable") else mode
                 )
                 (target / "canvas-experience.json").write_text(

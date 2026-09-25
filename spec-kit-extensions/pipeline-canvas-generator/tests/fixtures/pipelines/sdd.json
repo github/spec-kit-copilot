@@ -30,6 +30,6 @@
     "specs/<slug>/tasks.md",
     null,
     "specs/<slug>/checklists/<name>.md",
-    "specs/<slug>/tasks.md"
+    null
   ]
 }

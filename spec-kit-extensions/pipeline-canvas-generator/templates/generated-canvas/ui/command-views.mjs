@@ -16,8 +16,8 @@ export function commandViews(blueprint) {
     const constitution = matches[0];
     const artifact = constitution.artifact;
     if (!artifact?.persistent || artifact.completionSignal !== "artifact"
-        || typeof artifact.pathTemplate !== "string" || !/\.md$/i.test(artifact.pathTemplate)
-        || /[<>]/.test(artifact.pathTemplate)) {
+        || typeof artifact.outputPath !== "string" || !/\.md$/i.test(artifact.outputPath)
+        || /[<>]/.test(artifact.outputPath)) {
         throw new Error("Unsupported Constitution contract: declare a persistent, fixed project-level Markdown artifact, not a transient or slug-scoped output.");
     }
     return { all, constitution, workflow: all.filter((step) => step !== constitution) };

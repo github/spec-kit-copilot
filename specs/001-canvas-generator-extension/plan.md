@@ -12,6 +12,8 @@ subsequent implementation decisions take precedence where they differ.
 `SPECIFY_FEATURE_DIRECTORY=specs/001-canvas-generator-extension` selects
 this feature independently of the Git branch name.
 
+**Current configuration contract**: [Section 17 of the original plan](../../docs/canvas-extension-original-plan.md#17-revised-generation-configuration-and-result-behavior) replaces earlier six-category and per-command phase-output design in this draft. The generator implementation follows that section; previously generated canvases are not migrated.
+
 ## Summary
 
 Extract the draft Wizard generation behavior in
@@ -63,9 +65,10 @@ adapter and a portable generated Copilot canvas application.
 installation, reload, inspection, and first open as one uninterrupted workflow,
 without manual editing or restart (SC-003). No invented wall-clock SLA.
 
-**Constraints**: Linear workflow only; explicit versioned output or transient
-contract per selected phase, resolved through existing Specify templates before
-request publication; no artifact inference from workspace state or skill prose;
+**Constraints**: Linear workflow only; one versioned `phase-outputs` template
+resolved through Specify before request publication, with an unknown default
+and optional per-command artifact/transient results; no unverified artifact
+inference from workspace state or skill prose;
 one `.specify` project and tag-based
 Canvas Design classification without changing artifact resolution;
 one active renderer; six versioned experience categories; one optional result
@@ -113,10 +116,11 @@ equivalent) only after source is available and parity fixtures are captured.
 2. In this repository, define the extension manifest, request/snapshot,
    phase-output, override, experience, renderer, blueprint, receipt, and outcome contracts.
    Build shared extension-owned request preparation for Wizard and Copilot CLI.
-   Resolve one effective `phase-output-<UTF-8 command ID as lowercase hex>`
-   template per selected phase; bind its validated value, source path, digest,
-   and Specify provider provenance to the request. Ship generator-owned
-   templates for supported core commands. A missing template records either
+   Resolve one effective `phase-outputs` template for the selected pipeline;
+   bind each selected command's result, source path, digest, and Specify
+   provider provenance to the request. Ship one generator-owned configuration
+   with an unknown default and known core overrides; a preset replaces the
+   entire document. A missing template or command override records either
    a safe best-effort skill-derived output hint or unknown output; neither
    blocks invocation. Explicit transient declarations remain distinct, and
    only existing workspace-confined files establish produced artifacts.

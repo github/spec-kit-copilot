@@ -88,10 +88,27 @@ def validate_candidate(request_path: Path, scaffold_dir: Path) -> dict[str, str]
         raise ValueError(f"Candidate is missing declared files: {sorted(expected.keys() - present)}")
     blueprint = read_json(root / "pipeline.json")
     request = read_json(request_path)
-    if blueprint["phaseOutputs"] != request["workflow"]["phaseOutputs"]:
-        raise ValueError("Candidate blueprint changed request-bound phase outputs")
+    from category_contracts import bound_documents
+    from phase_output import bind_phase_outputs
+
+    bindings = bound_documents(request_path)
+    outputs = bind_phase_outputs(
+        request["workflow"]["phaseOutputs"], bindings["phase-outputs"]["document"],
+        request["workflow"]["selectedPhases"], Path(request["workspace"]),
+    )
+    if blueprint["phaseOutputs"] != outputs:
+        raise ValueError("Candidate blueprint changed effective phase outputs")
     profile = read_json(root / "canvas-experience.json")
-    for name, document in profile["categories"].items():
+    if not isinstance(profile, dict) or set(profile) != {
+        "schemaVersion", "presentation", "interactions", "setup", "results"
+    } or profile["schemaVersion"] != 1:
+        raise ValueError("Invalid generated experience profile")
+    for name, document in (
+        ("canvas-presentation", profile["presentation"]),
+        ("canvas-interactions", profile["interactions"]),
+        ("canvas-setup", profile["setup"]),
+        ("canvas-results", profile["results"]),
+    ):
         validate_complete_category(name, document, Path(__file__).resolve().parents[2])
     source = (root / "runtime" / "generated-canvas.mjs").read_text(encoding="utf-8")
     for required in ('name: "list_items"', 'name: "run_phase"', 'name: "setup_workflow"'):

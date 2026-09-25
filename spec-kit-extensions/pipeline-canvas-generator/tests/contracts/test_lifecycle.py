@@ -17,7 +17,7 @@ from lifecycle import inspect_target, remove_target  # noqa: E402
 from override import prepare_override  # noqa: E402
 from publication import publish_candidate  # noqa: E402
 from receipt import write_receipt  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
 from staging import atomic_json, materialize_candidate  # noqa: E402
 
 

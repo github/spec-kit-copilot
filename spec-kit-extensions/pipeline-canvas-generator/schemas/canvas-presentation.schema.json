@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "canvas-presentation.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "colors", "typography", "density", "shape", "brand", "phases", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "colors": {
+      "type": "object", "additionalProperties": false,
+      "required": ["accent", "positive", "attention", "critical"],
+      "properties": {
+        "accent": { "$ref": "#/$defs/color" }, "positive": { "$ref": "#/$defs/color" },
+        "attention": { "$ref": "#/$defs/color" }, "critical": { "$ref": "#/$defs/color" }
+      }
+    },
+    "typography": { "enum": ["system", "sans", "serif", "mono"] },
+    "density": { "enum": ["comfortable", "compact"] },
+    "shape": { "enum": ["rounded", "square"] },
+    "brand": {
+      "type": "object", "additionalProperties": false, "required": ["logo"],
+      "properties": { "logo": {
+        "type": "object", "additionalProperties": false, "required": ["mode"],
+        "properties": {
+          "mode": { "enum": ["default", "hidden", "asset"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "alt": { "type": "string", "minLength": 1, "maxLength": 120 }
+        }
+      } }
+    },
+    "phases": {
+      "type": "object", "additionalProperties": false, "required": ["showDescriptions"],
+      "properties": { "showDescriptions": { "type": "boolean" } }
+    },
+    "artifacts": {
+      "type": "object", "additionalProperties": false, "required": ["showMetadata"],
+      "properties": { "showMetadata": { "type": "boolean" } }
+    }
+  },
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+  }
+}

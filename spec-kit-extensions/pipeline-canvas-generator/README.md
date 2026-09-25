@@ -43,13 +43,32 @@ of a design-only bundle must independently be tagged and eligible. Do not
 remove such packages from Specify's effective stacks or change their
 priorities to make them disappear from the runtime catalog.
 
-Six complete JSON templates can customize the generated experience:
-`canvas-content`, `canvas-theme`, `canvas-layout`, `canvas-interactions`,
-`canvas-results`, and `canvas-onboarding`. A package owning an effective
-category supplies a whole, schema-valid template; it does not claim ownership
-of another category. Generator-owned categories accept sparse, allowlisted
-command guidance, but customer-owned categories suppress conflicting command
-patches with a warning. `canvas-results` has at most one configured source per
+Five complete, versioned JSON documents supply the generated experience:
+`canvas-presentation`, `phase-outputs`, `canvas-results`,
+`canvas-interactions`, and `canvas-setup`. Presentation, phase outputs, and
+results allow Specify whole-file replacement; the other two use generator
+defaults or one-off input. A complete one-off JSON document replaces a
+category's default for this request; an active customer preset/extension
+for the same category then replaces that entire one-off document. The
+generator's own extension default is not an enforcing overlay. The receipt
+records both the effective source and any superseded one-off input.
+An absent required name,
+unknown field/version, or invalid document fails generation. Each winner must
+be a declared `.json` file inside an installed preset or extension;
+project-local `.md` overrides (even when they contain JSON) are unsupported. The generated
+profile includes `presentation`, `interactions`, `setup` (slug field settings,
+installation mode, and `installationReviewMessage`), and `results`. Setup
+defaults require installation approval and a user-provided workflow slug.
+Installation status and failure text are fixed in the generated UI; the
+first-run hint is omitted. The canvas is self-contained; no design package is
+needed at runtime.
+The retired `canvas-theme`, `canvas-content`, and `canvas-layout` default
+documents and schemas are not part of the generator contract; protected
+defaults load the interaction and setup documents.
+The generated UI injection uses the keyed view
+`{"canvas-presentation":presentation,"canvas-interactions":interactions,"canvas-setup":setup}`;
+it never receives result policy as presentation.
+`canvas-results` has at most one configured source per
 phase (`artifact-field` or original-turn `phase-report`); neither source is
 inferred from an artifact or from another turn.
 
@@ -64,46 +83,45 @@ for the request shape and evidence requirements.
 
 Generated canvases always present the generator-owned PR #32 horizontal phase
 stepper, workflow card, collection, and artifact viewer directly in the
-trusted host. Design packages customize the six declarative categories; an
+trusted host. Design packages customize complete JSON documents; an
 effective `canvas-renderer` template is rejected rather than loading
 replacement JavaScript. The Wizard owns its live UI independently.
 
-## Phase-output hints and declarations
+## Phase-output configuration
 
 Request preparation uses Specify's effective commands for phase invocation.
-Where present, it resolves a versioned JSON output template from the captured
-Specify `(template, name)` stack. Its template name is
-`phase-output-` followed by the phase's UTF-8 command ID encoded as lowercase
-hex; for example, `speckit.plan` maps to
-`phase-output-737065636b69742e706c616e`. Each declaration identifies its
-`commandName` and exactly one result: a workspace-confined Markdown
-`pathTemplate`, or `{ "kind": "transient" }` for no durable output. The
-generator supplies declarations for supported core commands. A preset wrapper
-does not need to repeat a core output declaration. Without a template, a safe
-Markdown path in the installed skill's opening description is captured as a
-best-effort hint; otherwise the output is unknown and the phase can still run.
-Only verified, workspace-confined files are shown as produced artifacts.
+The Wizard or standalone caller supplies an ordered `phaseOutputs` array:
+`{"commandName":"speckit.plan","expectsArtifact":true,"outputPath":"specs/<slug>/plan.md"}`.
+An unknown expectation is `null`; a phase without a direct artifact supplies
+`false` and a null path. Analyze, Taskstoissues, and Implement have no direct
+artifact by default. The generator does not infer missing values from skills,
+files, or names. An expected path alone never verifies an artifact.
+The effective default `phase-outputs` document is derived from this handoff
+with one `byCommand` entry per selected command, in order. A customer preset
+may replace it only with a complete document containing exactly the selected
+command keys; missing or extra keys fail generation. Shared output paths are
+repeated per command. The bundled empty template is only a seed, not the
+effective output for a nonempty pipeline. The separate
+[`phase-outputs.example.jsonc`](config/phase-outputs.example.jsonc) is
+documentation, never active input.
 
-The immutable request records the normalized declaration, effective provider,
-source path, SHA-256 of its exact bytes, and unmodified ordered template stack.
+The immutable request records the caller's ordered handoff and any validated
+one-off documents, but not copied provider template bytes. After scaffold staging, the
+installed Specify `PresetResolver(root).resolve(name, template_type="template")`
+selects each required named JSON file. Validated documents, provider, source
+path, exact-byte SHA-256, and effective stack are staged for candidate
+materialization.
 When a selected Copilot skill exists in the source workspace, its SHA-256 is
 also bound into the request and the recipient setup contract; destination
 readiness rejects a changed skill rather than trusting its filename alone.
 An absent source skill is explicitly recorded without a fingerprint and still
 must be present in the recipient before phase execution.
-The compiler must not revisit the source or infer output from existing files,
-the Wizard's artifact-target cache, filenames, or skill prose. Missing,
-ambiguous, composed, mismatched, or unsafe contracts fail before a request is
-written.
-
-The same request captures six complete `canvas-*` category bindings from
-Specify's effective template stacks. Each binding records the validated
-document, provider, source path, source hash, and unchanged ordered stack;
-uncontributed categories use the generator's validated default. Only one
-effective `replace` winner is supported per category. A sparse command draft
-can modify generator-owned categories, while a customer-owned category keeps
-its complete template and emits a suppression warning in the receipt and
-generation result. Template files are not reread during materialization.
+The compiler must not infer output from existing files, filenames, or skill
+prose. Missing, ambiguous, composed, mismatched, or unsafe design contracts
+fail before materialization. The legacy command-draft envelope accepts only
+`{"categories":{}}`; any nonempty sparse draft fails visibly. All five
+one-off inputs are complete documents. Canvas identity remains ordinary
+request metadata; setup choices live in `canvas-setup.json` only.
 Custom branding accepts only confined PNG, JPEG, or WebP with bounded
 dimensions. The logo is copied to the generated canvas, served through an
 authenticated route, and its provenance appears in the generation receipt.
@@ -144,9 +162,10 @@ Install the required runtime phase providers and this generator through
 Specify; then reload Copilot skills in the current session. Supply the
 generate skill with the selected *ordered* `speckit.*` phase command IDs,
 canvas ID, display name, and recipient workspace. It asks for missing
-choices, captures Specify's three JSON inventories itself, builds a
-request-bound phase-output contract, invokes the supported `create-canvas`
-scaffold, snapshots it inside request staging without reloading it, finalizes
+choices, captures Specify's three JSON inventories itself, requires the
+explicit ordered `--phase-outputs-json` handoff, invokes the supported
+`create-canvas` scaffold, snapshots it and resolves design documents inside
+request staging without reloading it, finalizes
 the override, validates/publishes the candidate, and
 reloads, inspects, and opens the resulting project canvas in the same turn.
 The package does not import the Wizard or its state.
@@ -156,16 +175,17 @@ commands. Only a Generate action or the effective generation command that
 explicitly names a distinct helper may use `support-command` to validate its
 captured provider and documented inputs, invoke its returned skill once, then
 pass the JSON result to `record-support-result` with the returned
-`sourceSha256`. A changed helper source or invalid sparse result is rejected
-before writing a draft; without an explicitly named helper, use
+`sourceSha256`. A changed helper source or nonempty sparse result is rejected
+before writing a draft; helpers cannot amend design documents. Without an
+explicitly named helper, use
 `{"categories": {}}`.
 
 An incompatible Specify version, missing authoring/scaffold host, absent
 selected command, design-tagged runtime contributor, or
 unsafe output path is a generation error; do not bypass it by running bare
-Python or Specify commands. Missing output metadata alone does not block a
-callable skill. Declared outputs remain validated and bound to the request;
-skill-derived paths are hints rather than declarations.
+Python or Specify commands. Unknown output metadata (`null`) does not block a
+callable skill. Explicit handoffs remain validated and bound to the request;
+paths are never inferred from skill prose.
 
 After successful publication and provider verification, copy only
 `.github/extensions/<canvas-id>/` to a compatible target repository.
@@ -187,8 +207,8 @@ target, which can be replaced through an ordinary confirmed Regenerate.
 The Wizard's Phases header retains only the Generate button. Its dialog
 confirms the canvas ID, name, derived target, workflow header, description,
 custom-slug and installation-approval choices, and Canvas Design packages.
-The common dialog choices override corresponding design defaults; design
-packages still supply other presentation and result settings. For existing
+Common dialog choices are separate from presentation; preset documents
+replace complete presentation and result settings. For existing
 targets, the dialog confirms Regenerate through the same action. It confirms
 the displayed phase order and exact destination, captures fresh Specify
 artifact/preset/extension JSON in the server, and hands the extension-owned

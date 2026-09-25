@@ -19,7 +19,7 @@ export function createAmendmentRuntime({ pipeline, items, gate, dispatch }) {
         if (project && input.itemId != null) return failure("invalid_amendment", "Constitution amendments are project-scoped; omit the item.");
         const item = project ? null : (await items(inst)).find((entry) => entry.id === input.itemId && !entry.isNew);
         if (!project && !item) return failure("invalid_amendment", "Choose an existing workflow item.");
-        if (input.artifact !== await resolveDeclaredArtifact(inst.cwd, step.artifact?.pathTemplate, item?.slug, pipeline)) {
+        if (input.artifact !== await resolveDeclaredArtifact(inst.cwd, step.artifact?.outputPath, item?.slug, pipeline)) {
             return failure("invalid_artifact", "The artifact does not belong to this phase and workflow item. Refresh and try again.");
         }
         const content = await readWorkflowArtifact(inst.cwd, input.artifact, pipeline);

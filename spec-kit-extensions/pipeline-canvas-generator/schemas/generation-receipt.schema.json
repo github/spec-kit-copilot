@@ -22,14 +22,13 @@
     "experienceSha256": { "$ref": "#/$defs/hash" },
     "categories": {
       "type": "object", "additionalProperties": false,
-      "required": ["canvas-content", "canvas-theme", "canvas-layout", "canvas-interactions", "canvas-results", "canvas-onboarding"],
+      "required": ["canvas-presentation", "phase-outputs", "canvas-results", "canvas-interactions", "canvas-setup"],
       "properties": {
-        "canvas-content": { "$ref": "#/$defs/category" },
-        "canvas-theme": { "$ref": "#/$defs/category" },
-        "canvas-layout": { "$ref": "#/$defs/category" },
-        "canvas-interactions": { "$ref": "#/$defs/category" },
+        "canvas-presentation": { "$ref": "#/$defs/category" },
+        "phase-outputs": { "$ref": "#/$defs/category" },
         "canvas-results": { "$ref": "#/$defs/category" },
-        "canvas-onboarding": { "$ref": "#/$defs/category" }
+        "canvas-interactions": { "$ref": "#/$defs/category" },
+        "canvas-setup": { "$ref": "#/$defs/category" }
       }
     },
     "warnings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
@@ -78,7 +77,15 @@
         "version": { "type": ["string", "null"] },
         "sha256": { "$ref": "#/$defs/hash" },
         "sourcePath": { "type": "string", "minLength": 1 },
-        "sourceSha256": { "$ref": "#/$defs/hash" }
+        "sourceSha256": { "$ref": "#/$defs/hash" },
+        "submittedInline": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sha256", "superseded"],
+          "properties": {
+            "sha256": { "$ref": "#/$defs/hash" },
+            "superseded": { "type": "boolean" }
+          }
+        }
       }
     }
   }

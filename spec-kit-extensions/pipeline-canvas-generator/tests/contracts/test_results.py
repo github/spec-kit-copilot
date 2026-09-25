@@ -8,7 +8,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
-from experience import default_experience, validate_complete_category  # noqa: E402
+from experience import default_document, validate_complete_category  # noqa: E402
 
 
 def configured(source=None):
@@ -25,7 +25,7 @@ def configured(source=None):
 
 class CanvasResultsContract(unittest.TestCase):
     def setUp(self) -> None:
-        self.document = default_experience(PACKAGE)["categories"]["canvas-results"]
+        self.document = default_document(PACKAGE, "canvas-results")
 
     def validate(self, document):
         return validate_complete_category("canvas-results", document, PACKAGE)

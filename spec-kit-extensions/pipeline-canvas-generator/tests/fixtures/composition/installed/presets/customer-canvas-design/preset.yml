@@ -5,9 +5,7 @@ preset:
   version: "0.1.0"
 provides:
   templates:
-    - name: phase-output-737065636b69742e6173736573732e696e74616b65
-      file: config/phase-output-assess-intake.json
-    - name: canvas-content
-      file: config/canvas-content.json
+    - name: design-marker
+      file: config/design-marker.json
 tags:
   - canvas-design

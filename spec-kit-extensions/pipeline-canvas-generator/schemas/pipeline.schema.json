@@ -53,11 +53,11 @@
               },
               "artifact": {
                 "type": "object", "additionalProperties": false,
-                "required": ["pathTemplate", "persistent", "completionSignal"],
+                "required": ["outputPath", "persistent", "completionSignal"],
                 "properties": {
-                  "pathTemplate": { "type": ["string", "null"] },
+                  "outputPath": { "type": ["string", "null"] },
                   "persistent": { "type": "boolean" },
-                  "completionSignal": { "enum": ["artifact", "transient"] }
+                  "completionSignal": { "enum": ["artifact", "transient", "hint"] }
                 }
               },
               "arguments": {
@@ -74,7 +74,7 @@
     },
     "phaseOutputs": {
       "type": "array", "minItems": 1,
-      "items": { "$ref": "phase-output.schema.json#/$defs/binding" }
+      "items": { "$ref": "phase-artifact-binding.schema.json#/$defs/binding" }
     },
     "projectArtifacts": {
       "type": "object", "additionalProperties": false,

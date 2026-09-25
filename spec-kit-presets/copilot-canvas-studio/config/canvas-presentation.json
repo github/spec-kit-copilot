@@ -9,5 +9,7 @@
   "typography": "serif",
   "density": "comfortable",
   "shape": "rounded",
-  "brand": { "logo": { "mode": "default" } }
+  "brand": { "logo": { "mode": "default" } },
+  "phases": { "showDescriptions": true },
+  "artifacts": { "showMetadata": true }
 }

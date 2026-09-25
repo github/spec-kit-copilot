@@ -4,9 +4,14 @@ import json
 import re
 from pathlib import Path
 
-from override import CATEGORY_FIELDS
 from staging import read_json
 from validation import declared_file
+
+
+DOCUMENTS = frozenset({
+    "canvas-presentation", "canvas-interactions", "canvas-setup",
+    "canvas-results", "phase-outputs",
+})
 
 
 def _check(value: object, schema: dict, root: dict, location: str) -> None:
@@ -39,9 +44,13 @@ def _check(value: object, schema: dict, root: dict, location: str) -> None:
     }
     if set(schema) - allowed:
         raise ValueError(f"Unsupported category schema constraint at {location}")
+    kind = schema.get("type")
+    if isinstance(kind, list):
+        if value is None and "null" in kind:
+            return
+        kind = next((entry for entry in kind if entry != "null"), None)
     if value is None:
         raise ValueError(f"Null category value at {location}")
-    kind = schema.get("type")
     if kind == "object":
         if not isinstance(value, dict):
             raise ValueError(f"Expected category object at {location}")
@@ -87,14 +96,14 @@ def _check(value: object, schema: dict, root: dict, location: str) -> None:
 
 
 def validate_complete_category(name: str, document: object, package: Path) -> dict:
-    if name not in CATEGORY_FIELDS:
+    if name not in DOCUMENTS:
         raise ValueError(f"Unknown experience category: {name}")
     schema_path = declared_file(package, f"schemas/{name}.schema.json", maximum=256 * 1024)
     schema = read_json(schema_path)
     if not isinstance(schema, dict):
         raise ValueError(f"Invalid category schema: {name}")
     _check(document, schema, schema, name)
-    if name == "canvas-theme":
+    if name == "canvas-presentation":
         logo = document["brand"]["logo"]
         if logo["mode"] == "asset":
             path = logo.get("path")
@@ -105,7 +114,7 @@ def validate_complete_category(name: str, document: object, package: Path) -> di
                 raise ValueError("Asset logo requires a confined image path and alt text")
         elif set(logo) != {"mode"}:
             raise ValueError("Default and hidden logos cannot specify a custom asset")
-    if name in ("canvas-content", "canvas-interactions", "canvas-onboarding"):
+    if name in ("canvas-presentation", "canvas-interactions", "canvas-setup"):
         pending = [document]
         while pending:
             current = pending.pop()
@@ -141,13 +150,12 @@ def validate_complete_category(name: str, document: object, package: Path) -> di
     return document
 
 
-def default_experience(package: Path) -> dict:
-    categories = {}
-    for name in CATEGORY_FIELDS:
-        path = declared_file(package, f"config/{name}.json", maximum=256 * 1024)
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (UnicodeError, json.JSONDecodeError) as error:
-            raise ValueError(f"Invalid default experience document: {name}") from error
-        categories[name] = validate_complete_category(name, value, package)
-    return {"schemaVersion": 1, "categories": categories}
+def default_document(package: Path, name: str) -> dict:
+    if name not in DOCUMENTS:
+        raise ValueError(f"Unknown default document: {name}")
+    path = declared_file(package, f"config/{name}.json", maximum=256 * 1024)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Invalid default experience document: {name}") from error
+    return validate_complete_category(name, value, package)

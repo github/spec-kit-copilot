@@ -18,8 +18,7 @@ import sys  # noqa: E402
 
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 from compiler import compile_blueprint  # noqa: E402
-from experience import default_experience  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import default_profile, prepare_request  # noqa: E402
 from staging import read_json  # noqa: E402
 
 
@@ -142,7 +141,7 @@ if ((await readFile(options, 'utf8')).includes('initialized by test')) throw Err
             json.dumps(compile_blueprint(read_json(request))), encoding="utf-8",
         )
         (target / "canvas-experience.json").write_text(
-            json.dumps(default_experience(PACKAGE)), encoding="utf-8",
+            json.dumps(default_profile(PACKAGE)), encoding="utf-8",
         )
         (target / "workflow-config.json").write_text(
             json.dumps({"version": 1, "itemLabels": {}, "phaseArguments": {},

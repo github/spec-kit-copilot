@@ -10,6 +10,17 @@ import { RESPONSE_LIMIT } from "../phase-response.mjs";
 const LIMIT = 512 * 1024;
 const writes = new Map();
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export const inputArtifactFingerprint = (evidence) => hash([
+    evidence?.artifact ?? null, evidence?.content ?? null,
+    evidence?.artifactError ?? null,
+]);
+export function declaredInputFingerprints(steps, step, evidence) {
+    const index = steps.findIndex((entry) => entry.instanceKey === step.instanceKey);
+    return Object.fromEntries(steps.filter((entry, position) =>
+        entry.instanceKey !== step.instanceKey && entry.artifact?.outputPath
+        && (position < index || step.commandName === "speckit.analyze"))
+        .map((entry) => [entry.instanceKey, inputArtifactFingerprint(evidence[entry.instanceKey])]));
+}
 const validSlug = (value) => typeof value === "string" && value.length > 0
     && validateWorkflowSlug(value).slug === value && !validateWorkflowSlug(value).error;
 const empty = () => ({ version: 1, items: [], pending: [], binding: null });
@@ -36,10 +47,12 @@ export function currentPhaseSummary(steps, evidence, runs, phaseResults, options
     for (const step of steps) {
         const current = evidence[step.instanceKey] ?? {};
         const run = runs.find((entry) => entry.phase === step.instanceKey);
-        const stale = Boolean(run?.completed && runs.some((upstream) =>
+        const stale = Boolean(run?.completed && (runs.some((upstream) =>
             steps.findIndex((phase) => phase.instanceKey === upstream.phase)
                 < steps.findIndex((phase) => phase.instanceKey === step.instanceKey)
-            && (!upstream.completed || upstream.sequence > run.sequence)));
+            && (!upstream.completed || upstream.sequence > run.sequence))
+            || run.reporting?.inputs && Object.entries(run.reporting.inputs).some(([key, fingerprint]) =>
+                inputArtifactFingerprint(evidence[key]) !== fingerprint)));
         const status = !run ? "pending" : !run.completed ? "running"
             : run.error ? "failed" : stale ? "stale" : "completed";
         const unresolved = Number.isInteger(current.clarificationCount)
@@ -48,7 +61,7 @@ export function currentPhaseSummary(steps, evidence, runs, phaseResults, options
         const configured = phaseResults.get(step.instanceKey);
         let id = null;
         if (status === "completed" && configured && unresolved === 0
-            && (!step.artifact?.pathTemplate || current.artifact)) {
+            && (!step.artifact?.outputPath || current.artifact)) {
             if (configured.source.kind === "phase-report") {
                 id = run.reporting?.settledId ?? null;
             } else if (configured.source.kind === "artifact-field"
@@ -138,11 +151,24 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
                     && typeof run.reporting.instanceToken === "string" && run.reporting.instanceToken.length > 0
                     && Array.isArray(run.reporting.allowed) && run.reporting.allowed.length > 0
                     && run.reporting.allowed.every((id) => typeof id === "string" && id.length > 0)
+                    && (run.reporting.inputs === undefined || (run.reporting.inputs
+                        && typeof run.reporting.inputs === "object" && !Array.isArray(run.reporting.inputs)
+                        && Object.entries(run.reporting.inputs).every(([phase, fingerprint]) =>
+                            phaseKeys.has(phase) && typeof fingerprint === "string" && /^[a-f0-9]{64}$/.test(fingerprint))))
                     && phaseResults.get(run.phase)?.source.kind === "phase-report"
                     && JSON.stringify(run.reporting.allowed) === JSON.stringify(
                         phaseResults.get(run.phase).values.map((value) => value.id))
                     && (run.reporting.resultId === null || run.reporting.allowed.includes(run.reporting.resultId))
                     && (run.reporting.settledId === null || run.reporting.allowed.includes(run.reporting.settledId))))
+                && (run.artifactReport === undefined || (run.artifactReport
+                    && steps.find((step) => step.instanceKey === run.phase)?.artifact?.completionSignal === "hint"
+                    && steps.find((step) => step.instanceKey === run.phase)?.artifact?.outputPath === null
+                    && typeof run.artifactReport.instanceId === "string" && run.artifactReport.instanceId.length > 0
+                    && typeof run.artifactReport.instanceToken === "string" && run.artifactReport.instanceToken.length > 0
+                    && (run.artifactReport.path === null || typeof run.artifactReport.path === "string"
+                        && run.artifactReport.path.length > 0 && run.artifactReport.path.length <= 2048)
+                    && (run.artifactReport.slug === null || validSlug(run.artifactReport.slug))
+                    && (run.artifactReport.settledPath === null || run.artifactReport.settledPath === run.artifactReport.path)))
                 && (run.result === undefined || (run.result && Number.isSafeInteger(run.result.sequence)
                     && run.result.sequence > 0 && run.result.sequence <= run.sequence
                     && (run.result.label === null || typeof run.result.label === "string" && run.result.label.length <= 60)
@@ -264,6 +290,10 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
                         Object.assign(run, { completed: true, response: result.response, error: result.error });
                         if (run.reporting) {
                             run.reporting.settledId = result.error === null ? run.reporting.resultId : null;
+                            if (result.error === null && result.inputs) run.reporting.inputs = result.inputs;
+                        }
+                        if (run.artifactReport) {
+                            run.artifactReport.settledPath = result.error === null ? run.artifactReport.path : null;
                         }
                         accepted = true;
                     }
@@ -281,16 +311,29 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
                     throw new Error("Unknown or stale phase reporting run");
                 }
                 if (!run.reporting.allowed.includes(resultId)) throw new Error("Result ID is not allowed for this phase");
-                if (run.reporting.resultId && run.reporting.resultId !== resultId) {
-                    throw new Error("Conflicting result for this phase run");
-                }
-                if (run.completed && run.reporting.settledId !== resultId) {
-                    throw new Error("Phase run has already completed");
+                if (run.completed || run.reporting.resultId !== null) {
+                    throw new Error("A result was already reported or the phase run has completed");
                 }
                 run.reporting.resultId = resultId;
                 accepted = true;
             });
             return { ok: accepted, phaseRunId: runId, resultId };
+        },
+        async reportArtifact(inst, runId, path, slug) {
+            await update(inst, (record) => {
+                const run = [...record.items, ...record.pending].flatMap((entry) => entry.runs ?? [])
+                    .find((entry) => entry.runId === runId);
+                if (!run?.artifactReport || run.artifactReport.instanceId !== inst.instanceId
+                    || run.artifactReport.instanceToken !== inst.reportingToken) {
+                    throw new Error("Unknown or stale phase artifact run");
+                }
+                if (run.completed || run.artifactReport.path !== null) {
+                    throw new Error("An artifact was already reported or the phase run has completed");
+                }
+                run.artifactReport.path = path;
+                run.artifactReport.slug = slug;
+            });
+            return { ok: true, phaseRunId: runId, path };
         },
         async bindDispatch(inst, runId, messageId, sessionId) {
             if (typeof messageId !== "string" || !messageId) {
@@ -298,7 +341,7 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
             }
             await update(inst, (record) => {
                 const run = [...record.items, ...record.pending].flatMap((entry) => entry.runs ?? [])
-                    .find((entry) => entry.runId === runId && entry.reporting);
+                    .find((entry) => entry.runId === runId && (entry.reporting || entry.artifactReport));
                 if (!run || run.messageId) throw new Error("Phase reporting run cannot be bound to dispatch");
                 run.messageId = messageId;
                 run.sessionId = sessionId;
@@ -322,7 +365,7 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
                 }
             });
         },
-        async mark(inst, item, phase, { slug = null, baseline = {}, run = null, reporting = null } = {}) {
+        async mark(inst, item, phase, { slug = null, baseline = {}, run = null, reporting = null, artifactReporting = null } = {}) {
             let undo;
             await update(inst, (record) => {
                 const pending = item.isNew;
@@ -354,6 +397,7 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
                         startedAt: Date.now(),
                         completed: false, response: null, error: null,
                         ...(reporting ? { reporting: { ...reporting, resultId: null, settledId: null } } : {}),
+                        ...(artifactReporting ? { artifactReport: { ...artifactReporting, path: null, slug: null, settledPath: null } } : {}),
                         ...(result ? { result } : {}) }]);
                 }
             });
@@ -364,7 +408,9 @@ export function createPhaseRunStore({ extensionId, pipeline, phaseResults = new 
             const record = await update(inst, (record) => {
                 const named = new Set([...record.items.map((item) => item.id), ...record.pending.map((entry) => entry.slug).filter(Boolean)]);
                 for (const pending of [...record.pending]) {
-                    const candidates = discovered.filter((item) => pending.slug ? item.slug === pending.slug
+                    const reportedSlug = pending.runs?.find((run) => run.artifactReport?.slug)?.artifactReport.slug;
+                    const candidates = discovered.filter((item) => pending.slug || reportedSlug
+                        ? item.slug === (pending.slug ?? reportedSlug)
                         : !named.has(item.slug) && (!Object.hasOwn(pending.baseline, item.slug)
                             || (!pipeline.runtime?.multiInstance && item.lastActivity > pending.baseline[item.slug])));
                     if (candidates.length > 1) {

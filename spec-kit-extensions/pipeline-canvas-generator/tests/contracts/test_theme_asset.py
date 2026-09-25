@@ -11,7 +11,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
-from experience import default_experience  # noqa: E402
+from experience import default_document  # noqa: E402
 from theme_asset import _dimensions, logo_file  # noqa: E402
 
 
@@ -36,7 +36,7 @@ class ThemeAssetContracts(unittest.TestCase):
         (root / "assets").mkdir(parents=True)
         asset = root / "assets" / "logo.png"
         asset.write_bytes(png(1, 1))
-        theme = copy.deepcopy(default_experience(PACKAGE)["categories"]["canvas-theme"])
+        theme = copy.deepcopy(default_document(PACKAGE, "canvas-presentation"))
         binding = {"provider": {"kind": "preset", "id": "design"}}
         self.assertIsNone(logo_file(self.workspace, PACKAGE, theme, binding))
         theme["brand"]["logo"] = {"mode": "asset", "path": "assets/logo.png", "alt": "Design"}

@@ -3,13 +3,21 @@ extension:
   id: pipeline-canvas-generator
   name: Pipeline Canvas Generator
   version: "0.1.0"
+  description: Fixture canvas generator
+  category: process
+  effect: read-write
+  author: spec-kit-copilot
+  repository: https://github.com/github/spec-kit-copilot
+  license: MIT
+requires:
+  speckit_version: ">=1.0.7"
 provides:
   templates:
-    - name: phase-output-737065636b69742e636f6e737469747574696f6e
-      file: config/phase-output-constitution.json
-    - name: phase-output-737065636b69742e706c616e
-      file: config/phase-output-plan.json
-    - name: phase-output-737065636b69742e616e616c797a65
-      file: config/phase-output-analyze.json
+    - name: canvas-presentation
+      file: config/canvas-presentation.json
+    - name: phase-outputs
+      file: config/phase-outputs.json
+    - name: canvas-results
+      file: config/canvas-results.json
 tags:
   - canvas-design

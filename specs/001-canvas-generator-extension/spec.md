@@ -8,6 +8,8 @@
 
 **Input**: User description: "Use the revised Canvas Generation as a Spec Kit Extension plan to specify standalone, customizable Copilot canvas generation with tag-based Canvas Design classification."
 
+**Revised configuration contract**: [Original plan, Section 17](../../docs/canvas-extension-original-plan.md#17-revised-generation-configuration-and-result-behavior) supersedes this draft's six-category, phase-output-template, and request-snapshot descriptions where they conflict. Only newly generated canvases use that contract.
+
 ## Clarifications
 
 ### Session 2026-09-23
@@ -217,9 +219,10 @@ clarification, and missing-result behavior.
 - A component is removed, disabled, reprioritized, or updated between opening
   Generate and confirming it: generation uses a fresh composition, not the stale
   preview or the model's recollection.
-- A selected phase has no effective phase-output contract, more than one
-  applicable declaration, an unsafe artifact path, or no explicit transient
-  declaration: request preparation rejects it without writing a request.
+- The shared phase-output template has multiple active winners or an unsafe
+  declared path: request preparation rejects it without writing a request.
+  A selected phase without an override uses the shared default, not a
+  hard-coded phase list.
 - A design catalog entry lacks a matching installed package tag, a tagged package
   contributes a selected runtime phase, or a design bundle includes an untagged
   component: the Canvas Design flow rejects the mismatch without changing how
@@ -316,7 +319,9 @@ clarification, and missing-result behavior.
   diagnostics. A missing output declaration MUST NOT block a callable command:
   a safe path in the effective skill may supply a best-effort hint, or the
   output remains unknown. An explicit transient declaration still means no
-  durable output. Hints MUST NOT be treated as proof that a file was produced;
+  single durable file to present. Unknown and transient results appear as
+  "No artifact" until a real file can be verified. Hints MUST NOT be treated
+  as proof that a file was produced;
   only workspace-confined existing artifacts may be presented as results.
 - **FR-019**: Generation MUST validate the complete candidate's workflow
   equality, required and forbidden capabilities, package integrity, setup,

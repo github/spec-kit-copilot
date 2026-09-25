@@ -121,11 +121,10 @@ def _setup_requirements(
     }
 
 
-def compile_blueprint(request: dict) -> dict:
+def compile_blueprint(request: dict, phase_outputs: list[dict] | None = None) -> dict:
     """Preserve phase order, bound outputs and Specify provider provenance."""
     validate_request(request)
     workflow = request["workflow"]
-    instance_configuration = request["instanceConfiguration"]
     snapshot = workflow["artifactSnapshot"]
     commands_by_name = {
         row["name"]: row for row in snapshot["artifacts"] if row["kind"] == "command"
@@ -135,19 +134,21 @@ def compile_blueprint(request: dict) -> dict:
     item_roots = set()
     hint_roots = set()
     constitution = None
+    outputs = phase_outputs if phase_outputs is not None else workflow["phaseOutputs"]
     for index, (phase, binding, command) in enumerate(
-        zip(workflow["selectedPhases"], workflow["phaseOutputs"], commands, strict=True)
+        zip(workflow["selectedPhases"], outputs, commands, strict=True)
     ):
-        result = binding["contract"]["result"]
-        artifact_path = result.get("pathTemplate")
+        artifact_path = binding["outputPath"]
+        expected = binding["expectsArtifact"]
+        signal = "artifact" if expected is True else ("transient" if expected is False else "hint")
         if phase == "speckit.constitution":
-            if result["kind"] != "artifact" or "<" in artifact_path or ">" in artifact_path:
+            if signal != "artifact" or artifact_path is None or "<" in artifact_path or ">" in artifact_path:
                 raise ValueError("Unsupported project Constitution output contract")
         elif artifact_path and "<slug>" in artifact_path:
             prefix = artifact_path.split("<slug>", 1)[0]
             if "<" in prefix or ">" in prefix:
                 raise ValueError("Unsupported workflow artifact root")
-            if result["kind"] == "artifact":
+            if signal == "artifact":
                 item_roots.add(prefix + "<slug>")
             else:
                 hint_roots.add(prefix + "<slug>")
@@ -168,9 +169,9 @@ def compile_blueprint(request: dict) -> dict:
             "description": command.get("description", ""),
             "source": source,
             "artifact": {
-                "pathTemplate": artifact_path,
-                "persistent": result["kind"] == "artifact",
-                "completionSignal": result["kind"],
+                "outputPath": artifact_path,
+                "persistent": signal == "artifact",
+                "completionSignal": signal,
             },
             "arguments": {"hint": hint, "whenEmpty": when_empty},
             "optional": False,
@@ -185,10 +186,10 @@ def compile_blueprint(request: dict) -> dict:
     if item_root is None and len(hint_roots) == 1:
         item_root = next(iter(hint_roots))
     for step in steps:
-        path = step["artifact"]["pathTemplate"]
+        path = step["artifact"]["outputPath"]
         if step["artifact"]["completionSignal"] == "hint" and path and "<slug>" in path:
             if not item_root or not path.startswith(item_root + "/"):
-                step["artifact"]["pathTemplate"] = None
+                step["artifact"]["outputPath"] = None
     blueprint = {
         "schemaVersion": 2,
         "kind": "speckit-wizard-linear-canvas",
@@ -199,16 +200,16 @@ def compile_blueprint(request: dict) -> dict:
             "workflowListName": request["canvas"]["workflowListName"],
         },
         "pipeline": {"topology": "linear", "steps": steps},
-        "phaseOutputs": deepcopy(workflow["phaseOutputs"]),
+        "phaseOutputs": deepcopy(outputs),
         "setup": {
             **_setup_requirements(snapshot, commands, steps, workflow["requiredSkillHashes"]),
-            "requireInstallationApproval": instance_configuration["installationMode"] == "prompt",
+            "requireInstallationApproval": True,
         },
         "runtime": {
             "visualStyle": "spec-kit-wizard",
             "workflowMode": "item" if item_root else "project",
             "itemRoot": item_root,
-            "userProvidesSlug": instance_configuration["workflowSlug"]["userProvided"],
+            "userProvidesSlug": True,
             "multiInstance": bool(item_root),
             "supportsArtifactPreview": True,
             "supportsRerun": True,

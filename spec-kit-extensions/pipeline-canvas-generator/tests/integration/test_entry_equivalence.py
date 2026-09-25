@@ -15,7 +15,8 @@ sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from override import prepare_override  # noqa: E402
 from receipt import write_receipt  # noqa: E402
-from request import prepare_request  # noqa: E402
+from contracts.handoff import prepare_request  # noqa: E402
+from category_contracts import stage_documents  # noqa: E402
 from staging import atomic_json, materialize_candidate, read_json  # noqa: E402
 
 
@@ -43,6 +44,8 @@ class EntryEquivalence(unittest.TestCase):
                     scaffold = PACKAGE / "tests" / "fixtures" / "scaffold"
                     results = []
                     for request in (wizard, standalone):
+                        if not request.with_name("design-documents.json").exists():
+                            stage_documents(request)
                         atomic_json(request.with_name("command-override-draft.json"), {"categories": {}})
                         prepare_override(request)
                         candidate = materialize_candidate(request, scaffold)

@@ -15,7 +15,7 @@ PACKAGE = Path(__file__).resolve().parents[2]
 TEMPLATE = PACKAGE / "templates" / "generated-canvas"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
-from phase_output import validate_contract  # noqa: E402
+from phase_output import validate_pair  # noqa: E402
 from validation import confined_path  # noqa: E402
 
 
@@ -24,11 +24,8 @@ class PortabilityContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             def contract(path):
-                return {
-                    "schemaVersion": 1, "commandName": "speckit.plan",
-                    "result": {"kind": "artifact", "pathTemplate": path},
-                }
-            validate_contract(contract("specs/<slug>/plan.md"), "speckit.plan", root)
+                return {"expectsArtifact": True, "outputPath": path}
+            validate_pair(contract("specs/<slug>/plan.md"), root)
             for path in (
                 "C:/Users/user/project/plan.md",
                 "C:\\Users\\user\\project\\plan.md",
@@ -37,7 +34,7 @@ class PortabilityContracts(unittest.TestCase):
                 "specs\\feature\\plan.md",
             ):
                 with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Unsafe"):
-                    validate_contract(contract(path), "speckit.plan", root)
+                    validate_pair(contract(path), root)
             self.assertEqual(confined_path(root, "specs/feature").parent, root / "specs")
 
     def test_linked_path_is_not_accepted_as_a_portable_artifact(self) -> None:

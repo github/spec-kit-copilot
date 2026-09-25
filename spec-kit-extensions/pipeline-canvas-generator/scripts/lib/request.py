@@ -8,7 +8,7 @@ from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 from artifact_snapshot import normalize_snapshot
-from phase_output import bind_phase_output, validate_binding
+from phase_output import validate_document_commands, validate_handoff
 from staging import atomic_json, create_request_dir
 from validation import confined_path, declared_file, target_path
 
@@ -73,9 +73,24 @@ def _keys(value: object, required: set[str], optional: set[str] = frozenset()) -
 
 def validate_request(request: object) -> None:
     """Reject drift and unknown authority fields on a persisted request."""
-    _keys(request, {"schemaVersion", "canvas", "instanceConfiguration", "workflow", "workspace", "overwrite"})
+    _keys(request, {"schemaVersion", "canvas", "workflow", "workspace", "overwrite"},
+          {"inlineDocuments"})
     if type(request["schemaVersion"]) is not int or request["schemaVersion"] != 1 or type(request["overwrite"]) is not bool:
         raise ValueError("Unsupported request version or overwrite decision")
+    if "inlineDocuments" in request:
+        from experience import validate_complete_category
+
+        from experience import DOCUMENTS
+
+        documents = request["inlineDocuments"]
+        if not isinstance(documents, dict) or set(documents) - DOCUMENTS:
+            raise ValueError("Invalid inline document names")
+        for name, document in documents.items():
+            if len(json.dumps(document, ensure_ascii=False).encode("utf-8")) > 256 * 1024:
+                raise ValueError(f"Inline {name} exceeds 256 KiB")
+            validate_complete_category(name, document, Path(__file__).resolve().parents[2])
+            if name == "canvas-presentation" and document["brand"]["logo"]["mode"] == "asset":
+                raise ValueError("Inline presentation cannot supply an asset logo; use a preset")
     _keys(request["canvas"], {"id", "displayName", "workflowListName", "description"})
     if not isinstance(request["canvas"]["displayName"], str) or not request["canvas"]["displayName"].strip():
         raise ValueError("Invalid canvas display name")
@@ -89,15 +104,8 @@ def validate_request(request: object) -> None:
         raise ValueError("Invalid canvas description")
     if not isinstance(request["workspace"], str) or not request["workspace"]:
         raise ValueError("Invalid request workspace")
-    instance_configuration = request["instanceConfiguration"]
-    _keys(instance_configuration, {"workflowSlug", "installationMode"})
-    _keys(instance_configuration["workflowSlug"], {"userProvided"})
-    if type(instance_configuration["workflowSlug"]["userProvided"]) is not bool:
-        raise ValueError("Invalid workflow slug setting")
-    if instance_configuration["installationMode"] not in ("automatic", "prompt"):
-        raise ValueError("Invalid installation mode")
     target_path(Path(request["workspace"]), request["canvas"]["id"])
-    _keys(request["workflow"], {"selectedPhases", "phaseOutputs", "artifactSnapshot", "categoryTemplates", "requiredSkillHashes"})
+    _keys(request["workflow"], {"selectedPhases", "phaseOutputs", "artifactSnapshot", "requiredSkillHashes"})
     phases = request["workflow"]["selectedPhases"]
     if (
         not isinstance(phases, list) or not phases
@@ -136,16 +144,10 @@ def validate_request(request: object) -> None:
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     if snapshot["compositionFingerprint"] != digest:
         raise ValueError("Composition fingerprint does not match captured providers and stacks")
-    outputs = request["workflow"]["phaseOutputs"]
-    if not isinstance(outputs, list) or len(outputs) != len(phases):
-        raise ValueError("Missing or unordered request phase-output bindings")
-    for phase, binding in zip(phases, outputs, strict=True):
-        validate_binding(binding, phase, snapshot)
-    from category_contracts import validate_category_bindings
-
-    validate_category_bindings(
-        request["workflow"]["categoryTemplates"], snapshot, Path(__file__).resolve().parents[2]
-    )
+    validate_handoff(request["workflow"]["phaseOutputs"], phases, Path(request["workspace"]))
+    if "inlineDocuments" in request and "phase-outputs" in request["inlineDocuments"]:
+        validate_document_commands(request["inlineDocuments"]["phase-outputs"], phases,
+                                   Path(request["workspace"]))
     if any(row["kind"] == "template" and row["name"] == "canvas-renderer"
            for row in snapshot["artifacts"]):
         raise ValueError("Canvas renderer templates are no longer supported; update or remove the contributing package")
@@ -158,8 +160,10 @@ def prepare_request(
     display_name: str,
     overwrite: bool,
     *,
+    phase_outputs: list[dict],
     inventory: dict | None = None,
     configuration: dict | None = None,
+    inline_documents: dict | None = None,
 ) -> Path:
     """Validate all authority and composition before creating a request file."""
     root = workspace.resolve(strict=True)
@@ -175,22 +179,15 @@ def prepare_request(
         raise ValueError("Canvas display name must contain 1 to 120 nonblank characters")
     if type(overwrite) is not bool:
         raise ValueError("Overwrite decision must be an explicit boolean")
+    validate_handoff(phase_outputs, selected_phases, root)
     if configuration is None:
-        configuration = {
-            "canvas": {
-                "id": canvas_id,
-                "displayName": display_name,
-                "workflowListName": "Workflows",
-                "description": f"{display_name.strip()} workflow canvas.",
-            },
-            "instanceConfiguration": {
-                "workflowSlug": {"userProvided": False},
-                "installationMode": "automatic",
-            },
-        }
-    _keys(configuration, {"canvas", "instanceConfiguration"})
+        configuration = {"canvas": {
+            "id": canvas_id, "displayName": display_name,
+            "workflowListName": "Workflows",
+            "description": f"{display_name.strip()} workflow canvas.",
+        }}
+    _keys(configuration, {"canvas"})
     canvas = configuration["canvas"]
-    instance_configuration = configuration["instanceConfiguration"]
     if canvas.get("id") != canvas_id or canvas.get("displayName") != display_name:
         raise ValueError("Canvas configuration must match the requested identity")
     target = target_path(root, canvas_id)
@@ -257,10 +254,6 @@ def prepare_request(
             if not layer["sourcePath"]:
                 raise ValueError(f"Missing installed source path for selected phase {phase}")
             declared_file(root, layer["sourcePath"])
-    outputs = [
-        bind_phase_output(snapshot, commands[phase], phase, root)
-        for phase in selected_phases
-    ]
     skill_hashes = {}
     for phase in selected_phases:
         name = phase.replace(".", "-")
@@ -273,26 +266,23 @@ def prepare_request(
             skill_hashes[name] = hashlib.sha256(content).hexdigest()
         else:
             skill_hashes[name] = None
-    from category_contracts import bind_categories
-
-    categories = bind_categories(snapshot, root, Path(__file__).resolve().parents[2])
     if any(row["kind"] == "template" and row["name"] == "canvas-renderer"
            for row in snapshot["artifacts"]):
         raise ValueError("Canvas renderer templates are no longer supported; update or remove the contributing package")
     request = {
         "schemaVersion": 1,
         "canvas": canvas,
-        "instanceConfiguration": instance_configuration,
         "workflow": {
             "selectedPhases": selected_phases,
             "requiredSkillHashes": skill_hashes,
-            "phaseOutputs": outputs,
-            "categoryTemplates": categories,
+            "phaseOutputs": phase_outputs,
             "artifactSnapshot": snapshot,
         },
         "workspace": str(root),
         "overwrite": overwrite,
     }
+    if inline_documents:
+        request["inlineDocuments"] = inline_documents
     validate_request(request)
     directory = create_request_dir(root)
     path = directory / "request.json"

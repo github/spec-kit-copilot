@@ -47,7 +47,7 @@ def _dimensions(data: bytes, extension: str) -> tuple[int, int]:
 
 def logo_file(workspace: Path, package: Path, theme: dict, binding: dict) -> tuple[str, bytes] | None:
     logo = theme["brand"]["logo"]
-    if logo["mode"] in ("default", "none"):
+    if logo["mode"] in ("default", "hidden", "none"):
         return None
     name = logo["path"]
     owner = binding["provider"]

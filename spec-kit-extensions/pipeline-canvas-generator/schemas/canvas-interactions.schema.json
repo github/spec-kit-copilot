@@ -3,22 +3,20 @@
   "$id": "canvas-interactions.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "progression", "rerun", "inputs", "phaseRunConfirmations", "artifacts"],
+  "required": ["schemaVersion", "progression", "rerun", "inputs", "phaseRunConfirmations"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "progression": {
       "type": "object", "additionalProperties": false,
-      "required": ["mode", "showFuturePhases", "collapseCompletedPhases"],
+      "required": ["showFuturePhases", "collapseCompletedPhases"],
       "properties": {
-        "mode": { "enum": ["guided", "free"] },
         "showFuturePhases": { "type": "boolean" },
         "collapseCompletedPhases": { "type": "boolean" }
       }
     },
-    "rerun": { "type": "object", "additionalProperties": false, "required": ["enabled", "requireConfirmation"], "properties": { "enabled": { "type": "boolean" }, "requireConfirmation": { "type": "boolean" } } },
+    "rerun": { "type": "object", "additionalProperties": false, "required": ["enabled"], "properties": { "enabled": { "type": "boolean" } } },
     "inputs": { "type": "object", "additionalProperties": false, "required": ["retainAfterRun", "phases"], "properties": { "retainAfterRun": { "type": "boolean" }, "phases": { "$ref": "#/$defs/phaseText" } } },
-    "phaseRunConfirmations": { "$ref": "#/$defs/phaseText" },
-    "artifacts": { "type": "object", "additionalProperties": false, "required": ["showRevisionControls"], "properties": { "showRevisionControls": { "type": "boolean" } } }
+    "phaseRunConfirmations": { "$ref": "#/$defs/phaseText" }
   },
   "$defs": {
     "phaseText": {

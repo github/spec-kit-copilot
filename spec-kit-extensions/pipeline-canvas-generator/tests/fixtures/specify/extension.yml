@@ -13,7 +13,7 @@ provides:
     - name: speckit.sample-canvas-design.helper
       file: commands/helper.md
   templates:
-    - name: canvas-content
-      file: config/canvas-content.json
+    - name: canvas-presentation
+      file: config/canvas-presentation.json
 tags:
   - canvas-design

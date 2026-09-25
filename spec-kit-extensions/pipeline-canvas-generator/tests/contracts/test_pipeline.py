@@ -18,8 +18,8 @@ FIXTURES = PACKAGE / "tests" / "fixtures" / "composition"
 sys.path.insert(0, str(PACKAGE / "scripts" / "lib"))
 
 from compiler import _setup_requirements, compile_blueprint  # noqa: E402
-from phase_output import template_name  # noqa: E402
-from request import prepare_request  # noqa: E402
+TEMPLATE_NAME = "phase-outputs"
+from contracts.handoff import prepare_request  # noqa: E402
 from override import prepare_override  # noqa: E402
 from staging import atomic_json, materialize_candidate, read_json  # noqa: E402
 
@@ -60,15 +60,15 @@ class BlueprintContracts(unittest.TestCase):
         self.assertEqual(
             [step["artifact"] for step in blueprint["pipeline"]["steps"]],
             [
-                {"pathTemplate": "specs/<slug>/plan.md",
+                {"outputPath": "specs/<slug>/plan.md",
                  "persistent": True, "completionSignal": "artifact"},
-                {"pathTemplate": None, "persistent": False,
+                {"outputPath": None, "persistent": False,
                  "completionSignal": "transient"},
             ],
         )
         self.assertEqual(blueprint["runtime"]["itemRoot"], "specs/<slug>")
 
-    def test_common_configuration_overrides_design_defaults(self) -> None:
+    def test_canvas_metadata_and_setup_defaults(self) -> None:
         configuration = {
             "canvas": {
                 "id": "fixture-workflow",
@@ -76,16 +76,7 @@ class BlueprintContracts(unittest.TestCase):
                 "workflowListName": "Features",
                 "description": "Run the selected feature workflow.",
             },
-            "instanceConfiguration": {
-                "workflowSlug": {"userProvided": True},
-                "installationMode": "prompt",
-            },
         }
-        content_path = self.workspace / ".specify" / "presets" / "customer-canvas-design" / "config" / "canvas-content.json"
-        content = read_json(content_path)
-        content["workflowListName"] = "Assessments"
-        content["description"] = "Review each assessment."
-        atomic_json(content_path, content)
         path = prepare_request(
             self.workspace, ["speckit.plan"], "fixture-workflow", "Fixture Workflow",
             False, inventory=self.inventory, configuration=configuration,
@@ -93,35 +84,27 @@ class BlueprintContracts(unittest.TestCase):
         request = read_json(path)
         blueprint = compile_blueprint(request)
         self.assertEqual(request["canvas"], configuration["canvas"])
-        self.assertEqual(request["instanceConfiguration"], configuration["instanceConfiguration"])
+        self.assertNotIn("instanceConfiguration", request)
         self.assertEqual(blueprint["metadata"]["description"], "Run the selected feature workflow.")
         self.assertEqual(blueprint["metadata"]["workflowListName"], "Features")
         self.assertTrue(blueprint["runtime"]["userProvidesSlug"])
         self.assertTrue(blueprint["setup"]["requireInstallationApproval"])
-        atomic_json(path.with_name("command-override-draft.json"), {"categories": {
-            "canvas-content": {"workflowListName": "Assessments", "description": "Review each assessment."},
-            "canvas-onboarding": {"workflowSlug": {"userProvided": True}},
-            "canvas-results": {"resultLabels": ["Go", "No go"], "clarification": {"enabled": False}},
-        }})
+        atomic_json(path.with_name("command-override-draft.json"), {"categories": {}})
         prepare_override(path)
         candidate = materialize_candidate(
             path, PACKAGE / "tests" / "fixtures" / "scaffold",
         )
-        profile = read_json(candidate / "canvas-experience.json")["categories"]
-        self.assertEqual(profile["canvas-content"]["workflowListName"], "Features")
-        self.assertEqual(profile["canvas-content"]["description"], "Run the selected feature workflow.")
-        self.assertTrue(profile["canvas-onboarding"]["workflowSlug"]["userProvided"])
-        self.assertEqual(profile["canvas-onboarding"]["installationMode"], "prompt")
-        self.assertFalse(profile["canvas-results"]["clarification"]["enabled"])
-        self.assertEqual(profile["canvas-results"]["resultLabels"], ["Go", "No go"])
-        self.assertEqual(read_json(candidate / "workflow-config.json")["resultLabels"], ["Go", "No go"])
-        self.assertFalse(read_json(candidate / "workflow-config.json")["clarificationTag"])
+        profile = read_json(candidate / "canvas-experience.json")
+        self.assertTrue(profile["setup"]["workflowSlug"]["userProvided"])
+        self.assertEqual(profile["setup"]["installationMode"], "prompt")
+        self.assertEqual(read_json(candidate / "workflow-config.json")["resultLabels"], [])
+        self.assertTrue(read_json(candidate / "workflow-config.json")["clarificationTag"])
         final_blueprint = read_json(candidate / "pipeline.json")
         self.assertEqual(final_blueprint["metadata"]["description"], "Run the selected feature workflow.")
         self.assertEqual(final_blueprint["metadata"]["workflowListName"], "Features")
         self.assertTrue(final_blueprint["runtime"]["userProvidesSlug"])
         self.assertTrue(final_blueprint["setup"]["requireInstallationApproval"])
-        request["instanceConfiguration"]["advanced"] = True
+        request["instanceConfiguration"] = {"advanced": True}
         with self.assertRaisesRegex(ValueError, "Invalid request fields"):
             compile_blueprint(request)
 
@@ -133,21 +116,8 @@ class BlueprintContracts(unittest.TestCase):
         atomic_json(path.with_name("command-override-draft.json"), {"categories": {
             "canvas-results": {"resultLabels": ["Go", "go"]},
         }})
-        with self.assertRaisesRegex(ValueError, "Duplicate or reserved"):
+        with self.assertRaisesRegex(ValueError, "Sparse command overrides are unsupported"):
             prepare_override(path)
-
-    def test_external_installation_is_not_weakened_by_dialog_consent(self) -> None:
-        path = prepare_request(
-            self.workspace, ["speckit.plan"], "fixture-workflow", "Fixture Workflow",
-            False, inventory=self.inventory,
-        )
-        atomic_json(path.with_name("command-override-draft.json"), {"categories": {
-            "canvas-onboarding": {"installationMode": "external"},
-        }})
-        prepare_override(path)
-        candidate = materialize_candidate(path, PACKAGE / "tests" / "fixtures" / "scaffold")
-        profile = read_json(candidate / "canvas-experience.json")["categories"]
-        self.assertEqual(profile["canvas-onboarding"]["installationMode"], "external")
 
     def test_constitution_is_project_prerequisite_not_workflow_item(self) -> None:
         blueprint = compile_blueprint(self.request("speckit.constitution", "speckit.plan"))
@@ -193,35 +163,6 @@ class BlueprintContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "skill fingerprints"):
             compile_blueprint(request)
 
-    def test_extension_without_output_template_uses_safe_skill_hint(self) -> None:
-        phase = "speckit.bug.assess"
-        name = template_name(phase)
-        self.inventory["artifacts"] = [
-            row for row in self.inventory["artifacts"]
-            if row["name"] != name
-        ]
-        skill = self.workspace / ".github/skills/speckit-bug-assess/SKILL.md"
-        skill.parent.mkdir(parents=True)
-        skill.write_text(
-            "# Bug Assess\n\nWrites `.specify/bugs/<slug>/assessment.md`.\n## User Input\n",
-            encoding="utf-8",
-        )
-        request = self.request(phase)
-        output = request["workflow"]["phaseOutputs"][0]
-        self.assertEqual(output["contract"]["result"], {
-            "kind": "hint", "pathTemplate": ".specify/bugs/<slug>/assessment.md",
-        })
-        blueprint = compile_blueprint(request)
-        self.assertEqual(blueprint["runtime"]["itemRoot"], ".specify/bugs/<slug>")
-        self.assertEqual(blueprint["pipeline"]["steps"][0]["artifact"], {
-            "pathTemplate": ".specify/bugs/<slug>/assessment.md",
-            "persistent": False, "completionSignal": "hint",
-        })
-        skill.write_text("# Bug Assess\n\nNo known output path.\n", encoding="utf-8")
-        unknown = compile_blueprint(self.request(phase))
-        self.assertIsNone(unknown["pipeline"]["steps"][0]["artifact"]["pathTemplate"])
-        self.assertEqual(unknown["pipeline"]["steps"][0]["artifact"]["completionSignal"], "unknown")
-
     def test_setup_preserves_cli_relative_order_of_effective_providers(self) -> None:
         request = self.request("speckit.bug.assess")
         snapshot = copy.deepcopy(request["workflow"]["artifactSnapshot"])
@@ -245,7 +186,7 @@ class BlueprintContracts(unittest.TestCase):
         request = self.request("speckit.plan")
         for path in ("../outside.md", "specs/<slug>/diagram.png"):
             altered = copy.deepcopy(request)
-            altered["workflow"]["phaseOutputs"][0]["contract"]["result"]["pathTemplate"] = path
+            altered["workflow"]["phaseOutputs"][0]["outputPath"] = path
             with self.assertRaisesRegex(ValueError, "Unsafe phase-output"):
                 compile_blueprint(altered)
 
@@ -271,19 +212,13 @@ class BlueprintContracts(unittest.TestCase):
                 package = workspace / ".specify" / "extensions" / package_id
                 (package / "config").mkdir(parents=True)
                 (package / "commands").mkdir()
-                templates = []
+                outputs = {}
                 artifacts = []
                 for phase, artifact in zip(phases, fixture["expectedArtifacts"], strict=True):
-                    key = template_name(phase)
-                    file = f"config/{phase}.json"
-                    (package / file).write_text(json.dumps({
-                        "schemaVersion": 1, "commandName": phase,
-                        "result": (
-                            {"kind": "artifact", "pathTemplate": artifact}
-                            if artifact is not None else {"kind": "transient"}
-                        ),
-                    }), encoding="utf-8")
-                    templates.append({"name": key, "file": file})
+                    outputs[phase] = (
+                        {"kind": "artifact", "outputPath": artifact}
+                        if artifact is not None else {"kind": "transient"}
+                    )
                     if extension_id:
                         command_file = f"commands/{phase}.md"
                         (package / command_file).write_text("# Pinned parity command\n", encoding="utf-8")
@@ -301,19 +236,23 @@ class BlueprintContracts(unittest.TestCase):
                             "lookupId": None, "sourcePath": None,
                         }
                     artifacts.append({"kind": "command", "name": phase, "stack": [layer]})
-                    artifacts.append({
-                        "kind": "template", "name": key, "stack": [{
-                            "sourceId": package_id, "layer": "extension",
-                            "strategy": "replace", "active": True, "hidden": False,
-                            "manifestPath": f".specify/extensions/{package_id}/extension.yml",
-                            "lookupId": f"extension:{package_id}:template:{key}",
-                            "sourcePath": f".specify/extensions/{package_id}/{file}",
-                        }],
-                    })
+                file = "config/phase-outputs.json"
+                (package / file).write_text(json.dumps({
+                    "schemaVersion": 1, "default": {"kind": "unknown"}, "phases": outputs,
+                }), encoding="utf-8")
+                artifacts.append({
+                    "kind": "template", "name": TEMPLATE_NAME, "stack": [{
+                        "sourceId": package_id, "layer": "extension",
+                        "strategy": "replace", "active": True, "hidden": False,
+                        "manifestPath": f".specify/extensions/{package_id}/extension.yml",
+                        "lookupId": f"extension:{package_id}:template:{TEMPLATE_NAME}",
+                        "sourcePath": f".specify/extensions/{package_id}/{file}",
+                    }],
+                })
                 (package / "extension.yml").write_text(yaml.safe_dump({
                     "schema_version": "1.0",
                     "extension": {"id": package_id, "name": package_id, "version": "0.1.0"},
-                    "provides": {"templates": templates},
+                    "provides": {"templates": [{"name": TEMPLATE_NAME, "file": file}]},
                     "tags": ["canvas-design"] if extension_id is None else [],
                 }), encoding="utf-8")
                 if extension_id:
@@ -336,6 +275,11 @@ class BlueprintContracts(unittest.TestCase):
                         "artifacts": artifacts, "presets": [],
                         "extensions": extensions,
                     },
+                    phase_outputs=[
+                        {"commandName": phase, "expectsArtifact": path is not None,
+                         "outputPath": path}
+                        for phase, path in zip(phases, fixture["expectedArtifacts"], strict=True)
+                    ],
                 ))
                 blueprint = compile_blueprint(request)
                 self.assertEqual(
@@ -343,11 +287,11 @@ class BlueprintContracts(unittest.TestCase):
                     fixture["expectedSkills"],
                 )
                 self.assertEqual(
-                    [step["artifact"]["pathTemplate"] for step in blueprint["pipeline"]["steps"]],
+                    [step["artifact"]["outputPath"] for step in blueprint["pipeline"]["steps"]],
                     fixture["expectedArtifacts"],
                 )
                 self.assertEqual(
-                    [row["phaseId"] for row in blueprint["phaseOutputs"]], phases,
+                    [row["commandName"] for row in blueprint["phaseOutputs"]], phases,
                 )
 
 

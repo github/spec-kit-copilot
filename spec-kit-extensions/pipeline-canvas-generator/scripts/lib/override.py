@@ -1,36 +1,11 @@
-"""Finalize a sparse model draft against exactly one immutable request."""
+"""Finalize an empty compatibility draft against one immutable request."""
 
 import hashlib
-import math
 from pathlib import Path
 
 from request import validate_request
 from staging import atomic_json, read_json
 from validation import confined_path, declared_file
-
-
-CATEGORY_FIELDS = {
-    "canvas-content": {"workflowListName", "itemName", "description", "copy"},
-    "canvas-theme": {"colors", "typography", "density", "shape", "brand"},
-    "canvas-layout": {"phases", "artifacts", "clarification", "amendment"},
-    "canvas-interactions": {"progression", "rerun", "inputs", "phaseRunConfirmations", "artifacts"},
-    "canvas-results": {"defaultResult", "phases", "clarification", "progress", "resultLabels"},
-    "canvas-onboarding": {
-        "workflowSlug", "installationMode", "approvalCopy", "readinessCopy",
-        "firstRunCopy", "helpCopy", "recoveryCopy",
-    },
-}
-PROTECTED_FIELDS = {"schemaVersion", "requestSha256", "__proto__", "constructor", "prototype"}
-
-
-def merge_sparse(complete: dict, patch: dict) -> dict:
-    merged = dict(complete)
-    for field, value in patch.items():
-        if isinstance(value, dict) and isinstance(merged.get(field), dict):
-            merged[field] = merge_sparse(merged[field], value)
-        else:
-            merged[field] = value
-    return merged
 
 
 def _request_file(path: Path) -> tuple[Path, bytes]:
@@ -46,50 +21,16 @@ def _request_file(path: Path) -> tuple[Path, bytes]:
 
 
 def validate_sparse_categories(value: object) -> dict:
-    if not isinstance(value, dict) or set(value) - CATEGORY_FIELDS.keys():
-        raise ValueError("Override categories must use only the six declared categories")
-    for category, patch in value.items():
-        if not isinstance(patch, dict) or set(patch) - CATEGORY_FIELDS[category]:
-            raise ValueError(f"Unsupported sparse override path in {category}")
-        pending = [patch]
-        while pending:
-            node = pending.pop()
-            if isinstance(node, dict):
-                if PROTECTED_FIELDS.intersection(node):
-                    raise ValueError(f"Protected sparse override field in {category}")
-                pending.extend(node.values())
-            elif isinstance(node, list):
-                pending.extend(node)
-            elif node is None or not isinstance(node, (str, int, float, bool)) or (
-                isinstance(node, float) and not math.isfinite(node)
-            ):
-                raise ValueError(f"Invalid or null sparse override value in {category}")
-    return value
-
-
-def validate_phase_overrides(categories: dict, selected_phases: list[str]) -> None:
-    selected = set(selected_phases)
-    for name in ("canvas-interactions", "canvas-results"):
-        category = categories.get(name, {})
-        maps = (
-            (category.get("inputs", {}).get("phases", {}), category.get("phaseRunConfirmations", {}))
-            if name == "canvas-interactions" else (category.get("phases", {}),)
+    if value != {}:
+        raise ValueError(
+            "Sparse command overrides are unsupported; use whole-file named "
+            "templates or per-app request configuration"
         )
-        for mapping in maps:
-            if set(mapping) - selected:
-                raise ValueError(f"{name} references an unselected phase")
+    return {}
 
 
 def validate_override_categories(value: object, selected_phases: list[str]) -> dict:
-    categories = validate_sparse_categories(value)
-    validate_phase_overrides(categories, selected_phases)
-    from experience import default_experience, validate_complete_category
-
-    package = Path(__file__).resolve().parents[2]
-    defaults = default_experience(package)["categories"]
-    for name, patch in categories.items():
-        validate_complete_category(name, merge_sparse(defaults[name], patch), package)
-    return categories
+    return validate_sparse_categories(value)
 
 
 def prepare_override(request_path: Path) -> Path:

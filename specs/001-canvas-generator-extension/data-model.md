@@ -78,12 +78,13 @@ stacks or inferred artifact paths.
 
 ### Phase-output contract and binding
 
-An author-declared, versioned JSON template named
-`phase-output-<UTF-8 command ID as lowercase hex>` under existing Specify
-`(template, name)` composition when available. Its `commandName` must match
-the selected phase; `result` declares either a durable Markdown
-`pathTemplate` or explicit `transient` with no path. A normalized request
-binding records the contract, provider, source path, source hash, and ordered
+One author-declared, versioned `phase-outputs` JSON template under existing
+Specify `(template, name)` composition when available. Its `default` result
+applies to any selected command not named in its `phases` map; packaged core
+paths are overrides, not a restriction on phase selection. A preset replaces
+the entire document, not individual entries. A result declares a Markdown
+`pathTemplate` for `artifact`, explicit `transient` with no path, or `unknown`.
+A normalized request binding records the selected result, provider, source path, source hash, and ordered
 template stack. Without a template, it records a safe skill-derived `hint`
 path or `unknown` output with no provider or template stack. Neither blocks
 the phase. The generator supplies declarations for supported core commands.
