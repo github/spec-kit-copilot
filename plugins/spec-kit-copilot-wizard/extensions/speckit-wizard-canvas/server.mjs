@@ -87,6 +87,7 @@ export function createHandler(deps) {
         uiDir = DEFAULT_UI_DIR,
         sharedDir = DEFAULT_SHARED_DIR,
         token,
+        previewConfiguration = previewGenerationConfiguration,
     } = deps;
 
     if (!token) throw new Error("createHandler requires deps.token");
@@ -173,18 +174,18 @@ export function createHandler(deps) {
                     if (error.code !== "ENOENT") throw error;
                     return jsonRes(res, 200, { target, exists: false });
                 }
-                if (method === "GET" && url.pathname === "/api/generation/configuration") {
-                    const inst = getInstance();
-                    if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
-                    const phases = effectivePipelinePhases(await getState()).map(({ id }) => {
-                        const name = stripCommandsPrefix(id);
-                        return name.startsWith("speckit.") ? name : `speckit.${name}`;
-                    });
-                    try {
-                        return jsonRes(res, 200, await previewGenerationConfiguration(inst.workspacePath, phases, inst));
-                    } catch (error) {
-                        return jsonError(res, 422, `configuration preview failed: ${error.message}`);
-                    }
+            }
+            if (method === "GET" && url.pathname === "/api/generation/configuration") {
+                const inst = getInstance();
+                if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+                const phases = effectivePipelinePhases(await getState()).map(({ id }) => {
+                    const name = stripCommandsPrefix(id);
+                    return name.startsWith("speckit.") ? name : `speckit.${name}`;
+                });
+                try {
+                    return jsonRes(res, 200, await previewConfiguration(inst.workspacePath, phases, inst));
+                } catch (error) {
+                    return jsonError(res, 422, `configuration preview failed: ${error.message}`);
                 }
             }
             if (method === "GET" && url.pathname === "/api/generation/result") {
