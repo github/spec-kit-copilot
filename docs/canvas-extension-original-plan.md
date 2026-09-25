@@ -974,27 +974,39 @@ workflow experience.
 
 #### Generate-dialog Canvas Design catalog
 
-Keep the existing Wizard Catalog focused on pipeline and runtime behavior. When the
-user opens Generate, add a separate, independently scrollable Canvas Design area
-using the same cards, search, source/trust presentation, and community confirmation
-as the existing Catalog:
+Keep the existing Wizard Catalog focused on pipeline and runtime behavior. Generate
+uses a three-page modal: **Details → Catalogs → Advanced JSON**. Catalogs and Advanced
+JSON require no changes to proceed. Catalogs mirrors the Wizard Catalog's ordering
+(package-type tabs, catalog sources, then an available-items list), with denser rows,
+an Added only filter, search, and an independently scrolling list. It retains the
+existing community confirmation and immediate Add/Remove behavior:
 
 ```text
 Canvas Design
 ──────────────────────────────────────────────────────────────
 
-Customize the appearance and design-time behavior of the generated
-canvas application.
-
-These presets, extensions, and bundles are installed in the Wizard
-and applied while generating the application. Their resolved output
-may be included in the generated application, but the design
-components themselves are not automatically runtime dependencies.
+Canvas Design packages are used during generation only. They are
+not installed into the generated canvas or run with its workflow;
+their settings are baked into the result. Cancel does not undo Add
+or Remove.
 
 [ Presets ] [ Extensions ] [ Bundles ]
 
-Search Canvas Design components...
+Catalog sources: [ All sources ]
+Available packages: [ ] Added only  [ Filter... ]
+┌───────────────────────────────────────────────────────────┐
+│ Package name  · Source  · Added/Available      Add/Remove │
+└───────────────────────────────────────────────────────────┘
 ```
+
+Advanced JSON shows five complete generator-baseline documents in a compact
+selector-and-editor layout. A prominent notice explains that an active preset or
+Canvas Design extension replacing a matching JSON document has **whole-document
+precedence**. The selector and selected editor identify the winning package; edits
+to that document remain recorded in the request and receipt but do not affect the
+generated canvas. Generate stays clickable so validation and readiness errors
+appear on click. The modal traps and restores focus, locks background scrolling,
+and confines arrow-key scrolling to the dialog or its package list.
 
 Reuse the existing Wizard Catalog loader, its current fixed plugin-owned catalog
 source set, and its priority order. Do not add discovery of arbitrary

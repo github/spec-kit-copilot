@@ -19,6 +19,11 @@ const DESIGN_DOCUMENTS = [
     ["canvas-interactions", "Canvas interactions"],
     ["canvas-setup", "Canvas setup"],
 ];
+const CATALOG_KINDS = [
+    ["preset", "Presets", "sources"],
+    ["extension", "Extensions", "extensionSources"],
+    ["bundle", "Bundles", "bundleSources"],
+];
 
 function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (character) => (
@@ -255,7 +260,6 @@ function renderOverwriteConfirmation(root) {
             canvas will not be preserved.
         </p>
         <div class="generation-message generation-warning">This action cannot be merged or undone by the Wizard.</div>
-        <div id="generation-messages" aria-live="polite"></div>
     `;
     const submit = root.querySelector("#generation-submit");
     if (submit) {
@@ -267,59 +271,63 @@ function renderOverwriteConfirmation(root) {
 }
 
 function winnerName(winner) {
-        if (!winner || typeof winner !== "object") return String(winner || "");
-        if (winner.kind && winner.id) return `${winner.kind} ${winner.id}`;
-        return winner.name || winner.displayName || winner.presetName || winner.extensionName
-            || winner.id || winner.presetId || winner.extensionId || "an active design package";
-    }
+    if (!winner || typeof winner !== "object") return String(winner || "");
+    if (winner.kind && winner.id) return `${winner.kind} ${winner.id}`;
+    return winner.name || winner.displayName || winner.presetName || winner.extensionName
+        || winner.id || winner.presetId || winner.extensionId || "an active design package";
+}
 
-    function renderDocumentSummary(root) {
-        const summary = root.querySelector("#generation-document-summary");
-        if (!summary || root._configurationStatus !== "ready") return;
-        const changed = [];
-        const invalid = new Set();
-        for (const [category, label] of DESIGN_DOCUMENTS) {
-            const validation = root._validatedDocuments[category];
-            if (validation?.raw === root._documentDrafts[category] && validation.status === "valid") {
-                const parsed = validation.document;
-                if (JSON.stringify(normalizedJson(parsed)) !== JSON.stringify(normalizedJson(root._baselineDocuments[category]))) {
-                    changed.push([category, label]);
-                }
-            } else {
-                invalid.add(category);
-            }
+function renderDocumentSummary(root) {
+    const summary = root.querySelector("#generation-document-summary");
+    if (!summary || root._configurationStatus !== "ready") return;
+    const changed = [];
+    for (const [category] of DESIGN_DOCUMENTS) {
+        const validation = root._validatedDocuments[category];
+        if (validation?.raw === root._documentDrafts[category] && validation.status === "valid"
+            && JSON.stringify(normalizedJson(validation.document))
+                !== JSON.stringify(normalizedJson(root._baselineDocuments[category]))) {
+            changed.push(category);
         }
-        const warnings = changed.flatMap(([category, label]) => {
-            const winner = root._designWinners?.[category];
-            return winner ? [`${label}: your one-off JSON will be recorded in the request and receipt, but ${winnerName(winner)} is the active winning customer design package for this document and overrides it.`] : [];
-        });
-        summary.innerHTML = `
-            <p class="wizard-modal-field-label">Document sources</p>
-            <ul class="generation-document-sources">${DESIGN_DOCUMENTS.map(([category, label]) => {
-                const validation = root._validatedDocuments[category];
-                const source = invalid.has(category) ? validation?.status === "pending"
-                    ? "Validating against generator schema…" : "Invalid document — fix before generating"
-                    : root._designWinners?.[category]
-                    ? `${winnerName(root._designWinners[category])} (active customer package)`
-                    : changed.some(([key]) => key === category) ? "one-off JSON" : "generator baseline";
-                return `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(source)}</li>`;
-            }).join("")}</ul>
-            ${warnings.map((warning) => `<p class="generation-message generation-warning">${escapeHtml(warning)}</p>`).join("")}`;
-        updateGenerationActions(root);
     }
+    for (const button of root.querySelectorAll("[data-document]")) {
+        const category = button.dataset.document;
+        const label = DESIGN_DOCUMENTS.find(([name]) => name === category)?.[1] ?? category;
+        const validation = root._validatedDocuments[category];
+        const winner = root._designWinners?.[category];
+        const source = validation?.status === "error" ? "Invalid JSON"
+            : validation?.status === "pending" ? "Validating…"
+                : winner ? `Controlled by ${winnerName(winner)}`
+                    : changed.includes(category) ? "One-off edit" : "Generator baseline";
+        button.innerHTML = `<span>${escapeHtml(label)}</span><small>${escapeHtml(source)}</small>`;
+    }
+    const winner = root._designWinners?.[root._selectedDocument];
+    const provider = root.querySelector("#generation-document-provider");
+    if (provider) {
+        provider.innerHTML = winner
+            ? `<div class="generation-message generation-warning"><strong>${escapeHtml(winnerName(winner))} controls this entire document.</strong> Edits here are recorded in the request and receipt but will not affect the generated canvas.</div>`
+            : `<p class="wizard-modal-desc">${changed.includes(root._selectedDocument)
+                ? "One-off edit recorded for this document." : "Using the generator baseline for this document."}</p>`;
+    }
+    const superseded = changed.filter((category) => root._designWinners?.[category]).length;
+    summary.textContent = changed.length
+        ? `${changed.length} edited ${changed.length === 1 ? "document" : "documents"} recorded`
+            + (superseded ? `; ${superseded} overridden by design packages.` : ".")
+        : "No one-off JSON changes.";
+}
 
-    function renderDocumentEditor(root) {
-        const key = root._selectedDocument;
-        const editor = root.querySelector("#generation-document-json");
-        if (!editor || !key || root._configurationStatus !== "ready") return;
-        editor.value = root._documentDrafts[key];
-        editor.setAttribute("aria-label", `${DESIGN_DOCUMENTS.find(([category]) => category === key)?.[1]} JSON`);
-        root.querySelector("#generation-document-label").textContent = `${DESIGN_DOCUMENTS.find(([category]) => category === key)?.[1]} · JSON`;
-        for (const button of root.querySelectorAll("[data-document]")) {
-            button.setAttribute("aria-pressed", String(button.dataset.document === key));
-        }
-        showDocumentValidation(root);
+function renderDocumentEditor(root) {
+    const key = root._selectedDocument;
+    const editor = root.querySelector("#generation-document-json");
+    if (!editor || !key || root._configurationStatus !== "ready") return;
+    editor.value = root._documentDrafts[key];
+    editor.setAttribute("aria-label", `${DESIGN_DOCUMENTS.find(([category]) => category === key)?.[1]} JSON`);
+    root.querySelector("#generation-document-label").textContent = `${DESIGN_DOCUMENTS.find(([category]) => category === key)?.[1]} · JSON`;
+    for (const button of root.querySelectorAll("[data-document]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.document === key));
     }
+    showDocumentValidation(root);
+    renderDocumentSummary(root);
+}
 
     function showDocumentValidation(root) {
         const editor = root.querySelector("#generation-document-json");
@@ -411,7 +419,7 @@ function winnerName(winner) {
                 key, { raw: root._documentDrafts[key], status: "valid", document: configuration.documents[key] },
             ]));
             root._configurationStatus = "ready";
-            status.textContent = "Edit one document at a time. All documents changed from the generator baseline are submitted; active customer packages can override them.";
+            status.textContent = "";
             root.querySelector("#generation-document-controls").hidden = false;
             renderDocumentEditor(root);
         } catch (error) {
@@ -473,76 +481,135 @@ function winnerName(winner) {
 
 function mountDesignPicker(root) {
     const search = root.querySelector("#generation-design-search");
+    const source = root.querySelector("#generation-design-source");
+    const addedOnly = root.querySelector("#generation-design-added-only");
     const list = root.querySelector("#generation-design-items");
     const status = root.querySelector("#generation-design-status");
     const pending = new Map();
     const errors = new Map();
+    root._catalogKind = "preset";
     const render = () => {
         if (!list?.isConnected) return;
+        const focusedKey = list.contains?.(document.activeElement)
+            ? document.activeElement?.dataset?.designKey : null;
         list.replaceChildren();
         const snapshot = state.snapshot;
+        for (const [, entryKind, candidates] of canvasDesignSections(snapshot)) {
+            for (const entry of candidates) {
+                const key = `${entryKind}:${entry.id ?? entry.name}`;
+                if (pending.has(key) && (entry.active === pending.get(key) || entry.designError)) {
+                    pending.delete(key);
+                    status.textContent = entry.designError || `${entry.name ?? entry.id} ${entry.active ? "added" : "removed"}.`;
+                    void refreshDesignWinners(root);
+                }
+            }
+        }
         const catalogErrors = Object.values(snapshot?.catalogSourceErrors ?? {}).flat();
         if (catalogErrors.length && !pending.size && !errors.size) {
             status.textContent = `Catalog unavailable: ${catalogErrors.join("; ")}`;
+        } else if (!catalogErrors.length && (status.textContent ?? "").startsWith("Catalog unavailable:")) {
+            status.textContent = "";
         }
-        for (const [title, kind, entries] of canvasDesignSections(snapshot, search.value)) {
-            const section = document.createElement("section");
-            section.className = "generation-design-section";
-            const heading = document.createElement("h5");
-            heading.textContent = title;
-            section.append(heading);
-            if (!entries.length) {
-                const empty = document.createElement("p");
-                empty.textContent = "No matching design packages.";
-                section.append(empty);
+        const [kind, title, sourceField] = CATALOG_KINDS.find(([name]) => name === root._catalogKind);
+        root.querySelector("#generation-available-heading").textContent = `Available ${title.toLowerCase()}`;
+        search.placeholder = `Filter ${title.toLowerCase()}…`;
+        for (const button of root.querySelectorAll("[data-design-kind]")) {
+            const active = button.dataset.designKind === kind;
+            button.setAttribute("aria-selected", String(active));
+            button.classList[active ? "add" : "remove"]("is-active");
+        }
+        const configured = (snapshot?.catalog?.[sourceField] ?? [])
+            .map((entry) => entry.name ?? entry.id).filter(Boolean);
+        const allEntries = canvasDesignSections(snapshot).find(([, name]) => name === kind)?.[2] ?? [];
+        const sources = [...new Set([...configured, ...allEntries.map((entry) => entry.source).filter(Boolean)])]
+            .sort((left, right) => left.localeCompare(right));
+        const selectedSource = source.value;
+        if (JSON.stringify([...(source.options ?? [])].map((option) => option.value))
+            !== JSON.stringify(["", ...sources])) {
+            source.replaceChildren();
+            const all = document.createElement("option");
+            all.value = "";
+            all.textContent = "All sources";
+            source.append(all);
+            for (const name of sources) {
+                const option = document.createElement("option");
+                option.value = name;
+                option.textContent = capitalize(name);
+                source.append(option);
             }
-            for (const entry of entries) {
-                const id = entry.id ?? entry.name;
-                const key = `${kind}:${id}`;
-                if (pending.has(key) && (entry.active === pending.get(key) || entry.designError)) {
-                    pending.delete(key);
-                    status.textContent = entry.designError || `${entry.name ?? id} ${entry.active ? "added" : "removed"}.`;
-                    void refreshDesignWinners(root);
-                }
-                const row = document.createElement("div");
-                row.className = "catalog-card generation-design-row";
-                const label = document.createElement("span");
-                label.textContent = `${entry.name ?? id} (${errors.get(key) || entry.designError || (entry.active ? "Added" : "Available")})`;
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "btn btn-secondary btn-sm";
-                button.textContent = pending.has(key) ? "Working…" : entry.active ? "Remove" : "Add";
-                button.disabled = root._generationSubmitting || pending.has(key) || !entry.design;
-                button.addEventListener("click", () => {
-                    if (root._generationSubmitting) return;
-                    const apply = async () => {
-                        errors.delete(key);
-                        pending.set(key, !entry.active);
-                        status.textContent = `${entry.active ? "Removing" : "Adding"} ${entry.name ?? id}…`;
+        }
+        source.value = sources.includes(selectedSource) ? selectedSource : "";
+        const entries = canvasDesignSections(snapshot, search.value)
+            .find(([, name]) => name === kind)?.[2]
+            ?.filter((entry) => (!source.value || entry.source === source.value)
+                && (!addedOnly.checked || entry.active)) ?? [];
+        if (!entries.length) {
+            const empty = document.createElement("p");
+            empty.className = "wizard-modal-desc generation-design-empty";
+            empty.textContent = `No ${title.toLowerCase()} match these filters.`;
+            list.append(empty);
+        }
+        for (const entry of entries) {
+            const id = entry.id ?? entry.name;
+            const key = `${kind}:${id}`;
+            const row = document.createElement("div");
+            row.className = "generation-design-row";
+            const label = document.createElement("span");
+            label.className = "generation-design-label";
+            const name = document.createElement("strong");
+            name.textContent = entry.name ?? id;
+            const detail = document.createElement("small");
+            detail.textContent = `${entry.source ? `${capitalize(entry.source)} · ` : ""}${errors.get(key)
+                || entry.designError || (entry.active ? "Added" : "Available")}`;
+            label.append(name, detail);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-secondary btn-sm";
+            button.dataset.designKey = key;
+            button.textContent = pending.has(key) ? "Working…" : entry.active ? "Remove" : "Add";
+            button.setAttribute("aria-label", `${button.textContent} ${entry.name ?? id}`);
+            button.disabled = root._generationSubmitting || pending.has(key) || !entry.design;
+            button.addEventListener("click", () => {
+                if (root._generationSubmitting) return;
+                const apply = async () => {
+                    errors.delete(key);
+                    pending.set(key, !entry.active);
+                    status.textContent = `${entry.active ? "Removing" : "Adding"} ${entry.name ?? id}…`;
+                    render();
+                    try {
+                        await sendDesignMutation(kind, entry, (action, payload) =>
+                            __postJson("/api/prompt", { kind: action, payload }, { throwOnError: true }));
+                    } catch (error) {
+                        pending.delete(key);
+                        errors.set(key, error.message);
+                        status.textContent = error.message;
                         render();
-                        try {
-                            await sendDesignMutation(kind, entry, (action, payload) =>
-                                __postJson("/api/prompt", { kind: action, payload }, { throwOnError: true }));
-                        } catch (error) {
-                            pending.delete(key);
-                            errors.set(key, error.message);
-                            status.textContent = error.message;
-                            render();
-                        }
-                    };
-                    if (!entry.active && entry.installAllowed === false) {
-                        openCommunityInstallModal({ displayName: entry.name ?? id, kind, onConfirm: apply });
-                    } else void apply();
-                });
-                row.append(label, button);
-                section.append(row);
-            }
-            list.append(section);
+                    }
+                };
+                if (!entry.active && entry.installAllowed === false) {
+                    openCommunityInstallModal({ displayName: entry.name ?? id, kind, onConfirm: apply });
+                    document.getElementById("community-install-modal")?.querySelector("#cim-confirm")?.focus?.();
+                } else void apply();
+            });
+            row.append(label, button);
+            list.append(row);
         }
+        if (focusedKey) [...(list.querySelectorAll?.("button[data-design-key]") ?? [])]
+            .find((button) => button.dataset.designKey === focusedKey)?.focus();
         root._designPending = pending.size > 0;
-        updateGenerationActions(root);
     };
+    for (const button of root.querySelectorAll("[data-design-kind]")) {
+        button.addEventListener("click", () => {
+            root._catalogKind = button.dataset.designKind;
+            source.value = "";
+            search.value = "";
+            addedOnly.checked = false;
+            render();
+        });
+    }
     search.addEventListener("input", render);
+    source.addEventListener("change", render);
+    addedOnly.addEventListener("change", render);
     clearInterval(designRefresh);
     designRefresh = setInterval(render, 1000);
     render();
@@ -653,6 +720,62 @@ async function submitGeneration(root) {
     }
 }
 
+function activateGenerationModal(root) {
+    const previousFocus = document.activeElement;
+    const background = [...(document.body?.children ?? [])]
+        .filter((element) => element !== root && element.id !== "community-install-modal")
+        .map((element) => [element, element.inert]);
+    for (const [element] of background) element.inert = true;
+    const previousBodyOverflow = document.body?.style.overflow;
+    const previousHtmlOverflow = document.documentElement?.style.overflow;
+    if (document.body) document.body.style.overflow = "hidden";
+    if (document.documentElement) document.documentElement.style.overflow = "hidden";
+    const onKey = (event) => {
+        const community = document.getElementById("community-install-modal");
+        if (community?.hidden === false) {
+            if (event.key !== "Tab") return;
+        }
+        const modal = community?.hidden === false ? community.querySelector(".modal")
+            : root.querySelector(".generation-modal");
+        if (!modal) return;
+        if (event.key === "Escape" && community?.hidden !== false) {
+            event.preventDefault();
+            closeGenerationDialog();
+            return;
+        }
+        if (event.key === "Tab") {
+            const focusable = [...modal.querySelectorAll(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            )].filter((element) => !element.closest("[hidden]") && element.getClientRects().length);
+            if (!focusable.length) { event.preventDefault(); return; }
+            const first = focusable[0];
+            const last = focusable.at(-1);
+            if (!modal.contains(document.activeElement)
+                || event.shiftKey && document.activeElement === first
+                || !event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            const target = document.activeElement;
+            if (target?.matches?.("input, select, textarea, [contenteditable]")) return;
+            event.preventDefault();
+            const scroller = target?.closest?.("#generation-design-items")
+                ?? root.querySelector(".wizard-modal-body");
+            scroller?.scrollBy?.({ top: event.key === "ArrowDown" ? 48 : -48 });
+        }
+    };
+    document.addEventListener?.("keydown", onKey);
+    root._generationModalCleanup = () => {
+        document.removeEventListener?.("keydown", onKey);
+        for (const [element, inert] of background) element.inert = inert;
+        if (document.body) document.body.style.overflow = previousBodyOverflow;
+        if (document.documentElement) document.documentElement.style.overflow = previousHtmlOverflow;
+        (previousFocus?.isConnected ? previousFocus : document.querySelector?.(".pipeline-generate"))?.focus?.();
+    };
+    root.querySelector("#generation-extension-id")?.focus?.();
+}
+
 export function closeGenerationDialog() {
     dialogVersion++;
     clearTimeout(preflightTimer);
@@ -661,6 +784,8 @@ export function closeGenerationDialog() {
     const root = document.getElementById("wizard-modal-root");
     if (root) clearTimeout(root._documentValidationTimer);
     if (root) root.innerHTML = "";
+    root?._generationModalCleanup?.();
+    if (root) root._generationModalCleanup = null;
 }
 
 export function openGenerationDialog() {
@@ -668,6 +793,7 @@ export function openGenerationDialog() {
     if (!availability.enabled) return;
     const root = document.getElementById("wizard-modal-root");
     if (!root) return;
+    if (root._generationModalCleanup) closeGenerationDialog();
     dialogVersion++;
     root._generationSubmitting = false;
     root._generationPreflight = null;
@@ -683,7 +809,8 @@ export function openGenerationDialog() {
                 </header>
                 <nav class="generation-steps" aria-label="Generation steps">
                     <span id="generation-step-details" aria-current="step">1 · Details</span>
-                    <span id="generation-step-design">2 · Canvas Design</span>
+                    <span id="generation-step-catalogs">2 · Catalogs</span>
+                    <span id="generation-step-advanced">3 · Advanced JSON</span>
                 </nav>
                 <div class="wizard-modal-body">
                     <div id="generation-details" class="generation-step">
@@ -713,47 +840,61 @@ export function openGenerationDialog() {
                         <textarea id="generation-description" class="wizard-modal-textarea generation-description" maxlength="240" aria-labelledby="generation-description-label" aria-describedby="generation-description-help">${escapeHtml(metadata.description)}</textarea>
                     </label>
                     </div>
-                    <div id="generation-design-step" class="generation-step" hidden>
-                    <section class="generation-design" aria-label="Canvas Design">
-                        <h4>Canvas Design</h4>
-                        <p class="wizard-modal-desc">Choose existing design packages. Add and Remove take effect immediately; Cancel does not undo them.</p>
-                        <p class="wizard-modal-desc">Canvas generator: Added (Required)</p>
-                        <label class="wizard-modal-field" for="generation-design-search">
-                            <span class="wizard-modal-field-label">Search Canvas Design</span>
-                            <input id="generation-design-search" class="wizard-modal-input" type="search" placeholder="Search presets, extensions, bundles" />
-                        </label>
-                        <div id="generation-design-items" role="region" aria-label="Design packages" tabindex="0"></div>
-                        <p id="generation-design-status" class="generation-design-status" role="status"></p>
-                    </section>
-                    <section class="generation-documents" aria-label="Optional JSON design documents">
-                        <h4>Optional JSON design documents</h4>
-                        <p class="wizard-modal-desc">Start from the generator baseline, not a customer preset. Select one document to edit; changes stay here until Generate.</p>
+                    <div id="generation-catalogs" class="generation-step" hidden>
+                        <p class="wizard-modal-desc">Canvas Design packages are used during generation only. They are not installed into the generated canvas or run with its workflow; their settings are baked into the result.</p>
+                        <p class="wizard-modal-desc">Add and Remove take effect immediately. Cancel does not undo package changes.</p>
+                        <div class="generation-catalog-tabs" role="tablist" aria-label="Catalog kind">
+                            ${CATALOG_KINDS.map(([kind, title]) => `<button class="subtab${kind === "preset" ? " is-active" : ""}" type="button" role="tab" data-design-kind="${kind}" aria-selected="${kind === "preset"}">${title}</button>`).join("")}
+                        </div>
+                        <div class="generation-source-row">
+                            <label class="wizard-modal-field" for="generation-design-source">
+                                <span class="wizard-modal-field-label">Catalog sources</span>
+                                <select id="generation-design-source" class="wizard-modal-input"><option value="">All sources</option></select>
+                            </label>
+                            <span class="generation-generator-badge">Canvas generator · Added (required)</span>
+                        </div>
+                        <section class="generation-design" aria-label="Available Canvas Design packages">
+                            <div class="generation-design-toolbar">
+                                <h4 id="generation-available-heading">Available presets</h4>
+                                <label class="generation-added-filter" for="generation-design-added-only"><input id="generation-design-added-only" type="checkbox" /> Added only</label>
+                                <input id="generation-design-search" class="wizard-modal-input" type="search" aria-label="Filter design packages" placeholder="Filter presets…" />
+                            </div>
+                            <div id="generation-design-items" role="region" aria-label="Design packages" tabindex="0"></div>
+                            <p id="generation-design-status" class="generation-design-status" role="status"></p>
+                        </section>
+                    </div>
+                    <div id="generation-advanced" class="generation-step" hidden>
+                    <section class="generation-documents" aria-label="Advanced JSON design documents">
+                        <p class="wizard-modal-desc">One-off JSON changes are optional. Unedited documents use the generator baseline.</p>
+                        <p class="generation-message generation-warning">Package precedence: if an active preset or Canvas Design extension supplies the same JSON document, it replaces that entire document. Edits here are recorded but will not affect the generated canvas.</p>
                         <p id="generation-configuration-status" class="wizard-modal-desc" role="status"></p>
                         <button id="generation-configuration-retry" class="btn btn-secondary btn-sm" type="button" hidden>Retry loading baseline</button>
                         <div id="generation-document-controls" hidden>
                             <div id="generation-document-choices" class="generation-document-choices" role="group" aria-label="Design document"></div>
-                            <label class="wizard-modal-field" for="generation-document-json">
-                                <span id="generation-document-label" class="wizard-modal-field-label"></span>
-                                <textarea id="generation-document-json" class="wizard-modal-textarea generation-json" spellcheck="false" aria-describedby="generation-document-error"></textarea>
-                            </label>
-                            <p id="generation-document-error" class="wizard-modal-error" role="alert"></p>
-                            <div class="generation-document-find">
-                                <label class="wizard-modal-field" for="generation-document-search"><span class="wizard-modal-field-label">Find in document</span>
-                                    <input id="generation-document-search" class="wizard-modal-input" type="search" placeholder="Find command or JSON key" />
-                                </label>
-                                <button id="generation-document-find" class="btn btn-secondary btn-sm" type="button">Find next</button>
+                            <div class="generation-document-editor">
+                                <div class="generation-document-heading">
+                                    <label id="generation-document-label" class="wizard-modal-field-label" for="generation-document-json"></label>
+                                    <div class="generation-document-find">
+                                        <label class="visually-hidden" for="generation-document-search">Find in document</label>
+                                        <input id="generation-document-search" class="wizard-modal-input" type="search" placeholder="Find in JSON…" />
+                                        <button id="generation-document-find" class="btn btn-secondary btn-sm" type="button">Find next</button>
+                                    </div>
+                                </div>
+                                <div id="generation-document-provider" aria-live="polite"></div>
+                                <textarea id="generation-document-json" class="wizard-modal-textarea generation-json" spellcheck="false" aria-describedby="generation-document-error generation-document-provider"></textarea>
+                                <p id="generation-document-error" class="wizard-modal-error" role="alert"></p>
+                                <p id="generation-document-search-status" class="wizard-modal-desc" role="status"></p>
+                                <div id="generation-document-summary" class="generation-document-summary" aria-live="polite"></div>
                             </div>
-                            <p id="generation-document-search-status" class="wizard-modal-desc" role="status"></p>
-                            <div id="generation-document-summary" class="generation-document-summary" aria-live="polite"></div>
                         </div>
                     </section>
                     </div>
-                    <div id="generation-messages" aria-live="polite"></div>
                 </div>
                 <footer class="wizard-modal-foot">
+                    <div id="generation-messages" aria-live="polite"></div>
                     <button class="btn btn-secondary btn-sm wizard-modal-cancel" type="button">Cancel</button>
                     <button id="generation-back" class="btn btn-secondary btn-sm" type="button" hidden>Back</button>
-                    <button id="generation-next" class="btn btn-primary btn-sm" type="button">Next: Canvas Design</button>
+                    <button id="generation-next" class="btn btn-primary btn-sm" type="button">Next: Catalogs</button>
                     <button id="generation-submit" class="btn btn-primary btn-sm" type="button" hidden>Generate</button>
                 </footer>
             </section>
@@ -778,23 +919,41 @@ export function openGenerationDialog() {
         input.addEventListener("input", syncMetadata);
     }
     const showStep = (step) => {
+        root._generationStep = step;
         const details = step === "details";
+        const catalogs = step === "catalogs";
         root.querySelector("#generation-details").hidden = !details;
-        root.querySelector("#generation-design-step").hidden = details;
+        root.querySelector("#generation-catalogs").hidden = !catalogs;
+        root.querySelector("#generation-advanced").hidden = step !== "advanced";
         root.querySelector("#generation-back").hidden = details;
-        root.querySelector("#generation-next").hidden = !details;
-        root.querySelector("#generation-submit").hidden = details;
-        root.querySelector("#generation-step-details")[details ? "setAttribute" : "removeAttribute"]("aria-current", "step");
-        root.querySelector("#generation-step-design")[details ? "removeAttribute" : "setAttribute"]("aria-current", "step");
+        root.querySelector("#generation-next").hidden = step === "advanced";
+        root.querySelector("#generation-next").textContent = details ? "Next: Catalogs" : "Next: Advanced JSON";
+        root.querySelector("#generation-submit").hidden = step !== "advanced";
+        for (const name of ["details", "catalogs", "advanced"]) {
+            const marker = root.querySelector(`#generation-step-${name}`);
+            marker[name === step ? "setAttribute" : "removeAttribute"]("aria-current", "step");
+        }
         root.querySelector(".wizard-modal-body").scrollTop = 0;
+        renderMessages(root.querySelector("#generation-messages"), {});
+        if (step === "advanced") void refreshDesignWinners(root);
+        const first = details ? "#generation-extension-id"
+            : catalogs ? '[data-design-kind="preset"]' : "#generation-document-json";
+        root.querySelector(first)?.focus?.();
     };
     root.querySelector("#generation-next").addEventListener("click", async () => {
-        clearTimeout(preflightTimer);
-        if ((await runPreflight(root))?.ok) showStep("design");
+        if (root._generationStep === "catalogs") {
+            showStep("advanced");
+        } else {
+            clearTimeout(preflightTimer);
+            if ((await runPreflight(root))?.ok) showStep("catalogs");
+        }
     });
-    root.querySelector("#generation-back").addEventListener("click", () => showStep("details"));
+    root.querySelector("#generation-back").addEventListener("click", () =>
+        showStep(root._generationStep === "advanced" ? "catalogs" : "details"));
     mountDesignPicker(root);
     mountDocumentEditor(root);
     root.querySelector("#generation-submit")?.addEventListener("click", () => submitGeneration(root));
+    root._generationStep = "details";
+    activateGenerationModal(root);
     runPreflight(root);
 }

@@ -24,19 +24,23 @@ test("canonical SDD defaults match the compact Generate form", () => {
     assert.match(metadata.description, /Constitution.*Specify.*Implement/);
 });
 
-test("Generate has Details and Canvas Design steps without advanced setup toggles", async () => {
+test("Generate has Details, Catalogs, and Advanced JSON steps without advanced setup toggles", async () => {
     const source = await readFile(new URL("../ui/generation.js", import.meta.url), "utf8");
     const ordered = [
         'id="generation-step-details"',
-        'id="generation-step-design"',
+        'id="generation-step-catalogs"',
+        'id="generation-step-advanced"',
         'id="generation-details"',
         'id="generation-target"',
         'id="generation-extension-id"',
         'id="generation-display-name"',
         'id="generation-workflow-list-name"',
         'id="generation-description"',
-        'id="generation-design-step"',
+        'id="generation-catalogs"',
+        'id="generation-design-source"',
+        'id="generation-design-added-only"',
         'id="generation-design-items"',
+        'id="generation-advanced"',
         'id="generation-document-choices"',
         'id="generation-document-json"',
     ];
@@ -52,8 +56,10 @@ test("Generate has Details and Canvas Design steps without advanced setup toggle
         "Text displayed as the canvas title.",
         "Text displayed as the workflow collection heading, such as Assessments or Bugs.",
         "Text displayed beneath the workflow collection heading, before the folder link.",
-        "Cancel does not undo them.",
-        "Start from the generator baseline, not a customer preset.",
+        "Cancel does not undo package changes.",
+        "their settings are baked into the result.",
+        "it replaces that entire document.",
+        "Edits here are recorded but will not affect the generated canvas.",
     ]) {
         assert.match(source, new RegExp(help.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
@@ -62,6 +68,10 @@ test("Generate has Details and Canvas Design steps without advanced setup toggle
     assert.doesNotMatch(source, /generation-user-provided-slug|generation-require-installation-approval|Review step/);
     assert.match(source, /\/api\/generation\/configuration/);
     assert.match(source, /\/api\/generation\/validate/);
+    assert.match(source, /"preset", "Presets"[\s\S]*"extension", "Extensions"[\s\S]*"bundle", "Bundles"/);
+    assert.match(source, /role="dialog" aria-modal="true"/);
+    assert.match(source, /document\.addEventListener\?\.\("keydown", onKey\)/);
+    assert.match(source, /document\.body\.style\.overflow = "hidden"/);
     assert.match(source, /inlineDocuments,/);
     assert.match(source, /changedGenerationDocuments\(\s*root\._baselineDocuments, root\._documentDrafts, root\._validatedDocuments/s);
     assert.match(source, /root\._documentDrafts\[category\] = editor\.value/);
@@ -137,6 +147,10 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         replaceChildren(...nodes) { this.children = nodes; }
         setAttribute(name, value) { this[name] = value; }
         removeAttribute(name) { delete this[name]; }
+        focus() { globalThis.document.activeElement = this; }
+        closest() { return null; }
+        matches() { return false; }
+        getClientRects() { return [1]; }
     }
     const root = new Node("wizard-modal-root");
     const nodes = new Map();
@@ -150,14 +164,26 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         if (!nodes.has(selector)) {
             const node = new Node(selector);
             node.value = initial[selector.slice(1)] ?? "";
+            node.dataset.designKind = selector.match(/^\[data-design-kind="([^"]+)"\]$/)?.[1];
             nodes.set(selector, node);
         }
         return nodes.get(selector);
     };
     root.querySelectorAll = (selector) => selector === "[data-document]"
         ? root.querySelector("#generation-document-choices").children
-        : selector.startsWith("#generation-details")
-            ? Object.keys(initial).map((id) => root.querySelector(`#${id}`)) : [];
+        : selector === "[data-design-kind]"
+            ? ["preset", "extension", "bundle"].map((kind) => root.querySelector(`[data-design-kind="${kind}"]`))
+            : selector.startsWith("#generation-details")
+                ? Object.keys(initial).map((id) => root.querySelector(`#${id}`)) : [];
+    const modal = root.querySelector(".generation-modal");
+    modal.querySelectorAll = () => [
+        root.querySelector("#generation-extension-id"), root.querySelector("#generation-next"),
+    ];
+    modal.contains = (node) => modal.querySelectorAll().includes(node);
+    const trigger = new Node("launch");
+    const background = new Node("wizard-background");
+    background.inert = false;
+    const documentListeners = new Map();
     const originalDocument = globalThis.document;
     const originalFetch = globalThis.fetch;
     const originalSnapshot = state.snapshot;
@@ -168,8 +194,15 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
     let resolveOutcome;
     const outcomeSeen = new Promise((resolve) => { resolveOutcome = resolve; });
     globalThis.document = {
-        getElementById: () => root,
+        getElementById: (id) => id === "wizard-modal-root" ? root : null,
         createElement: () => new Node(),
+        body: { children: [background, root], style: { overflow: "auto" } },
+        documentElement: { style: { overflow: "auto" } },
+        activeElement: trigger,
+        addEventListener: (event, listener) => documentListeners.set(event, listener),
+        removeEventListener: (event, listener) => {
+            if (documentListeners.get(event) === listener) documentListeners.delete(event);
+        },
     };
     globalThis.fetch = async (url, options = {}) => {
         if (url.startsWith("/api/generation/configuration")) return {
@@ -184,18 +217,68 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         resolveOutcome();
         return { ok: true, json: async () => ({ status: "succeeded" }) };
     };
-    state.snapshot = { pipeline: [{ id: "plan" }], commands: [], generatorStatus: { ready: true } };
+    state.snapshot = {
+        pipeline: [{ id: "plan" }], commands: [], generatorStatus: { ready: true },
+        catalog: {
+            sources: [{ name: "Local" }, { name: "Community" }],
+            extensionSources: [{ name: "Community" }],
+            bundleSources: [{ name: "Local" }],
+            presets: [
+                { id: "local-style", name: "Local Style", source: "Local", design: true, active: true },
+                { id: "community-style", name: "Community Style", source: "Community", design: true, active: false },
+            ],
+            extensions: [{ id: "theme-extension", name: "Theme Extension", source: "Community", design: true, active: false }],
+            bundles: [{ id: "design-bundle", name: "Design Bundle", source: "Local", design: true, active: false }],
+        },
+    };
     setGenerationDeps({ postJson: async (_path, body) => {
         requests.push(body);
         return { queued: true, target: "C:\\work\\.github\\extensions\\spec-kit-workflow" };
     }, render: () => {} });
     try {
         openGenerationDialog();
+        assert.equal(background.inert, true, "Wizard background must be inert");
+        assert.equal(document.body.style.overflow, "hidden", "background scrolling must be locked");
+        const keydown = documentListeners.get("keydown");
+        let arrowScroll;
+        root.querySelector(".wizard-modal-body").scrollBy = ({ top }) => { arrowScroll = top; };
+        const marker = root.querySelector("#generation-step-details");
+        marker.focus();
+        let prevented = false;
+        keydown({ key: "ArrowDown", preventDefault() { prevented = true; } });
+        assert.equal(arrowScroll, 48, "arrow keys scroll the dialog instead of the Wizard");
+        assert.equal(prevented, true);
+        root.querySelector("#generation-next").focus();
+        keydown({ key: "Tab", shiftKey: false, preventDefault() {} });
+        assert.equal(document.activeElement, root.querySelector("#generation-extension-id"), "Tab wraps inside the modal");
         const submit = root.querySelector("#generation-submit");
         assert.notEqual(submit.disabled, true, "Generate is never disabled while the baseline loads");
         await new Promise((resolve) => setImmediate(resolve));
         assert.equal(root._configurationStatus, "ready");
         await root.querySelector("#generation-next").emit("click");
+        assert.equal(root._generationStep, "catalogs");
+        const items = root.querySelector("#generation-design-items");
+        assert.equal(items.children.length, 2, "presets are shown before filtering");
+        const source = root.querySelector("#generation-design-source");
+        source.value = "Local";
+        await source.emit("change");
+        assert.equal(items.children.length, 1, "source selection filters the list");
+        const addedOnly = root.querySelector("#generation-design-added-only");
+        addedOnly.checked = true;
+        await addedOnly.emit("change");
+        assert.equal(items.children.length, 1, "added-only keeps active packages");
+        const search = root.querySelector("#generation-design-search");
+        search.value = "missing";
+        await search.emit("input");
+        assert.match(items.children[0].textContent, /No presets match/);
+        await root.querySelector('[data-design-kind="extension"]').emit("click");
+        assert.equal(root._catalogKind, "extension");
+        assert.equal(root.querySelector("#generation-available-heading").textContent, "Available extensions");
+        assert.equal(items.children.length, 1, "extension tab has its own list");
+        await root.querySelector('[data-design-kind="bundle"]').emit("click");
+        assert.equal(root.querySelector("#generation-available-heading").textContent, "Available bundles");
+        await root.querySelector("#generation-next").emit("click");
+        assert.equal(root._generationStep, "advanced");
         root._designPending = true;
         assert.notEqual(submit.disabled, true, "Generate stays clickable while packages update");
         await submit.emit("click");
@@ -213,9 +296,9 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         await editor.emit("input");
         await root.querySelector("#generation-back").emit("click");
         await root.querySelector("#generation-next").emit("click");
-        assert.equal(editor.value, raw, "returning from Details must not discard the design draft");
+        assert.equal(editor.value, raw, "returning from Catalogs must not discard the design draft");
         await new Promise((resolve) => setTimeout(resolve, 400));
-        assert.match(root.querySelector("#generation-document-summary").innerHTML, /recorded in the request and receipt/);
+        assert.match(root.querySelector("#generation-document-provider").innerHTML, /recorded in the request and receipt/);
         assert.notEqual(submit.disabled, true, "Generate remains clickable after document validation");
         await submit.emit("click");
         assert.equal(submit.dataset.overwrite, "true");
@@ -227,6 +310,10 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         assert.equal(requests[0].inlineDocuments["canvas-presentation"], raw,
             "winning customer preset must not erase the superseded request document");
         await outcomeSeen;
+        assert.equal(document.body.style.overflow, "auto", "closing restores background scrolling");
+        assert.equal(background.inert, false, "closing restores Wizard interaction");
+        assert.equal(document.activeElement, trigger, "closing returns focus to the launch control");
+        assert.equal(documentListeners.has("keydown"), false, "closing removes the focus trap");
     } finally {
         closeGenerationDialog();
         globalThis.document = originalDocument;

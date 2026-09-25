@@ -297,8 +297,14 @@ export function openCommunityInstallModal({ displayName, onConfirm, kind }) {
     if (nameEl) nameEl.textContent = displayName;
     if (kindWordEl) kindWordEl.textContent = `${kindWord}s`;
     if (learnLink) learnLink.href = learnHref;
+    const returnFocus = document.activeElement;
     modal.hidden = false;
-    const close = () => { modal.hidden = true; };
+    let escHandler;
+    const close = () => {
+        modal.hidden = true;
+        document.removeEventListener("keydown", escHandler);
+        (returnFocus?.isConnected ? returnFocus : document.getElementById("generation-design-items"))?.focus?.();
+    };
     const confirm = () => { close(); onConfirm(); };
     // Reset listeners by cloning the confirm button.
     const newOk = okBtn.cloneNode(true);
@@ -309,8 +315,8 @@ export function openCommunityInstallModal({ displayName, onConfirm, kind }) {
         b.replaceWith(nb);
         nb.addEventListener("click", close, { once: true });
     });
-    const escHandler = (e) => {
-        if (e.key === "Escape") { close(); document.removeEventListener("keydown", escHandler); }
+    escHandler = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); close(); }
     };
     document.addEventListener("keydown", escHandler);
 }
