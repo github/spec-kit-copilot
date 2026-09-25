@@ -121,6 +121,9 @@ class DefaultCanvasJourney(unittest.TestCase):
         self.assertNotIn("rendererHost", app)
         self.assertNotIn("selectedRenderer", app)
         self.assertIn('renderPhaseNavigation();', app)
+        self.assertNotRegex(app, r'id="run-phase"[^>]*\bdisabled\b')
+        self.assertIn("Create or update the project Constitution above before running this phase.", app)
+        self.assertIn("Rerunning this phase is disabled by the canvas interaction settings.", app)
         self.assertNotIn("__PRESENTATION_JSON__", app)
         self.assertNotIn("speckit-wizard", app)
         self.assertNotIn("__EXTENSION_ID_JSON__",

@@ -233,9 +233,12 @@ function openConstitutionDialog(step) {
             }
         }
     };
+    let sending = false;
     $("confirm-constitution").addEventListener("click", async () => {
+        if (sending) return;
+        sending = true;
         const button = $("confirm-constitution");
-        button.disabled = true;
+        button.textContent = "Sending…";
         state.constitutionDraft = input.value;
         try {
             const result = await json("/api/run", {
@@ -247,8 +250,11 @@ function openConstitutionDialog(step) {
             close();
             await refresh();
         } catch (error) {
-            $("constitution-dialog-message").textContent = error.message;
-            button.disabled = false;
+            const message = $("constitution-dialog-message") ?? $("phase-message");
+            if (message) message.textContent = error.message;
+        } finally {
+            sending = false;
+            if (button.isConnected) button.textContent = "Run";
         }
     });
 }
@@ -398,11 +404,11 @@ function renderPhaseCard() {
             <textarea class="phase-input-control" id="phase-args" aria-labelledby="phase-input-label" aria-describedby="phase-input-help" placeholder="${esc(inputGuidance.helper)}"></textarea>
         </label>
         ${slugControl}
-        <div id="phase-message"></div>
+        <div id="phase-message" role="status"></div>
         <footer class="phase-actions phase-actions-nav">
             <div class="phase-actions-left"><button class="btn btn-secondary" id="previous-phase" type="button" ${backDisabled ? "disabled" : ""}>◀ Back</button></div>
             <div class="phase-actions-center">
-                <button class="btn btn-primary" id="run-phase" type="button" ${running || constitutionBlocked() || (submitted && interactions()?.rerun?.enabled === false) ? "disabled" : ""} ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Sending…' : (submitted ? "Run again" : "Run phase")}</button>
+                <button class="btn btn-primary" id="run-phase" type="button" ${constitutionBlocked() ? 'aria-describedby="constitution-prerequisite" title="Define the project Constitution before running workflow phases."' : ""}>${running ? '<span class="btn-spinner" aria-hidden="true"></span> Sending…' : (submitted ? "Run again" : "Run phase")}</button>
                 <button class="btn btn-secondary" id="view-artifact" type="button" ${viewUnavailable ? "disabled" : ""}>View artifact</button>
             </div>
             <div class="phase-actions-right"><button class="btn btn-secondary" id="next-phase" type="button" ${continueDisabled ? "disabled" : ""}>Continue ▶</button></div>
@@ -435,6 +441,10 @@ function renderPhaseCard() {
 async function runPhase(step) {
     const runKey = phaseRunKey(step);
     if (state.runningPhase === runKey) return;
+    if (constitutionBlocked()) {
+        $("phase-message").textContent = "Create or update the project Constitution above before running this phase.";
+        return;
+    }
     const item = selectedItem();
     const usesSlugDraft = state.current === slugPhaseIndex(workflowSteps()) && item?.isNew;
     const validation = validateWorkflowSlug(usesSlugDraft ? state.workflowSlugDraft : "");
@@ -451,7 +461,10 @@ async function runPhase(step) {
         return;
     }
     const interactionPolicy = interactions();
-    if (phaseHasRun(step, item) && interactionPolicy?.rerun?.enabled === false) return;
+    if (phaseHasRun(step, item) && interactionPolicy?.rerun?.enabled === false) {
+        $("phase-message").textContent = "Rerunning this phase is disabled by the canvas interaction settings.";
+        return;
+    }
     const confirmation = interactionPolicy?.phaseRunConfirmations?.[step.commandName];
     if (confirmation && !await confirmRerun(step, false, confirmation)) return;
     if (!confirmation && phaseHasRun(step, item) && !await confirmRerun(step)) return;
@@ -484,6 +497,7 @@ async function runPhase(step) {
         if (result.code === "constitution_required") {
             state.runningPhase = null;
             await refresh();
+            $("phase-message").textContent = "Create or update the project Constitution above before running this phase.";
             return;
         }
         if (result.ok === false) throw new Error(result.error || "Workflow could not run.");
