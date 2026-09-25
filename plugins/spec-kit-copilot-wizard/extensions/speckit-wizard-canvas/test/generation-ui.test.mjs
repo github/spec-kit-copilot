@@ -191,10 +191,23 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
     }, render: () => {} });
     try {
         openGenerationDialog();
+        const submit = root.querySelector("#generation-submit");
+        assert.notEqual(submit.disabled, true, "Generate is never disabled while the baseline loads");
         await new Promise((resolve) => setImmediate(resolve));
         assert.equal(root._configurationStatus, "ready");
         await root.querySelector("#generation-next").emit("click");
+        root._designPending = true;
+        assert.notEqual(submit.disabled, true, "Generate stays clickable while packages update");
+        await submit.emit("click");
+        assert.match(root.querySelector("#generation-messages").innerHTML, /Wait for Canvas Design changes/);
+        root._designPending = false;
         const editor = root.querySelector("#generation-document-json");
+        editor.value = "{ invalid JSON";
+        await editor.emit("input");
+        assert.notEqual(submit.disabled, true, "Generate remains clickable while a document is invalid");
+        await submit.emit("click");
+        assert.match(root.querySelector("#generation-messages").innerHTML, /Fix canvas-presentation/);
+        assert.equal(requests.length, 0, "invalid JSON must not queue generation");
         const raw = '{\n  "note": "customer one-off"\n}';
         editor.value = raw;
         await editor.emit("input");
@@ -203,10 +216,12 @@ test("Details navigation and overwrite confirmation retain the raw one-off draft
         assert.equal(editor.value, raw, "returning from Details must not discard the design draft");
         await new Promise((resolve) => setTimeout(resolve, 400));
         assert.match(root.querySelector("#generation-document-summary").innerHTML, /recorded in the request and receipt/);
-        await root.querySelector("#generation-submit").emit("click");
-        assert.equal(root.querySelector("#generation-submit").dataset.overwrite, "true");
+        assert.notEqual(submit.disabled, true, "Generate remains clickable after document validation");
+        await submit.emit("click");
+        assert.equal(submit.dataset.overwrite, "true");
         assert.equal(root._documentDrafts["canvas-presentation"], raw, "overwrite confirmation must retain the draft");
-        await root.querySelector("#generation-submit").emit("click");
+        assert.notEqual(submit.disabled, true, "overwrite confirmation remains clickable");
+        await submit.emit("click");
         assert.equal(requests.length, 1);
         assert.deepEqual(Object.keys(requests[0].inlineDocuments), ["canvas-presentation"]);
         assert.equal(requests[0].inlineDocuments["canvas-presentation"], raw,

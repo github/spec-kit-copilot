@@ -237,10 +237,6 @@ async function runPreflight(root) {
 function updateGenerationActions(root) {
     const next = root.querySelector("#generation-next");
     if (next) next.disabled = root._generationPreflight?.ok !== true;
-    const submit = root.querySelector("#generation-submit");
-    if (submit) submit.disabled = root._generationPreflight?.ok !== true
-        || !generationAvailability().enabled || root._designPending === true
-        || root._configurationStatus !== "ready" || root._documentError === true;
 }
 
 function schedulePreflight(root) {
@@ -293,7 +289,6 @@ function winnerName(winner) {
                 invalid.add(category);
             }
         }
-        root._documentError = invalid.size > 0;
         const warnings = changed.flatMap(([category, label]) => {
             const winner = root._designWinners?.[category];
             return winner ? [`${label}: your one-off JSON will be recorded in the request and receipt, but ${winnerName(winner)} is the active winning customer design package for this document and overrides it.`] : [];
@@ -577,7 +572,13 @@ async function submitGeneration(root) {
     try {
         const confirmedOverwrite = root.querySelector("#generation-submit")?.dataset.overwrite === "true";
         if (root._designPending) throw new Error("Wait for Canvas Design changes to finish before generating.");
-        if (root._configurationStatus !== "ready") throw new Error("Wait for the generator baseline to load.");
+        const availability = generationAvailability();
+        if (!availability.enabled) throw new Error(availability.reason);
+        if (root._configurationStatus !== "ready") {
+            throw new Error(root._configurationStatus === "error"
+                ? "Could not load the generator baseline. Retry loading it before generating."
+                : "Wait for the generator baseline to load.");
+        }
         clearTimeout(root._documentValidationTimer);
         await Promise.all(DESIGN_DOCUMENTS.map(([category]) => validateDocumentDraft(root, category)));
         if (dialog !== dialogVersion) return;
