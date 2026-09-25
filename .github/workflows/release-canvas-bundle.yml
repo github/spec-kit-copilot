@@ -1,0 +1,53 @@
+name: Release Canvas Design Bundle
+
+on:
+  push:
+    tags:
+      - 'copilot-canvas-studio-bundle-v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Specify for artifact build
+        run: |
+          python3 -m venv "$RUNNER_TEMP/specify-venv"
+          "$RUNNER_TEMP/specify-venv/bin/pip" install 'specify-cli>=1.0.7'
+          echo "$RUNNER_TEMP/specify-venv/bin" >> "$GITHUB_PATH"
+      - name: Check bundle version and catalog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          match = re.fullmatch(r"copilot-canvas-studio-bundle-v(\d+\.\d+\.\d+)", os.environ["TAG"])
+          if not match:
+              raise SystemExit("Invalid Canvas Design bundle tag")
+          version = match.group(1)
+          manifest = Path("spec-kit-bundles/copilot-canvas-studio/bundle.yml").read_text()
+          if not re.search(r"(?m)^  version: ['\"]?" + re.escape(version) + r"['\"]?$", manifest):
+              raise SystemExit("Bundle manifest version differs from tag")
+          entry = json.loads(Path("spec-kit-bundles/catalog.json").read_text())["bundles"]["copilot-canvas-studio"]
+          if entry["version"] != version:
+              raise SystemExit("Bundle catalog version differs from tag")
+          PY
+      - name: Package bundle
+        run: |
+          specify bundle build --path spec-kit-bundles/copilot-canvas-studio --output "$RUNNER_TEMP"
+          version="${GITHUB_REF_NAME#copilot-canvas-studio-bundle-v}"
+          mv "$RUNNER_TEMP/copilot-canvas-studio-$version.zip" \
+            "$GITHUB_WORKSPACE/copilot-canvas-studio-bundle.zip"
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" copilot-canvas-studio-bundle.zip \
+            --title "Copilot Canvas Studio Bundle ${{ github.ref_name }}" \
+            --generate-notes

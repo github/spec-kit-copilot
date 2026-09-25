@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "command-override.schema.json",
+  "title": "Request-bound command-derived override",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestSha256", "categories"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "requestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "categories": {
+      "type": "object",
+      "maxProperties": 0,
+      "additionalProperties": false
+    }
+  }
+}

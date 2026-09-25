@@ -1,0 +1,11 @@
+schema_version: "1.0"
+preset:
+  id: customer-canvas-design
+  name: Customer Canvas Design
+  version: "0.1.0"
+provides:
+  templates:
+    - name: design-marker
+      file: config/design-marker.json
+tags:
+  - canvas-design

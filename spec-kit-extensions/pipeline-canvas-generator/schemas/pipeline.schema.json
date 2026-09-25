@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline.schema.json",
+  "title": "Pinned compiler linear blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "metadata", "pipeline", "phaseOutputs", "setup", "runtime", "warnings"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "const": "speckit-wizard-linear-canvas" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extensionId", "displayName", "description", "workflowListName"],
+      "properties": {
+        "extensionId": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "workflowListName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topology", "steps"],
+      "properties": {
+        "topology": { "const": "linear" },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "instanceKey", "id", "commandName", "skillName", "invocation", "label", "description", "source", "artifact", "arguments", "optional", "predecessors"],
+            "properties": {
+              "index": { "type": "integer", "minimum": 0 },
+              "instanceKey": { "type": "string", "minLength": 1 },
+              "id": { "type": "string", "minLength": 1 },
+              "commandName": { "type": "string", "minLength": 1 },
+              "skillName": { "type": "string", "minLength": 1 },
+              "invocation": { "type": "string", "minLength": 1 },
+              "label": { "type": "string", "minLength": 1 },
+              "description": { "type": "string" },
+              "source": {
+                "type": "object", "additionalProperties": false,
+                "required": ["kind", "id", "version", "skillPath"],
+                "properties": {
+                  "kind": { "enum": ["core", "project", "preset", "extension"] },
+                  "id": { "type": ["string", "null"] },
+                  "version": { "type": ["string", "null"] },
+                  "skillPath": { "type": ["string", "null"] }
+                }
+              },
+              "artifact": {
+                "type": "object", "additionalProperties": false,
+                "required": ["outputPath", "persistent", "completionSignal"],
+                "properties": {
+                  "outputPath": { "type": ["string", "null"] },
+                  "persistent": { "type": "boolean" },
+                  "completionSignal": { "enum": ["artifact", "transient", "hint"] }
+                }
+              },
+              "arguments": {
+                "type": "object", "additionalProperties": false,
+                "required": ["hint", "whenEmpty"],
+                "properties": { "hint": { "type": "string" }, "whenEmpty": { "type": "string" } }
+              },
+              "optional": { "type": "boolean" },
+              "predecessors": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 0 } }
+            }
+          }
+        }
+      }
+    },
+    "phaseOutputs": {
+      "type": "array", "minItems": 1,
+      "items": { "$ref": "phase-artifact-binding.schema.json#/$defs/binding" }
+    },
+    "projectArtifacts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["constitution"],
+      "properties": {
+        "constitution": {
+          "type": "object", "additionalProperties": false,
+          "required": ["instanceKey", "required"],
+          "properties": {
+            "instanceKey": { "type": "string", "minLength": 1 },
+            "required": { "const": true }
+          }
+        }
+      }
+    },
+    "setup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requiresSpecKit", "requireInstallationApproval", "integration", "requiredSkills", "presets", "extensions"],
+      "properties": {
+        "requiresSpecKit": { "const": true },
+        "requireInstallationApproval": { "type": "boolean" },
+        "compositionFingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "integration": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "skillsMode"],
+          "properties": { "id": { "const": "copilot" }, "skillsMode": { "const": true } }
+        },
+        "requiredSkills": {
+          "type": "array", "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["name", "invocation", "commandName", "provider"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "invocation": { "type": "string", "minLength": 1 },
+              "commandName": { "type": "string", "minLength": 1 },
+              "provider": {
+                "type": "object", "additionalProperties": false,
+                "required": ["kind", "id"],
+                "properties": {
+                  "kind": { "enum": ["core", "project", "preset", "extension"] },
+                  "id": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "presets": { "type": "array", "items": { "$ref": "#/$defs/contribution" } },
+        "extensions": { "type": "array", "items": { "$ref": "#/$defs/contribution" } }
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["visualStyle", "workflowMode", "itemRoot", "userProvidesSlug", "multiInstance", "supportsArtifactPreview", "supportsRerun", "supportsSse", "requiredActions"],
+      "properties": {
+        "visualStyle": { "type": "string", "minLength": 1 },
+        "workflowMode": { "type": "string", "minLength": 1 },
+        "itemRoot": { "type": ["string", "null"] },
+        "userProvidesSlug": { "type": "boolean" },
+        "multiInstance": { "type": "boolean" },
+        "supportsArtifactPreview": { "type": "boolean" },
+        "supportsRerun": { "type": "boolean" },
+        "supportsSse": { "type": "boolean" },
+        "requiredActions": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "contribution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "id", "version", "enabled"],
+      "properties": {
+        "kind": { "enum": ["preset", "extension"] },
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "enabled": { "type": ["boolean", "null"] },
+        "priority": { "type": "integer" },
+        "precedence": { "type": "integer", "minimum": 0 },
+        "manifestPath": { "type": "string", "minLength": 1 },
+        "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "installedSource": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "type": "string", "minLength": 1 },
+            "name": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "source": {
+          "type": "object", "additionalProperties": false,
+          "required": ["name", "url", "direct"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "pattern": "^https://" },
+            "direct": { "const": true }
+          }
+        }
+      }
+    }
+  }
+}

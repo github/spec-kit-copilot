@@ -1,0 +1,40 @@
+schema_version: "1.0"
+
+extension:
+  id: pipeline-canvas-generator
+  name: Pipeline Canvas Generator
+  version: "0.2.0"
+  description: Generate a standalone Copilot workflow canvas from a resolved Spec Kit pipeline.
+  category: process
+  effect: read-write
+  author: spec-kit-copilot
+  repository: https://github.com/github/spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  commands:
+    - name: speckit.pipeline-canvas-generator.generate
+      file: commands/speckit.pipeline-canvas-generator.generate.md
+      description: Generate a standalone workflow canvas from confirmed choices.
+    - name: speckit.pipeline-canvas-generator.inspect
+      file: commands/speckit.pipeline-canvas-generator.inspect.md
+      description: Inspect a generated canvas and its provenance.
+    - name: speckit.pipeline-canvas-generator.remove
+      file: commands/speckit.pipeline-canvas-generator.remove.md
+      description: Remove an explicitly confirmed generated canvas.
+  templates:
+    - name: canvas-presentation
+      file: config/canvas-presentation.json
+      description: Complete presentation-only canvas configuration.
+    - name: canvas-results
+      file: config/canvas-results.json
+      description: Complete default result configuration.
+    - name: phase-outputs
+      file: config/phase-outputs.json
+      description: Exceptions to caller-provided phase artifact expectations.
+
+tags:
+  - canvas-design

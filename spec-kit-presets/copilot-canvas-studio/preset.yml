@@ -1,0 +1,23 @@
+schema_version: "1.0"
+
+preset:
+  id: copilot-canvas-studio
+  name: Copilot Canvas Studio
+  version: "1.0.1"
+  description: A complete presentation for standalone Spec Kit canvases.
+  author: spec-kit-copilot
+  repository: https://github.com/github/spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  templates:
+    - type: template
+      name: canvas-presentation
+      file: config/canvas-presentation.json
+      description: Complete Canvas Studio presentation.
+
+tags:
+  - canvas-design

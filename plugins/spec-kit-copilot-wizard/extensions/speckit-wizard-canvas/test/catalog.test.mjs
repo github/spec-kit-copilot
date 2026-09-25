@@ -5,6 +5,14 @@ import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
+import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { availableBundleMembers, availableManifestTags, classifyDesignItem, installedManifestTags, validateDesignBundle } from "../catalog/design.mjs";
+import { buildCatalogPrompt } from "../prompts/catalog.mjs";
+import { reloadSkillsIfInstalledSetChanged, setSession } from "../canvas-runtime/instances.mjs";
+import { isRuntimeCatalogItem } from "../ui/design-filter.js";
+import { hydrateFromCatalogSources } from "../catalog/shared.mjs";
 
 describe("preset-loader", () => {
 // Tests for preset-loader.mjs — disk read + YAML parse + fallback.
@@ -64,6 +72,228 @@ test("loadPresetGraph returns empty core-only fallback when workspace has no .sp
     assert.equal(result.activePreset, null);
     assert.deepEqual(result.commands, []);
     assert.deepEqual(result.presets, []);
+});
+
+test("installed tags govern local designs and catalog mismatches", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "canvas-design-tags-"));
+    try {
+        const location = join(workspace, ".specify", "presets", "local-design");
+        await mkdir(location, { recursive: true });
+        await writeFile(join(location, "preset.yml"),
+            'preset:\n  id: local-design\ntags:\n  - canvas-design\n');
+        const tags = await installedManifestTags(workspace, "preset", "local-design");
+        const local = classifyDesignItem({
+            id: "local-design", installedId: "local-design", kind: "preset",
+            active: true, source: "local", installedTags: tags,
+        });
+
+        assert.equal(local.design, true);
+        assert.equal(isRuntimeCatalogItem(local), false);
+        const mismatched = classifyDesignItem({ ...local, source: "catalog", tags: [] });
+        assert.equal(mismatched.design, false);
+        assert.match(mismatched.designError, /disagree/);
+        await assert.rejects(() => installedManifestTags(workspace, "preset", "../local-design"));
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("available manifests must match catalog identity and Canvas Design tag before Add", async () => {
+    const fetcher = async () => ({ ok: true, text: async () =>
+        "preset:\n  id: theme\ntags: [canvas-design]\n" });
+    assert.deepEqual(await availableManifestTags("https://example.com/theme/preset.yml",
+        "preset", "theme", fetcher), ["canvas-design"]);
+    await assert.rejects(() => availableManifestTags("https://example.com/theme/preset.yml",
+        "preset", "other", fetcher), /Invalid available preset manifest/);
+    await assert.rejects(() => availableManifestTags("http://example.com/preset.yml",
+        "preset", "theme", fetcher), /No verifiable/);
+    const unverified = classifyDesignItem({
+        id: "theme", kind: "preset", source: "copilot", tags: ["canvas-design"],
+        active: false,
+    });
+    assert.equal(unverified.design, false);
+    assert.equal(isRuntimeCatalogItem(unverified), false);
+});
+
+test("available bundle manifests must declare only the cataloged design members", async () => {
+    const fetcher = async () => ({ ok: true, text: async () =>
+        "bundle:\n  id: studio\ntags: [canvas-design]\nprovides:\n  presets:\n    - id: theme\n" });
+    assert.deepEqual(await availableBundleMembers("https://example.com/bundle.yml",
+        "studio", fetcher), [{ kind: "preset", id: "theme" }]);
+    const bundle = {
+        design: true, id: "studio", members: [{ kind: "preset", id: "other", tags: ["canvas-design"] }],
+        manifestMembers: [{ kind: "preset", id: "theme" }],
+    };
+    assert.match(validateDesignBundle(bundle, { presets: [], extensions: [] }).designError,
+        /members disagree/);
+    const valid = validateDesignBundle({
+        ...bundle, members: [{ kind: "preset", id: "theme", tags: ["canvas-design"] }],
+    }, { presets: [{
+        id: "theme", kind: "preset", design: true, active: false,
+        tags: ["canvas-design"], availableTags: ["canvas-design"],
+    }], extensions: [] });
+    assert.equal(valid.design, true);
+    await assert.rejects(() => availableBundleMembers("https://example.com/bundle.yml",
+        "wrong", fetcher), /Invalid available bundle manifest/);
+});
+
+test("catalog retrieval failure is reported without authorizing a design Add", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 404 });
+    const inst = {};
+    try {
+        await hydrateFromCatalogSources(inst, [{
+            name: "copilot", url: "https://example.com/design-catalog.json",
+        }], {
+            kind: "preset", dataKey: "presets", outputField: "cachedPresetItems",
+            listInstalled: async () => { throw new Error("must not inspect an absent workspace"); },
+        });
+        assert.deepEqual(inst.cachedPresetItems, []);
+        assert.match(inst.catalogSourceErrors.preset[0], /copilot: HTTP 404/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("catalog hydration preflights manifest identity before offering an Add", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => ({
+        ok: true,
+        text: async () => "preset:\n  id: wrong-id\ntags: [canvas-design]\n",
+        json: async () => ({ presets: { theme: {
+            id: "theme", name: "Theme", tags: ["canvas-design"],
+            manifest_url: "https://example.com/preset.yml",
+        } } }),
+    });
+    try {
+        const inst = {};
+        await hydrateFromCatalogSources(inst, [{
+            name: "copilot", url: "https://example.com/catalog.json",
+        }], {
+            kind: "preset", dataKey: "presets", outputField: "cachedPresetItems",
+            listInstalled: async () => { throw new Error("unexpected installed lookup"); },
+        });
+        const classified = classifyDesignItem(inst.cachedPresetItems[0]);
+        assert.equal(classified.design, false);
+        assert.match(classified.designError, /Invalid available preset manifest/);
+        assert.equal(isRuntimeCatalogItem(classified), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("installed tag reads reject linked package directories", async (t) => {
+    const workspace = await mkdtemp(join(tmpdir(), "canvas-design-link-"));
+    try {
+        const packages = join(workspace, ".specify", "presets");
+        const outside = join(workspace, "outside");
+        await mkdir(packages, { recursive: true });
+        await mkdir(outside);
+        await writeFile(join(outside, "preset.yml"),
+            "preset:\n  id: design\ntags: [canvas-design]\n");
+        try {
+            await symlink(outside, join(packages, "design"), "junction");
+        } catch (error) {
+            if (["EPERM", "EACCES", "ENOSYS"].includes(error.code)) {
+                t.skip("Directory links are unavailable on this host");
+                return;
+            }
+            throw error;
+        }
+        await assert.rejects(() => installedManifestTags(workspace, "preset", "design"),
+            /Unsafe installed preset directory/);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("selected-phase design contributor is excluded without rewriting Specify stacks", () => {
+    const artifact = {
+        kind: "command", id: "commands/speckit.plan", name: "speckit.plan",
+        stack: [{ layer: "preset", sourceId: "design", active: true }],
+    };
+    const item = classifyDesignItem({
+        id: "design", installedId: "design", kind: "preset", source: "catalog",
+        active: true, tags: ["canvas-design"], availableTags: ["canvas-design"],
+        installedTags: ["canvas-design"],
+    }, ["speckit.plan"], [artifact]);
+    assert.equal(item.design, false);
+    assert.match(item.designError, /selected phase command/);
+    assert.equal(isRuntimeCatalogItem(item), false);
+    assert.equal(artifact.stack[0].sourceId, "design");
+});
+
+test("a mixed or unverified bundle is rejected without changing installed components", () => {
+    const tagged = classifyDesignItem({
+        kind: "preset", id: "design", installedId: "design", active: true,
+        source: "catalog", tags: ["canvas-design"], availableTags: ["canvas-design"],
+        installedTags: ["canvas-design"],
+    });
+    const runtime = classifyDesignItem({
+        kind: "extension", id: "runtime", installedId: "runtime", active: false,
+        source: "catalog", tags: [],
+    });
+    const bundle = classifyDesignItem({
+        kind: "bundle", id: "mixed", active: false, tags: ["canvas-design"],
+        availableTags: ["canvas-design"],
+        members: [
+            { kind: "preset", id: "design", tags: ["canvas-design"] },
+            { kind: "extension", id: "runtime", tags: [] },
+        ],
+        manifestMembers: [
+            { kind: "preset", id: "design" },
+            { kind: "extension", id: "runtime" },
+        ],
+    });
+    const before = JSON.stringify({ presets: [tagged], extensions: [runtime] });
+    const evaluated = validateDesignBundle(bundle, { presets: [tagged], extensions: [runtime] });
+    assert.equal(evaluated.design, false);
+    assert.match(evaluated.designError, /runtime/);
+    assert.equal(JSON.stringify({ presets: [tagged], extensions: [runtime] }), before);
+    const incomplete = validateDesignBundle({
+        ...bundle, active: true, members: [{ kind: "preset", id: "design", tags: ["canvas-design"] }],
+        manifestMembers: [{ kind: "preset", id: "design" }],
+    }, { presets: [{ ...tagged, active: false }], extensions: [] });
+    assert.equal(incomplete.design, false);
+    assert.match(incomplete.designError, /not verified as design-only/);
+});
+
+test("adding a design support extension only installs and reloads its skill", () => {
+    const prompt = buildCatalogPrompt("extension.install", {
+        name: "support-extension", downloadUrl: "https://example.com/support.zip",
+    }, {}, { workspacePath: "C:\\work", skill: "speckit-extension" });
+    assert.match(prompt, /specify extension add/);
+    assert.match(prompt, /showExtensionCatalog/);
+    assert.doesNotMatch(prompt, /speckit\.support-extension\.prepare|record-support-result|invoke.*support/);
+});
+
+test("design bundle Add requires verification and cleanup of only newly added members", () => {
+    const prompt = buildCatalogPrompt("bundle.install", {
+        name: "theme-bundle", design: true, downloadUrl: "https://example.com/bundle.zip",
+    }, {}, { workspacePath: "C:\\work", skill: "speckit-bundle" });
+    assert.match(prompt, /record installed bundle, preset, and extension ids before mutation/);
+    assert.match(prompt, /remove only components and bundle newly added/);
+    assert.match(prompt, /rollback errors rather than claiming Added/);
+});
+
+test("a newly installed design extension reloads skills once without invoking its support command", async () => {
+    let reloads = 0;
+    let supportCalls = 0;
+    const inst = { broadcast: () => {}, state: {} };
+    setSession({
+        rpc: { skills: { reload: async () => { reloads++; return { errors: [], warnings: [] }; } } },
+        log: async () => {},
+        send: async () => { supportCalls++; },
+    });
+    try {
+        await reloadSkillsIfInstalledSetChanged(inst, "extension", []);
+        await reloadSkillsIfInstalledSetChanged(inst, "extension", ["support-extension"]);
+        await reloadSkillsIfInstalledSetChanged(inst, "extension", ["support-extension"]);
+        assert.equal(reloads, 1);
+        assert.equal(supportCalls, 0);
+    } finally {
+        setSession(null);
+    }
 });
 
 test("loadPresetGraph loads a preset from disk via .registry + preset.yml + command file", async () => {

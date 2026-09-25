@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "canvas-setup.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workflowSlug", "installationMode", "installationReviewMessage"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workflowSlug": {
+      "type": "object", "additionalProperties": false,
+      "required": ["userProvided", "label", "helperText"],
+      "properties": {
+        "userProvided": { "type": "boolean" },
+        "label": { "$ref": "#/$defs/message" },
+        "helperText": { "$ref": "#/$defs/message" }
+      }
+    },
+    "installationMode": { "enum": ["external", "prompt", "automatic"] },
+    "installationReviewMessage": { "$ref": "#/$defs/message" }
+  },
+  "$defs": { "message": { "type": "string", "minLength": 1, "maxLength": 240 } }
+}

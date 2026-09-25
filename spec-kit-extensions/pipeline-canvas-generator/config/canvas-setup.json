@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "workflowSlug": {
+    "userProvided": true,
+    "label": "Workflow name",
+    "helperText": "Names the folder where this workflow's artifacts are saved."
+  },
+  "installationMode": "prompt",
+  "installationReviewMessage": "Review the required packages before installation."
+}

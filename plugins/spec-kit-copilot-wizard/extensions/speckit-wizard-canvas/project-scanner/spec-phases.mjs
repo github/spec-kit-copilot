@@ -42,7 +42,6 @@ export async function hydrateSpecPhases({ cwd, specDir, phases, deps }) {
         check("spec.md", "specify"),
         check("plan.md", "plan"),
         check("tasks.md", "tasks"),
-        check("analysis.md", "analyze"),
     ]);
     // Converge appends remediation work to tasks.md. Hydrate the concrete
     // artifact path from the same file without inferring Converge status from

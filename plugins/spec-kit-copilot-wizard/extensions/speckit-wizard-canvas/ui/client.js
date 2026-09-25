@@ -51,7 +51,7 @@ export function createClient({
         "X-Canvas-Token": token ?? "",
     };
 
-    async function postJson(path, body) {
+    async function postJson(path, body, { throwOnError = false } = {}) {
         try {
             const res = await fetch(`${path}?token=${encodeURIComponent(token ?? "")}`, {
                 method: "POST",
@@ -65,6 +65,7 @@ export function createClient({
             return await res.json().catch(() => ({}));
         } catch (err) {
             onError(path, err);
+            if (throwOnError) throw err;
             return undefined;
         }
     }
@@ -376,4 +377,3 @@ export function handleServerMessage(msg) {
             break;
     }
 }
-

@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "phases": {},
+  "clarification": { "enabled": true, "label": "Clarification needed" },
+  "progress": { "enabled": true }
+}

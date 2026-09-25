@@ -1,0 +1,15 @@
+// Copy only the desired entries into phase-outputs.json or a complete preset replacement.
+// An exception replaces BOTH fields of the caller handoff for that command.
+{
+  "schemaVersion": 1,
+  "byCommand": {
+    // "speckit.plan": {
+    //   "expectsArtifact": true,
+    //   "outputPath": "specs/<slug>/plan.md"
+    // },
+    // "speckit.analyze": {
+    //   "expectsArtifact": false,
+    //   "outputPath": null
+    // }
+  }
+}

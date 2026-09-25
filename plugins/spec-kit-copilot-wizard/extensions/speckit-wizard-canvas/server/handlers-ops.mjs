@@ -3,10 +3,218 @@
 // extension's canvas action.
 
 import { join } from "node:path";
+import { access, lstat, readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 
 import { applyPatch, writeState } from "../state/store.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
+import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
+import { buildAugmentedPath } from "../env/resolve-path.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
+import { readSpecifySnapshot } from "../composition/snapshot.mjs";
+import { checkGeneratorReadiness } from "../env/deps-check.mjs";
+import { PHASE_BY_ID } from "../canvas-runtime/wizard-phases.mjs";
+
+const GENERATOR_ID = "pipeline-canvas-generator";
+const GENERATE_COMMAND = "/speckit-pipeline-canvas-generator-generate";
+const INLINE_NAMES = new Set([
+    "canvas-presentation", "phase-outputs", "canvas-results",
+    "canvas-interactions", "canvas-setup",
+]);
+
+async function runGeneratorProcess(workspace, executable, args, input = null) {
+    const path = await buildAugmentedPath();
+    return new Promise((resolve, reject) => {
+        const child = spawn(executable, args, {
+            cwd: workspace,
+            env: { ...process.env, PATH: path },
+            shell: process.platform === "win32" && executable === "specify",
+            windowsHide: true,
+            stdio: ["pipe", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        let settled = false;
+        let overflow = false;
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; child.kill(); }, 120_000);
+        child.on("error", (error) => {
+            clearTimeout(timer);
+            if (!settled) { settled = true; reject(error); }
+        });
+        child.stdout.on("data", (data) => {
+            stdout += String(data);
+            if (stdout.length > 8 * 1024 * 1024) { overflow = true; child.kill(); }
+        });
+        child.stderr.on("data", (data) => {
+            stderr += String(data);
+            if (stderr.length > 1024 * 1024) { overflow = true; child.kill(); }
+        });
+        child.on("close", (code) => {
+            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            if (overflow) reject(new Error(`${executable} ${args[0]} exceeded its output limit`));
+            else if (timedOut) reject(new Error(`${executable} ${args[0]} timed out`));
+            else if (code !== 0) reject(new Error(`${executable} ${args[0]} failed (${code}): ${stderr || stdout}`));
+            else resolve(stdout);
+        });
+        child.stdin.on("error", (error) => {
+            if (!settled) { settled = true; clearTimeout(timer); reject(error); }
+        });
+        child.stdin.end(input ?? "");
+    });
+}
+
+export async function phaseArtifactHandoff(workspace, phases) {
+    const cachePath = join(workspace, ".speckit-wizard", "artifact-targets.json");
+    let entries = {};
+    try {
+        const cache = JSON.parse(await readFile(cachePath, "utf8"));
+        if (cache.version !== 1 || !cache.entries || typeof cache.entries !== "object" ||
+            Array.isArray(cache.entries)) {
+            throw new Error("Invalid Wizard artifact-target cache");
+        }
+        entries = cache.entries;
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+    }
+    return phases.map((commandName) => {
+        const core = PHASE_BY_ID[commandName.replace(/^speckit\./, "")];
+        const expected = core
+            ? core.artifact
+            : entries[`commands/${commandName}`]?.writesTo;
+        const outputPath = typeof expected === "string" && expected.endsWith(".md") && !expected.includes("<name>")
+            ? expected : null;
+        return {
+            commandName,
+            expectsArtifact: outputPath ? true : core?.artifact === null ? false : null,
+            outputPath,
+        };
+    });
+}
+
+export async function prepareWizardGeneration(workspace, phases, configuration, overwrite = false, inst = null, phaseOutputs = null, inlineDocuments = {}) {
+    const generator = await checkGeneratorReadiness(inst ?? { workspacePath: workspace }, { force: true });
+    if (!generator.ready) throw new Error(generator.message);
+    const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
+    const skill = join(workspace, ".github", "skills", "speckit-pipeline-canvas-generator-generate", "SKILL.md");
+    await access(script);
+    await access(skill);
+    const { inventory } = await readSpecifySnapshot(inst ?? { workspacePath: workspace }, { refresh: true });
+    const handoff = phaseOutputs ?? await phaseArtifactHandoff(workspace, phases);
+    if (!inlineDocuments || typeof inlineDocuments !== "object" || Array.isArray(inlineDocuments) ||
+        Object.keys(inlineDocuments).some((name) => !INLINE_NAMES.has(name)
+            || typeof inlineDocuments[name] !== "string"
+            || Buffer.byteLength(inlineDocuments[name], "utf8") > 256 * 1024)) {
+        throw new Error("Inline documents must be named JSON strings of at most 256 KiB");
+    }
+    const result = JSON.parse(await runGeneratorProcess(workspace, "python", [
+        script, "prepare-request", "--workspace", workspace,
+        "--configuration-json", JSON.stringify(configuration),
+        "--phase-outputs-json", JSON.stringify(handoff),
+        ...phases.flatMap((phase) => ["--phase", phase]),
+        ...(overwrite ? ["--overwrite"] : []),
+        "--payload-stdin",
+    ], JSON.stringify({ inventory, inlineDocuments })));
+    if (typeof result.requestPath !== "string" || !result.requestPath) {
+        throw new Error("Generator did not return a request path");
+    }
+    return result.requestPath;
+}
+
+export async function previewGenerationConfiguration(workspace, phases, inst = null) {
+    const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
+    const { inventory } = await readSpecifySnapshot(inst ?? { workspacePath: workspace }, { refresh: true });
+    const handoff = await phaseArtifactHandoff(workspace, phases);
+    return JSON.parse(await runGeneratorProcess(workspace, "python", [
+        script, "preview-config", "--workspace", workspace,
+        "--phase-outputs-json", JSON.stringify(handoff),
+        ...phases.flatMap((phase) => ["--phase", phase]),
+        "--inventory-stdin",
+    ], JSON.stringify(inventory)));
+}
+
+export async function validateGenerationDocument(workspace, phases, name, raw) {
+    if (!INLINE_NAMES.has(name) || typeof raw !== "string" || Buffer.byteLength(raw) > 256 * 1024) {
+        throw new Error("Invalid inline document name or size");
+    }
+    const script = join(workspace, ".specify", "extensions", GENERATOR_ID, "scripts", "python", "canvas_generate.py");
+    return JSON.parse(await runGeneratorProcess(workspace, "python", [
+        script, "validate-config", "--workspace", workspace, "--name", name,
+        ...phases.flatMap((phase) => ["--phase", phase]),
+        "--json-stdin",
+    ], raw));
+}
+
+export async function handleGenerate(res, body, {
+    getState, getInstance, broadcast, prepare = prepareWizardGeneration,
+    dispatch = dispatchPromptToSession,
+}) {
+    const inst = getInstance?.();
+    if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+    if (inst.generation?.status === "queued") return jsonError(res, 409, "generation already queued");
+    const selected = effectivePipelinePhases(await getState()).map(({ id }) => {
+        const name = stripCommandsPrefix(id);
+        return name?.startsWith("speckit.") ? name : `speckit.${name}`;
+    });
+    if (!selected.length || !Array.isArray(body?.phases) ||
+        JSON.stringify(body.phases) !== JSON.stringify(selected)) {
+        return jsonError(res, 409, "selected phase order changed; refresh before generating");
+    }
+    const configuration = body?.configuration;
+    const canvasId = configuration?.canvas?.id;
+    const displayName = configuration?.canvas?.displayName;
+    if (typeof canvasId !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(canvasId) ||
+        typeof displayName !== "string" || !displayName.trim() || displayName.length > 120) {
+        return jsonError(res, 400, "invalid canvas ID or display name");
+    }
+    const exactTarget = join(inst.workspacePath, ".github", "extensions", canvasId);
+    let targetExists;
+    try {
+        targetExists = (await lstat(exactTarget)).isDirectory();
+        if (!targetExists) return jsonError(res, 422, `canvas target is not a directory: ${exactTarget}`);
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        targetExists = false;
+    }
+    if (targetExists && (body.overwrite !== true || body.confirmedTarget !== exactTarget)) {
+        return jsonError(res, 409, `replacement requires confirmation of the exact target: ${exactTarget}`);
+    }
+    if (!targetExists && body.overwrite === true) {
+        return jsonError(res, 409, `canvas target changed since confirmation: ${exactTarget}`);
+    }
+    let requestPath;
+    try {
+        const handoff = await phaseArtifactHandoff(inst.workspacePath, selected);
+        requestPath = await prepare(inst.workspacePath, selected, configuration, targetExists, inst, handoff,
+                                    body.inlineDocuments ?? {});
+    } catch (error) {
+        return jsonError(res, 422, `generation preparation failed: ${error.message}`);
+    }
+    const prompt = `${GENERATE_COMMAND} Wizard-confirmed request: ${requestPath}. ` +
+        "Use this exact request (do not prepare another or change its phase order). " +
+        (targetExists
+            ? `The Wizard confirmed replacement of every file at ${exactTarget}, including manual edits; `
+            : "The Wizard confirmed new-target generation; ") +
+        "complete the same-turn scaffold, validation, " +
+        "publication, provider inspection/open, and authoritative outcome. Report any failure.";
+    inst.generation = { status: "queued", requestPath, target: `.github/extensions/${canvasId}` };
+    broadcast?.({ type: "generation", data: inst.generation });
+    try {
+        await dispatch({
+            prompt,
+            onError: (error) => {
+                inst.generation = { ...inst.generation, status: "failed", error: String(error) };
+                broadcast?.({ type: "generation", data: inst.generation });
+            },
+        });
+    } catch (error) {
+        inst.generation = { ...inst.generation, status: "failed", error: String(error) };
+        return jsonError(res, 500, `generation dispatch failed: ${error.message}`);
+    }
+    return jsonRes(res, 202, { queued: true, requestPath, target: inst.generation.target });
+}
 // Pipeline mutation — user-authored spine override.
 //
 // Contract:

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "generation-request.schema.json",
+  "title": "Immutable canvas generation request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "canvas", "workflow", "workspace", "overwrite"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "workflowListName", "description"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "workflowListName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectedPhases", "requiredSkillHashes", "phaseOutputs", "artifactSnapshot"],
+      "properties": {
+        "selectedPhases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^speckit\\.[a-z0-9][a-z0-9.-]*$" }
+        },
+        "requiredSkillHashes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^speckit-[a-z0-9][a-z0-9-]*$" },
+          "additionalProperties": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "phaseOutputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "phase-artifact-binding.schema.json#/$defs/binding" }
+        },
+        "artifactSnapshot": { "$ref": "artifact-snapshot.schema.json" }
+      }
+    },
+    "workspace": { "type": "string", "minLength": 1 },
+    "inlineDocuments": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "canvas-presentation": { "$ref": "canvas-presentation.schema.json" },
+        "phase-outputs": { "$ref": "phase-outputs.schema.json" },
+        "canvas-results": { "$ref": "canvas-results.schema.json" },
+        "canvas-interactions": { "$ref": "canvas-interactions.schema.json" },
+        "canvas-setup": { "$ref": "canvas-setup.schema.json" }
+      }
+    },
+    "overwrite": { "type": "boolean" }
+  }
+}

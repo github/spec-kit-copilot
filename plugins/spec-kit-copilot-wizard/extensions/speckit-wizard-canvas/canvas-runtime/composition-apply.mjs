@@ -10,7 +10,8 @@
 
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { applyPatch, writeState, readState, validateInferredPipeline, activeFingerprint, normalizeExecutionReports } from "../state/store.mjs";
-import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
+import { computeStage2Necessity } from "../composition/assembler.mjs";
+import { readSpecifySnapshot, invalidateSpecifySnapshot } from "../composition/snapshot.mjs";
 import { fsDeps } from "./instances.mjs";
 import { snapshot } from "./snapshot.mjs";
 
@@ -74,42 +75,19 @@ function normalizeCompositionCatalogItems(items, knownItems) {
 
 export function normalizeHookArtifactsInComposition(composition) {
     if (!composition || !Array.isArray(composition.artifacts)) return composition;
-    const commandName = (value) => {
-        if (typeof value !== "string" || !value.trim()) return null;
-        const name = value.startsWith("commands/") ? value.slice("commands/".length) : value;
-        return name && !name.includes("/") ? name : null;
-    };
-    const commandFromId = (id) => typeof id === "string" && id.startsWith("commands/")
-        ? commandName(id)
-        : null;
     const commandIds = new Set(
         composition.artifacts
             .filter((artifact) => artifact?.kind === "command")
             .map((artifact) => artifact.id),
     );
-    const commandsByProvider = new Map();
+    const commandByProvider = new Map();
     for (const artifact of composition.artifacts) {
         if (artifact?.kind !== "command") continue;
         const active = artifact.stack?.find((layer) => layer?.active);
         const provider = active?.extensionId ?? active?.presetId;
-        if (!provider || !commandFromId(artifact.id)) continue;
-        const commands = commandsByProvider.get(provider) ?? [];
-        commands.push(artifact);
-        commandsByProvider.set(provider, commands);
+        if (!provider || !String(artifact.id).startsWith("commands/speckit.")) continue;
+        if (!commandByProvider.has(provider)) commandByProvider.set(provider, artifact);
     }
-    const unresolvedByProvider = new Map();
-    for (const artifact of composition.artifacts) {
-        if (artifact?.kind !== "hook") continue;
-        const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
-            ? artifact.hookBindings
-            : (artifact.hookBinding ? [artifact.hookBinding] : []);
-        if (bindings.some((binding) => commandName(binding?.targetCommand))
-            || commandName(artifact.targetCommand) || commandFromId(artifact.id)) continue;
-        const active = artifact.stack?.find((layer) => layer?.active);
-        const provider = active?.extensionId ?? active?.presetId;
-        if (provider) unresolvedByProvider.set(provider, (unresolvedByProvider.get(provider) ?? 0) + 1);
-    }
-    const replacedCommandIds = new Set();
     const artifacts = composition.artifacts
         .filter((artifact) => {
             // Mixed preset manifests may be incorrectly echoed by the
@@ -123,44 +101,22 @@ export function normalizeHookArtifactsInComposition(composition) {
         })
         .map((artifact) => {
             if (artifact?.kind !== "hook") return artifact;
-            const sourceBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
-                ? artifact.hookBindings
-                : (artifact.hookBinding ? [artifact.hookBinding] : []);
-            const declaredTargets = new Set(sourceBindings.map((b) => commandName(b?.targetCommand)).filter(Boolean));
             const active = artifact.stack?.find((layer) => layer?.active);
             const provider = active?.extensionId ?? active?.presetId;
-            const candidates = provider ? commandsByProvider.get(provider) ?? [] : [];
-            const ownTarget = commandName(artifact.targetCommand) ?? commandFromId(artifact.id);
-            // Legacy provider inference is safe only when both sides are unique.
-            const fallback = !declaredTargets.size && !ownTarget && candidates.length === 1
-                && unresolvedByProvider.get(provider) === 1
-                ? commandFromId(candidates[0].id)
-                : null;
-            const target = declaredTargets.size === 1
-                ? [...declaredTargets][0]
-                : (declaredTargets.size ? null : ownTarget ?? fallback);
+            const target = provider ? commandByProvider.get(provider) : null;
             if (!target) return artifact;
-            const bindings = sourceBindings.map((binding) => ({
-                ...binding,
-                targetCommand: commandName(binding?.targetCommand) ?? target,
-            }));
-            const id = `commands/${target}`;
-            const matchingCommand = candidates.find((candidate) => candidate.id === id);
-            if (matchingCommand) replacedCommandIds.add(id);
+            const targetCommand = target.id.replace(/^commands\//, "");
+            const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+                ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
+                : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
             return {
                 ...artifact,
-                id,
-                ...(matchingCommand
-                    ? { stack: matchingCommand.stack }
-                    : {}),
+                id: target.id,
                 hookBindings: bindings,
-                ...(bindings.length ? { hookBinding: bindings[0] } : {}),
+                hookBinding: bindings[0],
             };
         });
-    return {
-        ...composition,
-        artifacts: artifacts.filter((artifact) => artifact?.kind !== "command" || !replacedCommandIds.has(artifact.id)),
-    };
+    return { ...composition, artifacts };
 }
 
 export async function applyComposition(inst, input) {
@@ -338,17 +294,9 @@ export async function applyComposition(inst, input) {
 export async function runFastComposition(inst, { reason } = {}) {
     if (!inst?.workspacePath) return { ok: false, reason: "no-workspace" };
     try {
-        const payload = await assembleComposition({
-            workspaceRoot: inst.workspacePath,
-            presetItems: inst.cachedPresetItems ?? [],
-            extensionItems: inst.cachedExtensionItems ?? [],
-        });
-        // `_presetManifests` is a side channel used only for Stage 2
-        // necessity detection — never persisted.
-        const presetManifests = payload._presetManifests ?? [];
-        delete payload._presetManifests;
-
-        const stage2 = computeStage2Necessity(payload, presetManifests);
+        invalidateSpecifySnapshot(inst);
+        const { composition: payload } = await readSpecifySnapshot(inst);
+        const stage2 = computeStage2Necessity(payload);
         if (!stage2.needed && stage2.syntheticPipeline) {
             payload.inferredPipeline = stage2.syntheticPipeline;
         }

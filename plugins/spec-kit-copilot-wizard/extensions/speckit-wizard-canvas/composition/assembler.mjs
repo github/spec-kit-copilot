@@ -464,7 +464,9 @@ export function computeStage2Necessity(composition, presetManifests = []) {
 
     // Stack directives — any preset entry whose strategy is not `replace`
     // (i.e. wraps/prepends/appends) targeting a canonical command.
-    let hasStackDirectives = false;
+    let hasStackDirectives = artifacts.some((artifact) =>
+        artifact?.stack?.some((layer) => layer?.active
+            && ["wrap", "prepend", "append"].includes(layer.strategy)));
     for (const manifest of presetManifests) {
         for (const kind of ["command", "template", "script"]) {
             const entries = manifest?.entriesByKind?.[kind] ?? [];

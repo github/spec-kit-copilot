@@ -11,6 +11,7 @@ on:
 
 jobs:
   release:
+    if: ${{ !startsWith(github.ref_name, 'pipeline-canvas-generator-v') && !startsWith(github.ref_name, 'copilot-canvas-studio-bundle-v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

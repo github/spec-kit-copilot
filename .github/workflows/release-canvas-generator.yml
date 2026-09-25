@@ -1,0 +1,51 @@
+name: Release Canvas Generator
+
+on:
+  push:
+    tags:
+      - 'pipeline-canvas-generator-v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install manifest parser
+        run: |
+          python3 -m venv "$RUNNER_TEMP/generator-venv"
+          "$RUNNER_TEMP/generator-venv/bin/pip" install PyYAML
+      - name: Check version and package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          "$RUNNER_TEMP/generator-venv/bin/python" - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          import yaml
+
+          tag = os.environ["TAG"]
+          match = re.fullmatch(r"pipeline-canvas-generator-v(\d+\.\d+\.\d+)", tag)
+          if not match:
+              raise SystemExit(f"Invalid generator tag: {tag}")
+          version = match.group(1)
+          package = Path("spec-kit-extensions/pipeline-canvas-generator")
+          manifest = yaml.safe_load((package / "extension.yml").read_text())
+          entry = json.loads(Path("spec-kit-extensions/catalog.json").read_text())["extensions"]["pipeline-canvas-generator"]
+          if manifest["extension"]["version"] != version or entry["version"] != version:
+              raise SystemExit("Generator tag, manifest, and catalog versions differ")
+          PY
+      - name: Package extension
+        run: |
+          cd spec-kit-extensions/pipeline-canvas-generator
+          zip -r "$GITHUB_WORKSPACE/pipeline-canvas-generator.zip" . -x '.*' '*/__pycache__/*' '*.pyc'
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" pipeline-canvas-generator.zip \
+            --title "Pipeline Canvas Generator ${{ github.ref_name }}" \
+            --generate-notes

@@ -1,0 +1,10 @@
+schema_version: "1.0"
+extension:
+  id: runtime-assess
+  name: Runtime Assess
+  version: "0.1.0"
+provides:
+  commands:
+    - name: speckit.bug.assess
+      file: commands/bug-assess.md
+tags: []

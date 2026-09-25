@@ -34,8 +34,10 @@ export const PRESET_CATALOG_URL = {
 // <download_url>` and no CLI catalog registration is used.
 export const EXTENSION_CATALOG_URL = {
     default: "https://raw.githubusercontent.com/github/spec-kit/main/extensions/catalog.json",
+    copilot: "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json",
     community: "https://raw.githubusercontent.com/github/spec-kit/main/extensions/catalog.community.json",
 };
+export const GENERATOR_DOWNLOAD_URL = "https://github.com/github/spec-kit-copilot/releases/download/pipeline-canvas-generator-v0.2.0/pipeline-canvas-generator.zip";
 
 // Bundle catalog counterparts. Same hardcode-and-fetch-directly design as
 // above. The built-in `bundles/catalog.json` may not exist yet upstream
@@ -43,6 +45,7 @@ export const EXTENSION_CATALOG_URL = {
 // failures on either URL are non-fatal — see hydrateBundlesForSources.
 export const BUNDLE_CATALOG_URL = {
     default: "https://raw.githubusercontent.com/github/spec-kit/main/bundles/catalog.json",
+    copilot: "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-bundles/catalog.json",
     community: "https://raw.githubusercontent.com/github/spec-kit/main/bundles/catalog.community.json",
 };
 

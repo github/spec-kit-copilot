@@ -3,6 +3,7 @@
 import { escapeHtml, dispatchKind } from "./client.js";
 import {
     state,
+    TOKEN,
     PHASE_ORDER,
     commands,
     displayCommand,
@@ -76,6 +77,31 @@ function wireEnvironmentCard(el) {
                     name: "copilot-sub-agents",
                     downloadUrl: "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
                 });
+            } else if (action === "generator") {
+                btn.disabled = true;
+                btn.setAttribute("aria-busy", "true");
+                try {
+                    const next = state.snapshot?.generatorStatus?.action;
+                    if (next === "Retry") {
+                        const response = await fetch(`/api/generator/readiness?token=${encodeURIComponent(TOKEN)}`);
+                        const payload = await response.json();
+                        if (!response.ok) throw new Error(payload.error ?? `Status ${response.status}`);
+                        state.snapshot.generatorStatus = payload.generatorStatus;
+                        renderEnvironmentCard();
+                    } else {
+                        const response = await dispatchKind(
+                            next === "Update Specify" ? "setup.updateSpecify" : "extension.install",
+                            next === "Update Specify" ? {} : { name: "pipeline-canvas-generator" },
+                        );
+                        if (!response?.queued) throw new Error("Could not queue the generator action.");
+                    }
+                } catch (error) {
+                    const status = el.querySelector('section[aria-label="Canvas generator"] [role="status"]');
+                    if (status) status.textContent = error.message;
+                } finally {
+                    btn.removeAttribute("aria-busy");
+                    btn.disabled = false;
+                }
             }
         });
     });
@@ -98,6 +124,11 @@ export function renderEnvironmentCard() {
             <p class="tagline">${escapeHtml(p.tagline || "Get this project ready for Spec-Driven Development.")}</p>
         </header>
         ${renderSetupBody(p)}
+        ${state.snapshot.generatorStatus ? `<section class="setup-row" aria-label="Canvas generator">
+            <h3>Canvas generator <span class="badge ${state.snapshot.generatorStatus.ready ? "active" : "pending"}">${state.snapshot.generatorStatus.ready ? "Ready" : "Required"}</span></h3>
+            <p role="status">${escapeHtml(state.snapshot.generatorStatus.message)}</p>
+            ${state.snapshot.generatorStatus.ready ? "" : `<button type="button" class="btn btn-secondary" data-setup-action="generator">${escapeHtml(state.snapshot.generatorStatus.action)}</button>`}
+        </section>` : ""}
     `;
     wireEnvironmentCard(el);
 }
@@ -186,16 +217,13 @@ export function renderStepper() {
             p: { ...entry.p, locked: true },
         }));
     }
-    const appendStep = (step) => {
-        if (el.lastElementChild) {
+    visible.forEach(({ id, orphan, synthesized, extension, p }, idx) => {
+        if (idx > 0) {
             const sep = document.createElement("li");
             sep.className = "step-sep";
             sep.setAttribute("aria-hidden", "true");
             el.appendChild(sep);
         }
-        el.appendChild(step);
-    };
-    visible.forEach(({ id, orphan, synthesized, extension, p }, idx) => {
         const li = document.createElement("li");
         li.className = "step";
         if (id === state.currentPhase && !orphan) li.classList.add("active");
@@ -244,33 +272,37 @@ export function renderStepper() {
         const phaseHooks = (!orphan)
             ? hooksForCommand(p.commandName || id)
             : [];
-        const hooksByPhase = new Map();
-        for (const hook of phaseHooks) {
-            const phase = String(hook.phase || "");
-            if (!hooksByPhase.has(phase)) hooksByPhase.set(phase, []);
-            hooksByPhase.get(phase).push(hook);
-        }
-        const beforeHooks = [...hooksByPhase].filter(([phase]) => phase.startsWith("before"));
-        const afterHooks = [...hooksByPhase].filter(([phase]) => !phase.startsWith("before"));
+        const beforeHooks = phaseHooks.filter((h) => String(h.phase || "").startsWith("before"));
+        const afterHooks = phaseHooks.filter((h) => !String(h.phase || "").startsWith("before"));
 
-        const appendHookStep = ([phaseText, hooks]) => {
+        const appendHookStep = (hook) => {
+            const sep2 = document.createElement("li");
+            sep2.className = "step-sep step-sep-hook";
+            sep2.setAttribute("aria-hidden", "true");
+            el.appendChild(sep2);
             const hookLi = document.createElement("li");
             hookLi.className = "step step-hook";
-            const targetCommands = [...new Set(hooks
-                .map((hook) => hook.targetCommand?.replace(/^commands\//, ""))
-                .filter(Boolean))];
-            const when = phaseText.startsWith("before") ? "before" : "after";
-            hookLi.title = `Auto-runs ${when} /${displayCommand(p.commandName || id)}:\n${targetCommands.length
-                ? targetCommands.map((command) => `/${displayCommand(command)}`).join("\n")
-                : "No hook command recorded"}\nCannot be added or removed manually.`;
+            // Show the lifecycle trigger in the pipeline so the placement is
+            // clear even when multiple extensions provide the same hook.
+            const phaseText = String(hook.phase || "");
+            const displayName = phaseText
+                ? phaseText
+                : hook.targetCommand || "hook";
+            const extLabel = hook.extensionName || hook.extensionId || "extension";
+            const isOptional = !!hook.optional;
+            const reqLabel = isOptional ? "Optional" : "Required";
+            // Keep the Required/Optional detail in the tooltip only.
+            // The chip itself is omitted from the pipeline visualization —
+            // multiple hooks per phase make per-chip modifiers too noisy.
+            hookLi.title = `${extLabel} — auto-runs ${phaseText.startsWith("before") ? "before" : "after"} /${p.commandName || id} (${reqLabel})\nCannot be added or removed manually.`;
             hookLi.innerHTML = `
                 <span class="step-hook-marker" aria-hidden="true">🪝</span>
                 <span class="step-label">
-                    <span class="step-name">${escapeHtml(phaseText || "hook")}</span>
+                    <span class="step-name">${escapeHtml(displayName)}</span>
                     <span class="step-hook-pill">Hook auto-run</span>
                 </span>
             `;
-            appendStep(hookLi);
+            el.appendChild(hookLi);
         };
 
         // Render before-hooks, then the real step, then after-hooks.
@@ -302,7 +334,7 @@ export function renderStepper() {
             // instance clicked when duplicates of the same command id exist.
             await dispatchPipeline("remove", { id, index: idx });
         });
-        appendStep(li);
+        el.appendChild(li);
         for (const h of afterHooks) appendHookStep(h);
     });
 }

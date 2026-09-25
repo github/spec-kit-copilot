@@ -171,6 +171,32 @@ test("returns 200 + state when token comes via X-Canvas-Token header", async () 
     assert.equal(res.statusCode, 200);
 });
 
+test("GET /api/generation/configuration dispatches the generator preview", async () => {
+    const preview = { documents: { "canvas-setup": { schemaVersion: 1 } }, winners: {} };
+    const h = createHandler(baseDeps({
+        getState: async () => ({ pipeline: [{ id: "plan" }] }),
+        previewConfiguration: async (workspace, phases) => {
+            assert.equal(workspace, "/proj");
+            assert.deepEqual(phases, ["speckit.plan"]);
+            return preview;
+        },
+    }));
+    const res = mockRes();
+    await h(mockReq({ url: "/api/generation/configuration?token=secret-token" }), res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), preview);
+});
+
+test("GET /api/generation/configuration surfaces preview failures", async () => {
+    const h = createHandler(baseDeps({
+        previewConfiguration: async () => { throw new Error("invalid Specify inventory"); },
+    }));
+    const res = mockRes();
+    await h(mockReq({ url: "/api/generation/configuration?token=secret-token" }), res);
+    assert.equal(res.statusCode, 422);
+    assert.match(JSON.parse(res.body).error, /invalid Specify inventory/);
+});
+
 test("GET / sets a Set-Cookie header carrying the token", async () => {
     const h = createHandler(baseDeps());
     const req = mockReq({ method: "GET", url: "/?token=secret-token" });

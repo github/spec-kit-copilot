@@ -55,6 +55,9 @@ import { scanWorkspace } from "../project-scanner.mjs";
 import { buildStateSnapshot } from "./snapshot-builder.mjs";
 import { applyPatch, overlayCachedComposition, activeFingerprint } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
+import { classifyDesignItem, validateDesignBundle } from "../catalog/design.mjs";
+import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { checkGeneratorReadiness } from "../env/deps-check.mjs";
 
 export async function snapshot(inst) {
     // Preset precedence: consume the order the `speckit-preset` skill
@@ -75,6 +78,9 @@ export async function snapshot(inst) {
     if (inst.cachedProbes?.summary) {
         scan.environment = inst.cachedProbes.summary;
     }
+    if (scan.projectInitialized) {
+        scan.generatorStatus = await checkGeneratorReadiness(inst);
+    }
     // Overlay boot progress + deps error so the UI's initial fetch
     // reflects live state without waiting for the next SSE event.
     if (inst.boot) scan.boot = inst.boot;
@@ -84,6 +90,8 @@ export async function snapshot(inst) {
     // NOT from persisted setup.* flags — those drift when things are
     // installed/uninstalled outside the wizard.
     const snap = buildStateSnapshot(scan);
+    if (scan.generatorStatus) snap.generatorStatus = scan.generatorStatus;
+    if (inst.catalogSourceErrors) snap.catalogSourceErrors = inst.catalogSourceErrors;
     if (inst.cachedPresetItems?.length) {
         // Overlay fresh install truth from the disk-based scan onto cached
         // catalog items — cachedPresetItems is only re-hydrated when a skill
@@ -154,6 +162,20 @@ export async function snapshot(inst) {
     if (inst.cachedComposition) {
         const overlay = overlayCachedComposition(inst.cachedComposition);
         if (overlay) snap.composition = overlay;
+    }
+    if (snap.catalog) {
+        const selectedCommands = effectivePipelinePhases(snap).map(({ id }) =>
+            id.startsWith("speckit.") ? id : `speckit.${id}`);
+        for (const kind of ["presets", "extensions", "bundles"]) {
+            if (snap.catalog[kind]) {
+                snap.catalog[kind] = snap.catalog[kind].map((item) =>
+                    classifyDesignItem(item, selectedCommands, snap.composition?.artifacts ?? []));
+            }
+            if (snap.catalog.bundles) {
+                snap.catalog.bundles = snap.catalog.bundles.map((bundle) =>
+                    validateDesignBundle(bundle, snap.catalog));
+            }
+        }
     }
     // Expose the transient skills-reload diagnostic (populated by
     // /api/skills/reload) so the UI can gate setup completion on the

@@ -1,0 +1,23 @@
+schema_version: "1.0"
+
+bundle:
+  id: copilot-canvas-studio
+  name: Copilot Canvas Studio
+  version: "1.0.0"
+  role: designer
+  description: A design-only bundle for the standalone workflow canvas.
+  author: spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  presets:
+    - id: copilot-canvas-studio
+      version: "1.0.0"
+      priority: 10
+      strategy: replace
+
+tags:
+  - canvas-design
