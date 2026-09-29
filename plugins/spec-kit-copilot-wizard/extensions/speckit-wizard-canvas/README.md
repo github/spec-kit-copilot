@@ -55,10 +55,12 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 The **Generate canvas** button in the Phases pipeline header opens the
 **Canvas designer setup** dialog. It offers separate Presets, Extensions,
 and Bundles tabs with source badges and checkboxes for entries tagged
-`canvas-design` in the Copilot and Community catalogs. No eligible items
-are expected in this first increment, so the tabs show empty states until
-those catalogs publish design-time customizations. Selections reset when
-the dialog closes and do not install anything in the current project.
+`canvas-design`. Presets and extensions come from the Copilot and Community
+catalogs; bundles come from the available Default and Community catalogs.
+No eligible items are expected in this first increment, so the tabs show
+empty states until those catalogs publish design-time customizations.
+Selections reset when the dialog closes and do not install anything in the
+current project.
 Community selections use the same prominent confirmation warning as
 adding an item from the Catalogs page.
 Selecting a bundle inspects its components without installing it and checks

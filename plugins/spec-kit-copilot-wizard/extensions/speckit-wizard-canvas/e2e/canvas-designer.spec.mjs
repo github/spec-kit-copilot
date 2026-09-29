@@ -14,6 +14,8 @@ test("opens a design-only dialog without enabling launch", async ({ page }) => {
     await expect(dialog.getByRole("button", { name: /Launch designer/ })).toBeDisabled();
     await dialog.getByRole("tab", { name: "Bundles" }).click();
     await expect(dialog.getByRole("checkbox", { name: /Design bundle/ })).toBeVisible();
+    await dialog.getByRole("checkbox", { name: /Default bundle/ }).check();
+    await expect(dialog.getByRole("checkbox", { name: /Default bundle/ })).toBeChecked();
     await expect(dialog.getByText("Other bundle")).toHaveCount(0);
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
@@ -40,13 +42,14 @@ test("confirms community selection and checks only listed design bundle members"
     await expect(community).toBeChecked();
 
     await dialog.getByRole("checkbox", { name: /Design bundle/ }).check();
+    await warning.getByRole("button", { name: "Select anyway" }).click();
     await dialog.getByRole("tab", { name: "Presets" }).click();
     const presets = dialog.getByRole("tabpanel", { name: "Presets" });
     const preset = presets.getByRole("checkbox", { name: /Design preset/ });
     await expect(preset).toBeChecked();
     await expect(presets.getByText("Included by bundle: Design bundle")).toBeVisible();
     await expect(presets.getByText("Unlisted preset")).toHaveCount(0);
-    await expect(presets.getByRole("checkbox", { name: /Community preset/ })).not.toBeChecked();
+    await expect(presets.getByRole("checkbox", { name: /Copilot preset/ })).not.toBeChecked();
     await preset.uncheck();
     await expect(preset).not.toBeChecked();
     await dialog.getByRole("tab", { name: "Extensions" }).click();

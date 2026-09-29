@@ -15,19 +15,20 @@ const snapshot = {
     commands: [],
     catalog: {
         presets: [
-            { id: "design-preset", name: "Design preset", source: "copilot", tags: ["canvas-design"] },
-            { id: "foreign-preset", name: "Community preset", source: "community", tags: ["canvas-design"] },
+            { id: "design-preset", name: "Design preset", source: "community", tags: ["canvas-design"] },
+            { id: "foreign-preset", name: "Copilot preset", source: "copilot", tags: ["canvas-design"] },
             { id: "other-preset", name: "Other preset", source: "copilot", tags: ["other"] },
             { id: "unlisted-preset", name: "Unlisted preset", source: "copilot" },
         ],
         extensions: [
-            { id: "design-extension", name: "Design extension", source: "copilot", tags: ["canvas-design"] },
+            { id: "design-extension", name: "Design extension", source: "community", tags: ["canvas-design"] },
             { id: "unlisted-extension", name: "Unlisted extension", source: "copilot", tags: ["other"] },
         ],
         bundles: [
-            { id: "design-bundle", name: "Design bundle", source: "copilot", tags: ["canvas-design"] },
+            { id: "design-bundle", name: "Design bundle", source: "community", tags: ["canvas-design"] },
+            { id: "default-bundle", name: "Default bundle", source: "default", tags: ["canvas-design"] },
             { id: "community-bundle", name: "Community bundle", source: "community", tags: ["canvas-design"] },
-            { id: "other-bundle", name: "Other bundle", source: "copilot", tags: ["design"] },
+            { id: "other-bundle", name: "Other bundle", source: "default", tags: ["design"] },
         ],
     },
 };
@@ -39,6 +40,7 @@ const members = {
         { kind: "presets", id: "unlisted-preset" },
         { kind: "extensions", id: "design-extension" },
     ],
+    "default-bundle": [],
     "community-bundle": [],
 };
 
@@ -51,7 +53,7 @@ const handler = createHandler({
     broadcast: () => {},
     registerSse: (_req, res) => { res.on("close", () => {}); },
     inspectBundle: async (id) => ({
-        source: id === "community-bundle" ? "community" : "copilot",
+        source: id === "default-bundle" ? "default" : "community",
         members: members[id] ?? [],
     }),
 });

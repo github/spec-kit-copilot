@@ -171,6 +171,19 @@ test("designer bundle inspection rejects mismatched CLI source explicitly", asyn
     assert.match(JSON.parse(res.body).error, /different catalog/);
 });
 
+test("designer bundle inspection accepts a Default catalog bundle", async () => {
+    const handler = createHandler(baseDeps({
+        getState: async () => ({ catalog: { bundles: [{ id: "default-kit", source: "default" }] } }),
+        inspectBundle: async () => ({ source: "default", members: [{ kind: "presets", id: "core-style" }] }),
+    }));
+    const res = mockRes();
+    await handler(mockReq({
+        url: "/api/designer/bundle-members?token=secret-token&id=default-kit&source=default",
+    }), res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), { members: [{ kind: "presets", id: "core-style" }] });
+});
+
 test("returns 401 when token is missing", async () => {
     const h = createHandler(baseDeps());
     const req = mockReq({ method: "GET", url: "/api/state" });

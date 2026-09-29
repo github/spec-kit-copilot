@@ -10,7 +10,7 @@ import {
 import { renderPipelineBanner } from "../ui/phase-runtime.js";
 import { state } from "../ui/state.js";
 
-test("only Copilot and Community items with the exact canvas-design tag are offered", () => {
+test("only bundles also allow Default items with the exact canvas-design tag", () => {
     for (const kind of ["presets", "extensions", "bundles"]) {
         const candidates = [
             { id: "wrong-case", source: "copilot", tags: ["Canvas-Design"] },
@@ -29,7 +29,8 @@ test("only Copilot and Community items with the exact canvas-design tag are offe
             ...candidates,
         ] } };
         const before = structuredClone(snapshot);
-        assert.deepEqual(canvasDesignEntries(snapshot, kind), candidates.slice(-2));
+        assert.deepEqual(canvasDesignEntries(snapshot, kind),
+            kind === "bundles" ? [snapshot.catalog[kind][0], ...candidates.slice(-2)] : candidates.slice(-2));
         assert.deepEqual(snapshot, before);
         assert.deepEqual(canvasDesignEntries({}, kind), []);
         assert.deepEqual(canvasDesignEntries({ catalog: { [kind]: null } }, kind), []);
@@ -109,9 +110,9 @@ test("dialog shows empty states while never launching", () => {
         assert.match(root.innerHTML, /leaving the wizard's configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /leaving this project's workflow configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /settings, appearance, and generation behavior/);
-        assert.match(root.innerHTML, /No presets available in the Copilot or Community catalogs/);
-        assert.match(root.innerHTML, /No extensions available in the Copilot or Community catalogs/);
-        assert.match(root.innerHTML, /No bundles available in the Copilot or Community catalogs/);
+        assert.match(root.innerHTML, /No presets tagged canvas-design are available/);
+        assert.match(root.innerHTML, /No extensions tagged canvas-design are available/);
+        assert.match(root.innerHTML, /No bundles tagged canvas-design are available/);
         assert.match(root.innerHTML, /designer-submit" disabled aria-label="Launch designer \(not available yet\)"/);
         assert.doesNotMatch(root.innerHTML, /Canvas generator \(required\)|data-designer-kind=/);
         assert.deepEqual(currentCanvasDesignerSelections(), freshCanvasDesignerSelections());

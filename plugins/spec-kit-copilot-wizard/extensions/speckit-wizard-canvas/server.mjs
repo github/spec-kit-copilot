@@ -155,7 +155,7 @@ export function createHandler(deps) {
                 const id = url.searchParams.get("id");
                 const source = url.searchParams.get("source");
                 if (!id || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
-                    || !["community", "copilot"].includes(source)) {
+                    || !["default", "community", "copilot"].includes(source)) {
                     return jsonError(res, 400, "invalid bundle id or source");
                 }
                 const snapshot = await getState();

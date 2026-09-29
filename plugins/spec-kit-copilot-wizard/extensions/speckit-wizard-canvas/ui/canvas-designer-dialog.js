@@ -12,7 +12,8 @@ let restoreFocus = null;
 export function canvasDesignEntries(snapshot, kind) {
     const items = snapshot?.catalog?.[kind];
     return (Array.isArray(items) ? items : []).filter((item) =>
-        item?.id && ["community", "copilot"].includes(item.source)
+        item?.id && (["community", "copilot"].includes(item.source)
+            || (kind === "bundles" && item.source === "default"))
         && Array.isArray(item.tags) && item.tags.includes("canvas-design"));
 }
 
@@ -50,7 +51,7 @@ function renderChoices(snapshot, kind, label) {
             <input type="checkbox" data-designer-kind="${kind}" data-designer-index="${index}">
             <span class="designer-choice-text"><strong>${escapeHtml(item.name ?? item.id)}</strong><small>${escapeHtml(item.id)}${item.version ? ` · v${escapeHtml(item.version)}` : ""}</small><small class="designer-included-by" hidden></small></span>
             <span class="badge source designer-source-tag">${escapeHtml((item.source ?? "default").replace(/^./, (c) => c.toUpperCase()))}</span>
-        </label>`).join("") : `<p class="wizard-modal-desc">No ${label.toLowerCase()} available in the Copilot or Community catalogs.</p>`}
+        </label>`).join("") : `<p class="wizard-modal-desc">No ${label.toLowerCase()} tagged canvas-design are available.</p>`}
     </fieldset>`;
 }
 
@@ -104,7 +105,7 @@ export function openCanvasDesignerDialog() {
             <header class="wizard-modal-head"><h3 id="designer-title">Canvas designer setup</h3><button type="button" class="wizard-modal-close" aria-label="Close">✕</button></header>
             <div class="wizard-modal-body">
                 <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles to customize the canvas designer's settings and generation behavior. Your selections will be installed in a separate designer session, leaving the wizard's configuration unchanged.</p>
-                <p class="wizard-modal-desc">Choose from the Copilot and Community catalogs.</p>
+                <p class="wizard-modal-desc">Choose from the available catalogs.</p>
                 <p class="designer-error" role="alert" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">
                     ${KINDS.map(([kind, label]) => `<button type="button" class="subtab${kind === "presets" ? " is-active" : ""}" role="tab" aria-selected="${kind === "presets"}" data-designer-tab="${kind}">${label}</button>`).join("")}
