@@ -9,10 +9,11 @@ import { hydrateFromCatalogSources } from "../catalog/shared.mjs";
 import { EXTENSION_CATALOG_URL } from "../catalog/sources.mjs";
 import { bundleSelectionMembers } from "../catalog/bundles.mjs";
 
-test("bundle selection mirrors preset and extension components without treating workflows as choices", () => {
+test("bundle selection mirrors preset and extension components without treating steps or workflows as choices", () => {
     const info = { id: "architecture", source: "community", components: [
         { kind: "extensions", id: "rules" },
         { kind: "presets", id: "gate" },
+        { kind: "steps", id: "review" },
         { kind: "workflows", id: "architect" },
     ] };
     assert.deepEqual(bundleSelectionMembers(info, "architecture"), {
@@ -23,6 +24,9 @@ test("bundle selection mirrors preset and extension components without treating 
     });
     assert.throws(() => bundleSelectionMembers({
         ...info, components: [{ kind: "presets", id: "bad&command" }],
+    }, "architecture"), /unsupported bundle members/);
+    assert.throws(() => bundleSelectionMembers({
+        ...info, components: [{ kind: "unexpected", id: "unknown" }],
     }, "architecture"), /unsupported bundle members/);
 });
 

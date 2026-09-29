@@ -33,7 +33,7 @@ export function bundleSelectionMembers(info, id) {
         id: component.id,
     }));
     if (info.components.some((component) =>
-        !["presets", "extensions", "workflows"].includes(component.kind))
+        !["presets", "extensions", "steps", "workflows"].includes(component.kind))
         || members.some(({ id: memberId }) =>
             typeof memberId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(memberId))) {
         throw new Error(`Specify returned unsupported bundle members for ${id}.`);
