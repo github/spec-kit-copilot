@@ -16,6 +16,7 @@ const snapshot = {
     catalog: {
         presets: [
             { id: "design-preset", name: "Design preset", source: "copilot", tags: ["canvas-design"] },
+            { id: "foreign-preset", name: "Community preset", source: "community", tags: ["canvas-design"] },
             { id: "other-preset", name: "Other preset", source: "copilot", tags: ["other"] },
             { id: "unlisted-preset", name: "Unlisted preset", source: "copilot" },
         ],
@@ -34,6 +35,7 @@ const snapshot = {
 const members = {
     "design-bundle": [
         { kind: "presets", id: "design-preset" },
+        { kind: "presets", id: "foreign-preset" },
         { kind: "presets", id: "unlisted-preset" },
         { kind: "extensions", id: "design-extension" },
     ],

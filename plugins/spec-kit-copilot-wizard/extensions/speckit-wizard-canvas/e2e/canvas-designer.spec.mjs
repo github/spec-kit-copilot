@@ -46,6 +46,7 @@ test("confirms community selection and checks only listed design bundle members"
     await expect(preset).toBeChecked();
     await expect(presets.getByText("Included by bundle: Design bundle")).toBeVisible();
     await expect(presets.getByText("Unlisted preset")).toHaveCount(0);
+    await expect(presets.getByRole("checkbox", { name: /Community preset/ })).not.toBeChecked();
     await preset.uncheck();
     await expect(preset).not.toBeChecked();
     await dialog.getByRole("tab", { name: "Extensions" }).click();

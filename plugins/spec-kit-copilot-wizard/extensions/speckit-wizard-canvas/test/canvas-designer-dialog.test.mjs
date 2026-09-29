@@ -142,7 +142,7 @@ test("bundles check only listed members without locking them; direct choices and
     globalThis.window = { confirm: () => true };
     state.snapshot = { catalog: {
         presets: [
-            { id: "shared", name: "Shared", source: "community", tags: ["canvas-design"] },
+            { id: "shared", name: "Shared", source: "copilot", tags: ["canvas-design"] },
             { id: "hidden", name: "Hidden", source: "copilot" },
         ],
         extensions: [],
@@ -166,7 +166,7 @@ test("bundles check only listed members without locking them; direct choices and
         assert.equal(preset.checked, true);
         assert.equal(preset.disabled, false);
         assert.deepEqual(currentCanvasDesignerSelections().presets,
-            [{ id: "shared", source: "community", approved: true }]);
+            [{ id: "shared", source: "copilot", approved: true }]);
         assert.deepEqual(currentCanvasDesignerSelections().extensions, []);
         assert.doesNotMatch(root.innerHTML, /data-designer-included-kind|extra|Hidden/);
         one.checked = false;
@@ -201,10 +201,63 @@ test("bundles check only listed members without locking them; direct choices and
         assert.equal(preset.disabled, false);
         assert.equal(preset.checked, true);
         assert.deepEqual(currentCanvasDesignerSelections().presets,
-            [{ id: "shared", source: "community", approved: true }]);
+            [{ id: "shared", source: "copilot", approved: true }]);
         preset.checked = false;
         await preset.change();
         assert.deepEqual(currentCanvasDesignerSelections(), freshCanvasDesignerSelections());
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        globalThis.window = previousWindow;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("Copilot bundles do not auto-select a Community member with the same id", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousWindow = globalThis.window;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    let confirmed = false;
+    globalThis.document = document;
+    globalThis.window = { confirm: () => confirmed };
+    state.snapshot = { catalog: {
+        presets: [
+            { id: "shared", name: "Community shared", source: "community", tags: ["canvas-design"] },
+            { id: "same-source", name: "Copilot member", source: "copilot", tags: ["canvas-design"] },
+        ],
+        extensions: [],
+        bundles: [{ id: "kit", name: "Copilot kit", source: "copilot", tags: ["canvas-design"] }],
+    } };
+    globalThis.fetch = async () => ({
+        ok: true,
+        json: async () => ({ members: [
+            { kind: "presets", id: "shared" },
+            { kind: "presets", id: "same-source" },
+        ] }),
+    });
+    try {
+        openCanvasDesignerDialog();
+        const [community, copilot, bundle] = root.inputs;
+        bundle.checked = true;
+        await bundle.change();
+        assert.equal(community.checked, false);
+        assert.equal(community.note.textContent, "");
+        assert.equal(copilot.checked, true);
+        assert.deepEqual(currentCanvasDesignerSelections().presets,
+            [{ id: "same-source", source: "copilot", approved: true }]);
+        community.checked = true;
+        await community.change();
+        assert.equal(community.checked, false);
+        confirmed = true;
+        community.checked = true;
+        await community.change();
+        assert.deepEqual(currentCanvasDesignerSelections().presets, [
+            { id: "shared", source: "community", approved: true },
+            { id: "same-source", source: "copilot", approved: true },
+        ]);
     } finally {
         root.replaceChildren();
         globalThis.document = previousDocument;

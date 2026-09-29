@@ -164,9 +164,7 @@ export function openCanvasDesignerDialog() {
                     if (selections !== dialogSelections) return;
                     bundleMembers.set(key, { bundle: item, members: members.flatMap((member) => {
                         const match = canvasDesignEntries(snapshot, member.kind).find((candidate) =>
-                            candidate.id === member.id && candidate.source === item.source)
-                            ?? canvasDesignEntries(snapshot, member.kind).find((candidate) =>
-                                candidate.id === member.id);
+                            candidate.id === member.id && candidate.source === item.source);
                         return match ? [{ ...member, source: match.source }] : [];
                     }) });
                     for (const member of bundleMembers.get(key).members) {

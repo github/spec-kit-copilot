@@ -62,7 +62,7 @@ the dialog closes and do not install anything in the current project.
 Community selections use the same prominent confirmation warning as
 adding an item from the Catalogs page.
 Selecting a bundle inspects its components without installing it and checks
-matching presets and extensions already listed in the standalone catalogs.
+same-source presets and extensions already listed in the standalone catalogs.
 Those checkboxes remain editable and show which bundle includes them;
 components absent from the standalone catalogs are not listed. Removing a
 bundle releases its selections unless another selected bundle or a direct
