@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
-import { flushClarifications, setViewersDeps } from "../ui/modals.js";
+import { flushClarifications, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -19,11 +19,88 @@ function installLocalStorage() {
     };
 }
 
-describe("modal clarification flushing", () => {
+describe("wizard modals", () => {
     beforeEach(() => {
         installLocalStorage();
         clearClarifications("speckit.plan");
         clearPhaseRunning("speckit.plan");
+    });
+
+    test("community warning preserves Catalogs install copy and supports designer selection", () => {
+        const previousDocument = globalThis.document;
+        const previousWindow = globalThis.window;
+        const trigger = { isConnected: true, focus() { document.activeElement = this; } };
+        const nodes = new Map();
+        const listeners = new Map();
+        const element = () => {
+            const handlers = new Map();
+            return {
+                hidden: false,
+                cloneNode() { return element(); },
+                replaceWith(replacement) {
+                    for (const [id, node] of nodes) if (node === this) nodes.set(id, replacement);
+                },
+                addEventListener(type, handler) { handlers.set(type, handler); },
+                click() { handlers.get("click")?.(); },
+                focus() { document.activeElement = this; },
+            };
+        };
+        for (const id of ["#cim-title-text", "#cim-preset-name", "#cim-kind-word",
+            "#cim-learn-link", "#cim-action", "#cim-destination", "#cim-confirm"]) {
+            nodes.set(id, element());
+        }
+        const cancel = element();
+        const close = element();
+        const modal = {
+            hidden: true,
+            querySelector: (selector) => nodes.get(selector),
+            querySelectorAll: (selector) => selector === "[data-modal-close]"
+                ? [cancel, close] : [nodes.get("#cim-confirm"), cancel, close, nodes.get("#cim-learn-link")],
+        };
+        const document = {
+            activeElement: trigger,
+            getElementById: (id) => id === "community-install-modal" ? modal : null,
+            addEventListener(type, handler) { listeners.set(type, handler); },
+            removeEventListener(type) { listeners.delete(type); },
+        };
+        globalThis.document = document;
+        globalThis.window = { confirm: () => false };
+        let confirmed = 0;
+        let cancelled = 0;
+        try {
+            openCommunityInstallModal({
+                displayName: "Design extension", kind: "extension", designerSession: true,
+                onConfirm: () => confirmed++, onCancel: () => cancelled++,
+            });
+            assert.equal(modal.hidden, false);
+            assert.equal(nodes.get("#cim-title-text").textContent, "Select community extension?");
+            assert.equal(nodes.get("#cim-action").textContent, "You are about to select");
+            assert.equal(nodes.get("#cim-destination").textContent,
+                "This selection will be installed in the launched Canvas designer session.");
+            assert.equal(nodes.get("#cim-confirm").textContent, "Select anyway");
+            assert.equal(nodes.get("#cim-learn-link").href,
+                "https://github.com/github/spec-kit/blob/main/extensions/README.md");
+            listeners.get("keydown")({ key: "Escape", preventDefault() {} });
+            assert.equal(cancelled, 1);
+            assert.equal(modal.hidden, true);
+            assert.equal(document.activeElement, trigger);
+            assert.equal(listeners.size, 0);
+
+            openCommunityInstallModal({
+                displayName: "Catalog bundle", kind: "bundle", onConfirm: () => confirmed++,
+            });
+            assert.equal(nodes.get("#cim-title-text").textContent, "Install community bundle?");
+            assert.equal(nodes.get("#cim-destination").hidden, true);
+            assert.equal(nodes.get("#cim-action").textContent, "You are about to install");
+            assert.equal(nodes.get("#cim-confirm").textContent, "Install anyway");
+            nodes.get("#cim-confirm").click();
+            assert.equal(confirmed, 1);
+            assert.equal(modal.hidden, true);
+            assert.equal(listeners.size, 0);
+        } finally {
+            globalThis.document = previousDocument;
+            globalThis.window = previousWindow;
+        }
     });
 
     test("preserves answers added or edited while flush is in flight", async () => {

@@ -118,6 +118,46 @@
     color: var(--danger-color, #f85149);
     font-size: 13px;
 }
+.designer-modal {
+    background: var(--background-color-default);
+}
+.designer-modal .wizard-modal-foot {
+    background: var(--background-color-elevated);
+}
+.designer-group {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.designer-group[hidden] { display: none; }
+.designer-tabs { flex: none; margin: 2px 0 0; }
+.designer-group legend {
+    margin-bottom: 6px;
+    color: var(--text-color-default);
+    font-size: 13px;
+    font-weight: 600;
+}
+.designer-choice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border-color-default);
+    font-size: 13px;
+    cursor: pointer;
+}
+.designer-choice input { flex: none; }
+.designer-choice-text { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow-wrap: anywhere; }
+.designer-choice-text small { color: var(--text-color-muted); }
+.designer-choice input:disabled { cursor: not-allowed; }
+.designer-error { color: var(--text-color-danger, #cf222e); font-size: 13px; margin: 0; }
+.designer-error[hidden], .designer-included-by[hidden] { display: none; }
+.designer-source-tag { flex: none; }
+@media (max-width: 420px) {
+    .designer-tabs { width: 100%; }
+    .designer-tabs .subtab { flex: 1; min-width: 0; padding: 0.5rem 0.25rem; font-size: 12px; }
+}
 
 /* ==========================================================================
    Artifact viewer overlay

@@ -6,9 +6,13 @@
     "description": "Copilot canvas extension: dynamic, preset-driven Spec Kit wizard.",
     "main": "extension.mjs",
     "scripts": {
-        "test": "node --test ./test/*.test.mjs"
+        "test": "node --test ./test/*.test.mjs",
+        "test:e2e": "playwright test"
     },
     "dependencies": {
         "js-yaml": "^5.2.3"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.56.1"
     }
 }

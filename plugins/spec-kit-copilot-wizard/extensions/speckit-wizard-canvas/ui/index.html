@@ -254,12 +254,13 @@
         <div id="community-install-modal" class="modal-backdrop" hidden>
             <div class="modal" role="dialog" aria-labelledby="cim-title" aria-modal="true">
                 <header class="modal-head">
-                    <h3 id="cim-title">Install community item?</h3>
+                    <h3 id="cim-title" class="community-modal-title"><span class="community-warning-icon" aria-hidden="true">⚠</span><span id="cim-title-text">Install community item?</span></h3>
                     <button class="btn-icon modal-close" data-modal-close aria-label="Close">✕</button>
                 </header>
                 <div class="modal-body">
-                    <p>You are about to install <strong id="cim-preset-name"></strong>.</p>
-                    <p class="muted">
+                    <p><span id="cim-action">You are about to install</span> <strong id="cim-preset-name"></strong>.</p>
+                    <p id="cim-destination" hidden></p>
+                    <p class="community-warning">
                         Community <span id="cim-kind-word">items</span> are contributed by third parties and are
                         <strong>not reviewed, audited, or endorsed by GitHub</strong>.
                         Install only if you trust the source.

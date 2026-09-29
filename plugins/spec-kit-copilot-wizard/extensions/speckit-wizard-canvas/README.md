@@ -50,6 +50,38 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
+### Canvas designer setup (first increment)
+
+The **Generate canvas** button in the Phases pipeline header opens the
+**Canvas designer setup** dialog. It offers separate Presets, Extensions,
+and Bundles tabs with source badges and checkboxes for entries tagged
+`canvas-design` in the Copilot and Community catalogs. No eligible items
+are expected in this first increment, so the tabs show empty states until
+those catalogs publish design-time customizations. Selections reset when
+the dialog closes and do not install anything in the current project.
+Community selections use the same prominent confirmation warning as
+adding an item from the Catalogs page.
+Selecting a bundle inspects its components without installing it and checks
+matching presets and extensions already listed in the standalone catalogs.
+Those checkboxes remain editable and show which bundle includes them;
+components absent from the standalone catalogs are not listed. Removing a
+bundle releases its selections unless another selected bundle or a direct
+selection still requires them; an inspection failure is shown in the dialog.
+
+**Launch designer** is deliberately disabled. The dialog does not yet
+create a nested session or dispatch a launch request; this will be wired
+up separately. The Catalogs page continues to install items as before.
+
+### Browser tests
+
+From this extension directory, run `npm ci`, `npx playwright install chromium`,
+then `npm run test:e2e`. The tests start a local Wizard server with fixed
+catalog data; no `specify` installation or live catalog is required.
+`.github/workflows/wizard-e2e.yml` runs them on PRs targeting `main` only
+when the Wizard plugin changes. The check is advisory until branch protection
+is configured separately; its always-present gate can later be made required
+without blocking unrelated PRs on a skipped workflow.
+
 ## Quickstart
 
 > This is a **canvas extension** — it opens in the **GitHub Copilot app**

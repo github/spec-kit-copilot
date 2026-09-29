@@ -49,6 +49,7 @@ import {
 } from "./server/handlers-ops.mjs";
 import { handleNpmDiagnose, handleNpmRetry } from "./server/handlers-deps.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
+import { inspectBundleMembers } from "./catalog/bundles.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_UI_DIR = join(__dirname, "ui");
@@ -83,6 +84,7 @@ export function createHandler(deps) {
         uiDir = DEFAULT_UI_DIR,
         sharedDir = DEFAULT_SHARED_DIR,
         token,
+        inspectBundle = inspectBundleMembers,
     } = deps;
 
     if (!token) throw new Error("createHandler requires deps.token");
@@ -147,6 +149,29 @@ export function createHandler(deps) {
             if (method === "GET" && url.pathname === "/api/state") {
                 const snapshot = await getState();
                 return jsonRes(res, 200, snapshot);
+            }
+
+            if (method === "GET" && url.pathname === "/api/designer/bundle-members") {
+                const id = url.searchParams.get("id");
+                const source = url.searchParams.get("source");
+                if (!id || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
+                    || !["community", "copilot"].includes(source)) {
+                    return jsonError(res, 400, "invalid bundle id or source");
+                }
+                const snapshot = await getState();
+                if (!snapshot?.catalog?.bundles?.some((item) => item.id === id && item.source === source)) {
+                    return jsonError(res, 404, "bundle not in the designer catalog");
+                }
+                const cwd = getInstance()?.workspacePath;
+                if (!cwd) return jsonError(res, 400, "workspace path unavailable");
+                try {
+                    const info = await inspectBundle(id, cwd);
+                    if (info.source !== source) throw new Error(`Bundle ${id} resolved from a different catalog.`);
+                    return jsonRes(res, 200, { members: info.members });
+                } catch (err) {
+                    if (log) await log(`bundle inspection failed: ${err.message}`, "error");
+                    return jsonError(res, 502, err.message);
+                }
             }
 
             if (method === "GET" && url.pathname === "/api/events") {

@@ -34,6 +34,7 @@ export const PRESET_CATALOG_URL = {
 // <download_url>` and no CLI catalog registration is used.
 export const EXTENSION_CATALOG_URL = {
     default: "https://raw.githubusercontent.com/github/spec-kit/main/extensions/catalog.json",
+    copilot: "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json",
     community: "https://raw.githubusercontent.com/github/spec-kit/main/extensions/catalog.community.json",
 };
 
