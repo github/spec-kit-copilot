@@ -46,7 +46,7 @@ function closeDialog() {
 
 function renderChoices(snapshot, kind, label) {
     const items = canvasDesignEntries(snapshot, kind);
-    return `<fieldset class="designer-group" data-designer-panel="${kind}" role="tabpanel" aria-label="${label}" ${kind !== "presets" ? "hidden" : ""}>
+    return `<fieldset class="designer-group" id="designer-panel-${kind}" data-designer-panel="${kind}" role="tabpanel" aria-labelledby="designer-tab-${kind}" ${kind !== "presets" ? "hidden" : ""}>
         ${items.length ? items.map((item, index) => `<label class="designer-choice">
             <input type="checkbox" data-designer-kind="${kind}" data-designer-index="${index}">
             <span class="designer-choice-text"><strong>${escapeHtml(item.name ?? item.id)}</strong><small>${escapeHtml(item.id)}${item.version ? ` · v${escapeHtml(item.version)}` : ""}</small><small class="designer-included-by" hidden></small></span>
@@ -108,7 +108,7 @@ export function openCanvasDesignerDialog() {
                 <p class="wizard-modal-desc">Choose from the available catalogs.</p>
                 <p class="designer-error" role="alert" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">
-                    ${KINDS.map(([kind, label]) => `<button type="button" class="subtab${kind === "presets" ? " is-active" : ""}" role="tab" aria-selected="${kind === "presets"}" data-designer-tab="${kind}">${label}</button>`).join("")}
+                    ${KINDS.map(([kind, label]) => `<button type="button" id="designer-tab-${kind}" class="subtab${kind === "presets" ? " is-active" : ""}" role="tab" aria-selected="${kind === "presets"}" aria-controls="designer-panel-${kind}" tabindex="${kind === "presets" ? "0" : "-1"}" data-designer-tab="${kind}">${label}</button>`).join("")}
                 </nav>
                 ${KINDS.map(([kind, label]) => renderChoices(snapshot, kind, label)).join("")}
             </div>
@@ -120,16 +120,32 @@ export function openCanvasDesignerDialog() {
     root.querySelector(".designer-backdrop").addEventListener("click", (event) => {
         if (event.target === event.currentTarget) closeDialog();
     });
-    root.querySelectorAll("[data-designer-tab]").forEach((tab) => tab.addEventListener("click", () => {
-        root.querySelectorAll("[data-designer-tab]").forEach((entry) => {
+    const tabs = [...root.querySelectorAll("[data-designer-tab]")];
+    const activateTab = (tab) => {
+        tabs.forEach((entry) => {
             const active = entry === tab;
             entry.classList.toggle("is-active", active);
             entry.setAttribute("aria-selected", String(active));
+            entry.setAttribute("tabindex", active ? "0" : "-1");
         });
         root.querySelectorAll("[data-designer-panel]").forEach((panel) => {
             panel.hidden = panel.dataset.designerPanel !== tab.dataset.designerTab;
         });
-    }));
+    };
+    tabs.forEach((tab, index) => {
+        tab.addEventListener("click", () => activateTab(tab));
+        tab.addEventListener("keydown", (event) => {
+            let target;
+            if (event.key === "ArrowRight") target = (index + 1) % tabs.length;
+            else if (event.key === "ArrowLeft") target = (index - 1 + tabs.length) % tabs.length;
+            else if (event.key === "Home") target = 0;
+            else if (event.key === "End") target = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            activateTab(tabs[target]);
+            tabs[target].focus();
+        });
+    });
     root.querySelectorAll("[data-designer-kind]").forEach((input) => input.addEventListener("change", async () => {
         if (confirming || input.disabled) return;
         const dialogSelections = selections;
@@ -141,16 +157,27 @@ export function openCanvasDesignerDialog() {
         error.textContent = "";
         if (input.checked && (item.installAllowed === false || item.source === "community")) {
             confirming = true;
+            const backdrop = root.querySelector(".designer-backdrop");
+            const restoreBackdrop = () => {
+                backdrop.removeAttribute("aria-hidden");
+                backdrop.inert = false;
+            };
             let approved;
             try {
                 approved = await new Promise((resolve) => openCommunityInstallModal({
                     displayName: item.name ?? item.id,
                     kind: kind.slice(0, -1),
                     designerSession: true,
+                    afterFocus: () => {
+                        backdrop.inert = true;
+                        backdrop.setAttribute("aria-hidden", "true");
+                    },
+                    beforeRestoreFocus: restoreBackdrop,
                     onConfirm: () => resolve(true),
                     onCancel: () => resolve(false),
                 }));
             } finally {
+                restoreBackdrop();
                 confirming = false;
             }
             if (selections !== dialogSelections) return;
@@ -159,6 +186,7 @@ export function openCanvasDesignerDialog() {
         if (kind === "bundles") {
             const key = `${item.source}:${item.id}`;
             if (input.checked) {
+                const restoreInputFocus = document.activeElement === input;
                 input.disabled = true;
                 try {
                     const members = await inspectBundle(item);
@@ -176,10 +204,13 @@ export function openCanvasDesignerDialog() {
                     input.checked = false;
                     error.textContent = `Could not inspect ${item.name ?? item.id}: ${err.message}`;
                     error.hidden = false;
-                    input.focus();
                     return;
                 } finally {
                     input.disabled = false;
+                    if (restoreInputFocus && input.isConnected
+                        && (document.activeElement === document.body || document.activeElement === input)) {
+                        input.focus();
+                    }
                 }
             } else {
                 bundleMembers.delete(key);

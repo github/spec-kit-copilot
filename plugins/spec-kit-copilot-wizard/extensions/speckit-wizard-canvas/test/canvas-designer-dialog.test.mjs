@@ -40,14 +40,21 @@ test("only bundles also allow Default items with the exact canvas-design tag", (
 
 function fakeElement(dataset = {}) {
     const handlers = {};
+    const attributes = new Map();
     return {
-        dataset, checked: false, disabled: false, hidden: false, textContent: "",
+        dataset, checked: false, disabled: false, hidden: false, inert: false, textContent: "",
         isConnected: true, classList: { toggle() {} },
         addEventListener(type, callback) { handlers[type] = callback; },
         click() { handlers.click?.({ target: this, currentTarget: this }); },
         change() { return handlers.change?.({ target: this }); },
-        keydown(key) { handlers.keydown?.({ key, preventDefault() {} }); },
-        setAttribute() {},
+        keydown(key) {
+            const event = { key, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+            handlers.keydown?.(event);
+            return event;
+        },
+        setAttribute(name, value) { attributes.set(name, value); },
+        getAttribute(name) { return attributes.get(name) ?? null; },
+        removeAttribute(name) { attributes.delete(name); },
         focus() { globalThis.document.activeElement = this; },
     };
 }
@@ -133,6 +140,44 @@ test("dialog shows empty states while never launching", () => {
     }
 });
 
+test("designer tabs use roving focus and activate panels with arrow, Home, and End keys", () => {
+    const previousDocument = globalThis.document;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { catalog: { presets: [], extensions: [], bundles: [] } };
+    try {
+        openCanvasDesignerDialog();
+        const [presets, extensions, bundles] = root.tabs;
+        assert.match(root.innerHTML, /role="tab" aria-selected="true" aria-controls="designer-panel-presets" tabindex="0"/);
+        assert.match(root.innerHTML, /role="tab" aria-selected="false" aria-controls="designer-panel-extensions" tabindex="-1"/);
+        assert.match(root.innerHTML, /role="tabpanel" aria-labelledby="designer-tab-bundles"/);
+        assert.equal(presets.keydown("ArrowRight").defaultPrevented, true);
+        assert.equal(document.activeElement, extensions);
+        assert.equal(extensions.getAttribute("tabindex"), "0");
+        assert.equal(presets.getAttribute("tabindex"), "-1");
+        assert.equal(root.panels[1].hidden, false);
+        assert.equal(root.panels[0].hidden, true);
+        assert.equal(extensions.keydown("End").defaultPrevented, true);
+        assert.equal(document.activeElement, bundles);
+        assert.equal(bundles.getAttribute("aria-selected"), "true");
+        assert.equal(bundles.keydown("ArrowRight").defaultPrevented, true);
+        assert.equal(document.activeElement, presets);
+        assert.equal(presets.keydown("ArrowLeft").defaultPrevented, true);
+        assert.equal(document.activeElement, bundles);
+        assert.equal(bundles.keydown("Home").defaultPrevented, true);
+        assert.equal(document.activeElement, presets);
+        assert.equal(presets.keydown("Space").defaultPrevented, false);
+        bundles.click();
+        assert.equal(bundles.getAttribute("tabindex"), "0");
+        assert.equal(presets.getAttribute("tabindex"), "-1");
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        state.snapshot = previousSnapshot;
+    }
+});
+
 test("bundles check only listed members without locking them; direct choices and overlaps survive removal", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
@@ -164,6 +209,7 @@ test("bundles check only listed members without locking them; direct choices and
         const [preset, one, two] = root.inputs;
         one.checked = true;
         await one.change();
+        assert.equal(root.querySelector(".designer-backdrop").inert, false);
         assert.equal(preset.checked, true);
         assert.equal(preset.disabled, false);
         assert.deepEqual(currentCanvasDesignerSelections().presets,

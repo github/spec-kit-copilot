@@ -29,7 +29,12 @@ describe("wizard modals", () => {
     test("community warning preserves Catalogs install copy and supports designer selection", () => {
         const previousDocument = globalThis.document;
         const previousWindow = globalThis.window;
-        const trigger = { isConnected: true, focus() { document.activeElement = this; } };
+        const backdrop = { inert: false, ariaHidden: false };
+        const trigger = { isConnected: true, focus() {
+            assert.equal(backdrop.inert, false);
+            assert.equal(backdrop.ariaHidden, false);
+            document.activeElement = this;
+        } };
         const nodes = new Map();
         const listeners = new Map();
         const element = () => {
@@ -70,9 +75,17 @@ describe("wizard modals", () => {
         try {
             openCommunityInstallModal({
                 displayName: "Design extension", kind: "extension", designerSession: true,
+                afterFocus: () => {
+                    assert.equal(document.activeElement, nodes.get("#cim-confirm"));
+                    backdrop.inert = true;
+                    backdrop.ariaHidden = true;
+                },
+                beforeRestoreFocus: () => { backdrop.inert = false; backdrop.ariaHidden = false; },
                 onConfirm: () => confirmed++, onCancel: () => cancelled++,
             });
             assert.equal(modal.hidden, false);
+            assert.equal(backdrop.inert, true);
+            assert.equal(backdrop.ariaHidden, true);
             assert.equal(nodes.get("#cim-title-text").textContent, "Select community extension?");
             assert.equal(nodes.get("#cim-action").textContent, "You are about to select");
             assert.equal(nodes.get("#cim-destination").textContent,
@@ -87,6 +100,18 @@ describe("wizard modals", () => {
             assert.equal(listeners.size, 0);
 
             openCommunityInstallModal({
+                displayName: "Design extension", kind: "extension", designerSession: true,
+                afterFocus: () => { backdrop.inert = true; backdrop.ariaHidden = true; },
+                beforeRestoreFocus: () => { backdrop.inert = false; backdrop.ariaHidden = false; },
+                onConfirm: () => confirmed++, onCancel: () => cancelled++,
+            });
+            nodes.get("#cim-confirm").click();
+            assert.equal(confirmed, 1);
+            assert.equal(document.activeElement, trigger);
+            assert.equal(backdrop.inert, false);
+            assert.equal(backdrop.ariaHidden, false);
+
+            openCommunityInstallModal({
                 displayName: "Catalog bundle", kind: "bundle", onConfirm: () => confirmed++,
             });
             assert.equal(nodes.get("#cim-title-text").textContent, "Install community bundle?");
@@ -94,7 +119,7 @@ describe("wizard modals", () => {
             assert.equal(nodes.get("#cim-action").textContent, "You are about to install");
             assert.equal(nodes.get("#cim-confirm").textContent, "Install anyway");
             nodes.get("#cim-confirm").click();
-            assert.equal(confirmed, 1);
+            assert.equal(confirmed, 2);
             assert.equal(modal.hidden, true);
             assert.equal(listeners.size, 0);
         } finally {

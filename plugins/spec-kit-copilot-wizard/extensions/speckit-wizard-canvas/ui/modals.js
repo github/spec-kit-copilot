@@ -275,7 +275,10 @@ export function confirmModal(message, { confirmLabel = "Remove", cancelLabel = "
 // (non-GitHub) presets and extensions. Falls back to window.confirm if
 // the HTML shell for the modal isn't present in the DOM.
 
-export function openCommunityInstallModal({ displayName, onConfirm, onCancel = () => {}, kind, designerSession = false }) {
+export function openCommunityInstallModal({
+    displayName, onConfirm, onCancel = () => {}, kind, designerSession = false,
+    afterFocus = () => {}, beforeRestoreFocus = () => {},
+}) {
     const kindWord = ["extension", "bundle"].includes(kind) ? kind : "preset";
     const learnHref = kind === "extension"
         ? "https://github.com/github/spec-kit/blob/main/extensions/README.md"
@@ -285,7 +288,9 @@ export function openCommunityInstallModal({ displayName, onConfirm, onCancel = (
     if (!modal) {
         const action = designerSession ? "Select" : "Install";
         const destination = designerSession ? " It will only be installed in the launched Canvas designer session." : "";
-        if (window.confirm(`${action} community ${kindWord} "${displayName}"?${destination}\n\nCommunity ${kindWord}s are contributed by third parties and are not reviewed, audited, or endorsed by GitHub. Install only if you trust the source.`)) onConfirm();
+        const approved = window.confirm(`${action} community ${kindWord} "${displayName}"?${destination}\n\nCommunity ${kindWord}s are contributed by third parties and are not reviewed, audited, or endorsed by GitHub. Install only if you trust the source.`);
+        beforeRestoreFocus();
+        if (approved) onConfirm();
         else onCancel();
         return;
     }
@@ -312,6 +317,7 @@ export function openCommunityInstallModal({ displayName, onConfirm, onCancel = (
     const close = (confirmed) => {
         modal.hidden = true;
         document.removeEventListener("keydown", escHandler);
+        beforeRestoreFocus();
         if (previousFocus?.isConnected) previousFocus.focus();
         if (confirmed) onConfirm();
         else onCancel();
@@ -340,6 +346,7 @@ export function openCommunityInstallModal({ displayName, onConfirm, onCancel = (
     };
     document.addEventListener("keydown", escHandler);
     newOk.focus();
+    afterFocus();
 }
 
 
