@@ -331,11 +331,15 @@ class CanvasDesignPackageTests(unittest.TestCase):
             extensions = root / "spec-kit-extensions"
             shutil.copytree(PACKAGE, extensions / "canvas-design")
             package = extensions / "sample-extension"
-            package.mkdir()
+            shutil.copytree(PACKAGE, package)
             manifest = copy.deepcopy(self.manifest)
             manifest["extension"].update(id="sample-extension", name="Sample Extension", version="1.2.3")
+            manifest["provides"]["config"] = [
+                {"name": "sample-config.yml", "template": "config-template.yml"},
+            ]
             (package / "extension.yml").write_text(yaml.safe_dump(manifest), "utf-8")
             (package / "README.md").write_text("Sample extension", "utf-8")
+            (package / "config-template.yml").write_text("enabled: true\n", "utf-8")
             catalog = copy.deepcopy(self.catalog)
             entry = copy.deepcopy(catalog["extensions"]["canvas-design"])
             tag = "extension/sample-extension/v1.2.3"
@@ -379,11 +383,47 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual({path.stem for path in root.glob("*.zip")}, set(expected_ids))
                     with ZipFile(root / "sample-extension.zip") as archive:
-                        self.assertEqual(set(archive.namelist()), {"extension.yml", "README.md"})
+                        self.assertEqual(set(archive.namelist()), FILES | {"config-template.yml"})
                         for name in archive.namelist():
                             self.assertEqual(archive.read(name), (package / name).read_bytes())
                     for path in root.glob("*.zip"):
                         path.unlink()
+
+    def test_packaging_rejects_invalid_declared_files(self):
+        cases = [
+            ("commands", "file", "commands/load-page.md", "missing"),
+            ("templates", "file", "pages/setup.json", "missing"),
+            ("config", "template", "config-template.yml", "missing"),
+            ("commands", "file", "commands/load-page.md", "directory"),
+            ("templates", "file", "../outside.json", "outside"),
+            ("commands", "file", None, "invalid"),
+        ]
+        for kind, field, name, problem in cases:
+            with self.subTest(kind=kind, name=name, problem=problem), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                package = root / "spec-kit-extensions/sample-extension"
+                shutil.copytree(PACKAGE, package)
+                manifest = copy.deepcopy(self.manifest)
+                manifest["extension"]["id"] = "sample-extension"
+                manifest["provides"] = {kind: [{"name": "sample", field: name}]}
+                (package / "extension.yml").write_text(yaml.safe_dump(manifest), "utf-8")
+                if problem in ("missing", "directory"):
+                    path = package / name
+                    if path.is_file():
+                        path.unlink()
+                    if problem == "directory":
+                        path.mkdir()
+                elif problem == "outside":
+                    (package / name).write_text("{}", "utf-8")
+                result = subprocess.run(
+                    [sys.executable, "-c", self.workflow_python("Create extension ZIP")],
+                    cwd=root, env=dict(os.environ, EXTENSION_IDS='["sample-extension"]'),
+                    capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"Declared {kind} {field} is not a regular package file", result.stderr)
+                self.assertIn(repr(name), result.stderr)
+                self.assertFalse((root / "sample-extension.zip").exists())
 
     def test_release_triggers_and_permissions(self):
         triggers = self.workflow["on"]

@@ -130,20 +130,34 @@ jobs:
           python - <<'PY'
           import json
           import os
-          from pathlib import Path
+          from pathlib import Path, PurePosixPath
           from zipfile import ZIP_DEFLATED, ZipFile
+          import yaml
 
           for extension_id in json.loads(os.environ["EXTENSION_IDS"]):
               package = Path("spec-kit-extensions") / extension_id
               files = {}
+              for path in sorted(package.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(f"Cannot package symlink: {path}")
+                  if path.is_file():
+                      files[path.relative_to(package).as_posix()] = path
+              with open(package / "extension.yml") as source:
+                  manifest = yaml.safe_load(source)
+              for kind, declarations in manifest.get("provides", {}).items():
+                  for declaration in declarations:
+                      for field in ("file", "template"):
+                          if field not in declaration:
+                              continue
+                          name = declaration[field]
+                          if not isinstance(name, str) or PurePosixPath(name).as_posix() not in files:
+                              raise SystemExit(
+                                  f"Declared {kind} {field} is not a regular package file: "
+                                  f"{extension_id}/{name!r}"
+                              )
               with ZipFile(f"{extension_id}.zip", "w", ZIP_DEFLATED) as archive:
-                  for path in sorted(package.rglob("*")):
-                      if path.is_symlink():
-                          raise SystemExit(f"Cannot package symlink: {path}")
-                      if path.is_file():
-                          name = path.relative_to(package).as_posix()
-                          files[name] = path
-                          archive.write(path, name)
+                  for name, path in files.items():
+                      archive.write(path, name)
               with ZipFile(f"{extension_id}.zip") as archive:
                   if archive.namelist() != list(files) or archive.testzip() is not None:
                       raise SystemExit(f"Invalid release archive: {extension_id}")

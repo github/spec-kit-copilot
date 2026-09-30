@@ -48,6 +48,10 @@ and publishes `<extension-id>.zip`. The extension must have an `extension.yml`
 and a matching entry in this directory's `catalog.json`; no workflow edit is
 needed when adding another extension.
 
+Packaging rejects missing or non-file assets declared under `provides`,
+including command files, templates, and configuration templates. The ZIP is
+verified against the complete package file inventory before a tag is created.
+
 Direct pushes of `extension/<extension-id>/vX.Y.Z` tags run the same publisher
 for that extension. Pull requests and relevant pushes to `main` validate and
 package every extension directory containing `extension.yml`; they do not
