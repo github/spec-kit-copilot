@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spec Kit Canvas Designer</title>
+    <link rel="stylesheet" href="/ui/styles.css?token=__TOKEN__">
+    <script type="module" src="/ui/app.js?token=__TOKEN__"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand"><span class="brand-mark">S</span><span class="brand-text">Spec Kit Canvas Designer</span></div>
+        <div class="toolbar-actions">
+            <button type="button" id="save-settings" disabled title="Saving is not available yet">Save</button>
+            <button type="button" id="generate-canvas" class="primary" disabled title="Generation is not available yet">Generate</button>
+            <button type="button" id="theme-toggle" class="btn-icon" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+            <span id="conn-status" class="conn conn-connecting" role="status">Connecting</span>
+        </div>
+        <nav class="tabs" role="tablist" aria-label="Designer pages"></nav>
+    </header>
+    <main class="app-body">
+        <p id="page-error" role="alert" tabindex="-1" hidden></p>
+        <section id="settings-page" role="tabpanel" aria-busy="true"><h1>Loading settings...</h1></section>
+        <p class="settings-note availability-note">Settings are temporary. Saving and generation are not available yet.</p>
+    </main>
+</body>
+</html>

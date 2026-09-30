@@ -1,6 +1,7 @@
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
 import { readHandoff } from "./handoff.mjs";
 import { startShell } from "./server.mjs";
+import { loadPreparedPages } from "./pages.mjs";
 
 const servers = new Map();
 
@@ -8,7 +9,7 @@ const session = await joinSession({
     canvases: [createCanvas({
         id: "speckit-canvas-designer",
         displayName: "Spec Kit Canvas Designer",
-        description: "Open the Designer shell, optionally with a validated Wizard handoff.",
+        description: "Open the Designer shell, or load registered pages for a prepared Wizard handoff.",
         inputSchema: {
             type: "object", additionalProperties: false,
             properties: { handoffId: {
@@ -29,10 +30,16 @@ const session = await joinSession({
             if (previous && previous.handoffId === handoffId) {
                 return { title: "Spec Kit Canvas Designer", url: previous.url };
             }
-            const next = await startShell(handoff);
-            servers.set(ctx.instanceId, { ...next, handoffId });
-            if (previous) await previous.close();
-            return { title: "Spec Kit Canvas Designer", url: next.url };
+            try {
+                const model = handoff
+                    ? await loadPreparedPages(handoff, session.workspacePath, process.cwd()) : null;
+                const next = await startShell(handoff, model);
+                servers.set(ctx.instanceId, { ...next, handoffId });
+                if (previous) await previous.close();
+                return { title: "Spec Kit Canvas Designer", url: next.url };
+            } catch (error) {
+                throw new CanvasError("designer_open_failed", error.message);
+            }
         },
         onClose: async ({ instanceId }) => {
             const entry = servers.get(instanceId);

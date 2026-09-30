@@ -8,15 +8,20 @@ import { buildDesignerHandoff, buildDesignerLaunchPrompt,
     validateDesignerSelections } from "../server/handlers-designer.mjs";
 import { fingerprint, readHandoff, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
+import { readDesignSource } from "../../speckit-canvas-designer/source.mjs";
 
+const requiredExtension = await readDesignSource();
+const required = { id: "canvas-design", source: "copilot", approved: true,
+    version: requiredExtension.version, downloadUrl: null };
 const catalog = {
     designerFingerprint: "catalog-v1",
+    designerSource: { available: true, extension: requiredExtension },
     presets: [{ id: "theme", source: "copilot", tags: ["canvas-design"],
         version: "1.0.0", downloadUrl: "https://example.org/theme.zip" }],
     extensions: [], bundles: [],
 };
 const snapshot = { pipeline: [{ id: "commands/plan" }], catalog };
-const empty = { presets: [], extensions: [], bundles: [] };
+const empty = { presets: [], extensions: [required], bundles: [] };
 
 function fixture(overrides = {}) {
     const sent = [];
@@ -49,7 +54,9 @@ function fixture(overrides = {}) {
     return { post, sent, errors, inst, setSnapshot: (value) => { current = value; } };
 }
 const request = (selections = empty) => ({
-    selections, catalogFingerprint: "catalog-v1", expectedPhases: ["plan"],
+    selections: Object.fromEntries(Object.entries(selections).map(([kind, items]) =>
+        [kind, items.map(({ id, source, approved }) => ({ id, source, approved }))])),
+    catalogFingerprint: "catalog-v1", expectedPhases: ["plan"],
 });
 
 test("Designer fingerprint tracks tagged catalog entries, not unrelated active composition", () => {
@@ -62,26 +69,28 @@ test("Designer fingerprint tracks tagged catalog entries, not unrelated active c
         presets: [{ ...catalog.presets[0], downloadUrl: "https://example.org/changed.zip" }] }));
     assert.equal(original, designerCatalogFingerprint({ ...catalog,
         presets: [...catalog.presets, { id: "unrelated", source: "copilot", tags: [] }] }));
+    assert.notEqual(original, designerCatalogFingerprint({ ...catalog,
+        designerSource: { available: false, error: "Source missing" } }));
 });
 
-test("empty selections produce a complete immutable inline handoff and one queued launch", async () => {
+test("required-only selections produce a complete immutable inline handoff and one queued launch", async () => {
     const { post, sent } = fixture();
     const response = await post(request());
     assert.equal(response.statusCode, 202);
     assert.deepEqual(response.body, { queued: true });
     assert.equal(sent.length, 1);
     assert.match(sent[0].prompt, /no base_branch \(the project default\)/);
-    assert.match(sent[0].prompt, /Do not install any selected presets/);
     assert.match(sent[0].prompt, /provider ships with the installed spec-kit-copilot-wizard plugin/);
     assert.match(sent[0].prompt, /list_canvas_capabilities\(\{canvasId:"speckit-canvas-designer"\}\)/);
-    assert.doesNotMatch(sent[0].prompt, /bootstrap\.mjs|\.github\/extensions\//);
+    assert.doesNotMatch(sent[0].prompt, /\.github\/extensions\//);
+    assert.match(sent[0].prompt, /installs the required Canvas Design extension and all approved presets/);
     assert.match(sent[0].prompt, /handoff\.json under YOUR session-state artifacts/);
     const json = sent[0].prompt.match(/\nHANDOFF_JSON:\n([^\n]+)\nEND_HANDOFF_JSON\n/)[1];
     const handoff = JSON.parse(json);
     assert.deepEqual(handoff.selections, empty);
     assert.deepEqual(handoff.workflow.selectedPhases, ["plan"]);
     assert.equal(handoff.sourceFingerprint, fingerprint({
-        workflow: handoff.workflow, selections: handoff.selections,
+        workflow: handoff.workflow, selections: handoff.selections, requiredExtension,
     }));
     assert.deepEqual(validateHandoff(handoff, handoff.handoffId), handoff);
     assert.equal(buildDesignerLaunchPrompt(handoff).includes(json), true);
@@ -92,7 +101,7 @@ test("empty selections produce a complete immutable inline handoff and one queue
 
 test("selected catalog entries are validated and normalized from the server's catalog", async () => {
     const selection = { presets: [{ id: "theme", source: "copilot", approved: true }],
-        extensions: [], bundles: [] };
+        extensions: [{ id: "canvas-design", source: "copilot", approved: true }], bundles: [] };
     const normalized = validateDesignerSelections(selection, catalog);
     assert.deepEqual(normalized.presets[0], { id: "theme", source: "copilot",
         approved: true, version: "1.0.0", downloadUrl: "https://example.org/theme.zip" });
@@ -102,12 +111,16 @@ test("selected catalog entries are validated and normalized from the server's ca
         .selections.presets, normalized.presets);
     for (const invalid of [
         { ...selection, presets: [...selection.presets, selection.presets[0]] },
-        { ...selection, presets: [{ ...selection.presets[0], downloadUrl: "https://evil.invalid" }] },
         { ...selection, presets: [{ id: "unknown", source: "copilot", approved: true }] },
         { ...selection, presets: [{ ...selection.presets[0], approved: false }] },
     ]) {
         assert.equal((await post(request(invalid))).statusCode, 422);
     }
+    assert.equal((await post({ ...request(selection), selections: {
+        ...selection, presets: [{ ...selection.presets[0], downloadUrl: "https://evil.invalid" }],
+    } })).statusCode, 422);
+    assert.equal((await post({ ...request(), selections: { presets: [], extensions: [], bundles: [] } }))
+        .statusCode, 422);
 });
 
 test("stale, unauthenticated and unavailable requests never acknowledge launch", async () => {
@@ -117,6 +130,13 @@ test("stale, unauthenticated and unavailable requests never acknowledge launch",
     assert.equal((await post({ ...request(), expectedPhases: [] })).statusCode, 409);
     assert.equal(sent.length, 0);
     setSnapshot({ ...snapshot, catalog: { ...catalog, designerFingerprint: "new" } });
+    assert.equal((await post(request())).statusCode, 409);
+    assert.equal(sent.length, 0);
+    setSnapshot({ ...snapshot, catalog: { ...catalog,
+        designerSource: { available: false, error: "Required source missing" } } });
+    assert.equal((await post(request())).statusCode, 422);
+    setSnapshot({ ...snapshot, catalog: { ...catalog,
+        designerSource: { available: true, extension: { ...requiredExtension, fingerprint: "0".repeat(64) } } } });
     assert.equal((await post(request())).statusCode, 409);
     assert.equal(sent.length, 0);
     const unavailable = fixture({ session: {} });
@@ -177,7 +197,7 @@ test("invalid fingerprints, oversized handoffs and unsafe IDs are rejected", asy
         presets: [{ id: null, source: "copilot", approved: true,
             version: null, downloadUrl: null }] } };
     malformed.sourceFingerprint = fingerprint({
-        workflow: malformed.workflow, selections: malformed.selections,
+        workflow: malformed.workflow, selections: malformed.selections, requiredExtension,
     });
     assert.throws(() => validateHandoff(malformed, handoff.handoffId), /Invalid Designer handoff/);
     await assert.rejects(readHandoff(tmpdir(), "../escape"), /Invalid Designer handoff ID/);

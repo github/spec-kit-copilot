@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,20 +11,25 @@ import {
     validateHandoffId,
 } from "../handoff.mjs";
 import { shellHtml, startShell } from "../server.mjs";
+import { readDesignSource } from "../source.mjs";
 
 const ID = "designer_1";
+const requiredExtension = await readDesignSource();
+const model = { pages: [{ page: "setup", title: "Essentials", fields: [] }],
+    constraints: {}, values: {} };
 
 function validHandoff(id = ID) {
     const workflow = { selectedPhases: ["specify", "plan"] };
     const selections = {
         presets: [{ id: "theme", source: "copilot", approved: true,
             version: "1.2.3", downloadUrl: "https://example.com/theme" }],
-        extensions: [],
+        extensions: [{ id: "canvas-design", source: "copilot", approved: true,
+            version: requiredExtension.version, downloadUrl: null }],
         bundles: [{ id: "starter", source: "default", approved: true,
             version: null, downloadUrl: null }],
     };
-    return { schemaVersion: 1, handoffId: id, workflow, selections,
-        sourceFingerprint: fingerprint({ workflow, selections }) };
+    return { schemaVersion: 2, handoffId: id, workflow, selections, requiredExtension,
+        sourceFingerprint: fingerprint({ workflow, selections, requiredExtension }) };
 }
 
 async function fixture(t) {
@@ -50,7 +55,8 @@ test("handoff validates bounded IDs, shape, URLs and fingerprint", () => {
     const mutate = (change) => {
         const copy = structuredClone(good);
         change(copy);
-        copy.sourceFingerprint = fingerprint({ workflow: copy.workflow, selections: copy.selections });
+        copy.sourceFingerprint = fingerprint({ workflow: copy.workflow, selections: copy.selections,
+            requiredExtension: copy.requiredExtension });
         return copy;
     };
     const invalid = [
@@ -189,11 +195,10 @@ test("handoff rejects a FIFO promptly instead of waiting for a writer", {
     assert.equal(result.status, 0, result.stderr);
 });
 
-test("shell renders counts without echoing handoff content and restricts HTTP access", async (t) => {
+test("prepared Designer serves pages without echoing handoff content and restricts HTTP access", async (t) => {
     const handoff = validHandoff();
-    assert.match(shellHtml(handoff), /2 phases · 2 design customizations queued/);
-    assert.doesNotMatch(shellHtml(handoff), /example\.com|starter|theme/);
-    const shell = await startShell(handoff);
+    await assert.rejects(startShell(handoff), /pages must be resolved/);
+    const shell = await startShell(handoff, model);
     t.after(() => shell.close());
     const url = new URL(shell.url);
     assert.equal(url.hostname, "127.0.0.1");
@@ -203,7 +208,12 @@ test("shell renders counts without echoing handoff content and restricts HTTP ac
     assert.match(good.headers.get("content-type"), /text\/html/);
     assert.equal(good.headers.get("cache-control"), "no-store");
     assert.equal(good.headers.get("x-content-type-options"), "nosniff");
-    assert.match(await good.text(), /Canvas Designer/);
+    const html = await good.text();
+    assert.match(html, /Canvas Designer/);
+    assert.doesNotMatch(html, /example\.com|starter/);
+    const stateUrl = new URL(shell.url);
+    stateUrl.pathname = "/api/state";
+    assert.equal((await (await fetch(stateUrl)).json()).pages[0].title, "Essentials");
     for (const [address, options] of [
         [url.origin, undefined],
         [`${url.origin}/?token=wrong`, undefined],
@@ -247,9 +257,16 @@ test("canvas opens empty without an ID, then opens a validated handoff", async (
     const extension = join(workspace, "provider");
     const sdk = join(extension, "node_modules", "@github", "copilot-sdk");
     await mkdir(sdk, { recursive: true });
-    for (const file of ["extension.mjs", "handoff.mjs", "server.mjs"]) {
+    for (const file of ["extension.mjs", "handoff.mjs", "server.mjs", "source.mjs"]) {
         await copyFile(join(source, file), join(extension, file));
     }
+    await cp(join(source, "ui"), join(extension, "ui"), { recursive: true });
+    await writeFile(join(extension, "pages.mjs"), `
+        export async function loadPreparedPages() {
+            if (!globalThis.__designerTestPrepared) throw new Error("Project is not prepared");
+            return ${JSON.stringify(model)};
+        }
+    `);
     await writeFile(join(sdk, "package.json"), JSON.stringify({
         name: "@github/copilot-sdk", type: "module", exports: { "./extension": "./extension.mjs" },
     }));
@@ -276,11 +293,15 @@ test("canvas opens empty without an ID, then opens a validated handoff", async (
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
             (error) => error.code === "designer_handoff_invalid");
         await saveHandoff(workspace);
+        await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+            (error) => error.code === "designer_open_failed");
+        globalThis.__designerTestPrepared = true;
         const filled = await canvas.open({ instanceId: "same", input: { handoffId: ID } });
         assert.notEqual(filled.url, empty.url);
-        assert.match(await (await fetch(filled.url)).text(), /Wizard handoff received/);
+        assert.match(await (await fetch(filled.url)).text(), /id="settings-page"/);
         assert.equal((await canvas.open({ instanceId: "same", input: { handoffId: ID } })).url, filled.url);
     } finally {
         await canvas.onClose({ instanceId: "same" });
+        delete globalThis.__designerTestPrepared;
     }
 });

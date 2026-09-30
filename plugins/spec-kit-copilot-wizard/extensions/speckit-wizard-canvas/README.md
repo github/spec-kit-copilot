@@ -50,41 +50,55 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
-### Canvas designer setup (first increment)
+### Canvas designer setup
 
 The **Generate canvas** button in the Phases pipeline header opens the
 **Canvas designer setup** dialog. It offers separate Presets, Extensions,
 and Bundles tabs with source badges and checkboxes for entries tagged
 `canvas-design`. Presets and extensions come from the Copilot and Community
 catalogs; bundles come from the available Default and Community catalogs.
-No eligible items are expected in this first increment, so the tabs show
-empty states until those catalogs publish design-time customizations.
+The Extensions tab always includes **Canvas Design**, checked and locked because
+the Designer requires its registered JSON pages. Other entries remain optional.
 Selections reset when the dialog closes and do not install anything in the
 current project.
 Community selections use the same prominent confirmation warning as
 adding an item from the Catalogs page.
 Selecting a bundle inspects its components without installing it and checks
 same-source presets and extensions already listed in the standalone catalogs.
-Those checkboxes remain editable and show which bundle includes them;
+Those checkboxes are checked and locked and show which bundle includes them;
 components absent from the standalone catalogs are not listed. Removing a
 bundle releases its selections unless another selected bundle or a direct
 selection still requires them; an inspection failure is shown in the dialog.
 
 **Launch designer** sends a versioned handoff with the active phase IDs and
-explicit preset, extension, and bundle selections (including empty lists)
+approved preset, extension, and bundle selections, plus the validated required
+extension source, version, and content fingerprint,
 to the Wizard's agent. It creates a nested, app-native **Canvas designer**
 session in the same project, starting from the project's default branch.
-The child stores the handoff in its own session artifacts and opens the
-Designer canvas provider bundled with the installed Wizard plugin. No provider
-files are copied into the child worktree. The
+The child stores the handoff unchanged in its own session artifacts, initializes
+Specify in Copilot skills mode if needed, and installs the required extension and
+approved selections. It verifies the installed inventory and resolves registered
+pages before opening the Designer provider bundled with the installed Wizard plugin.
+No provider files are copied into the child worktree. After skills/extension reload
+it opens Designer. The
 Wizard reports only that launch was queued; child setup and errors appear
 in the child session (dispatch failures appear in the Wizard session log).
 The dialog remains open and interactive after each queued launch so more
 Designer sessions can be requested with the same or different selections;
-each receives its own handoff. Selected design customizations are handed off, **not
-installed yet**; Designer pages and installation support will follow in
-later increments. The current Wizard project remains unchanged. The
+each receives its own handoff. Failed preparation does not open Designer. The current
+Wizard project remains unchanged. The
 Catalogs page continues to install items as before.
+
+The local development source must exist at `spec-kit-extensions/canvas-design`
+alongside the Wizard sources. It is a **Specify extension**, distinct from the
+Copilot canvas provider. Its pages are discovered through `specify artifact list
+--json` and resolved using Specify's preset precedence. The defaults are
+Essentials, Artifacts, Appearance, and Result Badges. Essentials has four text
+fields and the Show slug field checkbox; the other pages are empty placeholders.
+The theme toggle and connection status work; **Save and Generate remain disabled**.
+Edits survive tab changes, not page reloads. See the
+[Canvas Design package](../../../../spec-kit-extensions/canvas-design/README.md)
+for the page contract and package tests.
 
 ### Browser tests
 
@@ -92,9 +106,12 @@ From this extension directory, run `npm ci`, `npx playwright install chromium`,
 then `npm run test:e2e`. The tests start a local Wizard server with fixed
 catalog data; no `specify` installation or live catalog is required.
 `.github/workflows/wizard-e2e.yml` runs them on PRs targeting `main` only
-when the Wizard plugin changes. The check is advisory until branch protection
+when the Wizard plugin or Canvas Design package changes. The check is advisory until branch protection
 is configured separately; its always-present gate can later be made required
 without blocking unrelated PRs on a skipped workflow.
+The workflow also runs the Python page-loader tests and Designer preparation tests
+against Specify. Locally, set `DESIGNER_CLI_TESTS=1` when running the Node tests to
+include real child preparation; the default Node suite uses mocked CLI calls.
 
 ## Quickstart
 

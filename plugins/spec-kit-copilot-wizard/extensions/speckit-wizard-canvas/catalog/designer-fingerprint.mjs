@@ -9,5 +9,7 @@ export function designerCatalogFingerprint(catalog) {
             .map((item) => [kind, item.id, item.source, item.version ?? null,
                 item.downloadUrl ?? null, item.installAllowed !== false]));
     rows.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-    return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+    return createHash("sha256").update(JSON.stringify({
+        rows, designerSource: catalog?.designerSource ?? null,
+    })).digest("hex");
 }

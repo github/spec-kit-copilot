@@ -1,0 +1,33 @@
+schema_version: "1.0"
+
+extension:
+  id: canvas-design
+  name: Canvas Design
+  version: "0.1.0"
+  description: Registered settings pages for the Spec Kit Canvas Designer.
+  category: process
+  author: spec-kit-copilot
+  repository: https://github.com/github/spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  templates:
+    - name: canvas-settings-setup
+      file: pages/setup.json
+      description: Essentials fields for canvas identity and workflow naming.
+    - name: canvas-settings-artifacts
+      file: pages/artifacts.json
+      description: Artifacts settings placeholder.
+    - name: canvas-settings-appearance
+      file: pages/appearance.json
+      description: Appearance settings placeholder.
+    - name: canvas-settings-results
+      file: pages/results.json
+      description: Result Badges settings placeholder.
+  scripts:
+    - name: canvas-design-pages
+      file: scripts/python/pages.py
+      description: Resolve and validate registered Designer JSON pages.

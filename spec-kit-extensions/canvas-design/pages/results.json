@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "title": "Result Badges",
+  "description": "Configure canvas result badges.",
+  "order": 40,
+  "enabled": true,
+  "fields": []
+}

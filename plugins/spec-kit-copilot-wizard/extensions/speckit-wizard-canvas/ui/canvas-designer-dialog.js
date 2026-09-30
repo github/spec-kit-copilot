@@ -4,10 +4,10 @@ import { openCommunityInstallModal } from "./modals.js";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 
 const KINDS = [["presets", "Presets"], ["extensions", "Extensions"], ["bundles", "Bundles"]];
+const DESIGN_EXTENSION = "canvas-design";
 let confirming = false;
 let selections = null;
 let bundleMembers = new Map();
-let deselectedMembers = new Set();
 let restoreFocus = null;
 let inspecting = 0;
 let errorMessage = "";
@@ -50,9 +50,16 @@ function updateLaunch(root) {
     const ready = ["presets", "extensions", "bundles"].every((kind) =>
         Array.isArray(state.snapshot?.catalog?.[kind]))
         && typeof state.snapshot.catalog.designerFingerprint === "string";
-    submit.disabled = Boolean(confirming || inspecting || !ready);
+    const source = state.snapshot?.catalog?.designerSource;
+    submit.disabled = Boolean(confirming || inspecting || !ready || source?.available !== true);
+    root.querySelectorAll("[data-designer-kind]")
+        .forEach((element) => {
+            element.disabled = confirming || element.dataset.inspectionPending === "true"
+                || element.dataset.bundleOwned === "true";
+        });
     const error = root.querySelector(".designer-error");
-    error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching." : "");
+    error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching."
+        : source?.available !== true ? source?.error ?? "Canvas Design source is unavailable." : "");
     error.hidden = !error.textContent;
     const status = root.querySelector(".designer-status");
     status.textContent = queuedCount
@@ -64,13 +71,15 @@ function updateLaunch(root) {
 export function canvasDesignEntries(snapshot, kind) {
     const items = snapshot?.catalog?.[kind];
     return (Array.isArray(items) ? items : []).filter((item) =>
-        item?.id && (["community", "copilot"].includes(item.source)
+        item?.id && !(kind === "extensions" && item.id === DESIGN_EXTENSION)
+        && (["community", "copilot"].includes(item.source)
             || (kind === "bundles" && item.source === "default"))
         && Array.isArray(item.tags) && item.tags.includes("canvas-design"));
 }
 
 export function freshCanvasDesignerSelections() {
-    return { presets: [], extensions: [], bundles: [] };
+    return { presets: [], extensions: [{ id: DESIGN_EXTENSION, source: "copilot", approved: true }],
+        bundles: [] };
 }
 
 export function currentCanvasDesignerSelections() {
@@ -78,8 +87,7 @@ export function currentCanvasDesignerSelections() {
     const result = structuredClone(selections);
     for (const { members } of bundleMembers.values()) {
         for (const { kind, id, source } of members) {
-            if (!deselectedMembers.has(`${kind}:${source}:${id}`)
-                && !result[kind].some((item) => item.id === id && item.source === source)) {
+            if (!result[kind].some((item) => item.id === id && item.source === source)) {
                 result[kind].push({ id, source, approved: true });
             }
         }
@@ -91,7 +99,6 @@ function closeDialog() {
     document.getElementById("wizard-modal-root")?.replaceChildren();
     selections = null;
     bundleMembers = new Map();
-    deselectedMembers = new Set();
     errorMessage = "";
     queuedCount = 0;
     inspecting = 0;
@@ -102,6 +109,11 @@ function closeDialog() {
 function renderChoices(snapshot, kind, label) {
     const items = canvasDesignEntries(snapshot, kind);
     return `<fieldset class="designer-group" id="designer-panel-${kind}" data-designer-panel="${kind}" role="tabpanel" aria-labelledby="designer-tab-${kind}" ${kind !== "presets" ? "hidden" : ""}>
+        ${kind === "extensions" ? `<label class="designer-choice">
+            <input type="checkbox" checked disabled aria-label="Canvas Design (required)">
+            <span class="designer-choice-text"><strong>Canvas Design</strong><small>${DESIGN_EXTENSION}${snapshot?.catalog?.designerSource?.extension?.version ? ` · v${escapeHtml(snapshot.catalog.designerSource.extension.version)}` : ""} · required by Canvas Designer</small></span>
+            <span class="badge source designer-source-tag">Required</span>
+        </label>` : ""}
         ${items.length ? items.map((item, index) => `<label class="designer-choice">
             <input type="checkbox" data-designer-kind="${kind}" data-designer-index="${index}">
             <span class="designer-choice-text"><strong>${escapeHtml(item.name ?? item.id)}</strong><small>${escapeHtml(item.id)}${item.version ? ` · v${escapeHtml(item.version)}` : ""}</small><small class="designer-included-by" hidden></small></span>
@@ -129,7 +141,9 @@ function refreshBundleChoices(root, snapshot) {
             input.title = note.textContent;
             input.checked = selections[kind].some((entry) =>
                 entry.id === item.id && entry.source === item.source)
-                || (!!names.length && !deselectedMembers.has(`${kind}:${item.source}:${item.id}`));
+                || !!names.length;
+            input.dataset.bundleOwned = String(names.length > 0);
+            input.disabled = confirming || names.length > 0;
         });
     }
 }
@@ -154,15 +168,14 @@ export function openCanvasDesignerDialog() {
     restoreFocus = document.activeElement;
     selections = freshCanvasDesignerSelections();
     bundleMembers = new Map();
-    deselectedMembers = new Set();
     errorMessage = "";
     queuedCount = 0;
     root.innerHTML = `<div class="wizard-modal-backdrop designer-backdrop">
         <section class="wizard-modal generation-modal designer-modal" role="dialog" aria-modal="true" aria-labelledby="designer-title" aria-describedby="designer-description">
             <header class="wizard-modal-head"><h3 id="designer-title">Canvas designer setup</h3><button type="button" class="wizard-modal-close" aria-label="Close">✕</button></header>
             <div class="wizard-modal-body">
-                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles for the canvas designer. Your selections are passed to a separate session for future installation; nothing is installed yet, and the wizard's configuration stays unchanged.</p>
-                <p class="wizard-modal-desc">Choose from the available catalogs.</p>
+                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles for the canvas designer. Your selections and the required Canvas Design extension will be installed in a separate session before the designer opens. The wizard's configuration stays unchanged.</p>
+                <p class="wizard-modal-desc">Choose from the available catalogs. Bundle members are included and cannot be unchecked while their bundle is selected.</p>
                 <p class="designer-error" role="alert" hidden></p>
                 <p class="designer-status" role="status" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">
@@ -242,13 +255,15 @@ export function openCanvasDesignerDialog() {
             }
             if (selections !== dialogSelections) return;
             if (!approved) { input.checked = false; input.focus(); return; }
+            input.focus();
         }
         if (kind === "bundles") {
             const key = `${item.source}:${item.id}`;
             if (input.checked) {
-                inspecting += 1;
-                updateLaunch(root);
                 const restoreInputFocus = document.activeElement === input;
+                inspecting += 1;
+                input.dataset.inspectionPending = "true";
+                updateLaunch(root);
                 input.disabled = true;
                 try {
                     const members = await inspectBundle(item);
@@ -258,9 +273,6 @@ export function openCanvasDesignerDialog() {
                             candidate.id === member.id && candidate.source === item.source);
                         return match ? [{ ...member, source: match.source }] : [];
                     }) });
-                    for (const member of bundleMembers.get(key).members) {
-                        deselectedMembers.delete(`${member.kind}:${member.source}:${member.id}`);
-                    }
                 } catch (err) {
                     if (selections !== dialogSelections) return;
                     input.checked = false;
@@ -268,6 +280,7 @@ export function openCanvasDesignerDialog() {
                     updateLaunch(root);
                     return;
                 } finally {
+                    input.dataset.inspectionPending = "false";
                     input.disabled = false;
                     if (selections === dialogSelections) {
                         inspecting -= 1;
@@ -281,10 +294,6 @@ export function openCanvasDesignerDialog() {
             } else {
                 bundleMembers.delete(key);
             }
-        } else {
-            const key = `${kind}:${item.source}:${item.id}`;
-            if (input.checked) deselectedMembers.delete(key);
-            else if (includedBy(kind, item.id, item.source).length) deselectedMembers.add(key);
         }
         selections[kind] = selections[kind].filter((entry) =>
             entry.id !== item.id || entry.source !== item.source);

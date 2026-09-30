@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "title": "Artifacts",
+  "description": "Configure canvas artifacts.",
+  "order": 20,
+  "enabled": true,
+  "fields": []
+}
