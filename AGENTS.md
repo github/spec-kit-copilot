@@ -121,8 +121,6 @@ extensions**, parallel to the preset catalog. Entries must depend on Copilot
 tools or providers; do not import general-purpose extensions or add these packages
 to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
-Canvas Designer discovery uses the exact lowercase `canvas-design` tag; preserve
-it in both the catalog entry and extension manifest alongside the `copilot` tag.
 
 ## When revving the core skills plugin
 
