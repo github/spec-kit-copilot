@@ -70,9 +70,31 @@ components absent from the standalone catalogs are not listed. Removing a
 bundle releases its selections unless another selected bundle or a direct
 selection still requires them; an inspection failure is shown in the dialog.
 
-**Launch designer** is deliberately disabled. The dialog does not yet
-create a nested session or dispatch a launch request; this will be wired
-up separately. The Catalogs page continues to install items as before.
+**Launch designer** sends a versioned handoff with the active phase IDs and
+explicit preset, extension, and bundle selections (including empty lists)
+to the Wizard's agent. Only on launch, the Wizard checks that the official
+`plugin:spec-kit-copilot-wizard:speckit-canvas-designer` extension is running
+in this session and its canvas is registered. If disabled, launching enables
+it only for this session and verifies readiness before queueing. Missing or failed extensions
+and activation errors leave the dialog and selections intact with an error.
+No plugin is installed, global preference changed, or preview canvas substituted.
+Environment checks and opening the dialog never perform this check.
+The launch creates a nested, app-native **Canvas designer**
+session in the same project, starting from the project's default branch.
+The child stores the handoff in its own session artifacts and opens the
+Designer canvas provider bundled with the installed Wizard plugin. No provider
+files are copied into the child worktree. The
+Wizard returns an accepted launch request; child setup and errors appear
+in the child session (dispatch failures appear in the Wizard session log).
+The child writes the handoff and opens the official plugin canvas directly;
+opening fails visibly in the child if its own provider is unavailable. Enabling
+the Wizard session's provider does not enable it in the child session.
+The dialog closes once the launch request is accepted; if a check or request
+fails, it stays open with selections intact and shows the error. Selected
+design customizations are handed off, **not
+installed yet**; Designer pages and installation support will follow in
+later increments. The current Wizard project remains unchanged. The
+Catalogs page continues to install items as before.
 
 ### Browser tests
 

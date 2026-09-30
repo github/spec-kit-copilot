@@ -6,6 +6,7 @@ import {
     currentCanvasDesignerSelections,
     freshCanvasDesignerSelections,
     openCanvasDesignerDialog,
+    submitDesignerLaunch,
 } from "../ui/canvas-designer-dialog.js";
 import { renderPipelineBanner } from "../ui/phase-runtime.js";
 import { state } from "../ui/state.js";
@@ -45,7 +46,7 @@ function fakeElement(dataset = {}) {
         dataset, checked: false, disabled: false, hidden: false, inert: false, textContent: "",
         isConnected: true, classList: { toggle() {} },
         addEventListener(type, callback) { handlers[type] = callback; },
-        click() { handlers.click?.({ target: this, currentTarget: this }); },
+        click() { return handlers.click?.({ target: this, currentTarget: this }); },
         change() { return handlers.change?.({ target: this }); },
         keydown(key) {
             const event = { key, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
@@ -66,7 +67,9 @@ function fakeDialogDocument() {
         set innerHTML(value) {
             this.html = value;
             this.nodes = new Map([".designer-modal", ".wizard-modal-close", ".wizard-modal-cancel",
-                ".designer-backdrop", ".designer-error"].map((selector) => [selector, fakeElement()]));
+                ".designer-backdrop", ".designer-error", ".designer-submit"]
+                .map((selector) => [selector, fakeElement()]));
+            this.nodes.get(".designer-submit").textContent = "Launch designer";
             this.inputs = [...value.matchAll(/data-designer-kind="([^"]+)" data-designer-index="(\d+)"/g)]
                 .map(([, kind, index]) => {
                     const input = fakeElement({ designerKind: kind, designerIndex: index });
@@ -78,7 +81,7 @@ function fakeDialogDocument() {
             this.panels = this.tabs.map((tab) => fakeElement({ designerPanel: tab.dataset.designerTab }));
             this.nodes.get(".designer-modal").querySelectorAll = () => [
                 this.nodes.get(".wizard-modal-close"), ...this.tabs, ...this.inputs,
-                this.nodes.get(".wizard-modal-cancel"),
+                this.nodes.get(".wizard-modal-cancel"), this.nodes.get(".designer-submit"),
             ];
         },
         get innerHTML() { return this.html; },
@@ -89,6 +92,10 @@ function fakeDialogDocument() {
             if (selector === "[data-designer-tab]") return this.tabs;
             if (selector === "[data-designer-panel]") return this.panels;
             if (selector === "[data-designer-kind]") return this.inputs;
+            if (selector === "[data-designer-kind], [data-designer-tab], .wizard-modal-close, .wizard-modal-cancel") {
+                return [...this.inputs, ...this.tabs, this.nodes.get(".wizard-modal-close"),
+                    this.nodes.get(".wizard-modal-cancel")];
+            }
             const kind = selector.match(/^\[data-designer-kind="([^"]+)"\]$/)?.[1];
             if (kind) return this.inputs.filter((input) => input.dataset.designerKind === kind);
             return [];
@@ -104,23 +111,26 @@ function fakeDialogDocument() {
     return { root, document, trigger };
 }
 
-test("dialog shows empty states while never launching", () => {
+test("dialog shows empty design catalogs and enables launch after catalog loads", () => {
     const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
     const previousSnapshot = state.snapshot;
     const { root, document, trigger } = fakeDialogDocument();
     globalThis.document = document;
-    state.snapshot = { catalog: { presets: [], extensions: [], bundles: [] } };
+    globalThis.fetch = () => { throw new Error("Opening Generate canvas must not check extensions"); };
+    state.snapshot = { catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "ready" } };
     try {
         openCanvasDesignerDialog();
         assert.match(root.innerHTML, /Canvas designer setup/);
-        assert.match(root.innerHTML, /settings and generation behavior/);
+        assert.match(root.innerHTML, /selections will be installed in a separate designer session/);
         assert.match(root.innerHTML, /leaving the wizard's configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /leaving this project's workflow configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /settings, appearance, and generation behavior/);
         assert.match(root.innerHTML, /No presets tagged canvas-design are available/);
         assert.match(root.innerHTML, /No extensions tagged canvas-design are available/);
         assert.match(root.innerHTML, /No bundles tagged canvas-design are available/);
-        assert.match(root.innerHTML, /designer-submit" disabled aria-label="Launch designer \(not available yet\)"/);
+        assert.match(root.innerHTML, /class="btn btn-primary designer-submit">Launch designer/);
+        assert.equal(root.querySelector(".designer-submit").disabled, false);
         assert.doesNotMatch(root.innerHTML, /Canvas generator \(required\)|data-designer-kind=/);
         assert.deepEqual(currentCanvasDesignerSelections(), freshCanvasDesignerSelections());
         openCanvasDesignerDialog();
@@ -136,8 +146,185 @@ test("dialog shows empty states while never launching", () => {
     } finally {
         root.replaceChildren();
         globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
         state.snapshot = previousSnapshot;
     }
+});
+
+test("launch closes the dialog on acceptance without a queued status", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { pipeline: [{ id: "plan" }],
+        catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "catalog-1" } };
+    const requests = [];
+    let finish;
+    globalThis.fetch = async (url, options) => {
+        requests.push({ url, options });
+        if (requests.length === 1) return new Promise((resolve) => { finish = resolve; });
+        return { ok: true, json: async () => ({ queued: true }) };
+    };
+    try {
+        openCanvasDesignerDialog();
+        const button = root.querySelector(".designer-submit");
+        const pending = button.click();
+        assert.equal(button.disabled, true);
+        assert.equal(button.textContent, "Launch designer");
+        assert.equal(root.querySelector(".wizard-modal-close").disabled, true);
+        await button.click();
+        assert.equal(requests.length, 1);
+        assert.deepEqual(JSON.parse(requests[0].options.body), {
+            selections: { presets: [], extensions: [], bundles: [] },
+            catalogFingerprint: "catalog-1", expectedPhases: ["plan"],
+        });
+        finish({ ok: true, json: async () => ({ queued: true }) });
+        await pending;
+        assert.equal(root.innerHTML, "");
+        assert.equal(currentCanvasDesignerSelections(), null);
+        assert.doesNotMatch(root.html, /designer-status|launches queued/);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("processing blocks close, then acceptance closes and reopening resets the dialog", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { pipeline: [], catalog: {
+        presets: [], extensions: [], bundles: [], designerFingerprint: "ready",
+    } };
+    let finish;
+    globalThis.fetch = () => new Promise((resolve) => { finish = resolve; });
+    try {
+        openCanvasDesignerDialog();
+        const pending = root.querySelector(".designer-submit").click();
+        assert.equal(root.querySelector(".wizard-modal-cancel").disabled, true);
+        openCanvasDesignerDialog();
+        finish({ ok: true, json: async () => ({ queued: true }) });
+        await pending;
+        assert.equal(root.innerHTML, "");
+        openCanvasDesignerDialog();
+        assert.equal(root.querySelector(".designer-error").hidden, true);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("activation errors keep the selections and dialog open for retry", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { pipeline: [{ id: "plan" }], catalog: {
+        presets: [{ id: "theme", source: "copilot", tags: ["canvas-design"] }],
+        extensions: [], bundles: [], designerFingerprint: "ready",
+    } };
+    const requests = [];
+    globalThis.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        if (requests.length === 1) {
+            return { ok: false, status: 503,
+                text: async () => '{"error":"activation timed out"}' };
+        }
+        return { ok: true, json: async () => ({ queued: true }) };
+    };
+    try {
+        openCanvasDesignerDialog();
+        const preset = root.inputs[0];
+        preset.checked = true;
+        await preset.change();
+        const button = root.querySelector(".designer-submit");
+        await button.click();
+        assert.match(root.querySelector(".designer-error").textContent, /activation timed out/);
+        assert.equal(preset.checked, true);
+        assert.equal(button.disabled, false);
+        await button.click();
+        assert.equal(root.innerHTML, "");
+        assert.equal(requests.length, 2);
+        assert.deepEqual(requests.map((body) => body.selections.presets),
+            Array(2).fill([{ id: "theme", source: "copilot", approved: true }]));
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("launch submits the dialog's rendered snapshot after a catalog refresh", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = {
+        pipeline: [{ id: "plan" }],
+        catalog: {
+            presets: [{ id: "theme", name: "Original theme", source: "copilot",
+                tags: ["canvas-design"], version: "1.0.0" }],
+            extensions: [], bundles: [], designerFingerprint: "original",
+        },
+    };
+    const requests = [];
+    globalThis.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return { ok: false, status: 409,
+            text: async () => '{"error":"Wizard pipeline or catalog changed; reopen the Designer setup"}' };
+    };
+    try {
+        openCanvasDesignerDialog();
+        const [preset] = root.inputs;
+        preset.checked = true;
+        await preset.change();
+        state.snapshot = {
+            pipeline: [{ id: "tasks" }],
+            catalog: {
+                ...state.snapshot.catalog,
+                presets: [{ ...state.snapshot.catalog.presets[0], name: "Updated theme",
+                    version: "2.0.0" }],
+                designerFingerprint: "updated",
+            },
+        };
+        assert.match(root.innerHTML, /Original theme/);
+        assert.doesNotMatch(root.innerHTML, /Updated theme/);
+        await root.querySelector(".designer-submit").click();
+        assert.deepEqual(requests, [{
+            selections: { presets: [{ id: "theme", source: "copilot", approved: true }],
+                extensions: [], bundles: [] },
+            catalogFingerprint: "original", expectedPhases: ["plan"],
+        }]);
+        assert.match(root.querySelector(".designer-error").textContent, /reopen the Designer setup/);
+        root.querySelector(".wizard-modal-cancel").click();
+        openCanvasDesignerDialog();
+        assert.match(root.innerHTML, /Updated theme/);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("submit rejects an unsuccessful or malformed queue acknowledgment", async () => {
+    const snapshot = { pipeline: [], catalog: { designerFingerprint: "ready" } };
+    const selections = freshCanvasDesignerSelections();
+    await assert.rejects(submitDesignerLaunch(snapshot, selections, async () =>
+        ({ ok: true, json: async () => ({ ready: true }) })), /did not queue/);
+    await assert.rejects(submitDesignerLaunch(snapshot, selections, async () => {
+        throw new Error("offline");
+    }), /Could not reach the Wizard: offline/);
 });
 
 test("designer tabs use roving focus and activate panels with arrow, Home, and End keys", () => {
@@ -261,6 +448,64 @@ test("bundles check only listed members without locking them; direct choices and
     }
 });
 
+test("concurrent bundle inspections cannot re-enable or restore a pending deselected bundle", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { catalog: {
+        presets: ["first", "second"].map((id) => ({
+            id, source: "copilot", tags: ["canvas-design"],
+        })),
+        extensions: [],
+        bundles: ["one", "two"].map((id) => ({
+            id, source: "copilot", tags: ["canvas-design"],
+        })),
+        designerFingerprint: "ready",
+    } };
+    const pending = new Map();
+    globalThis.fetch = (url) => new Promise((resolve) => {
+        pending.set(new URL(url, "http://localhost").searchParams.get("id"), resolve);
+    });
+    try {
+        openCanvasDesignerDialog();
+        const [, , one, two] = root.inputs;
+        one.checked = true;
+        const firstInspection = one.change();
+        assert.equal(one.disabled, true);
+        two.checked = true;
+        const secondInspection = two.change();
+        assert.equal(one.disabled, true);
+        assert.equal(two.disabled, true);
+        assert.equal(root.querySelector(".designer-submit").disabled, true);
+
+        pending.get("one")({ ok: true, json: async () => ({
+            members: [{ kind: "presets", id: "first" }],
+        }) });
+        await firstInspection;
+        assert.equal(one.disabled, false);
+        assert.equal(two.disabled, true);
+        one.checked = false;
+        await one.change();
+        pending.get("two")({ ok: true, json: async () => ({
+            members: [{ kind: "presets", id: "second" }],
+        }) });
+        await secondInspection;
+        assert.deepEqual(currentCanvasDesignerSelections(), {
+            presets: [{ id: "second", source: "copilot", approved: true }],
+            extensions: [],
+            bundles: [{ id: "two", source: "copilot", approved: true }],
+        });
+        assert.equal(root.querySelector(".designer-submit").disabled, false);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
 test("Copilot bundles do not auto-select a Community member with the same id", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
@@ -373,7 +618,7 @@ test("selection stays local, community confirmation can cancel, and reopen reset
         await extension.change();
         assert.deepEqual(currentCanvasDesignerSelections().extensions,
             [{ id: "community-style", source: "community", approved: true }]);
-        assert.match(root.innerHTML, /designer-submit" disabled/);
+        assert.match(root.innerHTML, /class="btn btn-primary designer-submit">Launch designer/);
         extension.checked = false;
         await extension.change();
         assert.deepEqual(currentCanvasDesignerSelections().extensions, []);

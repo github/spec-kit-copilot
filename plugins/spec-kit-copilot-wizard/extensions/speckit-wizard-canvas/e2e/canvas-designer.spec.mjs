@@ -6,12 +6,12 @@ test.beforeEach(async ({ page }) => {
     await page.getByRole("button", { name: "Generate canvas" }).click();
 });
 
-test("opens a design-only dialog without enabling launch", async ({ page }) => {
+test("opens a design-only dialog with an available launch", async ({ page }) => {
     const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: /Design preset/ })).toBeVisible();
     await expect(dialog.getByText("Other preset")).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: /Launch designer/ })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: /Launch designer/ })).toBeEnabled();
     const presetsTab = dialog.getByRole("tab", { name: "Presets" });
     const extensionsTab = dialog.getByRole("tab", { name: "Extensions" });
     const bundlesTab = dialog.getByRole("tab", { name: "Bundles" });
@@ -85,6 +85,73 @@ test("confirms community selection and checks only listed design bundle members"
     await dialog.getByRole("tab", { name: "Extensions" }).click();
     await expect(dialog.getByRole("checkbox", { name: /Design extension/ })).toBeChecked();
     await expect(dialog.getByText("Unlisted extension")).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: /Launch designer/ })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: /Launch designer/ })).toBeEnabled();
     expect(writes).toEqual([]);
+});
+
+test("community presets and extensions retain their selection warnings", async ({ page }) => {
+    const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
+    for (const [tab, name, kind] of [
+        ["Presets", "Design preset", "preset"],
+        ["Extensions", "Design extension", "extension"],
+    ]) {
+        await dialog.getByRole("tab", { name: tab }).click();
+        const choice = dialog.getByRole("checkbox", { name });
+        await choice.check();
+        const warning = page.getByRole("dialog", { name: `Select community ${kind}?` });
+        await expect(warning.getByText(/not reviewed, audited, or endorsed/)).toBeVisible();
+        await expect(warning.getByText("This selection will be installed in the launched Canvas designer session.")).toBeVisible();
+        await warning.getByRole("button", { name: "Cancel" }).click();
+        await expect(choice).not.toBeChecked();
+        await expect(choice).toBeFocused();
+        await choice.check();
+        await warning.getByRole("button", { name: "Select anyway" }).click();
+        await expect(choice).toBeChecked();
+        await expect(choice).toBeFocused();
+    }
+});
+
+test("launch queues a session and closes the dialog", async ({ page }) => {
+    const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
+    const responsePromise = page.waitForResponse((response) =>
+        response.url().includes("/api/designer/launch") && response.request().method() === "POST");
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(202);
+    expect(await response.json()).toEqual({ queued: true });
+    expect(response.request().postDataJSON()).toMatchObject({
+        selections: { presets: [], extensions: [], bundles: [] },
+        catalogFingerprint: "e2e-catalog",
+    });
+
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Generate canvas" }).click();
+    await expect(page.getByRole("dialog", { name: "Canvas designer setup" })
+        .getByRole("checkbox", { name: /Copilot preset/ })).not.toBeChecked();
+});
+
+test("activation failure preserves selections for a one-click retry", async ({ page }) => {
+    const requests = [];
+    await page.route("**/api/designer/launch?*", async (route) => {
+        const body = route.request().postDataJSON();
+        requests.push(body);
+        await route.fulfill({
+            status: requests.length === 1 ? 503 : 202,
+            contentType: "application/json",
+            body: JSON.stringify(requests.length === 1
+                ? { error: "Designer activation timed out" } : { queued: true }),
+        });
+    });
+    const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
+    const preset = dialog.getByRole("checkbox", { name: /Copilot preset/ });
+    await preset.check();
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("activation timed out");
+    await expect(preset).toBeChecked();
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests.map((body) => body.enableProvider ?? false)).toEqual([false, false]);
+    expect(requests.map((body) => body.selections.presets)).toEqual(Array(2).fill([
+        { id: "foreign-preset", source: "copilot", approved: true },
+    ]));
 });

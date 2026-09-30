@@ -50,6 +50,7 @@ import {
 import { handleNpmDiagnose, handleNpmRetry } from "./server/handlers-deps.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
 import { inspectBundleMembers } from "./catalog/bundles.mjs";
+import { handleDesignerLaunch } from "./server/handlers-designer.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_UI_DIR = join(__dirname, "ui");
@@ -345,6 +346,10 @@ export function createHandler(deps) {
                     "/api/env/probe": () => handleProbeEnv(res, { getState, broadcast, getInstance, ensureEnvProbe }),
                     "/api/deps/diagnose": () => handleNpmDiagnose(res, body, { broadcast, getInstance }),
                     "/api/deps/retry": () => handleNpmRetry(res, body, { broadcast, getInstance }),
+                    "/api/designer/launch": () => handleDesignerLaunch(res, body, {
+                        getState, getInstance, session, log,
+                        enableProviderForSession: deps.enableDesignerProvider,
+                    }),
                 };
                 const route = postRoutes[url.pathname];
                 if (route) return route();

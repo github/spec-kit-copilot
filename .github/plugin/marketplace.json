@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.20.0"
+    "version": "0.21.0"
   },
   "plugins": [
     {
@@ -35,7 +35,7 @@
     {
       "name": "spec-kit-copilot-wizard",
       "description": "Adds the guided Spec Kit Wizard and an under-development Designer shell for future workflow-specific canvases based on Wizard pipeline and customization handoffs; Designer is not ready for use.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "source": "plugins/spec-kit-copilot-wizard"
     }
   ]
