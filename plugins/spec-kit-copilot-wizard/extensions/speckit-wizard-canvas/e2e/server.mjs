@@ -49,7 +49,19 @@ const members = {
 
 const handler = createHandler({
     token: "e2e-token",
-    session: { send: async () => {} },
+    session: {
+        send: async () => {},
+        rpc: {
+            extensions: { list: async () => ({ extensions: [{
+                id: "plugin:spec-kit-copilot-wizard:speckit-canvas-designer",
+                source: "plugin", status: "running",
+            }] }) },
+            canvas: { list: async () => ({ canvases: [{
+                extensionId: "plugin:spec-kit-copilot-wizard:speckit-canvas-designer",
+                canvasId: "speckit-canvas-designer",
+            }] }) },
+        },
+    },
     log: async (message) => { console.error(message); },
     getState: async () => snapshot,
     getInstance: () => ({ workspacePath: repoPath }),

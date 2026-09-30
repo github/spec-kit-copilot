@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { test } from "node:test";
 import { createHandler } from "../server.mjs";
 import { buildDesignerHandoff, buildDesignerLaunchPrompt,
+    checkDesignerProvider, DESIGNER_EXTENSION_ID, enableDesignerProvider,
     validateDesignerSelections } from "../server/handlers-designer.mjs";
 import { fingerprint, readHandoff, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
@@ -22,15 +23,25 @@ function fixture(overrides = {}) {
     const sent = [];
     const errors = [];
     const inst = { workspacePath: process.cwd() };
+    const provider = { id: DESIGNER_EXTENSION_ID, source: "plugin", status: "running" };
+    const registered = { extensionId: DESIGNER_EXTENSION_ID, canvasId: "speckit-canvas-designer" };
     let current = snapshot;
+    const session = {
+        send: async (message) => { sent.push(message); },
+        rpc: {
+            extensions: { list: async () => ({ extensions: [provider] }),
+                enable: async () => { provider.status = "running"; } },
+            canvas: { list: async () => ({ canvases: [registered] }) },
+        },
+    };
     const handler = createHandler({
         token: "secret",
-        session: { send: async (message) => { sent.push(message); } },
         log: async (message, level) => { errors.push({ message, level }); },
         getInstance: () => inst,
         getState: async () => current,
         registerSse() {}, broadcast() {},
         ...overrides,
+        session: { ...session, ...overrides.session },
     });
     async function post(body, token = "secret") {
         const req = Readable.from([Buffer.from(JSON.stringify(body))]);
@@ -46,7 +57,8 @@ function fixture(overrides = {}) {
         await new Promise(setImmediate);
         return res;
     }
-    return { post, sent, errors, inst, setSnapshot: (value) => { current = value; } };
+    return { post, sent, errors, inst, provider, registered,
+        setSnapshot: (value) => { current = value; } };
 }
 const request = (selections = empty) => ({
     selections, catalogFingerprint: "catalog-v1", expectedPhases: ["plan"],
@@ -71,9 +83,10 @@ test("empty selections produce a complete immutable inline handoff and one queue
     assert.deepEqual(response.body, { queued: true });
     assert.equal(sent.length, 1);
     assert.match(sent[0].prompt, /no base_branch \(the project default\)/);
-    assert.match(sent[0].prompt, /Do not install any selected presets/);
-    assert.match(sent[0].prompt, /provider ships with the installed spec-kit-copilot-wizard plugin/);
-    assert.match(sent[0].prompt, /list_canvas_capabilities\(\{canvasId:"speckit-canvas-designer"\}\)/);
+    assert.match(sent[0].prompt, /Do not edit it afterward or install selected customizations/);
+    assert.match(sent[0].prompt, /plugin:spec-kit-copilot-wizard:speckit-canvas-designer/);
+    assert.doesNotMatch(sent[0].prompt, /extensions_manage|list_canvas_capabilities|extensions_reload/);
+    assert.match(sent[0].prompt, /open_canvas\(\{canvasId:"speckit-canvas-designer",extensionId:"plugin:spec-kit-copilot-wizard:speckit-canvas-designer"/);
     assert.doesNotMatch(sent[0].prompt, /bootstrap\.mjs|\.github\/extensions\//);
     assert.match(sent[0].prompt, /handoff\.json under YOUR session-state artifacts/);
     const json = sent[0].prompt.match(/\nHANDOFF_JSON:\n([^\n]+)\nEND_HANDOFF_JSON\n/)[1];
@@ -119,11 +132,109 @@ test("stale, unauthenticated and unavailable requests never acknowledge launch",
     setSnapshot({ ...snapshot, catalog: { ...catalog, designerFingerprint: "new" } });
     assert.equal((await post(request())).statusCode, 409);
     assert.equal(sent.length, 0);
-    const unavailable = fixture({ session: {} });
+    const unavailable = fixture({ session: { send: null } });
     assert.equal((await unavailable.post(request())).statusCode, 503);
 });
 
-test("parallel launch requests acknowledge before agent turns finish and have separate handoffs", async () => {
+test("only the running official plugin provider with a registered canvas can launch", async () => {
+    const { post, sent, provider, registered } = fixture();
+    provider.status = "failed";
+    assert.match((await post(request())).body.error, /failed.*extension log/i);
+    provider.status = "running";
+    registered.extensionId = "session:speckit-canvas-designer";
+    assert.match((await post(request())).body.error, /not registered/i);
+    registered.extensionId = DESIGNER_EXTENSION_ID;
+    provider.id = "project:speckit-canvas-designer";
+    assert.match((await post(request())).body.error, /missing.*install or update/i);
+    assert.equal(sent.length, 0);
+    provider.id = DESIGNER_EXTENSION_ID;
+    assert.equal((await post(request())).statusCode, 202);
+    assert.equal(sent.length, 1);
+});
+
+test("disabled provider is enabled on launch in the current session", async () => {
+    const { post, sent, provider } = fixture();
+    provider.status = "disabled";
+    const response = await post(request());
+    assert.equal(response.statusCode, 202);
+    assert.equal(provider.status, "running");
+    assert.equal(sent.length, 1);
+});
+
+test("activation errors and timeouts never dispatch", async () => {
+    const provider = { id: DESIGNER_EXTENSION_ID, source: "plugin", status: "disabled" };
+    const rpc = {
+        extensions: {
+            list: async () => ({ extensions: [provider] }),
+            enable: async () => { throw new Error("permission denied"); },
+        },
+        canvas: { list: async () => ({ canvases: [] }) },
+    };
+    const { post, sent } = fixture({ session: { rpc, send: async (message) => { sent.push(message); } } });
+    const error = await post(request());
+    assert.equal(error.statusCode, 503);
+    assert.match(error.body.error, /permission denied/);
+    assert.equal(sent.length, 0);
+    rpc.extensions.enable = async ({ id }) => {
+        assert.equal(id, DESIGNER_EXTENSION_ID);
+        provider.status = "starting";
+    };
+    await assert.rejects(enableDesignerProvider(rpc, { timeoutMs: 0 }), /activation timed out/);
+    provider.status = "disabled";
+    const timedOut = fixture({
+        session: { rpc },
+        enableDesignerProvider: (sessionRpc) => enableDesignerProvider(sessionRpc, { timeoutMs: 0 }),
+    });
+    const timeout = await timedOut.post(request());
+    assert.equal(timeout.statusCode, 503);
+    assert.match(timeout.body.error, /activation timed out/);
+    assert.equal(timedOut.sent.length, 0);
+    rpc.extensions.enable = () => new Promise(() => {});
+    await assert.rejects(enableDesignerProvider(rpc, { timeoutMs: 10 }), /activation timed out/);
+    rpc.extensions.enable = async () => { provider.status = "running"; };
+    rpc.canvas.list = async () => ({ canvases: [{
+        extensionId: "session:speckit-canvas-designer", canvasId: "speckit-canvas-designer",
+    }] });
+    await assert.rejects(enableDesignerProvider(rpc, { timeoutMs: 10, intervalMs: 1 }),
+        /activation timed out/);
+    provider.status = "failed";
+    await assert.rejects(checkDesignerProvider(rpc), /failed/);
+});
+
+test("launches cannot overlap while readiness is being checked", async () => {
+    let release;
+    let entered;
+    const ready = new Promise((resolve) => { release = resolve; });
+    const checking = new Promise((resolve) => { entered = resolve; });
+    const delayed = fixture({
+        session: {
+            rpc: {
+                extensions: {
+                    list: async () => {
+                        entered();
+                        await ready;
+                        return { extensions: [{
+                            id: DESIGNER_EXTENSION_ID, source: "plugin", status: "running",
+                        }] };
+                    },
+                },
+                canvas: { list: async () => ({ canvases: [{
+                    extensionId: DESIGNER_EXTENSION_ID, canvasId: "speckit-canvas-designer",
+                }] }) },
+            },
+        },
+    });
+    const first = delayed.post(request());
+    await checking;
+    const duplicate = await delayed.post(request());
+    assert.equal(duplicate.statusCode, 409);
+    release();
+    assert.equal((await first).statusCode, 202);
+    assert.equal(delayed.sent.length, 1);
+    assert.equal((await delayed.post(request())).statusCode, 202);
+});
+
+test("consecutive launch requests acknowledge before agent turns finish and have separate handoffs", async () => {
     const sent = [];
     let finish;
     const completion = new Promise((resolve) => { finish = resolve; });
@@ -131,7 +242,8 @@ test("parallel launch requests acknowledge before agent turns finish and have se
         sent.push(message);
         await completion;
     } } });
-    const [first, second] = await Promise.all([post(request()), post(request())]);
+    const first = await post(request());
+    const second = await post(request());
     assert.equal(first.statusCode, 202);
     assert.equal(second.statusCode, 202);
     assert.equal(sent.length, 2);

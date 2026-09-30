@@ -152,8 +152,7 @@
 .designer-choice-text small { color: var(--text-color-muted); }
 .designer-choice input:disabled { cursor: not-allowed; }
 .designer-error { color: var(--text-color-danger, #cf222e); font-size: 13px; margin: 0; }
-.designer-status { color: var(--text-color-success, #1a7f37); font-size: 13px; margin: 0; }
-.designer-error[hidden], .designer-status[hidden], .designer-included-by[hidden] { display: none; }
+.designer-error[hidden], .designer-included-by[hidden] { display: none; }
 .designer-source-tag { flex: none; }
 @media (max-width: 420px) {
     .designer-tabs { width: 100%; }
