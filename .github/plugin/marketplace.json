@@ -34,7 +34,7 @@
     },
     {
       "name": "spec-kit-copilot-wizard",
-      "description": "Adds a guided Spec Kit Wizard canvas that drives the full spec-driven development lifecycle via the spec-kit-copilot skills plugin.",
+      "description": "Adds the guided Spec Kit Wizard canvas and an under-development Canvas Designer shell that is not ready for use.",
       "version": "0.3.0",
       "source": "plugins/spec-kit-copilot-wizard"
     }

@@ -1,9 +1,13 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 
-export function shellHtml(handoff) {
-    const count = ["presets", "extensions", "bundles"]
-        .reduce((total, kind) => total + handoff.selections[kind].length, 0);
+export function shellHtml(handoff = null) {
+    const summary = handoff
+        ? `<div class="summary" role="status">Wizard handoff received · ${handoff.workflow.selectedPhases.length} phases · ${
+            ["presets", "extensions", "bundles"].reduce((total, kind) =>
+                total + handoff.selections[kind].length, 0)
+        } design customizations queued for future installation</div>`
+        : '<p>No Wizard handoff is attached yet.</p>';
     return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -22,11 +26,11 @@ export function shellHtml(handoff) {
 </head>
 <body><main><h1>Canvas Designer</h1>
 <p>Your Designer session is ready. Design pages will be added in a later update.</p>
-<div class="summary" role="status">Wizard handoff received · ${handoff.workflow.selectedPhases.length} phases · ${count} design customizations queued for future installation</div>
+${summary}
 </main></body></html>`;
 }
 
-export async function startShell(handoff) {
+export async function startShell(handoff = null) {
     const token = randomBytes(24).toString("hex");
     const server = createServer((req, res) => {
         const url = new URL(req.url, "http://127.0.0.1");

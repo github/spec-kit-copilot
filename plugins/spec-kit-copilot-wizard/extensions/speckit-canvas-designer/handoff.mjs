@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const HANDOFF_LIMIT = 64 * 1024;
@@ -68,7 +69,7 @@ export function validateHandoff(handoff, id) {
     return handoff;
 }
 
-export async function readHandoff(workspacePath, handoffId) {
+export async function readHandoff(workspacePath, handoffId, openFile = open) {
     const id = validateHandoffId(handoffId);
     if (typeof workspacePath !== "string" || !workspacePath.trim()) {
         throw new Error("Designer session workspace is unavailable");
@@ -82,12 +83,36 @@ export async function readHandoff(workspacePath, handoffId) {
         throw new Error("Designer handoff escapes session artifacts");
     }
     const path = join(folder, "handoff.json");
-    const stat = await lstat(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > HANDOFF_LIMIT) {
-        throw new Error("Invalid Designer handoff file");
+    let file;
+    try {
+        file = await openFile(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    } catch (error) {
+        if (error.code === "ELOOP") throw new Error("Invalid Designer handoff file", { cause: error });
+        throw error;
     }
-    const text = await readFile(path, "utf8");
-    if (Buffer.byteLength(text) > HANDOFF_LIMIT) throw new Error("Oversized Designer handoff");
+    let text;
+    try {
+        const [stat, pathStat, currentFolder] = await Promise.all([
+            file.stat(), lstat(path), realpath(folder),
+        ]);
+        if (currentFolder !== folder) throw new Error("Designer handoff escapes session artifacts");
+        if (!stat.isFile() || !pathStat.isFile() || pathStat.isSymbolicLink()
+            || stat.dev !== pathStat.dev || stat.ino !== pathStat.ino
+            || stat.size > HANDOFF_LIMIT) {
+            throw new Error("Invalid Designer handoff file");
+        }
+        const bytes = Buffer.alloc(HANDOFF_LIMIT + 1);
+        let length = 0;
+        while (length < bytes.length) {
+            const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
+            if (bytesRead === 0) break;
+            length += bytesRead;
+        }
+        if (length > HANDOFF_LIMIT) throw new Error("Oversized Designer handoff");
+        text = bytes.toString("utf8", 0, length);
+    } finally {
+        await file.close();
+    }
     let handoff;
     try { handoff = JSON.parse(text); }
     catch { throw new Error("Malformed Designer handoff"); }

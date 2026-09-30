@@ -1,6 +1,6 @@
 {
   "name": "spec-kit-copilot-wizard",
-  "description": "A GitHub Copilot App canvas that provides a guided wizard for the Spec Kit spec-driven development lifecycle.",
+  "description": "GitHub Copilot App canvases for the guided Spec Kit Wizard and an under-development Canvas Designer shell that is not ready for use.",
   "version": "0.3.0",
   "author": {
     "name": "GitHub",

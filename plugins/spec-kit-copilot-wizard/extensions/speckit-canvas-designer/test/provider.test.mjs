@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
     fingerprint, handoffDirectory, HANDOFF_LIMIT, readHandoff, validateHandoff,
     validateHandoffId,
@@ -116,6 +117,48 @@ test("handoff rejects symlinked file without following it", async (t) => {
     await assert.rejects(readHandoff(workspace, ID), /Invalid Designer handoff file/);
 });
 
+test("handoff rejects a parent directory replaced during file open", async (t) => {
+    const workspace = await fixture(t);
+    const outside = await fixture(t);
+    const directory = await saveHandoff(workspace);
+    await saveHandoff(outside);
+    const backup = `${directory}-original`;
+    let replaced = false;
+    try {
+        await assert.rejects(readHandoff(workspace, ID, async (path, flags) => {
+            await rename(directory, backup);
+            try {
+                await symlink(handoffDirectory(outside, ID), directory,
+                    process.platform === "win32" ? "junction" : "dir");
+            } catch (error) {
+                await rename(backup, directory);
+                throw error;
+            }
+            replaced = true;
+            return open(path, flags);
+        }), /Designer handoff escapes session artifacts/);
+    } catch (error) {
+        if (process.platform !== "win32" || !["EPERM", "EACCES"].includes(error.code)) throw error;
+        t.diagnostic("Windows symlink creation is not permitted; race assertion skipped");
+    } finally {
+        if (replaced) {
+            await rm(directory, { recursive: true });
+            await rename(backup, directory);
+        }
+    }
+});
+
+test("handoff rejects a different opened file even if the path still passes validation", async (t) => {
+    const workspace = await fixture(t);
+    const outside = await fixture(t);
+    await saveHandoff(workspace);
+    const outsideDirectory = await saveHandoff(outside);
+    await assert.rejects(
+        readHandoff(workspace, ID, (_path, flags) => open(join(outsideDirectory, "handoff.json"), flags)),
+        /Invalid Designer handoff file/,
+    );
+});
+
 test("shell renders counts without echoing handoff content and restricts HTTP access", async (t) => {
     const handoff = validHandoff();
     assert.match(shellHtml(handoff), /2 phases · 2 design customizations queued/);
@@ -138,5 +181,60 @@ test("shell renders counts without echoing handoff content and restricts HTTP ac
         [shell.url, { method: "POST" }],
     ]) {
         assert.equal((await fetch(address, options)).status, 404);
+    }
+});
+
+test("empty shell renders without a handoff and keeps the token gate", async (t) => {
+    const html = shellHtml();
+    assert.match(html, /No Wizard handoff is attached yet/);
+    assert.doesNotMatch(html, /Wizard handoff received|customizations queued/);
+    const shell = await startShell();
+    t.after(() => shell.close());
+    assert.match(await (await fetch(shell.url)).text(), /No Wizard handoff is attached yet/);
+    const url = new URL(shell.url);
+    assert.equal((await fetch(url.origin)).status, 404);
+});
+
+test("canvas opens empty without an ID, then opens a validated handoff", async (t) => {
+    const workspace = await fixture(t);
+    const source = fileURLToPath(new URL("../", import.meta.url));
+    const extension = join(workspace, "provider");
+    const sdk = join(extension, "node_modules", "@github", "copilot-sdk");
+    await mkdir(sdk, { recursive: true });
+    for (const file of ["extension.mjs", "handoff.mjs", "server.mjs"]) {
+        await copyFile(join(source, file), join(extension, file));
+    }
+    await writeFile(join(sdk, "package.json"), JSON.stringify({
+        name: "@github/copilot-sdk", type: "module", exports: { "./extension": "./extension.mjs" },
+    }));
+    await writeFile(join(sdk, "extension.mjs"), `
+        export const createCanvas = (canvas) => canvas;
+        export class CanvasError extends Error {
+            constructor(code, message) { super(message); this.code = code; }
+        }
+        export const joinSession = async ({ canvases }) => {
+            globalThis.__designerTestCanvas = canvases[0];
+            return { workspacePath: ${JSON.stringify(workspace)} };
+        };
+    `);
+    await import(pathToFileURL(join(extension, "extension.mjs")).href);
+    const canvas = globalThis.__designerTestCanvas;
+    delete globalThis.__designerTestCanvas;
+    assert.deepEqual(canvas.inputSchema.required, undefined);
+    assert.deepEqual(canvas.inputSchema.properties.handoffId.type, "string");
+
+    try {
+        const empty = await canvas.open({ instanceId: "same", input: {} });
+        assert.match(await (await fetch(empty.url)).text(), /No Wizard handoff is attached yet/);
+        assert.equal((await canvas.open({ instanceId: "same" })).url, empty.url);
+        await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+            (error) => error.code === "designer_handoff_invalid");
+        await saveHandoff(workspace);
+        const filled = await canvas.open({ instanceId: "same", input: { handoffId: ID } });
+        assert.notEqual(filled.url, empty.url);
+        assert.match(await (await fetch(filled.url)).text(), /Wizard handoff received/);
+        assert.equal((await canvas.open({ instanceId: "same", input: { handoffId: ID } })).url, filled.url);
+    } finally {
+        await canvas.onClose({ instanceId: "same" });
     }
 });
