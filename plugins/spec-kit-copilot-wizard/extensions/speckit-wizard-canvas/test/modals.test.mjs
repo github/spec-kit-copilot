@@ -89,7 +89,7 @@ describe("wizard modals", () => {
             assert.equal(nodes.get("#cim-title-text").textContent, "Select community extension?");
             assert.equal(nodes.get("#cim-action").textContent, "You are about to select");
             assert.equal(nodes.get("#cim-destination").textContent,
-                "This selection will be installed in the launched Canvas designer session.");
+                "This selection is passed to the Canvas designer session for future installation; nothing is installed now.");
             assert.equal(nodes.get("#cim-confirm").textContent, "Select anyway");
             assert.equal(nodes.get("#cim-learn-link").href,
                 "https://github.com/github/spec-kit/blob/main/extensions/README.md");

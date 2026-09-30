@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import { createHandler } from "../server.mjs";
 
+const repoPath = fileURLToPath(new URL("../../../../../", import.meta.url));
 const snapshot = {
     workspacePath: process.cwd(),
     currentPhase: "constitution",
@@ -14,6 +16,7 @@ const snapshot = {
     phases: {},
     commands: [],
     catalog: {
+        designerFingerprint: "e2e-catalog",
         presets: [
             { id: "design-preset", name: "Design preset", source: "community", tags: ["canvas-design"] },
             { id: "foreign-preset", name: "Copilot preset", source: "copilot", tags: ["canvas-design"] },
@@ -46,10 +49,10 @@ const members = {
 
 const handler = createHandler({
     token: "e2e-token",
-    session: { send: async () => { throw new Error("E2E fixture must not dispatch a session"); } },
+    session: { send: async () => {} },
     log: async (message) => { console.error(message); },
     getState: async () => snapshot,
-    getInstance: () => ({ workspacePath: process.cwd() }),
+    getInstance: () => ({ workspacePath: repoPath }),
     broadcast: () => {},
     registerSse: (_req, res) => { res.on("close", () => {}); },
     inspectBundle: async (id) => ({

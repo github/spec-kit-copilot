@@ -55,6 +55,7 @@ import { scanWorkspace } from "../project-scanner.mjs";
 import { buildStateSnapshot } from "./snapshot-builder.mjs";
 import { applyPatch, overlayCachedComposition, activeFingerprint } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
+import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
 
 export async function snapshot(inst) {
     // Preset precedence: consume the order the `speckit-preset` skill
@@ -150,6 +151,9 @@ export async function snapshot(inst) {
     // a side-array to keep in sync.
     if (snap.catalog) {
         snap.catalog.fingerprint = activeFingerprint(snap.catalog);
+        if (["presets", "extensions", "bundles"].every((kind) => Array.isArray(snap.catalog[kind]))) {
+            snap.catalog.designerFingerprint = designerCatalogFingerprint(snap.catalog);
+        }
     }
     if (inst.cachedComposition) {
         const overlay = overlayCachedComposition(inst.cachedComposition);
