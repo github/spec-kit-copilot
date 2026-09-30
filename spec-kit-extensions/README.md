@@ -49,8 +49,8 @@ same run. GitHub's built-in `GITHUB_TOKEN` can create tags and publish releases,
 but tags pushed with it do not automatically start another workflow. Calling
 the publisher directly avoids that limitation; no personal access token is
 needed. The publisher validates the requested extension/version, manifest,
-catalog version and download URL, tests the package
-and ZIP, then creates `<extension-id>-vX.Y.Z` at the selected commit
+catalog version and download URL, builds and verifies the ZIP, then creates
+`<extension-id>-vX.Y.Z` at the selected commit
 and publishes `<extension-id>.zip`. The extension must have an `extension.yml`
 and a matching entry in this directory's `catalog.json`; no workflow edit is
 needed when adding another extension.

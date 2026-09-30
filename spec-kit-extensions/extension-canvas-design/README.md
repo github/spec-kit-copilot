@@ -163,24 +163,3 @@ After installing or removing a preset, refresh the composed skill with
 `/skills reload` and use the compatible provider's explicit reload flow.
 Artifacts, Appearance, and Result Badges are empty page templates. This package
 does not implement UI persistence, canvas generation, or result evaluation.
-
-## Tests
-
-From the repository root, with Python 3.12 or later:
-
-```powershell
-python -m pip install -r spec-kit-extensions\tests\requirements.txt
-python -m unittest discover -s spec-kit-extensions\tests -v
-```
-
-These focused package tests cover manifest/catalog agreement, discovery tags,
-shipped files, JSON schema acceptance/rejection, default page shape, and the
-agent command contract.
-The release workflow builds the ZIP inline with `extension.yml` at its root and
-reruns the tests with `CANVAS_DESIGN_ARCHIVE` set to the archive path, checking the
-exact member set and bytes. Set that environment variable to check a local ZIP.
-No Wizard dependencies or provider are needed for these checks.
-
-Real Specify normal-install/preset-composition tests and consumer migration are
-a separate follow-up. These package checks do not claim that the full
-CLI/provider integration matrix has passed.

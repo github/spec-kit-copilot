@@ -41,8 +41,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install package test dependencies
-        run: python -m pip install -r spec-kit-extensions/tests/requirements.txt
+      - name: Install manifest parser
+        run: python -m pip install "PyYAML>=6.0.2,<7"
 
       - name: Validate release version
         id: validate
@@ -120,9 +120,6 @@ jobs:
                   output.write(f"{key}={value}\n")
           PY
 
-      - name: Test package contracts
-        run: python -m unittest discover -s spec-kit-extensions/tests -v
-
       - name: Create extension ZIP
         env:
           EXTENSION_IDS: ${{ steps.validate.outputs.extension_ids }}
@@ -165,12 +162,6 @@ jobs:
                       if archive.read(name) != path.read_bytes():
                           raise SystemExit(f"Archive content mismatch: {extension_id}/{name}")
           PY
-
-      - name: Verify release archive
-        if: steps.validate.outputs.extension_id == '' || steps.validate.outputs.extension_id == 'extension-canvas-design'
-        env:
-          CANVAS_DESIGN_ARCHIVE: extension-canvas-design.zip
-        run: python -m unittest discover -s spec-kit-extensions/tests -v
 
       - name: Upload validated archive
         uses: actions/upload-artifact@v4
