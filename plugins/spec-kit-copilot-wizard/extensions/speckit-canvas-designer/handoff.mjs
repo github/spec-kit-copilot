@@ -1,0 +1,103 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+
+export const HANDOFF_LIMIT = 64 * 1024;
+const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const PACKAGE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const KINDS = ["presets", "extensions", "bundles"];
+const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+function safeUrl(value) {
+    if (value === null) return true;
+    if (typeof value !== "string" || value.length > 2048 || /[\s\x00-\x1f\x7f<>]/.test(value)) {
+        return false;
+    }
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:" && !!url.hostname && !url.username && !url.password;
+    } catch { return false; }
+}
+
+export function validateHandoffId(id) {
+    if (typeof id !== "string" || !ID.test(id)) throw new Error("Invalid Designer handoff ID");
+    return id;
+}
+
+export function fingerprint(data) {
+    return createHash("sha256").update(JSON.stringify(data)).digest("hex");
+}
+
+export function validateHandoff(handoff, id) {
+    validateHandoffId(id);
+    if (!record(handoff)
+        || Object.keys(handoff).some((key) =>
+            !["schemaVersion", "handoffId", "workflow", "selections", "sourceFingerprint"].includes(key))
+        || handoff.schemaVersion !== 1 || handoff.handoffId !== id
+        || !record(handoff.workflow)
+        || Object.keys(handoff.workflow).some((key) => key !== "selectedPhases")
+        || !Array.isArray(handoff.workflow.selectedPhases)
+        || handoff.workflow.selectedPhases.length > 30
+        || !handoff.workflow.selectedPhases.every((phase) => typeof phase === "string" && PACKAGE.test(phase))
+        || !record(handoff.selections)
+        || Object.keys(handoff.selections).some((kind) => !KINDS.includes(kind))
+        || KINDS.some((kind) => !Array.isArray(handoff.selections[kind])
+            || handoff.selections[kind].length > 40
+            || new Set(handoff.selections[kind].map((item) =>
+                `${item?.source}:${item?.id}`)).size !== handoff.selections[kind].length
+            || !handoff.selections[kind].every((item) => record(item)
+                && Object.keys(item).every((key) =>
+                    ["id", "source", "approved", "version", "downloadUrl"].includes(key))
+                && typeof item.id === "string" && PACKAGE.test(item.id)
+                && typeof item.source === "string" && PACKAGE.test(item.source)
+                && item.approved === true
+                && (item.version === null || (typeof item.version === "string"
+                    && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(item.version)))
+                && safeUrl(item.downloadUrl)))
+        || typeof handoff.sourceFingerprint !== "string"
+        || !/^[a-f0-9]{64}$/.test(handoff.sourceFingerprint)
+        || Buffer.byteLength(JSON.stringify(handoff)) > HANDOFF_LIMIT) {
+        throw new Error("Invalid Designer handoff");
+    }
+    const expected = Buffer.from(fingerprint({
+        workflow: handoff.workflow, selections: handoff.selections,
+    }), "hex");
+    if (!timingSafeEqual(expected, Buffer.from(handoff.sourceFingerprint, "hex"))) {
+        throw new Error("Designer handoff fingerprint mismatch");
+    }
+    return handoff;
+}
+
+export async function readHandoff(workspacePath, handoffId) {
+    const id = validateHandoffId(handoffId);
+    if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+        throw new Error("Designer session workspace is unavailable");
+    }
+    const root = await realpath(workspacePath);
+    const folder = join(root, "speckit-canvas-designer", "handoffs", id);
+    const actual = await realpath(folder);
+    const rel = relative(root, actual);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`)
+        || isAbsolute(rel) || actual !== folder) {
+        throw new Error("Designer handoff escapes session artifacts");
+    }
+    const path = join(folder, "handoff.json");
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > HANDOFF_LIMIT) {
+        throw new Error("Invalid Designer handoff file");
+    }
+    const text = await readFile(path, "utf8");
+    if (Buffer.byteLength(text) > HANDOFF_LIMIT) throw new Error("Oversized Designer handoff");
+    let handoff;
+    try { handoff = JSON.parse(text); }
+    catch { throw new Error("Malformed Designer handoff"); }
+    return validateHandoff(handoff, id);
+}
+
+export function handoffDirectory(workspacePath, id) {
+    validateHandoffId(id);
+    if (typeof workspacePath !== "string" || !workspacePath.trim()) {
+        throw new Error("Designer session workspace is unavailable");
+    }
+    return resolve(workspacePath, "speckit-canvas-designer", "handoffs", id);
+}
