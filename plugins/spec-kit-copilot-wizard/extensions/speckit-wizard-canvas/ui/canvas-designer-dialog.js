@@ -50,7 +50,7 @@ function updateLaunch(root) {
     const ready = ["presets", "extensions", "bundles"].every((kind) =>
         Array.isArray(state.snapshot?.catalog?.[kind]))
         && typeof state.snapshot.catalog.designerFingerprint === "string";
-    submit.disabled = confirming || inspecting || !ready;
+    submit.disabled = Boolean(confirming || inspecting || !ready);
     const error = root.querySelector(".designer-error");
     error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching." : "");
     error.hidden = !error.textContent;
