@@ -85,8 +85,12 @@ launch on failure. No JavaScript helper initializes, installs or independently
 verifies packages; there is no separate setup receipt or package-provenance gate.
 The agent calls `speckit_designer_reload_skills` after init and after installation
 to actually reload its session's skills via the same RPC as the Wizard (not a
-printed slash command). It then opens the Designer provider bundled with the
-installed Wizard plugin, which validates the handoff and resolves registered pages.
+printed slash command). It invokes the generated, preset-composed
+`speckit-canvas-design-load-page` skill, which resolves templates through the CLI
+and calls the custom `speckit_designer_load_pages` tool. Only after that succeeds
+does it open the Designer provider bundled with the installed Wizard plugin.
+The provider validates the handoff and reads the stored page model; it neither
+resolves templates nor searches for a Python interpreter.
 No provider files are copied into the child worktree. After extension reload,
 opening Designer also requires a successful skill reload. The
 Wizard reports only that launch was queued; child setup and errors appear
@@ -99,12 +103,16 @@ Catalogs page continues to install items as before.
 
 The local development source must exist at `spec-kit-extensions/canvas-design`
 alongside the Wizard sources. It is a **Specify extension**, distinct from the
-Copilot canvas provider. Its pages are discovered through `specify artifact list
---json` and resolved using Specify's preset precedence. The defaults are
+Copilot canvas provider. Its composed load command defines page membership and
+directs the agent to resolve each name using `specify preset resolve`.
+Presets can replace JSON templates or append additional page declarations to the
+command. There is no automatic artifact discovery. The defaults are
 Essentials, Artifacts, Appearance, and Result Badges. Essentials has four text
 fields and the Show slug field checkbox; the other pages are empty placeholders.
 The theme toggle and connection status work; **Save and Generate remain disabled**.
-Edits survive tab changes, not page reloads. See the
+Edits survive tab changes and connection recovery. Explicit **Reload pages**
+invokes the composed skill again; it confirms draft loss and retains edits on
+failure. A retry supersedes the pending request. See the
 [Canvas Design package](../../../../spec-kit-extensions/canvas-design/README.md)
 for the page contract and package tests.
 
@@ -117,10 +125,11 @@ catalog data; no `specify` installation or live catalog is required.
 when the Wizard plugin or Canvas Design package changes. The check is advisory until branch protection
 is configured separately; its always-present gate can later be made required
 without blocking unrelated PRs on a skipped workflow.
-The workflow also runs the Python page-loader tests and Designer page-loading tests
-against Specify. Locally, set `DESIGNER_CLI_TESTS=1` when running the Node tests to
-include real skill CLI init/install commands followed directly by page
-resolution, without a readiness receipt; the default Node suite mocks page loading. These tests
+The workflow also runs Designer page-loading tests against Specify, including a
+Windows uv-isolated CLI install. Locally, set `DESIGNER_CLI_TESTS=1` when running
+the Node tests to include real CLI init/install, default resolution, preset
+replacement, command append and removal. The default suite validates supplied
+paths and provider lifecycle without CLI subprocesses. These tests
 do not run a live nested agent or prove its skill invocations.
 
 ## Quickstart

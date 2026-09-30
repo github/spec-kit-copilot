@@ -112,6 +112,8 @@ test("child kickoff delegates setup and failure reporting to skills without a ve
         "speckit-preset for remaining",
         "After all installations, call speckit_designer_reload_skills",
         "Call extensions_reload",
+        "Invoke the generated skill speckit-canvas-design-load-page using the skill tool",
+        "Only after speckit_designer_load_pages succeeds",
         'call open_canvas({canvasId:"speckit-canvas-designer"',
     ];
     let previous = -1;

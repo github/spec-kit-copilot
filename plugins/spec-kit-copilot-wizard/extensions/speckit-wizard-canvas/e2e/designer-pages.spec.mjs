@@ -70,6 +70,7 @@ test("connection status reflects failure and reconnects without losing edits", a
 });
 
 test("Designer exposes state errors and no save or generate endpoints", async ({ page }) => {
+    await page.route("**/events?*", (route) => route.abort());
     await page.route("**/api/state?*", (route) => route.fulfill({ status: 503, body: "unavailable" }));
     await page.goto("/designer");
     await expect(page.getByRole("alert")).toContainText("503");
@@ -79,4 +80,51 @@ test("Designer exposes state errors and no save or generate endpoints", async ({
         expect((await page.request.post(target.href)).status()).toBe(404);
     }
     await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+});
+
+test("explicit reload confirms draft loss and publishes an additional page", async ({ page }) => {
+    const requests = [];
+    page.on("request", (request) => {
+        if (request.method() === "POST") requests.push(request.url());
+    });
+    await page.goto("/designer");
+    const id = page.getByRole("textbox", { name: "Canvas ID (required)" });
+    await id.fill("temporary");
+    await page.getByRole("button", { name: "Reload pages", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(requests).toEqual([]);
+    await expect(id).toHaveValue("temporary");
+    await page.getByRole("button", { name: "Reload pages", exact: true }).click();
+    await page.getByRole("button", { name: "Discard and reload" }).click();
+    await expect(page.getByRole("tab", { name: "Accessibility" })).toBeVisible();
+    await expect(id).toHaveValue("");
+    await expect(page.getByRole("button", { name: "Reload pages", exact: true })).toBeEnabled();
+    await page.getByRole("tab", { name: "Accessibility" }).click();
+    await expect(page.getByRole("heading", { name: "Accessibility" })).toBeVisible();
+    expect(requests).toHaveLength(1);
+    await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeDisabled();
+});
+
+test("failed reload retains edited values and reports the agent error", async ({ page }) => {
+    await page.goto("/designer?reload=fail");
+    const id = page.getByRole("textbox", { name: "Canvas ID (required)" });
+    await id.fill("keep-draft");
+    await page.getByRole("button", { name: "Reload pages", exact: true }).click();
+    await page.getByRole("button", { name: "Discard and reload" }).click();
+    await expect(page.getByRole("alert")).toHaveText("canvas-settings-extra: not found");
+    await expect(id).toHaveValue("keep-draft");
+    await expect(id).toBeEnabled();
+    await expect(page.getByRole("tab")).toHaveCount(4);
+});
+
+test("a pending load can be explicitly retried without tab-driven dispatch", async ({ page }) => {
+    await page.goto("/designer?reload=pending");
+    await page.getByRole("button", { name: "Reload pages", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Reload pages", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Retry reload" })).toBeVisible();
+    await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+    await page.getByRole("button", { name: "Retry reload" }).click();
+    await expect(page.getByRole("tab", { name: "Accessibility" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Appearance", exact: true })).toHaveAttribute("aria-selected", "true");
 });

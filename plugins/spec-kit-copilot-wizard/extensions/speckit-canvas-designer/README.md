@@ -9,8 +9,9 @@ provides a handoff containing its configured pipeline and selected presets,
 extensions, and bundles. The child agent invokes the Spec Kit skills to initialize
 the child project when needed and install the required Canvas Design extension
 and approved customizations, inspect CLI results, and report setup failures.
-The provider resolves registered JSON pages when opening Designer; it does not
-independently verify package installation. Essentials provides the identity controls;
+The agent resolves JSON pages through the composed load-page skill and submits
+them to the provider's custom tool before opening Designer. The provider does not
+independently resolve templates or verify package installation. Essentials provides the identity controls;
 Artifacts, Appearance, and Result Badges are empty placeholders. Save and
 Generate remain disabled.
 
@@ -34,11 +35,18 @@ sufficient. The tool is available without opening a canvas. Missing reload suppo
 RPC failures or skill-loading errors stop setup. Warnings are logged.
 
 There is no setup-verification script, package-provenance gate or readiness
-receipt. Once the agent reports successful setup, it reloads extensions and
-opens Designer. The provider validates the handoff and its bundled page-loader
-source, discovers registered templates using Specify's artifact registry, and
-validates the resolved JSON pages. It does not query installed package inventories
-or interpret CLI package-source fields. A successful open means valid pages and
+receipt. Once setup and skill reload succeed, the agent invokes the generated
+`speckit-canvas-design-load-page` skill, including preset-appended page declarations.
+The skill directs the agent to run `specify preset resolve` for each name and pass
+the complete set of resolved JSON paths to `speckit_designer_load_pages`. That
+custom tool is registered by this provider, works before the panel opens, and
+only validates and stores the pages. It does not locate a Python interpreter,
+import Specify internals, or run subprocesses.
+
+Only after the tool succeeds does the agent open Designer. The provider validates
+the handoff and reads the persisted `pages.json` model beside that handoff in the
+session artifacts. This is canvas state, not a setup receipt. Reopening or provider
+restart uses that model without rerunning resolution. A successful open means valid pages and
 a successful skill reload, not an independent attestation of package installation.
 Opening also performs a real skill reload and fails if it reports errors.
 The provider comes from the installed plugin, not a copy in the
@@ -50,6 +58,15 @@ handoff structure, fingerprint, size, and session-artifact boundary. A supplied 
 with a missing or invalid file, changed bundled source, or invalid page templates is
 an error, not an empty shell. The HTTP shell
 binds to loopback and requires an unguessable URL token.
+
+**Reload pages** reloads the session's skills and queues the composed load command
+with a request token. A successful full-batch load atomically replaces the stored
+model and updates matching open panels over SSE. The UI confirms discarding drafts,
+retains them on failure, and offers explicit retry if an agent turn never reports
+a result. Older request tokens are rejected. Tab switches and SSE reconnects do
+not invoke the agent. Package changes are picked up on the next explicit reload,
+not by a watcher. See the [package documentation](../../../../spec-kit-extensions/canvas-design/README.md)
+for template registration, overrides and additional-page examples.
 
 Run the provider tests with:
 

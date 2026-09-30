@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { copyFile, cp, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { request } from "node:http";
@@ -15,8 +16,8 @@ import { readDesignSource } from "../source.mjs";
 
 const ID = "designer_1";
 const requiredExtension = await readDesignSource();
-const model = { pages: [{ page: "setup", title: "Essentials", fields: [] }],
-    constraints: {}, values: {} };
+const model = { pages: [{ id: "canvas-settings-setup", page: "setup", title: "Essentials", fields: [] }],
+    constraints: {}, values: {}, revision: "initial" };
 
 function validHandoff(id = ID) {
     const workflow = { selectedPhases: ["specify", "plan"] };
@@ -198,7 +199,10 @@ test("handoff rejects a FIFO promptly instead of waiting for a writer", {
 test("prepared Designer serves pages without echoing handoff content and restricts HTTP access", async (t) => {
     const handoff = validHandoff();
     await assert.rejects(startShell(handoff), /pages must be resolved/);
-    const shell = await startShell(handoff, model);
+    let reloads = 0;
+    const shell = await startShell(handoff, model, {
+        reload: async () => { reloads++; return { queued: true }; },
+    });
     t.after(() => shell.close());
     const url = new URL(shell.url);
     assert.equal(url.hostname, "127.0.0.1");
@@ -222,6 +226,13 @@ test("prepared Designer serves pages without echoing handoff content and restric
     ]) {
         assert.equal((await fetch(address, options)).status, 404);
     }
+    stateUrl.pathname = "/api/reload";
+    for (const headers of [{ origin: "https://example.com" }, { "sec-fetch-site": "cross-site" }]) {
+        assert.equal((await fetch(stateUrl, { method: "POST", headers })).status, 403);
+    }
+    assert.equal(reloads, 0);
+    assert.equal((await fetch(stateUrl, { method: "POST", headers: { origin: url.origin } })).status, 202);
+    assert.equal(reloads, 1);
 });
 
 test("malformed raw request targets return 404 without stopping the shell", async (t) => {
@@ -262,6 +273,17 @@ test("canvas reloads session skills before opening valid pages and exposes an in
     }
     await cp(join(source, "ui"), join(extension, "ui"), { recursive: true });
     await writeFile(join(extension, "pages.mjs"), `
+        export const PAGE_NAME = "^[a-z][a-z0-9-]{0,79}$";
+        export async function assertPageCommand() {
+            if (globalThis.__designerTestCommandMissing) throw new Error("skill missing");
+        }
+        export async function storeDesignerPages(_handoff, _workspace, _project, pages, isCurrent) {
+            if (!pages?.length) throw new Error("No resolved paths");
+            if (!isCurrent()) throw new Error("Superseded");
+            globalThis.__designerTestPagesValid = true;
+            globalThis.__designerTestStores = (globalThis.__designerTestStores ?? 0) + 1;
+            return ${JSON.stringify(model)};
+        }
         export async function loadDesignerPages() {
             if (!globalThis.__designerTestPagesValid) throw new Error("Registered pages are invalid");
             return ${JSON.stringify(model)};
@@ -280,6 +302,10 @@ test("canvas reloads session skills before opening valid pages and exposes an in
             globalThis.__designerTestTools = tools;
             globalThis.__designerTestSession = {
                 workspacePath: ${JSON.stringify(workspace)},
+                send: async (message) => {
+                    if (globalThis.__designerTestSendError) throw new Error("send failed");
+                    globalThis.__designerTestSent.push(message);
+                },
                 log: async (message, options) => {
                     globalThis.__designerTestWarnings.push({ message, options });
                 },
@@ -298,12 +324,13 @@ test("canvas reloads session skills before opening valid pages and exposes an in
     assert.deepEqual(canvas.inputSchema.required, undefined);
     assert.deepEqual(canvas.inputSchema.properties.handoffId.type, "string");
 
-    const [reloadTool] = globalThis.__designerTestTools;
+    const [reloadTool, loadTool] = globalThis.__designerTestTools;
     assert.equal(reloadTool.name, "speckit_designer_reload_skills");
     assert.equal(reloadTool.parameters.additionalProperties, false);
     globalThis.__designerTestReloads = 0;
     globalThis.__designerTestWarnings = [];
     globalThis.__designerTestDiagnostics = { errors: [], warnings: [] };
+    globalThis.__designerTestSent = [];
     try {
         const empty = await canvas.open({ instanceId: "same", input: {} });
         assert.match(await (await fetch(empty.url)).text(), /No Wizard handoff is attached yet/);
@@ -316,7 +343,9 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         assert.equal(globalThis.__designerTestReloads, 0);
         assert.deepEqual(JSON.parse(await reloadTool.handler()), { errors: [], warnings: [] });
         assert.equal(globalThis.__designerTestReloads, 1);
-        globalThis.__designerTestPagesValid = true;
+        const loaded = await loadTool.handler({ handoffId: ID,
+            pages: [{ name: "canvas-settings-setup", path: "resolved.json" }] });
+        assert.equal(JSON.parse(loaded).loaded, true, "tool loads before a handoff-backed panel opens");
         globalThis.__designerTestDiagnostics = { errors: ["bad SKILL.md"], warnings: [] };
         await assert.rejects(reloadTool.handler(), /bad SKILL.md/);
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
@@ -342,6 +371,44 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         assert.notEqual(filled.url, empty.url);
         assert.match(await (await fetch(filled.url)).text(), /id="settings-page"/);
         assert.equal((await canvas.open({ instanceId: "same", input: { handoffId: ID } })).url, filled.url);
+        const endpoint = new URL(filled.url);
+        endpoint.pathname = "/api/reload";
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 202);
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 409);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(globalThis.__designerTestSent.length, 1);
+        const prompt = globalThis.__designerTestSent[0].prompt;
+        assert.match(prompt, /^\/speckit-canvas-design-load-page/);
+        assert.match(prompt, /Invoke the skill tool/);
+        const context = JSON.parse(prompt.match(/Context: (\{[^\n]+\})\./)[1]);
+        assert.equal(context.handoffId, ID);
+        const stale = await loadTool.handler({ handoffId: ID, requestId: randomUUID(),
+            pages: [{ name: "canvas-settings-setup", path: "stale.json" }] });
+        assert.equal(stale.resultType, "failure");
+        const failure = await loadTool.handler({ ...context, error: "canvas-settings-extra: not found" });
+        assert.equal(failure.resultType, "failure");
+        assert.equal(failure.textResultForLlm, "canvas-settings-extra: not found");
+        const state = new URL(filled.url);
+        state.pathname = "/api/state";
+        assert.equal((await (await fetch(state)).json()).load.pending, false);
+        assert.equal((await (await fetch(state)).json()).pages[0].title, "Essentials");
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 202);
+        endpoint.searchParams.set("retry", "1");
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 202);
+        await new Promise((resolve) => setImmediate(resolve));
+        const retryContext = JSON.parse(globalThis.__designerTestSent.at(-1).prompt.match(/Context: (\{[^\n]+\})\./)[1]);
+        assert.equal(JSON.parse(await loadTool.handler({ ...retryContext,
+            pages: [{ name: "canvas-settings-setup", path: "resolved.json" }] })).loaded, true);
+        assert.equal((await (await fetch(state)).json()).load.pending, false);
+        assert.equal((await loadTool.handler({ ...context, error: "late failure" })).resultType, "failure");
+        assert.equal((await (await fetch(state)).json()).load.error, "");
+        globalThis.__designerTestCommandMissing = true;
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 409);
+        delete globalThis.__designerTestCommandMissing;
+        globalThis.__designerTestSendError = true;
+        assert.equal((await fetch(endpoint, { method: "POST" })).status, 202);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.match((await (await fetch(state)).json()).load.error, /send failed/);
     } finally {
         await canvas.onClose({ instanceId: "same" });
         delete globalThis.__designerTestPagesValid;
@@ -351,5 +418,9 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         delete globalThis.__designerTestWarnings;
         delete globalThis.__designerTestDiagnostics;
         delete globalThis.__designerTestReloadError;
+        delete globalThis.__designerTestSent;
+        delete globalThis.__designerTestStores;
+        delete globalThis.__designerTestSendError;
+        delete globalThis.__designerTestCommandMissing;
     }
 });

@@ -11,6 +11,8 @@
     <header class="app-header">
         <div class="brand"><span class="brand-mark">S</span><span class="brand-text">Spec Kit Canvas Designer</span></div>
         <div class="toolbar-actions">
+            <button type="button" id="reload-pages">Reload pages</button>
+            <button type="button" id="retry-reload" hidden title="Supersede the pending request; its late result will be ignored">Retry reload</button>
             <button type="button" id="save-settings" disabled title="Saving is not available yet">Save</button>
             <button type="button" id="generate-canvas" class="primary" disabled title="Generation is not available yet">Generate</button>
             <button type="button" id="theme-toggle" class="btn-icon" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
@@ -19,6 +21,12 @@
         <nav class="tabs" role="tablist" aria-label="Designer pages"></nav>
     </header>
     <main class="app-body">
+        <p id="reload-status" aria-live="polite" hidden></p>
+        <div id="reload-confirm" role="alertdialog" aria-label="Discard temporary settings?" hidden>
+            <p>Reloading replaces the page set and discards temporary settings if it succeeds.</p>
+            <button type="button" id="confirm-reload">Discard and reload</button>
+            <button type="button" id="cancel-reload">Cancel</button>
+        </div>
         <p id="page-error" role="alert" tabindex="-1" hidden></p>
         <section id="settings-page" role="tabpanel" aria-busy="true"><h1>Loading settings...</h1></section>
         <p class="settings-note availability-note">Settings are temporary. Saving and generation are not available yet.</p>

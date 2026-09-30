@@ -73,7 +73,8 @@ const pages = await Promise.all(["setup", "artifacts", "appearance", "results"].
         `../../../../../spec-kit-extensions/canvas-design/pages/${page}.json`, import.meta.url), "utf8")),
     page,
 })));
-const designer = await startShell({ handoffId: "e2e-designer" }, {
+const designerModel = {
+    revision: "initial",
     pages,
     constraints: {
         "canvas.id": { type: "string", minLength: 1, maxLength: 100, pattern: "^[a-z0-9][a-z0-9-]*$" },
@@ -84,11 +85,34 @@ const designer = await startShell({ handoffId: "e2e-designer" }, {
     },
     values: Object.fromEntries(pages[0].fields.map((field) =>
         [field.id, field.type === "boolean" ? false : ""])),
-});
+};
+
+async function createDesigner(mode) {
+    let version = 0;
+    const designer = await startShell({ handoffId: "e2e-designer" }, structuredClone(designerModel), {
+        reload: async (retry) => {
+            designer.update(undefined, { pending: true, error: "" });
+            if (mode === "pending" && !retry) return { queued: true };
+            setTimeout(() => {
+                if (mode === "fail") {
+                    designer.update(undefined, { pending: false, error: "canvas-settings-extra: not found" });
+                } else {
+                    designer.update({ ...structuredClone(designerModel), revision: `reload-${++version}`,
+                        pages: [...pages, { id: "canvas-settings-accessibility", page: "accessibility",
+                            title: "Accessibility", fields: [] }] }, { pending: false, error: "" });
+                }
+            }, 100);
+            return { queued: true };
+        },
+    });
+    return designer;
+}
 
 createServer((req, res) => {
-    if (req.url === "/designer") {
-        res.writeHead(302, { Location: designer.url }).end();
+    if (req.url === "/designer" || req.url.startsWith("/designer?")) {
+        void createDesigner(new URL(req.url, "http://127.0.0.1").searchParams.get("reload"))
+            .then((designer) => res.writeHead(302, { Location: designer.url }).end())
+            .catch((error) => { console.error(error); res.writeHead(500).end(error.message); });
         return;
     }
     void handler(req, res);

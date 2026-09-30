@@ -8,7 +8,7 @@ export const designSourcePath = resolve(fileURLToPath(new URL(".", import.meta.u
     "../../../..", "spec-kit-extensions", DESIGN_EXTENSION);
 const FILES = ["extension.yml", "pages/setup.json", "pages/artifacts.json",
     "pages/appearance.json", "pages/results.json", "schemas/page.schema.json",
-    "scripts/python/pages.py"];
+    "commands/load-page.md"];
 
 export function validDesignSource(value) {
     return value && typeof value === "object" && !Array.isArray(value)

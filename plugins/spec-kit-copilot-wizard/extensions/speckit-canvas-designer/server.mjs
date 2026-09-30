@@ -29,7 +29,7 @@ const ASSETS = {
     "/ui/app.js": ["app.js", "text/javascript"],
 };
 
-export async function startShell(handoff = null, model = null) {
+export async function startShell(handoff = null, model = null, { reload, load } = {}) {
     if (handoff && (!Array.isArray(model?.pages) || !model.pages.length)) {
         throw new Error("Designer pages must be resolved before opening");
     }
@@ -39,6 +39,8 @@ export async function startShell(handoff = null, model = null) {
         : new Map([["/", { type: "text/html", content: shellHtml() }]]);
     const token = randomBytes(24).toString("hex");
     const clients = new Set();
+    let loadStatus = load ?? { pending: false, error: "" };
+    const state = () => ({ ...model, handoffId: handoff?.handoffId, load: loadStatus });
     const server = createServer((req, res) => {
         let url;
         try {
@@ -50,19 +52,34 @@ export async function startShell(handoff = null, model = null) {
         const supplied = url.searchParams.get("token");
         const actual = typeof supplied === "string" ? Buffer.from(supplied) : Buffer.alloc(0);
         const expected = Buffer.from(token);
-        if (actual.length !== expected.length || !timingSafeEqual(actual, expected)
-            || req.method !== "GET") {
+        if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
             res.writeHead(404).end();
             return;
         }
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Content-Type-Options", "nosniff");
+        if (handoff && reload && req.method === "POST" && url.pathname === "/api/reload") {
+            const origin = req.headers.origin;
+            if ((origin && origin !== `http://127.0.0.1:${server.address().port}`)
+                || req.headers["sec-fetch-site"] === "cross-site") {
+                res.writeHead(403).end();
+                return;
+            }
+            req.resume();
+            Promise.resolve().then(() => reload(url.searchParams.get("retry") === "1")).then((result) => {
+                res.writeHead(202, { "Content-Type": "application/json" }).end(JSON.stringify(result));
+            }).catch((error) => {
+                res.writeHead(409, { "Content-Type": "application/json" }).end(JSON.stringify({ error: error.message }));
+            });
+            return;
+        }
+        if (req.method !== "GET") { res.writeHead(404).end(); return; }
         if (handoff && url.pathname === "/api/state") {
             res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-            res.end(JSON.stringify({ ...model, handoffId: handoff.handoffId }));
+            res.end(JSON.stringify(state()));
         } else if (handoff && url.pathname === "/events") {
             res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
-            res.write(": connected\n\n");
+            res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
             clients.add(res);
             res.on("close", () => clients.delete(res));
         } else if (assets.has(url.pathname)) {
@@ -83,6 +100,11 @@ export async function startShell(handoff = null, model = null) {
     heartbeat.unref();
     return {
         url: `http://127.0.0.1:${server.address().port}/?token=${token}`,
+        update(nextModel, nextLoad) {
+            if (nextModel) model = nextModel;
+            if (nextLoad) loadStatus = nextLoad;
+            for (const client of clients) client.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
+        },
         close: () => {
             clearInterval(heartbeat);
             for (const client of clients) client.end();

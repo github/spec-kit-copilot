@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "id": "canvas-settings-setup",
   "title": "Essentials",
   "description": "Configure your canvas.",
   "order": 10,

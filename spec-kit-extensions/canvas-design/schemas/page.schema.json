@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "title", "order", "fields"],
+  "required": ["schemaVersion", "id", "title", "order", "fields"],
   "properties": {
     "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
     "title": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": {"type": "string", "maxLength": 1000},
     "order": {"type": "integer", "minimum": -100000, "maximum": 100000},
