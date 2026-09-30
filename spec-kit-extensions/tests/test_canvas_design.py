@@ -226,19 +226,15 @@ class CanvasDesignPackageTests(unittest.TestCase):
         version = self.manifest["extension"]["version"]
         tag = f"refs/tags/extension/canvas-design/v{version}"
         cases = [
-            ("pull_request", "refs/pull/1/merge", "", True),
-            ("push", "refs/heads/main", "", True),
-            ("push", tag, "", True),
-            ("push", "refs/tags/extension/canvas-design/v999.0.0", "", False),
-            ("push", "refs/tags/canvas-design-v0.1.0", "", False),
-            ("workflow_dispatch", "refs/heads/main", version, True),
-            ("workflow_dispatch", "refs/heads/main", "999.0.0", False),
-            ("workflow_dispatch", "refs/heads/feature", version, False),
+            ("refs/pull/1/merge", True),
+            ("refs/heads/main", True),
+            (tag, True),
+            ("refs/tags/extension/canvas-design/v999.0.0", False),
+            ("refs/tags/canvas-design-v0.1.0", False),
         ]
-        for event, ref, requested, succeeds in cases:
-            with self.subTest(event=event, ref=ref, version=requested):
-                env = dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF=ref,
-                           REQUESTED_VERSION=requested)
+        for ref, succeeds in cases:
+            with self.subTest(ref=ref):
+                env = dict(os.environ, GITHUB_REF=ref)
                 result = subprocess.run(
                     [sys.executable, "-c", self.workflow_python("Validate release version")],
                     cwd=EXTENSIONS.parent, env=env, capture_output=True, text=True,
@@ -248,6 +244,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
 
     def test_release_triggers_and_permissions(self):
         triggers = self.workflow["on"]
+        self.assertEqual(set(triggers), {"pull_request", "push"})
         self.assertEqual(triggers["push"]["tags"], ["extension/canvas-design/v*"])
         self.assertEqual(triggers["pull_request"]["branches"], ["main"])
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -256,9 +253,17 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertEqual(release["permissions"], {"contents": "write"})
         self.assertEqual(
             release["if"],
-            "github.event_name == 'workflow_dispatch' || "
             "startsWith(github.ref, 'refs/tags/extension/canvas-design/v')",
         )
+        publish = next(
+            step for step in release["steps"]
+            if step.get("name") == "Publish validated extension"
+        )["run"]
+        self.assertIn('TAG="${GITHUB_REF#refs/tags/}"', publish)
+        self.assertIn('gh release create "$TAG" canvas-design.zip', publish)
+        self.assertIn("--verify-tag", publish)
+        for step in release["steps"]:
+            self.assertNotRegex(step.get("run", ""), r"\bgit\s+(tag|push|ls-remote)\b")
 
     def assert_archive_matches_package(self, path):
         with ZipFile(path) as archive:

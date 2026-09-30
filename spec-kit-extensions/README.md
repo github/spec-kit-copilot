@@ -17,9 +17,12 @@ There is no extension catalog in this extraction.
 
 The **Release Extension** workflow validates the package, builds the ZIP inline,
 and checks its contents on relevant pull requests and pushes to `main`.
-It publishes only on a matching tag push or an explicit manual dispatch from
-`main` with the manifest version. A manual dispatch creates the tag and release
-in the same run: tags pushed with `GITHUB_TOKEN` do not trigger another workflow.
+Publishing follows the existing **Release Preset** approach: a maintainer pushes
+a version tag, and the tag-triggered workflow packages and publishes the release.
+There is no separate manual-dispatch publishing path, and the workflow does not
+create or push tags. A failed release job can be rerun against its existing tag.
 Update the manifest and package README version together before a future release.
+After those changes merge, tag the reviewed commit on `main` with
+`extension/canvas-design/v<manifest-version>` and push that tag normally.
 Publishing is a separate maintainer action; adding this package does not publish
 it, enable a Designer, or migrate an existing Wizard consumer.

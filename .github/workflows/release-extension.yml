@@ -13,13 +13,6 @@ on:
       - '.github/workflows/release-extension.yml'
     tags:
       - 'extension/canvas-design/v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Canvas Design manifest version to publish from main (X.Y.Z)'
-        required: true
-        type: string
-
 permissions:
   contents: read
 
@@ -38,8 +31,6 @@ jobs:
         run: python -m pip install -r spec-kit-extensions/tests/requirements.txt
 
       - name: Validate release version
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           python - <<'PY'
           import os
@@ -54,11 +45,6 @@ jobs:
           if os.environ["GITHUB_REF"].startswith("refs/tags/"):
               if os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
                   raise SystemExit("Release tag must match extension.yml version")
-          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
-              if os.environ["GITHUB_REF"] != "refs/heads/main":
-                  raise SystemExit("Manual releases must run from main")
-              if os.environ["REQUESTED_VERSION"] != version:
-                  raise SystemExit("Requested version must match extension.yml")
           PY
 
       - name: Test package contracts
@@ -93,7 +79,7 @@ jobs:
 
   release:
     needs: package
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/extension/canvas-design/v')
+    if: startsWith(github.ref, 'refs/tags/extension/canvas-design/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,20 +97,8 @@ jobs:
       - name: Publish validated extension
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            TAG="extension/canvas-design/v$REQUESTED_VERSION"
-            EXISTING_TAGS="$(git ls-remote --tags origin "refs/tags/$TAG")"
-            if [[ -n "$EXISTING_TAGS" ]]; then
-              echo "::error::Tag already exists: $TAG"
-              exit 1
-            fi
-            git tag "$TAG" "$GITHUB_SHA"
-            git push origin "$TAG"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
+          TAG="${GITHUB_REF#refs/tags/}"
           gh release create "$TAG" canvas-design.zip \
             --verify-tag \
             --latest=false \
