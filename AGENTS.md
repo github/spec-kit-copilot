@@ -114,6 +114,16 @@ toolchains:
   When revving a preset, bump `preset.yml` + the `catalog.json` entry together
   **before** tagging.
 
+## Spec Kit extensions (`spec-kit-extensions/`)
+
+This directory and its `catalog.json` hold **Copilot-specific Specify CLI
+extensions**, parallel to the preset catalog. Entries must depend on Copilot
+tools or providers; do not import general-purpose extensions or add these packages
+to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
+and release URL aligned with its `extension.yml` and package README.
+Canvas Designer discovery uses the exact lowercase `canvas-design` tag; preserve
+it in both the catalog entry and extension manifest alongside the `copilot` tag.
+
 ## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release

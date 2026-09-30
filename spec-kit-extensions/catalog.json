@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-09-30T00:00:00Z",
+  "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json",
+  "extensions": {
+    "canvas-design": {
+      "name": "Canvas Design",
+      "id": "canvas-design",
+      "version": "0.1.0",
+      "description": "Settings pages for the Copilot Canvas Designer; requires its speckit_designer_load_pages tool.",
+      "author": "spec-kit-copilot",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/extension/canvas-design/v0.1.0/canvas-design.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-extensions/canvas-design/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.7"
+      },
+      "provides": {
+        "commands": 1,
+        "hooks": 0
+      },
+      "tags": [
+        "copilot",
+        "canvas-design"
+      ]
+    }
+  }
+}

@@ -33,6 +33,7 @@ jobs:
       - name: Validate release version
         run: |
           python - <<'PY'
+          import json
           import os
           import re
           import yaml
@@ -42,6 +43,13 @@ jobs:
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
               raise SystemExit(f"Invalid manifest version: {version}")
           tag = f"extension/canvas-design/v{version}"
+          with open("spec-kit-extensions/catalog.json") as source:
+              entry = json.load(source)["extensions"]["canvas-design"]
+          if entry["version"] != version:
+              raise SystemExit("Catalog version must match extension.yml version")
+          download_url = f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/canvas-design.zip"
+          if entry["download_url"] != download_url:
+              raise SystemExit("Catalog download URL must match the release asset")
           if os.environ["GITHUB_REF"].startswith("refs/tags/"):
               if os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
                   raise SystemExit("Release tag must match extension.yml version")

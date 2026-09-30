@@ -4,16 +4,24 @@ Canvas Design **0.1.0** is a Spec Kit extension requiring Specify CLI **>=1.0.7*
 It supplies JSON settings pages for the Canvas Designer; it is not a Copilot
 plugin or a canvas provider.
 
-## Install from a published release
+## Installation
 
-After a maintainer publishes `extension/canvas-design/v0.1.0`, run from an
-initialized project:
+From an initialized project, register the Copilot-specific extension catalog
+once, then install by ID:
+
+```powershell
+specify extension catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json --name spec-kit-copilot --install-allowed
+specify extension add canvas-design
+```
+
+Alternatively, install directly from a published release without registering
+the catalog:
 
 ```powershell
 specify extension add canvas-design --from https://github.com/github/spec-kit-copilot/releases/download/extension/canvas-design/v0.1.0/canvas-design.zip
 ```
 
-This URL describes the intended release asset, not a release that already exists.
+The release ZIP must be published before either installation method can succeed.
 For a new Copilot project, initialize it with
 `specify init . --integration copilot --integration-options="--skills"` first.
 Normal installation copies the package; do not use a development symlink install
@@ -164,8 +172,9 @@ python -m pip install -r spec-kit-extensions\tests\requirements.txt
 python -m unittest discover -s spec-kit-extensions\tests -v
 ```
 
-These focused package tests cover manifest declarations, shipped files, JSON
-schema acceptance/rejection, default page shape, and the agent command contract.
+These focused package tests cover manifest/catalog agreement, discovery tags,
+shipped files, JSON schema acceptance/rejection, default page shape, and the
+agent command contract.
 The release workflow builds the ZIP inline with `extension.yml` at its root and
 reruns the tests with `CANVAS_DESIGN_ARCHIVE` set to the archive path, checking the
 exact member set and bytes. Set that environment variable to check a local ZIP.

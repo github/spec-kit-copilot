@@ -30,6 +30,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.manifest = yaml.safe_load((PACKAGE / "extension.yml").read_text("utf-8"))
+        cls.catalog = json.loads((EXTENSIONS / "catalog.json").read_text("utf-8"))
         cls.schema = json.loads((PACKAGE / "schemas/page.schema.json").read_text("utf-8"))
         cls.validator = Draft202012Validator(cls.schema)
         cls.pages = [
@@ -88,6 +89,47 @@ class CanvasDesignPackageTests(unittest.TestCase):
             path = PACKAGE / declaration["file"]
             self.assertTrue(path.resolve().is_relative_to(PACKAGE.resolve()))
             self.assertTrue(path.is_file(), declaration["file"])
+
+    def test_copilot_catalog_matches_package(self):
+        self.assertEqual(self.catalog["schema_version"], "1.0")
+        catalog_url = (
+            "https://raw.githubusercontent.com/github/spec-kit-copilot/main/"
+            "spec-kit-extensions/catalog.json"
+        )
+        self.assertEqual(self.catalog["catalog_url"], catalog_url)
+        self.assertEqual(set(self.catalog["extensions"]), {"canvas-design"})
+        entry = self.catalog["extensions"]["canvas-design"]
+        for field in ("id", "name", "version", "author", "repository", "license"):
+            with self.subTest(field=field):
+                self.assertEqual(entry[field], self.manifest["extension"][field])
+        self.assertEqual(entry["requires"], self.manifest["requires"])
+        self.assertEqual(entry["provides"], {
+            "commands": len(self.manifest["provides"]["commands"]),
+            "hooks": 0,
+        })
+        self.assertEqual(entry["tags"], ["copilot", "canvas-design"])
+        self.assertEqual(self.manifest["tags"], entry["tags"])
+        self.assertIn("Copilot", entry["description"])
+        self.assertIn("speckit_designer_load_pages", entry["description"])
+        version = entry["version"]
+        self.assertEqual(
+            entry["download_url"],
+            "https://github.com/github/spec-kit-copilot/releases/download/"
+            f"extension/canvas-design/v{version}/canvas-design.zip",
+        )
+        self.assertEqual(
+            entry["documentation"],
+            "https://github.com/github/spec-kit-copilot/blob/main/"
+            "spec-kit-extensions/canvas-design/README.md",
+        )
+        for path in (EXTENSIONS / "README.md", PACKAGE / "README.md"):
+            with self.subTest(readme=path):
+                readme = path.read_text("utf-8")
+                self.assertIn(
+                    f"specify extension catalog add {catalog_url} "
+                    "--name spec-kit-copilot --install-allowed", readme,
+                )
+                self.assertIn("specify extension add canvas-design\n", readme)
 
     def test_schema_and_default_pages(self):
         Draft202012Validator.check_schema(self.schema)
@@ -264,6 +306,31 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertIn("--verify-tag", publish)
         for step in release["steps"]:
             self.assertNotRegex(step.get("run", ""), r"\bgit\s+(tag|push|ls-remote)\b")
+
+    def test_release_rejects_catalog_drift(self):
+        version = self.manifest["extension"]["version"]
+        mutations = [
+            ("version", "999.0.0", "Catalog version must match"),
+            ("download_url", "https://example.com/wrong.zip", "Catalog download URL must match"),
+        ]
+        with tempfile.TemporaryDirectory(prefix="canvas-design-catalog-") as temporary:
+            root = Path(temporary)
+            package = root / "spec-kit-extensions/canvas-design"
+            package.mkdir(parents=True)
+            shutil.copyfile(PACKAGE / "extension.yml", package / "extension.yml")
+            for field, value, error in mutations:
+                with self.subTest(field=field):
+                    catalog = copy.deepcopy(self.catalog)
+                    catalog["extensions"]["canvas-design"][field] = value
+                    (package.parent / "catalog.json").write_text(json.dumps(catalog), "utf-8")
+                    result = subprocess.run(
+                        [sys.executable, "-c", self.workflow_python("Validate release version")],
+                        cwd=root,
+                        env=dict(os.environ, GITHUB_REF=f"refs/tags/extension/canvas-design/v{version}"),
+                        capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(error, result.stderr)
 
     def assert_archive_matches_package(self, path):
         with ZipFile(path) as archive:
