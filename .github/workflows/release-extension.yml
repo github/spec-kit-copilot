@@ -1,0 +1,114 @@
+name: Release Extension
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'spec-kit-extensions/**'
+      - '.github/workflows/release-extension.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'spec-kit-extensions/**'
+      - '.github/workflows/release-extension.yml'
+    tags:
+      - 'extension/canvas-design/v*'
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install package test dependencies
+        run: python -m pip install -r spec-kit-extensions/tests/requirements.txt
+
+      - name: Validate release version
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import yaml
+
+          with open("spec-kit-extensions/canvas-design/extension.yml") as source:
+              version = yaml.safe_load(source)["extension"]["version"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit(f"Invalid manifest version: {version}")
+          tag = f"extension/canvas-design/v{version}"
+          with open("spec-kit-extensions/catalog.json") as source:
+              entry = json.load(source)["extensions"]["canvas-design"]
+          if entry["version"] != version:
+              raise SystemExit("Catalog version must match extension.yml version")
+          download_url = f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/canvas-design.zip"
+          if entry["download_url"] != download_url:
+              raise SystemExit("Catalog download URL must match the release asset")
+          if os.environ["GITHUB_REF"].startswith("refs/tags/"):
+              if os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
+                  raise SystemExit("Release tag must match extension.yml version")
+          PY
+
+      - name: Test package contracts
+        run: python -m unittest discover -s spec-kit-extensions/tests -v
+
+      - name: Create extension ZIP
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          package = Path("spec-kit-extensions/canvas-design")
+          with ZipFile("canvas-design.zip", "w", ZIP_DEFLATED) as archive:
+              for path in sorted(package.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(f"Cannot package symlink: {path}")
+                  if path.is_file():
+                      archive.write(path, path.relative_to(package).as_posix())
+          PY
+
+      - name: Verify release archive
+        env:
+          CANVAS_DESIGN_ARCHIVE: canvas-design.zip
+        run: python -m unittest discover -s spec-kit-extensions/tests -v
+
+      - name: Upload validated archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-design-package
+          path: canvas-design.zip
+          if-no-files-found: error
+
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/extension/canvas-design/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: canvas-design-release
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: canvas-design-package
+
+      - name: Publish validated extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" canvas-design.zip \
+            --verify-tag \
+            --latest=false \
+            --title "Canvas Design ${TAG##*/}" \
+            --notes "Specify CLI extension: page templates and the load-page command. Requires a separate compatible Designer provider exposing speckit_designer_load_pages; this package does not ship a Designer."

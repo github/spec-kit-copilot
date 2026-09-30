@@ -153,7 +153,8 @@ export async function snapshot(inst) {
     if (snap.catalog) {
         snap.catalog.designerSource = await probeDesignSource();
         snap.catalog.fingerprint = activeFingerprint(snap.catalog);
-        if (["presets", "extensions", "bundles"].every((kind) => Array.isArray(snap.catalog[kind]))) {
+        if (Array.isArray(inst.cachedPresetItems)
+            && ["presets", "extensions", "bundles"].every((kind) => Array.isArray(snap.catalog[kind]))) {
             snap.catalog.designerFingerprint = designerCatalogFingerprint(snap.catalog);
         }
     }

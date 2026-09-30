@@ -4,17 +4,45 @@ Canvas Design **0.1.0** is a Spec Kit extension requiring Specify CLI **>=1.0.7*
 It supplies JSON settings pages for the Canvas Designer; it is not a Copilot
 plugin or a canvas provider.
 
-The Wizard's Canvas Designer setup includes this extension automatically as a
-checked, locked requirement. Launch captures its validated local source, version,
-and content fingerprint in an immutable handoff. In the nested session, Specify
-installs the extension and approved optional packages, then runs the composed
-`speckit-canvas-design-load-page` skill. Only after its custom tool succeeds does
-the agent open Designer. The Wizard's configuration is not changed.
+## Installation
 
-This development integration expects this package alongside the Wizard sources
-under `spec-kit-extensions/canvas-design`. It installs with
-`specify extension add <validated-source-directory> --dev`. Missing or changed
-sources block launch; there is no silent fallback to a different release.
+From an initialized project, register the Copilot-specific extension catalog
+once, then install by ID:
+
+```powershell
+specify extension catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json --name spec-kit-copilot --install-allowed
+specify extension add canvas-design
+```
+
+Alternatively, install directly from a published release without registering
+the catalog:
+
+```powershell
+specify extension add canvas-design --from https://github.com/github/spec-kit-copilot/releases/download/extension/canvas-design/v0.1.0/canvas-design.zip
+```
+
+The release ZIP must be published before either installation method can succeed.
+For a new Copilot project, initialize it with
+`specify init . --integration copilot --integration-options="--skills"` first.
+Normal installation copies the package; do not use a development symlink install
+for preset composition. Copilot skills mode exposes the command as
+`speckit-canvas-design-load-page`. Use `/skills reload` to discover newly installed
+or composed skills in the current session.
+
+## Required Designer capability
+
+The package requires a separately installed, compatible Copilot Canvas Designer
+provider exposing the **`speckit_designer_load_pages` custom tool** before its
+panel opens. That provider/tool is **not shipped by this package**. Installing or
+publishing this extension does not create a standalone Designer, and no released
+Wizard version is asserted to support this page/tool protocol.
+
+The launching integration must supply a valid `handoffId` and, when reloading,
+a `requestId`. The command resolves all pages in that session's project and
+submits them together. If the tool is missing, the command must report that and
+stop; it must not invent a fallback, run a Python helper, or write provider state.
+Only after a successful tool result may the launching integration open
+`speckit-canvas-designer` using the same handoff ID.
 
 ## Registered pages
 
@@ -35,23 +63,26 @@ fallback to the extension's default file.
 The agent submits the complete set of `{name, path}` pairs once to
 `speckit_designer_load_pages`, a **custom tool registered by the Copilot Designer
 provider**, available before opening its panel. This is not a built-in Specify
-command or a Python script. It validates the input, reads the JSON in Node, and
-stores the validated canvas model in the child's session artifacts. It does not
-resolve templates, search for Python, run CLI subprocesses, or independently
-attest which template should have won. The agent is responsible for using the
-CLI-selected paths.
+command or a Python script. A compatible provider is responsible for validating
+the input and storing the resulting model; this package supplies only the
+command, page templates, and schema. The agent is responsible for using the
+CLI-selected paths, not independently reconstructing template precedence.
 
 Page JSON defines its full template `id`, title, description, order, enabled state, and fields.
 Enabled pages sort by order, then page ID. Fields support strings and booleans;
-field IDs must be unique across enabled pages. Canvas ID and Title must remain
+omitting `type` means string. A `default` is allowed only with an explicit
+`"type": "boolean"`. Field IDs must be unique across enabled pages. Canvas ID and Title must remain
 present. The identity fields retain their built-in constraints even when a
 preset changes their labels or placement. Each file must conform to
 `schemas/page.schema.json`, have an `id` equal to its supplied template name,
-and resolve to a regular `.json` file inside the child project's `.specify/`.
+and resolve to a regular `.json` file inside the session project's `.specify/`.
 Invalid names, escaping symlinks, unsupported controls, duplicate fields, invalid
 JSON and oversized files reject the entire batch without replacing the last
 valid model.
-Loads are limited to 100 pages, 256 KiB per file, and a 2 MiB saved model.
+The compatible provider must enforce limits of 100 pages, 256 KiB per file,
+and a 2 MiB saved model. These batch, path, uniqueness, and identity constraints
+are provider requirements beyond the per-file JSON schema; they are not enforced
+by installing this package alone.
 
 ## Customize pages with a preset
 
@@ -128,30 +159,28 @@ provides:
 Append **command instructions**, not JSON content. Merely dropping a JSON file
 into a directory or registering an additional template does not add it to the
 command's page set. There is no automatic artifact discovery or package watcher.
-After installing or removing a preset, explicitly **Reload pages** to invoke the
-current composed skill again.
-
-The UI retains temporary edits across page navigation, but does not save them.
-Reload asks before discarding edits; successful reload replaces the full model
-and restores defaults, while failed reload retains the last valid model and edits.
-Navigation and connection recovery do not dispatch agent turns. Pending reloads
-offer an explicit retry; superseded callbacks cannot publish their page set.
-**Save and Generate are disabled.** Artifacts, Appearance, and Result Badges are
-placeholders; custom HTML, generation, and result evaluation are not supported.
-Theme switching and the live connection indicator are functional.
+After installing or removing a preset, refresh the composed skill with
+`/skills reload` and use the compatible provider's explicit reload flow.
+Artifacts, Appearance, and Result Badges are empty page templates. This package
+does not implement UI persistence, canvas generation, or result evaluation.
 
 ## Tests
 
-With Node and `specify-cli >=1.0.7` installed:
+From the repository root, with Python 3.12 or later:
 
 ```powershell
-$env:DESIGNER_CLI_TESTS = "1"
-node --test plugins\spec-kit-copilot-wizard\extensions\speckit-wizard-canvas\test\designer-pages.test.mjs
+python -m pip install -r spec-kit-extensions\tests\requirements.txt
+python -m unittest discover -s spec-kit-extensions\tests -v
 ```
 
-Tests initialize temporary projects, install the package through Specify, and
-exercise default resolution, preset replacements, command appends and removal,
-plus Node validation, ordering, disabled pages and invalid templates. CI includes
-a Windows uv-isolated CLI install. Designer browser tests live in the Wizard's
-existing Playwright suite. These tests cover real CLI composition and provider
-contracts, not a live autonomous child agent.
+These focused package tests cover manifest/catalog agreement, discovery tags,
+shipped files, JSON schema acceptance/rejection, default page shape, and the
+agent command contract.
+The release workflow builds the ZIP inline with `extension.yml` at its root and
+reruns the tests with `CANVAS_DESIGN_ARCHIVE` set to the archive path, checking the
+exact member set and bytes. Set that environment variable to check a local ZIP.
+No Wizard dependencies or provider are needed for these checks.
+
+Real Specify normal-install/preset-composition tests and consumer migration are
+a separate follow-up. These package checks do not claim that the full
+CLI/provider integration matrix has passed.

@@ -140,7 +140,29 @@ test("missing required source blocks launch with a concrete error", async ({ pag
     await expect(dialog.getByRole("checkbox", { name: "Canvas Design (required)", exact: true })).toBeDisabled();
 });
 
-test("launch queues separate sessions while the dialog stays usable", async ({ page }) => {
+test("community presets and extensions retain their selection warnings", async ({ page }) => {
+    const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
+    for (const [tab, name, kind] of [
+        ["Presets", "Design preset", "preset"],
+        ["Extensions", "Design extension", "extension"],
+    ]) {
+        await dialog.getByRole("tab", { name: tab }).click();
+        const choice = dialog.getByRole("checkbox", { name });
+        await choice.check();
+        const warning = page.getByRole("dialog", { name: `Select community ${kind}?` });
+        await expect(warning.getByText(/not reviewed, audited, or endorsed/)).toBeVisible();
+        await expect(warning.getByText("This selection will be installed in the launched Canvas designer session.")).toBeVisible();
+        await warning.getByRole("button", { name: "Cancel" }).click();
+        await expect(choice).not.toBeChecked();
+        await expect(choice).toBeFocused();
+        await choice.check();
+        await warning.getByRole("button", { name: "Select anyway" }).click();
+        await expect(choice).toBeChecked();
+        await expect(choice).toBeFocused();
+    }
+});
+
+test("launch queues a session and closes the dialog", async ({ page }) => {
     const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
     const responsePromise = page.waitForResponse((response) =>
         response.url().includes("/api/designer/launch") && response.request().method() === "POST");
@@ -154,18 +176,35 @@ test("launch queues separate sessions while the dialog stays usable", async ({ p
         ], bundles: [] },
         catalogFingerprint: "e2e-catalog",
     });
-    await expect(dialog.getByRole("status")).toContainText("1 Designer launch queued");
-    await expect(dialog.getByRole("button", { name: "Launch designer" })).toBeEnabled();
-    await dialog.getByRole("checkbox", { name: /Copilot preset/ }).check();
-    const secondResponsePromise = page.waitForResponse((reply) =>
-        reply.url().includes("/api/designer/launch") && reply.request().method() === "POST");
-    await dialog.getByRole("button", { name: "Launch designer" }).click();
-    const secondResponse = await secondResponsePromise;
-    expect(secondResponse.status()).toBe(202);
-    expect(secondResponse.request().postDataJSON().selections.presets).toEqual([
-        { id: "foreign-preset", source: "copilot", approved: true },
-    ]);
-    await expect(dialog.getByRole("status")).toContainText("2 Designer launches queued");
-    await dialog.getByRole("button", { name: "Close" }).click();
+
     await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Generate canvas" }).click();
+    await expect(page.getByRole("dialog", { name: "Canvas designer setup" })
+        .getByRole("checkbox", { name: /Copilot preset/ })).not.toBeChecked();
+});
+
+test("activation failure preserves selections for a one-click retry", async ({ page }) => {
+    const requests = [];
+    await page.route("**/api/designer/launch?*", async (route) => {
+        const body = route.request().postDataJSON();
+        requests.push(body);
+        await route.fulfill({
+            status: requests.length === 1 ? 503 : 202,
+            contentType: "application/json",
+            body: JSON.stringify(requests.length === 1
+                ? { error: "Designer activation timed out" } : { queued: true }),
+        });
+    });
+    const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
+    const preset = dialog.getByRole("checkbox", { name: /Copilot preset/ });
+    await preset.check();
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("activation timed out");
+    await expect(preset).toBeChecked();
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests.map((body) => body.enableProvider ?? false)).toEqual([false, false]);
+    expect(requests.map((body) => body.selections.presets)).toEqual(Array(2).fill([
+        { id: "foreign-preset", source: "copilot", approved: true },
+    ]));
 });

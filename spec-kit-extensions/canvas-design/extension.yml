@@ -31,3 +31,7 @@ provides:
     - name: canvas-settings-results
       file: pages/results.json
       description: Result Badges settings placeholder.
+
+tags:
+  - copilot
+  - canvas-design

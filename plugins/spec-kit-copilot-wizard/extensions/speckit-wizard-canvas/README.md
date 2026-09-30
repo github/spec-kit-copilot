@@ -95,10 +95,19 @@ No provider files are copied into the child worktree. After extension reload,
 opening Designer also requires a successful skill reload. The
 Wizard reports only that launch was queued; child setup and errors appear
 in the child session (dispatch failures appear in the Wizard session log).
-The dialog remains open and interactive after each queued launch so more
-Designer sessions can be requested with the same or different selections;
-each receives its own handoff. The agent does not open Designer after failed setup. The current
-Wizard project remains unchanged. The
+The agent does not open Designer after failed setup.
+Only on launch, the Wizard checks that the official
+`plugin:spec-kit-copilot-wizard:speckit-canvas-designer` extension is running
+in this session and its canvas is registered. If disabled, launching enables
+it only for this session and verifies readiness before queueing. Missing or failed extensions
+and activation errors leave the dialog and selections intact with an error.
+No plugin is installed, global preference changed, or preview canvas substituted.
+Environment checks and opening the dialog never perform this check.
+Opening fails visibly in the child if its own provider is unavailable. Enabling
+the Wizard session's provider does not enable it in the child session.
+The dialog closes once the launch request is accepted; if a check or request
+fails, it stays open with selections intact and shows the error.
+The current Wizard project remains unchanged. The
 Catalogs page continues to install items as before.
 
 The local development source must exist at `spec-kit-extensions/canvas-design`

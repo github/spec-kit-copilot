@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { newInstance } from "../canvas-runtime/instances.mjs";
 import { snapshot } from "../canvas-runtime/snapshot.mjs";
 
-test("loaded empty extension and bundle catalogs make Designer launch-ready", async (t) => {
+test("loaded empty preset, extension and bundle catalogs make Designer launch-ready", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "designer-snapshot-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const inst = newInstance("empty-designer-catalog");
@@ -23,6 +23,11 @@ test("loaded empty extension and bundle catalogs make Designer launch-ready", as
     assert.equal(partial.catalog.designerFingerprint, undefined);
 
     inst.cachedBundleItems = [];
+    const withoutPresets = await snapshot(inst);
+    assert.ok(Array.isArray(withoutPresets.catalog.presets));
+    assert.equal(withoutPresets.catalog.designerFingerprint, undefined);
+
+    inst.cachedPresetItems = [];
     const ready = await snapshot(inst);
     assert.ok(Array.isArray(ready.catalog.presets));
     assert.deepEqual(ready.catalog.extensions, []);

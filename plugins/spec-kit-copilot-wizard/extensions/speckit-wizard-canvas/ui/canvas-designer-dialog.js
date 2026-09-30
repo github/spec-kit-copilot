@@ -11,7 +11,8 @@ let bundleMembers = new Map();
 let restoreFocus = null;
 let inspecting = 0;
 let errorMessage = "";
-let queuedCount = 0;
+let processing = false;
+let pendingInspections = new Set();
 
 function phaseIds(snapshot) {
     return [...new Set(effectivePipelinePhases(snapshot).map((phase) =>
@@ -36,7 +37,10 @@ export async function submitDesignerLaunch(snapshot, checked, fetcher = fetch) {
     if (!response?.ok) {
         const text = await response?.text();
         let detail = text;
-        try { detail = JSON.parse(text).error ?? text; } catch { /* plain response */ }
+        try {
+            const body = JSON.parse(text);
+            detail = body.error ?? text;
+        } catch { /* plain response */ }
         throw new Error(`Designer launch failed (${response?.status ?? "unknown"}): ${detail || "Try again."}`);
     }
     const result = await response.json();
@@ -51,21 +55,17 @@ function updateLaunch(root) {
         Array.isArray(state.snapshot?.catalog?.[kind]))
         && typeof state.snapshot.catalog.designerFingerprint === "string";
     const source = state.snapshot?.catalog?.designerSource;
-    submit.disabled = Boolean(confirming || inspecting || !ready || source?.available !== true);
-    root.querySelectorAll("[data-designer-kind]")
+    submit.disabled = Boolean(processing || confirming || inspecting || !ready || source?.available !== true);
+    submit.setAttribute("aria-busy", String(processing));
+    root.querySelectorAll("[data-designer-kind], [data-designer-tab], .wizard-modal-close, .wizard-modal-cancel")
         .forEach((element) => {
-            element.disabled = confirming || element.dataset.inspectionPending === "true"
+            element.disabled = processing || confirming || pendingInspections.has(element)
                 || element.dataset.bundleOwned === "true";
         });
     const error = root.querySelector(".designer-error");
     error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching."
         : source?.available !== true ? source?.error ?? "Canvas Design source is unavailable." : "");
     error.hidden = !error.textContent;
-    const status = root.querySelector(".designer-status");
-    status.textContent = queuedCount
-        ? `${queuedCount} Designer ${queuedCount === 1 ? "launch" : "launches"} queued. You can launch another or close this dialog.`
-        : "";
-    status.hidden = !status.textContent;
 }
 
 export function canvasDesignEntries(snapshot, kind) {
@@ -96,11 +96,12 @@ export function currentCanvasDesignerSelections() {
 }
 
 function closeDialog() {
+    if (processing) return;
     document.getElementById("wizard-modal-root")?.replaceChildren();
     selections = null;
     bundleMembers = new Map();
     errorMessage = "";
-    queuedCount = 0;
+    pendingInspections = new Set();
     inspecting = 0;
     if (restoreFocus?.isConnected) restoreFocus.focus();
     restoreFocus = null;
@@ -169,7 +170,7 @@ export function openCanvasDesignerDialog() {
     selections = freshCanvasDesignerSelections();
     bundleMembers = new Map();
     errorMessage = "";
-    queuedCount = 0;
+    pendingInspections = new Set();
     root.innerHTML = `<div class="wizard-modal-backdrop designer-backdrop">
         <section class="wizard-modal generation-modal designer-modal" role="dialog" aria-modal="true" aria-labelledby="designer-title" aria-describedby="designer-description">
             <header class="wizard-modal-head"><h3 id="designer-title">Canvas designer setup</h3><button type="button" class="wizard-modal-close" aria-label="Close">✕</button></header>
@@ -177,7 +178,6 @@ export function openCanvasDesignerDialog() {
                 <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles for the canvas designer. Your selections and the required Canvas Design extension will be installed in a separate session before the designer opens. The wizard's configuration stays unchanged.</p>
                 <p class="wizard-modal-desc">Choose from the available catalogs. Bundle members are included and cannot be unchecked while their bundle is selected.</p>
                 <p class="designer-error" role="alert" hidden></p>
-                <p class="designer-status" role="status" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">
                     ${KINDS.map(([kind, label]) => `<button type="button" id="designer-tab-${kind}" class="subtab${kind === "presets" ? " is-active" : ""}" role="tab" aria-selected="${kind === "presets"}" aria-controls="designer-panel-${kind}" tabindex="${kind === "presets" ? "0" : "-1"}" data-designer-tab="${kind}">${label}</button>`).join("")}
                 </nav>
@@ -218,7 +218,7 @@ export function openCanvasDesignerDialog() {
         });
     });
     root.querySelectorAll("[data-designer-kind]").forEach((input) => input.addEventListener("change", async () => {
-        if (confirming || input.disabled) return;
+        if (confirming || processing || input.disabled) return;
         const dialogSelections = selections;
         const kind = input.dataset.designerKind;
         const item = canvasDesignEntries(snapshot, kind)[Number(input.dataset.designerIndex)];
@@ -262,7 +262,7 @@ export function openCanvasDesignerDialog() {
             if (input.checked) {
                 const restoreInputFocus = document.activeElement === input;
                 inspecting += 1;
-                input.dataset.inspectionPending = "true";
+                pendingInspections.add(input);
                 updateLaunch(root);
                 input.disabled = true;
                 try {
@@ -280,8 +280,7 @@ export function openCanvasDesignerDialog() {
                     updateLaunch(root);
                     return;
                 } finally {
-                    input.dataset.inspectionPending = "false";
-                    input.disabled = false;
+                    pendingInspections.delete(input);
                     if (selections === dialogSelections) {
                         inspecting -= 1;
                         updateLaunch(root);
@@ -304,22 +303,31 @@ export function openCanvasDesignerDialog() {
         errorMessage = "";
         updateLaunch(root);
     }));
-    root.querySelector(".designer-submit").addEventListener("click", async () => {
-        if (confirming || inspecting) return;
+    const sendLaunch = async (checked) => {
+        if (processing) return;
         const dialogSelections = selections;
-        const checked = currentCanvasDesignerSelections();
+        processing = true;
         errorMessage = "";
         updateLaunch(root);
+        let accepted = false;
         try {
-            await submitDesignerLaunch(snapshot, checked);
+            await submitDesignerLaunch(snapshot, checked, fetch);
             if (selections !== dialogSelections) return;
-            queuedCount += 1;
-            updateLaunch(root);
+            accepted = true;
         } catch (error) {
             if (selections !== dialogSelections) return;
             errorMessage = error.message;
-            updateLaunch(root);
+        } finally {
+            processing = false;
+            if (selections === dialogSelections) {
+                if (accepted) closeDialog();
+                else updateLaunch(root);
+            }
         }
+    };
+    root.querySelector(".designer-submit").addEventListener("click", () => {
+        if (processing || confirming || inspecting) return;
+        return sendLaunch(currentCanvasDesignerSelections());
     });
     updateLaunch(root);
     dialog.addEventListener("keydown", (event) => {
