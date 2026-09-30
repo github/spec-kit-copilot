@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { DESIGN_EXTENSION, validDesignSource } from "./source.mjs";
 
 export const HANDOFF_LIMIT = 64 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -33,8 +34,9 @@ export function validateHandoff(handoff, id) {
     validateHandoffId(id);
     if (!record(handoff)
         || Object.keys(handoff).some((key) =>
-            !["schemaVersion", "handoffId", "workflow", "selections", "sourceFingerprint"].includes(key))
-        || handoff.schemaVersion !== 1 || handoff.handoffId !== id
+            !["schemaVersion", "handoffId", "workflow", "selections", "requiredExtension", "sourceFingerprint"].includes(key))
+        || handoff.schemaVersion !== 2 || handoff.handoffId !== id
+        || !validDesignSource(handoff.requiredExtension)
         || !record(handoff.workflow)
         || Object.keys(handoff.workflow).some((key) => key !== "selectedPhases")
         || !Array.isArray(handoff.workflow.selectedPhases)
@@ -60,8 +62,18 @@ export function validateHandoff(handoff, id) {
         || Buffer.byteLength(JSON.stringify(handoff)) > HANDOFF_LIMIT) {
         throw new Error("Invalid Designer handoff");
     }
+    const required = handoff.selections.extensions.filter((item) => item.id === DESIGN_EXTENSION);
+    if (required.length !== 1 || required[0].source !== "copilot"
+        || required[0].version !== handoff.requiredExtension.version || required[0].downloadUrl !== null) {
+        throw new Error("Missing or conflicting required Canvas Design selection");
+    }
+    for (const kind of KINDS) {
+        if (new Set(handoff.selections[kind].map((item) => item.id)).size !== handoff.selections[kind].length) {
+            throw new Error(`Conflicting Designer ${kind} sources`);
+        }
+    }
     const expected = Buffer.from(fingerprint({
-        workflow: handoff.workflow, selections: handoff.selections,
+        workflow: handoff.workflow, selections: handoff.selections, requiredExtension: handoff.requiredExtension,
     }), "hex");
     if (!timingSafeEqual(expected, Buffer.from(handoff.sourceFingerprint, "hex"))) {
         throw new Error("Designer handoff fingerprint mismatch");

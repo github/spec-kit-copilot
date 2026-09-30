@@ -287,7 +287,7 @@ export function openCommunityInstallModal({
     const modal = document.getElementById("community-install-modal");
     if (!modal) {
         const action = designerSession ? "Select" : "Install";
-        const destination = designerSession ? " It will only be installed in the launched Canvas designer session." : "";
+        const destination = designerSession ? " It will be installed in the launched Canvas designer session." : "";
         const approved = window.confirm(`${action} community ${kindWord} "${displayName}"?${destination}\n\nCommunity ${kindWord}s are contributed by third parties and are not reviewed, audited, or endorsed by GitHub. Install only if you trust the source.`);
         beforeRestoreFocus();
         if (approved) onConfirm();

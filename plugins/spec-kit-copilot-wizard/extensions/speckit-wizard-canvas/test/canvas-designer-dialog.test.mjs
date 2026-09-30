@@ -11,6 +11,9 @@ import {
 import { renderPipelineBanner } from "../ui/phase-runtime.js";
 import { state } from "../ui/state.js";
 
+const required = [{ id: "canvas-design", source: "copilot", approved: true }];
+const designerSource = { available: true, extension: { version: "0.1.0" } };
+
 test("only bundles also allow Default items with the exact canvas-design tag", () => {
     for (const kind of ["presets", "extensions", "bundles"]) {
         const candidates = [
@@ -36,7 +39,7 @@ test("only bundles also allow Default items with the exact canvas-design tag", (
         assert.deepEqual(canvasDesignEntries({}, kind), []);
         assert.deepEqual(canvasDesignEntries({ catalog: { [kind]: null } }, kind), []);
     }
-    assert.deepEqual(freshCanvasDesignerSelections(), { presets: [], extensions: [], bundles: [] });
+    assert.deepEqual(freshCanvasDesignerSelections(), { presets: [], extensions: required, bundles: [] });
 });
 
 function fakeElement(dataset = {}) {
@@ -117,13 +120,12 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
     const previousSnapshot = state.snapshot;
     const { root, document, trigger } = fakeDialogDocument();
     globalThis.document = document;
-    globalThis.fetch = () => { throw new Error("Opening Generate canvas must not check extensions"); };
-    state.snapshot = { catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "ready" } };
+    state.snapshot = { catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "ready", designerSource } };
     try {
         openCanvasDesignerDialog();
         assert.match(root.innerHTML, /Canvas designer setup/);
-        assert.match(root.innerHTML, /selections will be installed in a separate designer session/);
-        assert.match(root.innerHTML, /leaving the wizard's configuration unchanged/);
+        assert.match(root.innerHTML, /installed in a separate session before the designer opens/);
+        assert.match(root.innerHTML, /wizard's configuration stays unchanged/);
         assert.doesNotMatch(root.innerHTML, /leaving this project's workflow configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /settings, appearance, and generation behavior/);
         assert.match(root.innerHTML, /No presets tagged canvas-design are available/);
@@ -131,7 +133,8 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
         assert.match(root.innerHTML, /No bundles tagged canvas-design are available/);
         assert.match(root.innerHTML, /class="btn btn-primary designer-submit">Launch designer/);
         assert.equal(root.querySelector(".designer-submit").disabled, false);
-        assert.doesNotMatch(root.innerHTML, /Canvas generator \(required\)|data-designer-kind=/);
+        assert.match(root.innerHTML, /checked disabled aria-label="Canvas Design \(required\)"/);
+        assert.doesNotMatch(root.innerHTML, /data-designer-kind=/);
         assert.deepEqual(currentCanvasDesignerSelections(), freshCanvasDesignerSelections());
         openCanvasDesignerDialog();
         assert.equal(document.activeElement, root.querySelector(".wizard-modal-close"));
@@ -158,7 +161,7 @@ test("launch closes the dialog on acceptance without a queued status", async () 
     const { root, document } = fakeDialogDocument();
     globalThis.document = document;
     state.snapshot = { pipeline: [{ id: "plan" }],
-        catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "catalog-1" } };
+        catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "catalog-1", designerSource } };
     const requests = [];
     let finish;
     globalThis.fetch = async (url, options) => {
@@ -176,7 +179,7 @@ test("launch closes the dialog on acceptance without a queued status", async () 
         await button.click();
         assert.equal(requests.length, 1);
         assert.deepEqual(JSON.parse(requests[0].options.body), {
-            selections: { presets: [], extensions: [], bundles: [] },
+            selections: { presets: [], extensions: required, bundles: [] },
             catalogFingerprint: "catalog-1", expectedPhases: ["plan"],
         });
         finish({ ok: true, json: async () => ({ queued: true }) });
@@ -199,7 +202,7 @@ test("processing blocks close, then acceptance closes and reopening resets the d
     const { root, document } = fakeDialogDocument();
     globalThis.document = document;
     state.snapshot = { pipeline: [], catalog: {
-        presets: [], extensions: [], bundles: [], designerFingerprint: "ready",
+        presets: [], extensions: [], bundles: [], designerFingerprint: "ready", designerSource,
     } };
     let finish;
     globalThis.fetch = () => new Promise((resolve) => { finish = resolve; });
@@ -229,7 +232,7 @@ test("activation errors keep the selections and dialog open for retry", async ()
     globalThis.document = document;
     state.snapshot = { pipeline: [{ id: "plan" }], catalog: {
         presets: [{ id: "theme", source: "copilot", tags: ["canvas-design"] }],
-        extensions: [], bundles: [], designerFingerprint: "ready",
+        extensions: [], bundles: [], designerFingerprint: "ready", designerSource,
     } };
     const requests = [];
     globalThis.fetch = async (_url, options) => {
@@ -274,7 +277,7 @@ test("launch submits the dialog's rendered snapshot after a catalog refresh", as
         catalog: {
             presets: [{ id: "theme", name: "Original theme", source: "copilot",
                 tags: ["canvas-design"], version: "1.0.0" }],
-            extensions: [], bundles: [], designerFingerprint: "original",
+            extensions: [], bundles: [], designerFingerprint: "original", designerSource,
         },
     };
     const requests = [];
@@ -302,7 +305,7 @@ test("launch submits the dialog's rendered snapshot after a catalog refresh", as
         await root.querySelector(".designer-submit").click();
         assert.deepEqual(requests, [{
             selections: { presets: [{ id: "theme", source: "copilot", approved: true }],
-                extensions: [], bundles: [] },
+                extensions: required, bundles: [] },
             catalogFingerprint: "original", expectedPhases: ["plan"],
         }]);
         assert.match(root.querySelector(".designer-error").textContent, /reopen the Designer setup/);
@@ -365,7 +368,7 @@ test("designer tabs use roving focus and activate panels with arrow, Home, and E
     }
 });
 
-test("bundles check only listed members without locking them; direct choices and overlaps survive removal", async () => {
+test("bundles lock listed members; direct choices and overlaps survive removal", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
     const previousWindow = globalThis.window;
@@ -398,10 +401,10 @@ test("bundles check only listed members without locking them; direct choices and
         await one.change();
         assert.equal(root.querySelector(".designer-backdrop").inert, false);
         assert.equal(preset.checked, true);
-        assert.equal(preset.disabled, false);
+        assert.equal(preset.disabled, true);
         assert.deepEqual(currentCanvasDesignerSelections().presets,
             [{ id: "shared", source: "copilot", approved: true }]);
-        assert.deepEqual(currentCanvasDesignerSelections().extensions, []);
+        assert.deepEqual(currentCanvasDesignerSelections().extensions, required);
         assert.doesNotMatch(root.innerHTML, /data-designer-included-kind|extra|Hidden/);
         one.checked = false;
         await one.change();
@@ -412,12 +415,12 @@ test("bundles check only listed members without locking them; direct choices and
         one.checked = true;
         await one.change();
         assert.equal(preset.checked, true);
-        assert.equal(preset.disabled, false);
+        assert.equal(preset.disabled, true);
         assert.equal(preset.note.textContent, "Included by bundle: First");
-        preset.checked = false;
         await preset.change();
-        assert.deepEqual(currentCanvasDesignerSelections().presets, []);
-        assert.equal(preset.checked, false);
+        assert.deepEqual(currentCanvasDesignerSelections().presets,
+            [{ id: "shared", source: "copilot", approved: true }]);
+        assert.equal(preset.checked, true);
         assert.equal(preset.note.textContent, "Included by bundle: First");
         two.checked = true;
         await two.change();
@@ -427,9 +430,9 @@ test("bundles check only listed members without locking them; direct choices and
         await preset.change();
         one.checked = false;
         await one.change();
-        assert.equal(preset.disabled, false);
+        assert.equal(preset.disabled, true);
         assert.equal(preset.note.textContent, "Included by bundle: Second");
-        assert.deepEqual(currentCanvasDesignerSelections().extensions, []);
+        assert.deepEqual(currentCanvasDesignerSelections().extensions, required);
         two.checked = false;
         await two.change();
         assert.equal(preset.disabled, false);
@@ -455,6 +458,7 @@ test("concurrent bundle inspections cannot re-enable or restore a pending desele
     const { root, document } = fakeDialogDocument();
     globalThis.document = document;
     state.snapshot = { catalog: {
+        designerSource,
         presets: ["first", "second"].map((id) => ({
             id, source: "copilot", tags: ["canvas-design"],
         })),
@@ -494,7 +498,7 @@ test("concurrent bundle inspections cannot re-enable or restore a pending desele
         await secondInspection;
         assert.deepEqual(currentCanvasDesignerSelections(), {
             presets: [{ id: "second", source: "copilot", approved: true }],
-            extensions: [],
+            extensions: required,
             bundles: [{ id: "two", source: "copilot", approved: true }],
         });
         assert.equal(root.querySelector(".designer-submit").disabled, false);
@@ -612,16 +616,16 @@ test("selection stays local, community confirmation can cancel, and reopen reset
         extension.checked = true;
         await extension.change();
         assert.equal(extension.checked, false);
-        assert.deepEqual(currentCanvasDesignerSelections().extensions, []);
+        assert.deepEqual(currentCanvasDesignerSelections().extensions, required);
         approved = true;
         extension.checked = true;
         await extension.change();
         assert.deepEqual(currentCanvasDesignerSelections().extensions,
-            [{ id: "community-style", source: "community", approved: true }]);
+            [...required, { id: "community-style", source: "community", approved: true }]);
         assert.match(root.innerHTML, /class="btn btn-primary designer-submit">Launch designer/);
         extension.checked = false;
         await extension.change();
-        assert.deepEqual(currentCanvasDesignerSelections().extensions, []);
+        assert.deepEqual(currentCanvasDesignerSelections().extensions, required);
         root.querySelector(".wizard-modal-close").click();
         openCanvasDesignerDialog();
         assert.deepEqual(currentCanvasDesignerSelections(), freshCanvasDesignerSelections());

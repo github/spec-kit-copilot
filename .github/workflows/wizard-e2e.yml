@@ -23,7 +23,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           files=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
-          if grep -q '^plugins/spec-kit-copilot-wizard/' <<< "$files"; then
+          if grep -qE '^(plugins/spec-kit-copilot-wizard/|spec-kit-extensions/canvas-design/)' <<< "$files"; then
             echo "wizard=true" >> "$GITHUB_OUTPUT"
           else
             echo "wizard=false" >> "$GITHUB_OUTPUT"
@@ -45,6 +45,13 @@ jobs:
           cache: npm
           cache-dependency-path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/package-lock.json
       - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'specify-cli>=1.0.7'
+      - run: node --test test/designer-launch.test.mjs test/designer-pages.test.mjs test/canvas-designer-dialog.test.mjs ../speckit-canvas-designer/test/provider.test.mjs
+        env:
+          DESIGNER_CLI_TESTS: '1'
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
@@ -54,9 +61,29 @@ jobs:
           path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/test-results/
           retention-days: 7
 
+  windows-pages:
+    name: Designer pages with Windows uv
+    needs: changes
+    if: needs.changes.outputs.wizard == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v6
+      - run: uv tool install "specify-cli>=1.0.7"
+      - name: Test pages using isolated Specify environment
+        shell: pwsh
+        run: |
+          $env:PATH = "$(uv tool dir --bin);$env:PATH"
+          node --test plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/test/designer-pages.test.mjs plugins/spec-kit-copilot-wizard/extensions/speckit-canvas-designer/test/provider.test.mjs
+        env:
+          DESIGNER_CLI_TESTS: '1'
+
   gate:
     name: Wizard E2E gate
-    needs: [changes, browser]
+    needs: [changes, browser, windows-pages]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -65,13 +92,14 @@ jobs:
           DETECTION: ${{ needs.changes.result }}
           WIZARD: ${{ needs.changes.outputs.wizard }}
           BROWSER: ${{ needs.browser.result }}
+          WINDOWS: ${{ needs.windows-pages.result }}
         run: |
           if [[ "$DETECTION" != "success" ]]; then
             echo "::error::Could not determine whether Wizard files changed"
             exit 1
           fi
-          if [[ "$WIZARD" == "true" && "$BROWSER" != "success" ]]; then
-            echo "::error::Wizard browser tests did not pass ($BROWSER)"
+          if [[ "$WIZARD" == "true" && ( "$BROWSER" != "success" || "$WINDOWS" != "success" ) ]]; then
+            echo "::error::Wizard tests did not pass (browser=$BROWSER, windows=$WINDOWS)"
             exit 1
           fi
           echo "Wizard E2E check complete (changed: $WIZARD)"

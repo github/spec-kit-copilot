@@ -56,6 +56,7 @@ import { buildStateSnapshot } from "./snapshot-builder.mjs";
 import { applyPatch, overlayCachedComposition, activeFingerprint } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
+import { probeDesignSource } from "../../speckit-canvas-designer/source.mjs";
 
 export async function snapshot(inst) {
     // Preset precedence: consume the order the `speckit-preset` skill
@@ -150,6 +151,7 @@ export async function snapshot(inst) {
     // install/remove/version-bump anywhere is immediately reflected without
     // a side-array to keep in sync.
     if (snap.catalog) {
+        snap.catalog.designerSource = await probeDesignSource();
         snap.catalog.fingerprint = activeFingerprint(snap.catalog);
         if (Array.isArray(inst.cachedPresetItems)
             && ["presets", "extensions", "bundles"].every((kind) => Array.isArray(snap.catalog[kind]))) {
