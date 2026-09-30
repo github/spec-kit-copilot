@@ -11,14 +11,14 @@ once, then install by ID:
 
 ```powershell
 specify extension catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json --name spec-kit-copilot --install-allowed
-specify extension add canvas-design
+specify extension add extension-canvas-design
 ```
 
 Alternatively, install directly from a published release without registering
 the catalog:
 
 ```powershell
-specify extension add canvas-design --from https://github.com/github/spec-kit-copilot/releases/download/extension/canvas-design/v0.1.0/canvas-design.zip
+specify extension add extension-canvas-design --from https://github.com/github/spec-kit-copilot/releases/download/extension-canvas-design-v0.1.0/extension-canvas-design.zip
 ```
 
 The release ZIP must be published before either installation method can succeed.
@@ -26,7 +26,7 @@ For a new Copilot project, initialize it with
 `specify init . --integration copilot --integration-options="--skills"` first.
 Normal installation copies the package; do not use a development symlink install
 for preset composition. Copilot skills mode exposes the command as
-`speckit-canvas-design-load-page`. Use `/skills reload` to discover newly installed
+`speckit-extension-canvas-design-load-page`. Use `/skills reload` to discover newly installed
 or composed skills in the current session.
 
 ## Required Designer capability
@@ -97,7 +97,7 @@ preset:
   description: Replace the Designer Appearance page.
 requires:
   speckit_version: ">=1.0.7"
-  extensions: [canvas-design]
+  extensions: [extension-canvas-design]
 provides:
   templates:
     - type: template
@@ -122,7 +122,7 @@ preset:
   description: Add a Designer Accessibility page.
 requires:
   speckit_version: ">=1.0.7"
-  extensions: [canvas-design]
+  extensions: [extension-canvas-design]
 provides:
   templates:
     - type: template
@@ -130,7 +130,7 @@ provides:
       file: pages/accessibility.json
       strategy: replace
     - type: command
-      name: speckit.canvas-design.load-page
+      name: speckit.extension-canvas-design.load-page
       file: commands/add-pages.md
       strategy: append
 ```

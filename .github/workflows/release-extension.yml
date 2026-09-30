@@ -22,7 +22,7 @@ on:
       - '.github/workflows/release-extension.yml'
       - '.github/workflows/release-extension-trigger.yml'
     tags:
-      - 'extension/*/v*'
+      - 'extension-*-v*'
 permissions:
   contents: read
 
@@ -67,7 +67,7 @@ jobs:
                   raise SystemExit("Extension ID is required")
               requested_version = os.environ["VERSION"].removeprefix("v")
           elif ref.startswith("refs/tags/"):
-              match = re.fullmatch(r"refs/tags/extension/([^/]+)/v([0-9]+\.[0-9]+\.[0-9]+)", ref)
+              match = re.fullmatch(r"refs/tags/(extension-[a-z0-9]+(?:-[a-z0-9]+)*)-v([0-9]+\.[0-9]+\.[0-9]+)", ref)
               if not match:
                   raise SystemExit("Invalid extension release tag")
               selected_id, requested_version = match.groups()
@@ -80,7 +80,7 @@ jobs:
               catalog = json.load(source)["extensions"]
           outputs = {"extension_ids": json.dumps(extension_ids)}
           for extension_id in extension_ids:
-              if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", extension_id):
+              if not re.fullmatch(r"extension-[a-z0-9]+(?:-[a-z0-9]+)*", extension_id):
                   raise SystemExit(f"Invalid extension ID: {extension_id}")
               package = root / extension_id
               if package.is_symlink() or not (package / "extension.yml").is_file():
@@ -104,7 +104,7 @@ jobs:
                   raise SystemExit("Catalog version must match extension.yml version")
               if entry["requires"] != manifest["requires"]:
                   raise SystemExit("Catalog requirements must match extension.yml requirements")
-              tag = f"extension/{extension_id}/v{version}"
+              tag = f"{extension_id}-v{version}"
               download_url = f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/{extension_id}.zip"
               if entry["download_url"] != download_url:
                   raise SystemExit("Catalog download URL must match the release asset")
@@ -167,9 +167,9 @@ jobs:
           PY
 
       - name: Verify release archive
-        if: steps.validate.outputs.extension_id == '' || steps.validate.outputs.extension_id == 'canvas-design'
+        if: steps.validate.outputs.extension_id == '' || steps.validate.outputs.extension_id == 'extension-canvas-design'
         env:
-          CANVAS_DESIGN_ARCHIVE: canvas-design.zip
+          CANVAS_DESIGN_ARCHIVE: extension-canvas-design.zip
         run: python -m unittest discover -s spec-kit-extensions/tests -v
 
       - name: Upload validated archive
@@ -181,7 +181,7 @@ jobs:
 
   release:
     needs: package
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/extension/')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/extension-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -225,5 +225,5 @@ jobs:
           gh release create "$TAG" "$EXTENSION_ID.zip" \
             --verify-tag \
             --latest=false \
-            --title "$EXTENSION_NAME ${TAG##*/}" \
+            --title "$EXTENSION_ID ${TAG##*-}" \
             --notes "Specify CLI extension: $EXTENSION_NAME. See spec-kit-extensions/$EXTENSION_ID/README.md for installation and requirements."

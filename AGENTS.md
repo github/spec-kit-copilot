@@ -121,6 +121,12 @@ extensions**, parallel to the preset catalog. Entries must depend on Copilot
 tools or providers; do not import general-purpose extensions or add these packages
 to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
+Package IDs, directory names, catalog keys, and ZIP basenames use
+`extension-<name>` (for example, `extension-canvas-design`). Release tags use
+`<extension-id>-vX.Y.Z` and release titles use `<extension-id> vX.Y.Z`, matching
+the preset version suffix. Keep discovery tags such as `canvas-design`, template
+IDs such as `canvas-settings-*`, and Copilot provider/tool IDs independent of
+the package identity. Standard manifest filenames remain `extension.yml`.
 
 ## When revving the core skills plugin
 

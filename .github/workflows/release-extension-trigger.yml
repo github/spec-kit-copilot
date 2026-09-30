@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       extension_id:
-        description: 'Extension directory name under spec-kit-extensions/ (e.g., canvas-design)'
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., extension-canvas-design)'
         required: true
         type: string
       version:

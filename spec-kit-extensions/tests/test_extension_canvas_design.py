@@ -15,7 +15,7 @@ from jsonschema import Draft202012Validator, ValidationError
 
 
 EXTENSIONS = Path(__file__).resolve().parents[1]
-PACKAGE = EXTENSIONS / "canvas-design"
+PACKAGE = EXTENSIONS / "extension-canvas-design"
 PAGE_NAMES = ("setup", "artifacts", "appearance", "results")
 FILES = {
     "extension.yml",
@@ -56,7 +56,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
     def test_manifest_and_shipped_files(self):
         self.assertEqual(self.manifest["schema_version"], "1.0")
         extension = self.manifest["extension"]
-        self.assertEqual(extension["id"], "canvas-design")
+        self.assertEqual(extension["id"], "extension-canvas-design")
         self.assertRegex(extension["version"], r"^\d+\.\d+\.\d+$")
         self.assertIn(
             f'Canvas Design **{extension["version"]}**',
@@ -69,7 +69,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertEqual(
             [(command["name"], command["file"])
              for command in self.manifest["provides"]["commands"]],
-            [("speckit.canvas-design.load-page", "commands/load-page.md")],
+            [("speckit.extension-canvas-design.load-page", "commands/load-page.md")],
         )
         self.assertEqual(
             [(template["name"], template["file"])
@@ -97,8 +97,8 @@ class CanvasDesignPackageTests(unittest.TestCase):
             "spec-kit-extensions/catalog.json"
         )
         self.assertEqual(self.catalog["catalog_url"], catalog_url)
-        self.assertIn("canvas-design", self.catalog["extensions"])
-        entry = self.catalog["extensions"]["canvas-design"]
+        self.assertIn("extension-canvas-design", self.catalog["extensions"])
+        entry = self.catalog["extensions"]["extension-canvas-design"]
         for field in ("id", "name", "version", "author", "repository", "license"):
             with self.subTest(field=field):
                 self.assertEqual(entry[field], self.manifest["extension"][field])
@@ -115,12 +115,12 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertEqual(
             entry["download_url"],
             "https://github.com/github/spec-kit-copilot/releases/download/"
-            f"extension/canvas-design/v{version}/canvas-design.zip",
+            f"extension-canvas-design-v{version}/extension-canvas-design.zip",
         )
         self.assertEqual(
             entry["documentation"],
             "https://github.com/github/spec-kit-copilot/blob/main/"
-            "spec-kit-extensions/canvas-design/README.md",
+            "spec-kit-extensions/extension-canvas-design/README.md",
         )
         for path in (EXTENSIONS / "README.md", PACKAGE / "README.md"):
             with self.subTest(readme=path):
@@ -129,7 +129,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     f"specify extension catalog add {catalog_url} "
                     "--name spec-kit-copilot --install-allowed", readme,
                 )
-                self.assertIn("specify extension add canvas-design\n", readme)
+                self.assertIn("specify extension add extension-canvas-design\n", readme)
 
     def test_schema_and_default_pages(self):
         Draft202012Validator.check_schema(self.schema)
@@ -254,9 +254,9 @@ class CanvasDesignPackageTests(unittest.TestCase):
         readme = (PACKAGE / "README.md").read_text("utf-8")
         version = self.manifest["extension"]["version"]
         self.assertIn(
-            "specify extension add canvas-design --from "
+            "specify extension add extension-canvas-design --from "
             "https://github.com/github/spec-kit-copilot/releases/download/"
-            f"extension/canvas-design/v{version}/canvas-design.zip",
+            f"extension-canvas-design-v{version}/extension-canvas-design.zip",
             readme,
         )
         self.assertIn('--integration copilot --integration-options="--skills"', readme)
@@ -269,34 +269,38 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assert_archive_matches_package(os.environ["CANVAS_DESIGN_ARCHIVE"])
 
     def test_inline_workflow_packaging(self):
-        with tempfile.TemporaryDirectory(prefix="canvas-design-package-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="extension-canvas-design-package-") as temporary:
             root = Path(temporary)
-            shutil.copytree(PACKAGE, root / "spec-kit-extensions/canvas-design")
+            shutil.copytree(PACKAGE, root / "spec-kit-extensions/extension-canvas-design")
             result = subprocess.run(
                 [sys.executable, "-c", self.workflow_python("Create extension ZIP")],
-                cwd=root, env=dict(os.environ, EXTENSION_IDS='["canvas-design"]'),
+                cwd=root, env=dict(os.environ, EXTENSION_IDS='["extension-canvas-design"]'),
                 capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assert_archive_matches_package(root / "canvas-design.zip")
+            self.assert_archive_matches_package(root / "extension-canvas-design.zip")
 
     def test_release_version_guards(self):
         version = self.manifest["extension"]["version"]
-        tag = f"refs/tags/extension/canvas-design/v{version}"
+        tag = f"refs/tags/extension-canvas-design-v{version}"
         cases = [
             ("pull_request", "refs/pull/1/merge", "", "", True),
             ("push", "refs/heads/main", "", "", True),
             ("push", tag, "", "", True),
-            ("push", "refs/tags/extension/canvas-design/v999.0.0", "", "", False),
+            ("push", "refs/tags/extension-canvas-design-v999.0.0", "", "", False),
             ("push", "refs/tags/canvas-design-v0.1.0", "", "", False),
-            ("workflow_dispatch", "refs/heads/main", "canvas-design", version, True),
-            ("workflow_dispatch", "refs/heads/main", "canvas-design", f"v{version}", True),
-            ("workflow_dispatch", "refs/heads/main", "canvas-design", "999.0.0", False),
-            ("workflow_dispatch", "refs/heads/main", "canvas-design", "", False),
-            ("workflow_dispatch", "refs/heads/main", "canvas-design", f"{version}; echo bad", False),
+            ("push", "refs/tags/extension/canvas-design/v0.1.0", "", "", False),
+            ("push", "refs/tags/copilot-sub-agents-v1.0.0", "", "", False),
+            ("workflow_dispatch", "refs/heads/main", "extension-canvas-design", version, True),
+            ("workflow_dispatch", "refs/heads/main", "extension-canvas-design", f"v{version}", True),
+            ("workflow_dispatch", "refs/heads/main", "extension-canvas-design", "999.0.0", False),
+            ("workflow_dispatch", "refs/heads/main", "extension-canvas-design", "", False),
+            ("workflow_dispatch", "refs/heads/main", "extension-canvas-design", f"{version}; echo bad", False),
             ("workflow_dispatch", "refs/heads/main", "unsupported", version, False),
+            ("workflow_dispatch", "refs/heads/main", "extension-missing", version, False),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", version, False),
             ("workflow_dispatch", "refs/heads/main", "", version, False),
-            ("workflow_dispatch", "refs/heads/main", "../canvas-design", version, False),
+            ("workflow_dispatch", "refs/heads/main", "../extension-canvas-design", version, False),
         ]
         for event, ref, extension_id, requested_version, succeeds in cases:
             with self.subTest(event=event, ref=ref, extension_id=extension_id,
@@ -315,10 +319,10 @@ class CanvasDesignPackageTests(unittest.TestCase):
                                  result.stdout + result.stderr)
                 if succeeds:
                     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                    self.assertEqual(json.loads(values["extension_ids"]), ["canvas-design"])
+                    self.assertEqual(json.loads(values["extension_ids"]), ["extension-canvas-design"])
                     if event == "workflow_dispatch" or ref.startswith("refs/tags/"):
                         self.assertEqual(values["tag"], tag.removeprefix("refs/tags/"))
-                        self.assertEqual(values["extension_id"], "canvas-design")
+                        self.assertEqual(values["extension_id"], "extension-canvas-design")
                         self.assertEqual(values["extension_name"], self.manifest["extension"]["name"])
                     else:
                         self.assertNotIn("tag", values)
@@ -329,11 +333,11 @@ class CanvasDesignPackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="extension-release-") as temporary:
             root = Path(temporary)
             extensions = root / "spec-kit-extensions"
-            shutil.copytree(PACKAGE, extensions / "canvas-design")
-            package = extensions / "sample-extension"
+            shutil.copytree(PACKAGE, extensions / "extension-canvas-design")
+            package = extensions / "extension-sample"
             shutil.copytree(PACKAGE, package)
             manifest = copy.deepcopy(self.manifest)
-            manifest["extension"].update(id="sample-extension", name="Sample Extension", version="1.2.3")
+            manifest["extension"].update(id="extension-sample", name="Sample Extension", version="1.2.3")
             manifest["provides"]["config"] = [
                 {"name": "sample-config.yml", "template": "config-template.yml"},
             ]
@@ -341,19 +345,19 @@ class CanvasDesignPackageTests(unittest.TestCase):
             (package / "README.md").write_text("Sample extension", "utf-8")
             (package / "config-template.yml").write_text("enabled: true\n", "utf-8")
             catalog = copy.deepcopy(self.catalog)
-            entry = copy.deepcopy(catalog["extensions"]["canvas-design"])
-            tag = "extension/sample-extension/v1.2.3"
+            entry = copy.deepcopy(catalog["extensions"]["extension-canvas-design"])
+            tag = "extension-sample-v1.2.3"
             entry.update(
-                id="sample-extension", name="Sample Extension", version="1.2.3",
-                download_url=f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/sample-extension.zip",
+                id="extension-sample", name="Sample Extension", version="1.2.3",
+                download_url=f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/extension-sample.zip",
             )
-            catalog["extensions"]["sample-extension"] = entry
+            catalog["extensions"]["extension-sample"] = entry
             (extensions / "catalog.json").write_text(json.dumps(catalog), "utf-8")
             cases = [
-                ("workflow_dispatch", "refs/heads/main", ["sample-extension"]),
-                ("push", f"refs/tags/{tag}", ["sample-extension"]),
-                ("push", "refs/heads/main", ["canvas-design", "sample-extension"]),
-                ("pull_request", "refs/pull/1/merge", ["canvas-design", "sample-extension"]),
+                ("workflow_dispatch", "refs/heads/main", ["extension-sample"]),
+                ("push", f"refs/tags/{tag}", ["extension-sample"]),
+                ("push", "refs/heads/main", ["extension-canvas-design", "extension-sample"]),
+                ("pull_request", "refs/pull/1/merge", ["extension-canvas-design", "extension-sample"]),
             ]
             for event, ref, expected_ids in cases:
                 with self.subTest(event=event, ref=ref):
@@ -363,7 +367,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                         [sys.executable, "-c", self.workflow_python("Validate release version")],
                         cwd=root, capture_output=True, text=True,
                         env=dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF=ref,
-                                 EXTENSION_ID="sample-extension", VERSION="1.2.3",
+                                 EXTENSION_ID="extension-sample", VERSION="1.2.3",
                                  GITHUB_OUTPUT=str(output)),
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -371,7 +375,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     self.assertEqual(json.loads(values["extension_ids"]), expected_ids)
                     if len(expected_ids) == 1:
                         self.assertEqual(values["tag"], tag)
-                        self.assertEqual(values["extension_id"], "sample-extension")
+                        self.assertEqual(values["extension_id"], "extension-sample")
                         self.assertEqual(values["extension_name"], "Sample Extension")
                     else:
                         self.assertNotIn("tag", values)
@@ -382,7 +386,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual({path.stem for path in root.glob("*.zip")}, set(expected_ids))
-                    with ZipFile(root / "sample-extension.zip") as archive:
+                    with ZipFile(root / "extension-sample.zip") as archive:
                         self.assertEqual(set(archive.namelist()), FILES | {"config-template.yml"})
                         for name in archive.namelist():
                             self.assertEqual(archive.read(name), (package / name).read_bytes())
@@ -401,10 +405,10 @@ class CanvasDesignPackageTests(unittest.TestCase):
         for kind, field, name, problem in cases:
             with self.subTest(kind=kind, name=name, problem=problem), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
-                package = root / "spec-kit-extensions/sample-extension"
+                package = root / "spec-kit-extensions/extension-sample"
                 shutil.copytree(PACKAGE, package)
                 manifest = copy.deepcopy(self.manifest)
-                manifest["extension"]["id"] = "sample-extension"
+                manifest["extension"]["id"] = "extension-sample"
                 manifest["provides"] = {kind: [{"name": "sample", field: name}]}
                 (package / "extension.yml").write_text(yaml.safe_dump(manifest), "utf-8")
                 if problem in ("missing", "directory"):
@@ -417,18 +421,18 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     (package / name).write_text("{}", "utf-8")
                 result = subprocess.run(
                     [sys.executable, "-c", self.workflow_python("Create extension ZIP")],
-                    cwd=root, env=dict(os.environ, EXTENSION_IDS='["sample-extension"]'),
+                    cwd=root, env=dict(os.environ, EXTENSION_IDS='["extension-sample"]'),
                     capture_output=True, text=True,
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"Declared {kind} {field} is not a regular package file", result.stderr)
                 self.assertIn(repr(name), result.stderr)
-                self.assertFalse((root / "sample-extension.zip").exists())
+                self.assertFalse((root / "extension-sample.zip").exists())
 
     def test_release_triggers_and_permissions(self):
         triggers = self.workflow["on"]
         self.assertEqual(set(triggers), {"workflow_call", "pull_request", "push"})
-        self.assertEqual(triggers["push"]["tags"], ["extension/*/v*"])
+        self.assertEqual(triggers["push"]["tags"], ["extension-*-v*"])
         self.assertEqual(triggers["pull_request"]["branches"], ["main"])
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         self.assertEqual(triggers["workflow_call"]["inputs"], {
@@ -459,14 +463,27 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertEqual(
             release["if"],
             "github.event_name == 'workflow_dispatch' || "
-            "startsWith(github.ref, 'refs/tags/extension/')",
+            "startsWith(github.ref, 'refs/tags/extension-')",
         )
         publish = next(
             step for step in release["steps"]
             if step.get("name") == "Publish validated extension"
         )["run"]
         self.assertIn('gh release create "$TAG" "$EXTENSION_ID.zip"', publish)
+        self.assertIn('--title "$EXTENSION_ID ${TAG##*-}"', publish)
         self.assertIn("--verify-tag", publish)
+        preset_workflow = yaml.load(
+            (EXTENSIONS.parent / ".github/workflows/release-preset.yml").read_text("utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(preset_workflow["on"]["push"]["tags"], [
+            "*-v[0-9]+.[0-9]+.[0-9]+", "!extension-*",
+        ])
+        verify = next(
+            step for step in self.workflow["jobs"]["package"]["steps"]
+            if step.get("name") == "Verify release archive"
+        )
+        self.assertEqual(verify["env"]["CANVAS_DESIGN_ARCHIVE"], "extension-canvas-design.zip")
 
     def test_release_rejects_catalog_drift(self):
         version = self.manifest["extension"]["version"]
@@ -474,21 +491,21 @@ class CanvasDesignPackageTests(unittest.TestCase):
             ("version", "999.0.0", "Catalog version must match"),
             ("download_url", "https://example.com/wrong.zip", "Catalog download URL must match"),
         ]
-        with tempfile.TemporaryDirectory(prefix="canvas-design-catalog-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="extension-canvas-design-catalog-") as temporary:
             root = Path(temporary)
-            package = root / "spec-kit-extensions/canvas-design"
+            package = root / "spec-kit-extensions/extension-canvas-design"
             package.mkdir(parents=True)
             shutil.copyfile(PACKAGE / "extension.yml", package / "extension.yml")
             for field, value, error in mutations:
                 with self.subTest(field=field):
                     catalog = copy.deepcopy(self.catalog)
-                    catalog["extensions"]["canvas-design"][field] = value
+                    catalog["extensions"]["extension-canvas-design"][field] = value
                     (package.parent / "catalog.json").write_text(json.dumps(catalog), "utf-8")
                     result = subprocess.run(
                         [sys.executable, "-c", self.workflow_python("Validate release version")],
                         cwd=root,
                         env=dict(os.environ, GITHUB_EVENT_NAME="push",
-                                 GITHUB_REF=f"refs/tags/extension/canvas-design/v{version}"),
+                                 GITHUB_REF=f"refs/tags/extension-canvas-design-v{version}"),
                         capture_output=True, text=True,
                     )
                     self.assertNotEqual(result.returncode, 0)

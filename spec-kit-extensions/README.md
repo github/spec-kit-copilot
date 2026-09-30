@@ -6,7 +6,7 @@ by the **Specify CLI** (`specify extension add`), not by the Copilot plugin
 marketplace. Their `catalog.json` and `extension.yml` manifests live here;
 Copilot canvas providers remain under `plugins/`.
 
-- [Canvas Design](canvas-design/README.md) registers JSON settings pages for
+- [Canvas Design](extension-canvas-design/README.md) registers JSON settings pages for
   a compatible Canvas Designer provider. It does not ship that provider or
   register a Copilot marketplace entry.
 
@@ -16,7 +16,7 @@ Register the catalog once, then install by ID:
 
 ```powershell
 specify extension catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json --name spec-kit-copilot --install-allowed
-specify extension add canvas-design
+specify extension add extension-canvas-design
 ```
 
 Catalogs are discovery-only by default; `--install-allowed` permits installation.
@@ -27,13 +27,20 @@ See the package README for provider requirements and direct-URL installation.
 
 Each extension is versioned independently in its `extension.yml`. Update the
 manifest, catalog entry, and package README version together.
+Package IDs, directory names, and ZIP names use `extension-<name>`.
+Tags use `<extension-id>-vX.Y.Z`, matching the preset version suffix, and release
+titles use `<extension-id> vX.Y.Z`. For example, version `0.1.0` of
+`extension-canvas-design` is tagged `extension-canvas-design-v0.1.0` and ships
+`extension-canvas-design.zip`. Standard filenames such as `extension.yml` and
+`README.md` are unchanged. The discovery tag `canvas-design` is independent of
+the package ID and remains unchanged.
 
 To publish an extension from the GitHub Actions UI after merging those updates:
 
 1. Open **Actions** in `github/spec-kit-copilot`.
 2. Select **Release Extension Trigger**, then **Run workflow**.
 3. Leave **Use workflow from** set to **main**, enter the extension's directory
-   name under `spec-kit-extensions/` (for example, `canvas-design`), and enter
+   name under `spec-kit-extensions/` (for example, `extension-canvas-design`), and enter
    its manifest version (for example, `0.1.0`; an optional `v` prefix is accepted).
 4. Click **Run workflow** and monitor its packaging and release jobs.
 
@@ -43,7 +50,7 @@ but tags pushed with it do not automatically start another workflow. Calling
 the publisher directly avoids that limitation; no personal access token is
 needed. The publisher validates the requested extension/version, manifest,
 catalog version and download URL, tests the package
-and ZIP, then creates `extension/<extension-id>/vX.Y.Z` at the selected commit
+and ZIP, then creates `<extension-id>-vX.Y.Z` at the selected commit
 and publishes `<extension-id>.zip`. The extension must have an `extension.yml`
 and a matching entry in this directory's `catalog.json`; no workflow edit is
 needed when adding another extension.
@@ -52,10 +59,12 @@ Packaging rejects missing or non-file assets declared under `provides`,
 including command files, templates, and configuration templates. The ZIP is
 verified against the complete package file inventory before a tag is created.
 
-Direct pushes of `extension/<extension-id>/vX.Y.Z` tags run the same publisher
+Direct pushes of `extension-<name>-vX.Y.Z` tags run the same publisher
 for that extension. Pull requests and relevant pushes to `main` validate and
 package every extension directory containing `extension.yml`; they do not
 create tags or releases.
+The preset publisher excludes `extension-*` tags so it does not attempt to
+publish an extension as a preset.
 
 If tagging succeeds but no release is created, use **Re-run failed jobs** on the
 original Actions run to retry the same commit. An existing tag is reused only
