@@ -67,7 +67,7 @@ function fakeDialogDocument() {
         set innerHTML(value) {
             this.html = value;
             this.nodes = new Map([".designer-modal", ".wizard-modal-close", ".wizard-modal-cancel",
-                ".designer-backdrop", ".designer-error", ".designer-submit"]
+                ".designer-backdrop", ".designer-error", ".designer-status", ".designer-submit"]
                 .map((selector) => [selector, fakeElement()]));
             this.inputs = [...value.matchAll(/data-designer-kind="([^"]+)" data-designer-index="(\d+)"/g)]
                 .map(([, kind, index]) => {
@@ -143,7 +143,7 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
     }
 });
 
-test("launch dispatches empty selections, disables duplicate clicks, and keeps errors actionable", async () => {
+test("launch leaves the dialog usable for parallel sessions and reports each acceptance or error", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
     const previousSnapshot = state.snapshot;
@@ -162,10 +162,14 @@ test("launch dispatches empty selections, disables duplicate clicks, and keeps e
         openCanvasDesignerDialog();
         const button = root.querySelector(".designer-submit");
         const pending = button.click();
-        assert.equal(button.disabled, true);
-        assert.equal(button.getAttribute("aria-busy"), "true");
+        assert.equal(button.disabled, false);
+        assert.equal(root.querySelector(".wizard-modal-close").disabled, false);
+        root.tabs[1].click();
+        assert.equal(root.tabs[1].getAttribute("aria-selected"), "true");
         await button.click();
-        assert.equal(requests.length, 1);
+        assert.equal(requests.length, 2);
+        assert.match(root.querySelector(".designer-status").textContent, /1 Designer launch queued/);
+        assert.notEqual(root.innerHTML, "");
         assert.deepEqual(JSON.parse(requests[0].options.body), {
             selections: { presets: [], extensions: [], bundles: [] },
             catalogFingerprint: "catalog-1", expectedPhases: ["plan"],
@@ -174,10 +178,42 @@ test("launch dispatches empty selections, disables duplicate clicks, and keeps e
         await pending;
         assert.equal(root.querySelector(".designer-error").hidden, false);
         assert.match(root.querySelector(".designer-error").textContent, /dispatch unavailable/);
+        assert.match(root.querySelector(".designer-status").textContent, /1 Designer launch queued/);
         assert.equal(button.disabled, false);
         await button.click();
-        assert.equal(requests.length, 2);
+        assert.equal(requests.length, 3);
+        assert.match(root.querySelector(".designer-status").textContent, /2 Designer launches queued/);
+        assert.equal(root.querySelector(".designer-error").hidden, true);
+        root.querySelector(".wizard-modal-close").click();
         assert.equal(root.innerHTML, "");
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
+test("a late launch response cannot change a reopened dialog", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { pipeline: [], catalog: {
+        presets: [], extensions: [], bundles: [], designerFingerprint: "ready",
+    } };
+    let finish;
+    globalThis.fetch = () => new Promise((resolve) => { finish = resolve; });
+    try {
+        openCanvasDesignerDialog();
+        const pending = root.querySelector(".designer-submit").click();
+        root.querySelector(".wizard-modal-cancel").click();
+        openCanvasDesignerDialog();
+        finish({ ok: true, json: async () => ({ queued: true }) });
+        await pending;
+        assert.equal(root.querySelector(".designer-status").hidden, true);
+        assert.equal(root.querySelector(".designer-error").hidden, true);
     } finally {
         root.replaceChildren();
         globalThis.document = previousDocument;
