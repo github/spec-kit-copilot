@@ -251,7 +251,7 @@ test("empty shell renders without a handoff and keeps the token gate", async (t)
     assert.equal((await fetch(url.origin)).status, 404);
 });
 
-test("canvas opens empty without an ID, then opens a validated handoff", async (t) => {
+test("canvas reloads session skills before opening a prepared handoff and exposes an init reload tool", async (t) => {
     const workspace = await fixture(t);
     const source = fileURLToPath(new URL("../", import.meta.url));
     const extension = join(workspace, "provider");
@@ -275,9 +275,21 @@ test("canvas opens empty without an ID, then opens a validated handoff", async (
         export class CanvasError extends Error {
             constructor(code, message) { super(message); this.code = code; }
         }
-        export const joinSession = async ({ canvases }) => {
+        export const joinSession = async ({ canvases, tools }) => {
             globalThis.__designerTestCanvas = canvases[0];
-            return { workspacePath: ${JSON.stringify(workspace)} };
+            globalThis.__designerTestTools = tools;
+            globalThis.__designerTestSession = {
+                workspacePath: ${JSON.stringify(workspace)},
+                log: async (message, options) => {
+                    globalThis.__designerTestWarnings.push({ message, options });
+                },
+                rpc: { skills: { reload: async () => {
+                    globalThis.__designerTestReloads++;
+                    if (globalThis.__designerTestReloadError) throw new Error("reload unavailable");
+                    return globalThis.__designerTestDiagnostics;
+                } } },
+            };
+            return globalThis.__designerTestSession;
         };
     `);
     await import(pathToFileURL(join(extension, "extension.mjs")).href);
@@ -286,6 +298,12 @@ test("canvas opens empty without an ID, then opens a validated handoff", async (
     assert.deepEqual(canvas.inputSchema.required, undefined);
     assert.deepEqual(canvas.inputSchema.properties.handoffId.type, "string");
 
+    const [reloadTool] = globalThis.__designerTestTools;
+    assert.equal(reloadTool.name, "speckit_designer_reload_skills");
+    assert.equal(reloadTool.parameters.additionalProperties, false);
+    globalThis.__designerTestReloads = 0;
+    globalThis.__designerTestWarnings = [];
+    globalThis.__designerTestDiagnostics = { errors: [], warnings: [] };
     try {
         const empty = await canvas.open({ instanceId: "same", input: {} });
         assert.match(await (await fetch(empty.url)).text(), /No Wizard handoff is attached yet/);
@@ -295,13 +313,43 @@ test("canvas opens empty without an ID, then opens a validated handoff", async (
         await saveHandoff(workspace);
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
             (error) => error.code === "designer_open_failed");
+        assert.equal(globalThis.__designerTestReloads, 0);
+        assert.deepEqual(JSON.parse(await reloadTool.handler()), { errors: [], warnings: [] });
+        assert.equal(globalThis.__designerTestReloads, 1);
         globalThis.__designerTestPrepared = true;
+        globalThis.__designerTestDiagnostics = { errors: ["bad SKILL.md"], warnings: [] };
+        await assert.rejects(reloadTool.handler(), /bad SKILL.md/);
+        await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+            (error) => error.code === "designer_open_failed" && /bad SKILL.md/.test(error.message));
+        assert.match(await (await fetch(empty.url)).text(), /No Wizard handoff is attached yet/);
+        globalThis.__designerTestDiagnostics = undefined;
+        await assert.rejects(reloadTool.handler(), /Invalid session skill reload diagnostics/);
+        globalThis.__designerTestReloadError = true;
+        await assert.rejects(reloadTool.handler(), /reload unavailable/);
+        await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+            (error) => error.code === "designer_open_failed" && /reload unavailable/.test(error.message));
+        delete globalThis.__designerTestReloadError;
+        const rpc = globalThis.__designerTestSession.rpc;
+        globalThis.__designerTestSession.rpc = {};
+        await assert.rejects(reloadTool.handler(), /skill reload is unavailable/);
+        globalThis.__designerTestSession.rpc = rpc;
+        globalThis.__designerTestDiagnostics = { errors: [], warnings: ["skill warning"] };
+        const reloads = globalThis.__designerTestReloads;
         const filled = await canvas.open({ instanceId: "same", input: { handoffId: ID } });
+        assert.equal(globalThis.__designerTestReloads, reloads + 1);
+        assert.deepEqual(globalThis.__designerTestWarnings,
+            [{ message: "skill warning", options: { level: "warning" } }]);
         assert.notEqual(filled.url, empty.url);
         assert.match(await (await fetch(filled.url)).text(), /id="settings-page"/);
         assert.equal((await canvas.open({ instanceId: "same", input: { handoffId: ID } })).url, filled.url);
     } finally {
         await canvas.onClose({ instanceId: "same" });
         delete globalThis.__designerTestPrepared;
+        delete globalThis.__designerTestTools;
+        delete globalThis.__designerTestSession;
+        delete globalThis.__designerTestReloads;
+        delete globalThis.__designerTestWarnings;
+        delete globalThis.__designerTestDiagnostics;
+        delete globalThis.__designerTestReloadError;
     }
 });

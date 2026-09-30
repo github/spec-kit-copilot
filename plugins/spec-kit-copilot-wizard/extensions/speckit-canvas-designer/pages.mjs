@@ -2,7 +2,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { handoffDirectory } from "./handoff.mjs";
 import { readDesignSource } from "./source.mjs";
-import { installedInventory, matchingInstalled, runPageLoader } from "./install.mjs";
+import { installedInventory, matchingInstalled, runPageLoader } from "./specify.mjs";
 
 export async function loadPreparedPages(handoff, workspace, project, load = runPageLoader) {
     const checkout = await realpath(project);

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -117,34 +117,4 @@ export function matchingInstalled(item, entries) {
         throw new Error(`Installed ${item.id} source conflicts with the selected source`);
     }
     return true;
-}
-
-export async function installPackage(kind, item, project, run = runSpecify, download = fetch) {
-    let folder;
-    try {
-        if (kind !== "bundles") {
-            await run([GROUPS[kind], "add", item.id,
-                ...(item.downloadUrl ? ["--from", item.downloadUrl] : [])], project);
-            return;
-        }
-        let source = item.id;
-        if (item.downloadUrl) {
-            folder = await mkdtemp(join(project, ".specify", "designer-bundle-"));
-            const response = await download(item.downloadUrl, { signal: AbortSignal.timeout(30_000) });
-            if (!response.ok || !response.body) throw new Error(`Bundle download failed (${response.status})`);
-            const chunks = [];
-            let size = 0;
-            for await (const chunk of response.body) {
-                size += chunk.length;
-                if (size > 20 * 1024 * 1024) throw new Error("Bundle archive exceeds 20 MiB");
-                chunks.push(chunk);
-            }
-            if (!size) throw new Error("Bundle archive is empty");
-            source = join(folder, "bundle.zip");
-            await writeFile(source, Buffer.concat(chunks));
-        }
-        await run(["bundle", "install", source, "--integration", "copilot"], project);
-    } finally {
-        if (folder) await rm(folder, { recursive: true, force: true });
-    }
 }

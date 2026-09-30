@@ -3,14 +3,14 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fingerprint, handoffDirectory, readHandoff, validateHandoffId } from "./handoff.mjs";
 import { readDesignSource, DESIGN_EXTENSION } from "./source.mjs";
-import { assertSkillsMode, installedInventory, installPackage, matchingInstalled, runPageLoader,
-    runSpecify } from "./install.mjs";
+import { assertSkillsMode, installedInventory, matchingInstalled, runPageLoader,
+    runSpecify } from "./specify.mjs";
 
 const providerPath = resolve(fileURLToPath(new URL(".", import.meta.url)));
 
-export async function bootstrapDesigner({ handoffId, checkoutPath, workspacePath,
-    sourcePath = providerPath, run = runSpecify, loadPages = runPageLoader,
-    addPackage = installPackage }) {
+export async function validateDesignerSetup({ handoffId, checkoutPath, workspacePath,
+    sourcePath = providerPath, run = runSpecify, loadPages = runPageLoader, mode = "verify" }) {
+    if (!["preflight", "verify"].includes(mode)) throw new Error("Invalid Designer validation mode");
     const id = validateHandoffId(handoffId);
     const [checkout, workspace, source] = await Promise.all(
         [checkoutPath, workspacePath, sourcePath].map((path) => realpath(path)));
@@ -19,7 +19,7 @@ export async function bootstrapDesigner({ handoffId, checkoutPath, workspacePath
         || checkout === parentRoot || workspace === parentRoot || workspace === checkout
         || !(await lstat(join(checkout, ".git"))).isFile()
         || basename(dirname(workspace)) !== "session-state") {
-        throw new Error("Designer bootstrap requires a separate child worktree and session artifacts");
+        throw new Error("Designer validation requires a separate child worktree and session artifacts");
     }
     const handoff = await readHandoff(workspace, id);
     const expectedSource = join(parentRoot, "spec-kit-extensions", DESIGN_EXTENSION);
@@ -30,7 +30,7 @@ export async function bootstrapDesigner({ handoffId, checkoutPath, workspacePath
     const folder = handoffDirectory(workspace, id);
     let installed = { presets: [], extensions: [], bundles: [] };
     try {
-        await writeFile(join(folder, "setup.json"), JSON.stringify({ status: "preparing" }));
+        await writeFile(join(folder, "setup.json"), JSON.stringify({ status: "pending" }));
         for (const name of [".github", ".specify"]) {
             const path = join(checkout, name);
             try {
@@ -52,35 +52,23 @@ export async function bootstrapDesigner({ handoffId, checkoutPath, workspacePath
             }
             initialized = true;
         } catch (error) { if (error.code !== "ENOENT") throw error; }
-        if (!initialized) {
-            await run(["init", "--here", "--force", "--non-interactive", "--integration", "copilot",
-                "--integration-options=--skills", "--script", process.platform === "win32" ? "ps" : "sh",
-                "--ignore-agent-tools"], checkout);
-        }
-        await assertSkillsMode(checkout);
-        installed = await installedInventory(checkout, run);
-        const required = handoff.selections.extensions.find((item) => item.id === DESIGN_EXTENSION);
-        if (!matchingInstalled(required, installed.extensions)) {
-            await run(["extension", "add", expectedSource, "--dev"], checkout);
+        if (initialized) {
+            await assertSkillsMode(checkout);
             installed = await installedInventory(checkout, run);
         }
-        if (!matchingInstalled(required, installed.extensions)) {
-            throw new Error("Specify did not confirm the required Canvas Design extension");
-        }
-        for (const kind of ["bundles", "extensions", "presets"]) {
-            for (const item of handoff.selections[kind]) {
-                if (matchingInstalled(item, installed[kind])) continue;
-                await addPackage(kind, item, checkout, run);
-                installed = await installedInventory(checkout, run);
-                if (!matchingInstalled(item, installed[kind])) {
-                    throw new Error(`Specify did not confirm selected ${kind} ${item.id}`);
-                }
+        if (mode === "preflight") {
+            for (const kind of ["presets", "extensions", "bundles"]) {
+                for (const item of handoff.selections[kind]) matchingInstalled(item, installed[kind]);
             }
+            return { status: "pending", handoffId: id, initialized, installed };
+        }
+        if (!initialized) {
+            throw new Error("Child project is not initialized; use the speckit-init skill first");
         }
         for (const kind of ["presets", "extensions", "bundles"]) {
             for (const item of handoff.selections[kind]) {
                 if (!matchingInstalled(item, installed[kind])) {
-                    throw new Error(`Selected ${kind} ${item.id} is missing after installation`);
+                    throw new Error(`Selected ${kind} ${item.id} is missing; install it with the corresponding Spec Kit skill`);
                 }
             }
         }
@@ -110,20 +98,20 @@ export async function bootstrapDesigner({ handoffId, checkoutPath, workspacePath
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    if (process.argv.length !== 5) {
-        console.error("Usage: node bootstrap.mjs <handoff-id> <child-checkout> <child-session-workspace>");
+    if (process.argv.length !== 6) {
+        console.error("Usage: node validate-setup.mjs <preflight|verify> <handoff-id> <child-checkout> <child-session-workspace>");
         process.exitCode = 1;
     } else {
-        const [, , id, checkout, workspace] = process.argv;
+        const [, , mode, id, checkout, workspace] = process.argv;
         try {
             if (resolve(checkout) !== process.cwd()) {
-                throw new Error("Run Designer bootstrap from the child checkout");
+                throw new Error("Run Designer validation from the child checkout");
             }
-            console.log(JSON.stringify(await bootstrapDesigner({
-                handoffId: id, checkoutPath: checkout, workspacePath: workspace,
+            console.log(JSON.stringify(await validateDesignerSetup({
+                mode, handoffId: id, checkoutPath: checkout, workspacePath: workspace,
             })));
         } catch (error) {
-            console.error(`Designer bootstrap failed: ${error.message}`);
+            console.error(`Designer validation failed: ${error.message}`);
             process.exitCode = 1;
         }
     }

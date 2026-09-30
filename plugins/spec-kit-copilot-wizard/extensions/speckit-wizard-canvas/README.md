@@ -75,12 +75,17 @@ approved preset, extension, and bundle selections, plus the validated required
 extension source, version, and content fingerprint,
 to the Wizard's agent. It creates a nested, app-native **Canvas designer**
 session in the same project, starting from the project's default branch.
-The child stores the handoff unchanged in its own session artifacts, initializes
-Specify in Copilot skills mode if needed, and installs the required extension and
-approved selections. It verifies the installed inventory and resolves registered
+The child stores the handoff unchanged in its own session artifacts and runs
+validation-only preflight. The child agent invokes `speckit-init` to initialize
+Specify in Copilot skills mode only if needed, `speckit-extension` for the required
+local extension, then `speckit-bundle`, `speckit-extension` and `speckit-preset` for
+approved selections. No JavaScript helper initializes or installs packages.
+The agent calls `speckit_designer_reload_skills` after init and after installation
+to actually reload its session's skills via the same RPC as the Wizard (not a
+printed slash command). It verifies the installed inventory and resolves registered
 pages before opening the Designer provider bundled with the installed Wizard plugin.
-No provider files are copied into the child worktree. After skills/extension reload
-it opens Designer. The
+No provider files are copied into the child worktree. After extension reload,
+opening Designer also requires a successful skill reload. The
 Wizard reports only that launch was queued; child setup and errors appear
 in the child session (dispatch failures appear in the Wizard session log).
 The dialog remains open and interactive after each queued launch so more
@@ -111,7 +116,9 @@ is configured separately; its always-present gate can later be made required
 without blocking unrelated PRs on a skipped workflow.
 The workflow also runs the Python page-loader tests and Designer preparation tests
 against Specify. Locally, set `DESIGNER_CLI_TESTS=1` when running the Node tests to
-include real child preparation; the default Node suite uses mocked CLI calls.
+include real skill CLI init/install commands followed by validation and page
+resolution; the default Node suite uses mocked read-only CLI calls. These tests
+do not run a live nested agent or prove its skill invocations.
 
 ## Quickstart
 

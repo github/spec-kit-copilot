@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { createHandler } from "../server.mjs";
 import { buildDesignerHandoff, buildDesignerLaunchPrompt,
     validateDesignerSelections } from "../server/handlers-designer.mjs";
-import { fingerprint, readHandoff, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
+import { fingerprint, HANDOFF_LIMIT, readHandoff, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
 import { readDesignSource } from "../../speckit-canvas-designer/source.mjs";
 
@@ -83,7 +83,7 @@ test("required-only selections produce a complete immutable inline handoff and o
     assert.match(sent[0].prompt, /provider ships with the installed spec-kit-copilot-wizard plugin/);
     assert.match(sent[0].prompt, /list_canvas_capabilities\(\{canvasId:"speckit-canvas-designer"\}\)/);
     assert.doesNotMatch(sent[0].prompt, /\.github\/extensions\//);
-    assert.match(sent[0].prompt, /installs the required Canvas Design extension and all approved presets/);
+    assert.match(sent[0].prompt, /YOU perform setup through the Spec Kit skills/);
     assert.match(sent[0].prompt, /handoff\.json under YOUR session-state artifacts/);
     const json = sent[0].prompt.match(/\nHANDOFF_JSON:\n([^\n]+)\nEND_HANDOFF_JSON\n/)[1];
     const handoff = JSON.parse(json);
@@ -97,6 +97,40 @@ test("required-only selections produce a complete immutable inline handoff and o
     const otherProject = fixture();
     otherProject.inst.workspacePath = tmpdir();
     assert.equal((await otherProject.post(request())).statusCode, 202);
+});
+
+test("child kickoff requires skill-led init and installs, real reloads and validation in order", () => {
+    const handoff = buildDesignerHandoff(snapshot, empty);
+    const prompt = buildDesignerLaunchPrompt(handoff);
+    const checkpoints = [
+        "arguments preflight",
+        "invoke the skill tool with each named skill",
+        "use speckit-init",
+        "After init, call speckit_designer_reload_skills",
+        "Use speckit-extension",
+        "Then use speckit-bundle",
+        "speckit-extension for remaining",
+        "speckit-preset for remaining",
+        "After all installations, call speckit_designer_reload_skills",
+        "verify instead of preflight",
+        "Call extensions_reload",
+        'call open_canvas({canvasId:"speckit-canvas-designer"',
+    ];
+    let previous = -1;
+    for (const text of checkpoints) {
+        const position = prompt.indexOf(text);
+        assert.ok(position > previous, `${text} must occur after the previous setup step`);
+        previous = position;
+    }
+    assert.match(prompt, /--integration copilot --integration-options="--skills" and --script ps/);
+    assert.match(prompt, /Otherwise skip init; never overwrite an incompatible existing setup/);
+    assert.match(prompt, /skip matching enabled packages \(including bundle-owned members\)/);
+    assert.match(prompt, /do NOT emit \/skills reload as plain text/);
+    assert.match(prompt, /On ANY setup, reload or validation failure stop/);
+    assert.doesNotMatch(prompt, /bootstrap\.mjs|install\.mjs/);
+    assert.ok(Buffer.byteLength(prompt) - Buffer.byteLength(JSON.stringify(handoff)) <= 4096,
+        "kickoff instructions must fit the allowance above the handoff limit");
+    assert.ok(Buffer.byteLength(prompt) <= HANDOFF_LIMIT + 4096);
 });
 
 test("selected catalog entries are validated and normalized from the server's catalog", async () => {

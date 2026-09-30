@@ -5,7 +5,29 @@ import { loadPreparedPages } from "./pages.mjs";
 
 const servers = new Map();
 
+async function reloadSessionSkills() {
+    if (!session.rpc?.skills?.reload) throw new Error("Session skill reload is unavailable");
+    const diagnostics = await session.rpc.skills.reload();
+    if (!Array.isArray(diagnostics?.errors) || !Array.isArray(diagnostics?.warnings)
+        || [...diagnostics.errors, ...diagnostics.warnings].some((message) => typeof message !== "string")) {
+        throw new Error("Invalid session skill reload diagnostics");
+    }
+    for (const warning of diagnostics.warnings) {
+        await session.log(warning, { level: "warning" });
+    }
+    if (diagnostics.errors.length) {
+        throw new Error(`Session skill reload failed: ${diagnostics.errors.join("; ")}`);
+    }
+    return diagnostics;
+}
+
 const session = await joinSession({
+    tools: [{
+        name: "speckit_designer_reload_skills",
+        description: "Reload this session's skills after Spec Kit init or package installation, before opening Designer. Reports reload failures; does not install anything.",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+        handler: async () => JSON.stringify(await reloadSessionSkills()),
+    }],
     canvases: [createCanvas({
         id: "speckit-canvas-designer",
         displayName: "Spec Kit Canvas Designer",
@@ -33,6 +55,7 @@ const session = await joinSession({
             try {
                 const model = handoff
                     ? await loadPreparedPages(handoff, session.workspacePath, process.cwd()) : null;
+                if (handoff) await reloadSessionSkills();
                 const next = await startShell(handoff, model);
                 servers.set(ctx.instanceId, { ...next, handoffId });
                 if (previous) await previous.close();
