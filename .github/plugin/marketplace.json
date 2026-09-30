@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.20.0"
+    "version": "0.21.0"
   },
   "plugins": [
     {
