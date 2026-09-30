@@ -28,24 +28,30 @@ See the package README for provider requirements and direct-URL installation.
 Each extension is versioned independently in its `extension.yml`. Update the
 manifest, catalog entry, and package README version together.
 
-To publish Canvas Design from the GitHub Actions UI after merging those updates:
+To publish an extension from the GitHub Actions UI after merging those updates:
 
 1. Open **Actions** in `github/spec-kit-copilot`.
 2. Select **Release Extension Trigger**, then **Run workflow**.
-3. Leave **Use workflow from** set to **main**, select **canvas-design** for
-   **Extension to release**, and enter the manifest version (for example,
-   `0.1.0`; an optional `v` prefix is accepted).
+3. Leave **Use workflow from** set to **main**, enter the extension's directory
+   name under `spec-kit-extensions/` (for example, `canvas-design`), and enter
+   its manifest version (for example, `0.1.0`; an optional `v` prefix is accepted).
 4. Click **Run workflow** and monitor its packaging and release jobs.
 
-The trigger calls the reusable **Release Extension** workflow directly using
-`GITHUB_TOKEN`; no personal access token is needed. It validates the requested
-extension/version, manifest, catalog version and download URL, tests the package
-and ZIP, then creates `extension/canvas-design/vX.Y.Z` at the selected commit and
-publishes `canvas-design.zip`. Only Canvas Design is currently supported.
+The trigger calls the reusable **Release Extension** workflow as part of the
+same run. GitHub's built-in `GITHUB_TOKEN` can create tags and publish releases,
+but tags pushed with it do not automatically start another workflow. Calling
+the publisher directly avoids that limitation; no personal access token is
+needed. The publisher validates the requested extension/version, manifest,
+catalog version and download URL, tests the package
+and ZIP, then creates `extension/<extension-id>/vX.Y.Z` at the selected commit
+and publishes `<extension-id>.zip`. The extension must have an `extension.yml`
+and a matching entry in this directory's `catalog.json`; no workflow edit is
+needed when adding another extension.
 
-Direct pushes of `extension/canvas-design/vX.Y.Z` tags still run the same
-publisher. Pull requests and relevant pushes to `main` only validate and package;
-they do not create tags or releases.
+Direct pushes of `extension/<extension-id>/vX.Y.Z` tags run the same publisher
+for that extension. Pull requests and relevant pushes to `main` validate and
+package every extension directory containing `extension.yml`; they do not
+create tags or releases.
 
 If tagging succeeds but no release is created, use **Re-run failed jobs** on the
 original Actions run to retry the same commit. An existing tag is reused only

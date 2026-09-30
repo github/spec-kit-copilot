@@ -4,11 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       extension_id:
-        description: 'Extension to release'
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., canvas-design)'
         required: true
-        type: choice
-        options:
-          - canvas-design
+        type: string
       version:
         description: 'Version to release (e.g., 0.1.0; optional v prefix)'
         required: true

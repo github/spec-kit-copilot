@@ -97,7 +97,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
             "spec-kit-extensions/catalog.json"
         )
         self.assertEqual(self.catalog["catalog_url"], catalog_url)
-        self.assertEqual(set(self.catalog["extensions"]), {"canvas-design"})
+        self.assertIn("canvas-design", self.catalog["extensions"])
         entry = self.catalog["extensions"]["canvas-design"]
         for field in ("id", "name", "version", "author", "repository", "license"):
             with self.subTest(field=field):
@@ -274,7 +274,8 @@ class CanvasDesignPackageTests(unittest.TestCase):
             shutil.copytree(PACKAGE, root / "spec-kit-extensions/canvas-design")
             result = subprocess.run(
                 [sys.executable, "-c", self.workflow_python("Create extension ZIP")],
-                cwd=root, capture_output=True, text=True,
+                cwd=root, env=dict(os.environ, EXTENSION_IDS='["canvas-design"]'),
+                capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assert_archive_matches_package(root / "canvas-design.zip")
@@ -294,6 +295,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
             ("workflow_dispatch", "refs/heads/main", "canvas-design", "", False),
             ("workflow_dispatch", "refs/heads/main", "canvas-design", f"{version}; echo bad", False),
             ("workflow_dispatch", "refs/heads/main", "unsupported", version, False),
+            ("workflow_dispatch", "refs/heads/main", "", version, False),
             ("workflow_dispatch", "refs/heads/main", "../canvas-design", version, False),
         ]
         for event, ref, extension_id, requested_version, succeeds in cases:
@@ -312,14 +314,81 @@ class CanvasDesignPackageTests(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, succeeds,
                                  result.stdout + result.stderr)
                 if succeeds:
-                    self.assertEqual(output.read_text(), f"tag={tag.removeprefix('refs/tags/')}\n")
+                    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    self.assertEqual(json.loads(values["extension_ids"]), ["canvas-design"])
+                    if event == "workflow_dispatch" or ref.startswith("refs/tags/"):
+                        self.assertEqual(values["tag"], tag.removeprefix("refs/tags/"))
+                        self.assertEqual(values["extension_id"], "canvas-design")
+                        self.assertEqual(values["extension_name"], self.manifest["extension"]["name"])
+                    else:
+                        self.assertNotIn("tag", values)
                 else:
                     self.assertFalse(output.exists())
+
+    def test_release_supports_another_extension(self):
+        with tempfile.TemporaryDirectory(prefix="extension-release-") as temporary:
+            root = Path(temporary)
+            extensions = root / "spec-kit-extensions"
+            shutil.copytree(PACKAGE, extensions / "canvas-design")
+            package = extensions / "sample-extension"
+            package.mkdir()
+            manifest = copy.deepcopy(self.manifest)
+            manifest["extension"].update(id="sample-extension", name="Sample Extension", version="1.2.3")
+            (package / "extension.yml").write_text(yaml.safe_dump(manifest), "utf-8")
+            (package / "README.md").write_text("Sample extension", "utf-8")
+            catalog = copy.deepcopy(self.catalog)
+            entry = copy.deepcopy(catalog["extensions"]["canvas-design"])
+            tag = "extension/sample-extension/v1.2.3"
+            entry.update(
+                id="sample-extension", name="Sample Extension", version="1.2.3",
+                download_url=f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/sample-extension.zip",
+            )
+            catalog["extensions"]["sample-extension"] = entry
+            (extensions / "catalog.json").write_text(json.dumps(catalog), "utf-8")
+            cases = [
+                ("workflow_dispatch", "refs/heads/main", ["sample-extension"]),
+                ("push", f"refs/tags/{tag}", ["sample-extension"]),
+                ("push", "refs/heads/main", ["canvas-design", "sample-extension"]),
+                ("pull_request", "refs/pull/1/merge", ["canvas-design", "sample-extension"]),
+            ]
+            for event, ref, expected_ids in cases:
+                with self.subTest(event=event, ref=ref):
+                    output = root / "output"
+                    output.write_text("")
+                    result = subprocess.run(
+                        [sys.executable, "-c", self.workflow_python("Validate release version")],
+                        cwd=root, capture_output=True, text=True,
+                        env=dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF=ref,
+                                 EXTENSION_ID="sample-extension", VERSION="1.2.3",
+                                 GITHUB_OUTPUT=str(output)),
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    self.assertEqual(json.loads(values["extension_ids"]), expected_ids)
+                    if len(expected_ids) == 1:
+                        self.assertEqual(values["tag"], tag)
+                        self.assertEqual(values["extension_id"], "sample-extension")
+                        self.assertEqual(values["extension_name"], "Sample Extension")
+                    else:
+                        self.assertNotIn("tag", values)
+                    result = subprocess.run(
+                        [sys.executable, "-c", self.workflow_python("Create extension ZIP")],
+                        cwd=root, capture_output=True, text=True,
+                        env=dict(os.environ, EXTENSION_IDS=values["extension_ids"]),
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual({path.stem for path in root.glob("*.zip")}, set(expected_ids))
+                    with ZipFile(root / "sample-extension.zip") as archive:
+                        self.assertEqual(set(archive.namelist()), {"extension.yml", "README.md"})
+                        for name in archive.namelist():
+                            self.assertEqual(archive.read(name), (package / name).read_bytes())
+                    for path in root.glob("*.zip"):
+                        path.unlink()
 
     def test_release_triggers_and_permissions(self):
         triggers = self.workflow["on"]
         self.assertEqual(set(triggers), {"workflow_call", "pull_request", "push"})
-        self.assertEqual(triggers["push"]["tags"], ["extension/canvas-design/v*"])
+        self.assertEqual(triggers["push"]["tags"], ["extension/*/v*"])
         self.assertEqual(triggers["pull_request"]["branches"], ["main"])
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         self.assertEqual(triggers["workflow_call"]["inputs"], {
@@ -332,7 +401,8 @@ class CanvasDesignPackageTests(unittest.TestCase):
         )
         self.assertEqual(set(trigger["on"]), {"workflow_dispatch"})
         inputs = trigger["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(inputs["extension_id"]["options"], ["canvas-design"])
+        self.assertEqual(inputs["extension_id"]["type"], "string")
+        self.assertEqual(inputs["extension_id"]["required"], "true")
         self.assertEqual(inputs["version"]["required"], "true")
         caller = trigger["jobs"]["tag-and-release"]
         self.assertEqual(caller["uses"], "./.github/workflows/release-extension.yml")
@@ -349,13 +419,13 @@ class CanvasDesignPackageTests(unittest.TestCase):
         self.assertEqual(
             release["if"],
             "github.event_name == 'workflow_dispatch' || "
-            "startsWith(github.ref, 'refs/tags/extension/canvas-design/v')",
+            "startsWith(github.ref, 'refs/tags/extension/')",
         )
         publish = next(
             step for step in release["steps"]
             if step.get("name") == "Publish validated extension"
         )["run"]
-        self.assertIn('gh release create "$TAG" canvas-design.zip', publish)
+        self.assertIn('gh release create "$TAG" "$EXTENSION_ID.zip"', publish)
         self.assertIn("--verify-tag", publish)
 
     def test_release_rejects_catalog_drift(self):
