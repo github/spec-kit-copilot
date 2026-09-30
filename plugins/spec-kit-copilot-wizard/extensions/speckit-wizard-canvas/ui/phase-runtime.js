@@ -379,7 +379,9 @@ export function renderPipelineBanner() {
             <div class="header-actions pipeline-actions">
                 <button type="button" class="btn btn-ghost pipeline-clear" data-action="clear"${items.length ? "" : " disabled"}>Clear</button>
                 <button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>
-                <button type="button" class="btn btn-ghost pipeline-generate" aria-label="Generate canvas" title="Choose design customizations and launch a new Canvas designer session from this pipeline.">Generate canvas</button>
+                ${state.snapshot?.featureFlags?.generateCanvas === true
+                    ? '<button type="button" class="btn btn-ghost pipeline-generate" aria-label="Generate canvas" title="Choose design customizations and launch a new Canvas designer session from this pipeline.">Generate canvas</button>'
+                    : ""}
             </div>
         </header>
     `;
