@@ -205,6 +205,21 @@ class CanvasDesignPackageTests(unittest.TestCase):
         del page["enabled"]
         self.validator.validate(page)
 
+    def test_defaults_require_explicit_boolean_type(self):
+        for field_type in (None, "string", "boolean"):
+            for default in (True, False):
+                with self.subTest(field_type=field_type, default=default):
+                    page = copy.deepcopy(self.pages[0])
+                    field = {"id": "custom.field", "label": "Custom", "default": default}
+                    if field_type is not None:
+                        field["type"] = field_type
+                    page["fields"] = [field]
+                    if field_type == "boolean":
+                        self.validator.validate(page)
+                    else:
+                        with self.assertRaises(ValidationError):
+                            self.validator.validate(page)
+
     def test_command_contract(self):
         frontmatter = self.command.split("---", 2)
         self.assertEqual(frontmatter[0], "")

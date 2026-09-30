@@ -70,7 +70,8 @@ CLI-selected paths, not independently reconstructing template precedence.
 
 Page JSON defines its full template `id`, title, description, order, enabled state, and fields.
 Enabled pages sort by order, then page ID. Fields support strings and booleans;
-field IDs must be unique across enabled pages. Canvas ID and Title must remain
+omitting `type` means string. A `default` is allowed only with an explicit
+`"type": "boolean"`. Field IDs must be unique across enabled pages. Canvas ID and Title must remain
 present. The identity fields retain their built-in constraints even when a
 preset changes their labels or placement. Each file must conform to
 `schemas/page.schema.json`, have an `id` equal to its supplied template name,
