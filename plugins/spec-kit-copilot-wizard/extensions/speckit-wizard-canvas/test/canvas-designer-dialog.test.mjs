@@ -407,6 +407,64 @@ test("bundles check only listed members without locking them; direct choices and
     }
 });
 
+test("concurrent bundle inspections cannot re-enable or restore a pending deselected bundle", async () => {
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { catalog: {
+        presets: ["first", "second"].map((id) => ({
+            id, source: "copilot", tags: ["canvas-design"],
+        })),
+        extensions: [],
+        bundles: ["one", "two"].map((id) => ({
+            id, source: "copilot", tags: ["canvas-design"],
+        })),
+        designerFingerprint: "ready",
+    } };
+    const pending = new Map();
+    globalThis.fetch = (url) => new Promise((resolve) => {
+        pending.set(new URL(url, "http://localhost").searchParams.get("id"), resolve);
+    });
+    try {
+        openCanvasDesignerDialog();
+        const [, , one, two] = root.inputs;
+        one.checked = true;
+        const firstInspection = one.change();
+        assert.equal(one.disabled, true);
+        two.checked = true;
+        const secondInspection = two.change();
+        assert.equal(one.disabled, true);
+        assert.equal(two.disabled, true);
+        assert.equal(root.querySelector(".designer-submit").disabled, true);
+
+        pending.get("one")({ ok: true, json: async () => ({
+            members: [{ kind: "presets", id: "first" }],
+        }) });
+        await firstInspection;
+        assert.equal(one.disabled, false);
+        assert.equal(two.disabled, true);
+        one.checked = false;
+        await one.change();
+        pending.get("two")({ ok: true, json: async () => ({
+            members: [{ kind: "presets", id: "second" }],
+        }) });
+        await secondInspection;
+        assert.deepEqual(currentCanvasDesignerSelections(), {
+            presets: [{ id: "second", source: "copilot", approved: true }],
+            extensions: [],
+            bundles: [{ id: "two", source: "copilot", approved: true }],
+        });
+        assert.equal(root.querySelector(".designer-submit").disabled, false);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        globalThis.fetch = previousFetch;
+        state.snapshot = previousSnapshot;
+    }
+});
+
 test("Copilot bundles do not auto-select a Community member with the same id", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
