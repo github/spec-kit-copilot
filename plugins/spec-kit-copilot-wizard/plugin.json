@@ -1,6 +1,6 @@
 {
   "name": "spec-kit-copilot-wizard",
-  "description": "GitHub Copilot App canvases for the guided Spec Kit Wizard and an under-development Canvas Designer shell that is not ready for use.",
+  "description": "Guided Spec Kit Wizard canvas and an under-development Designer shell for future workflow-specific canvases based on Wizard pipeline and customization handoffs; Designer is not ready for use.",
   "version": "0.3.0",
   "author": {
     "name": "GitHub",
