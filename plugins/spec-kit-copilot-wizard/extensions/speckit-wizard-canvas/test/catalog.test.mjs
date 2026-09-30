@@ -5,6 +5,53 @@ import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
+import { hydrateFromCatalogSources } from "../catalog/shared.mjs";
+import { EXTENSION_CATALOG_URL } from "../catalog/sources.mjs";
+import { bundleSelectionMembers } from "../catalog/bundles.mjs";
+
+test("bundle selection mirrors preset and extension components without treating steps or workflows as choices", () => {
+    const info = { id: "architecture", source: "community", components: [
+        { kind: "extensions", id: "rules" },
+        { kind: "presets", id: "gate" },
+        { kind: "steps", id: "review" },
+        { kind: "workflows", id: "architect" },
+    ] };
+    assert.deepEqual(bundleSelectionMembers(info, "architecture"), {
+        source: "community", members: [
+            { kind: "extensions", id: "rules" },
+            { kind: "presets", id: "gate" },
+        ],
+    });
+    assert.throws(() => bundleSelectionMembers({
+        ...info, components: [{ kind: "presets", id: "bad&command" }],
+    }, "architecture"), /unsupported bundle members/);
+    assert.throws(() => bundleSelectionMembers({
+        ...info, components: [{ kind: "unexpected", id: "unknown" }],
+    }, "architecture"), /unsupported bundle members/);
+});
+
+test("catalog hydration keeps only string tags for every item kind", async (t) => {
+    const entries = {
+        tagged: { tags: ["canvas-design", "appearance"] },
+        missing: {},
+        malformed: { tags: "canvas-design" },
+        mixed: { tags: [null, 42, "canvas-design"] },
+    };
+    t.mock.method(globalThis, "fetch", async () => ({
+        ok: true,
+        json: async () => ({ presets: entries, extensions: entries, bundles: entries }),
+    }));
+    for (const kind of ["preset", "extension", "bundle"]) {
+        const inst = {};
+        await hydrateFromCatalogSources(inst, [{ name: "copilot", url: "https://example.test/catalog.json" }], {
+            kind, dataKey: `${kind}s`, outputField: "items",
+        });
+        assert.deepEqual(inst.items.map((item) => item.tags),
+            [["canvas-design", "appearance"], [], [], ["canvas-design"]]);
+    }
+    assert.equal(EXTENSION_CATALOG_URL.copilot,
+        "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-extensions/catalog.json");
+});
 
 describe("preset-loader", () => {
 // Tests for preset-loader.mjs — disk read + YAML parse + fallback.

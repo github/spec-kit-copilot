@@ -283,12 +283,20 @@ async function hydrateCatalogs(inst) {
                 priority: 1,
             },
             {
+                name: "copilot",
+                url: EXTENSION_CATALOG_URL.copilot,
+                description: "Copilot-specific Spec Kit extensions",
+                installAllowed: true,
+                builtin: true,
+                priority: 2,
+            },
+            {
                 name: "community",
                 url: EXTENSION_CATALOG_URL.community,
                 description: "Community-contributed extensions",
                 installAllowed: false,
                 builtin: true,
-                priority: 2,
+                priority: 3,
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;

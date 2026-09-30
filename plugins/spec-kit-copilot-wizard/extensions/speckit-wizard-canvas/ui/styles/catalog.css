@@ -195,6 +195,7 @@ a.src-url:hover { text-decoration: underline; }
     padding: 1rem;
 }
 .modal-backdrop[hidden] { display: none; }
+#community-install-modal { z-index: 1001; }
 .modal {
     background: var(--background-color-default);
     border: 1px solid var(--border-color-default);
@@ -211,6 +212,8 @@ a.src-url:hover { text-decoration: underline; }
     border-bottom: 1px solid var(--border-color-default);
 }
 .modal-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.community-modal-title { display: flex; align-items: center; gap: 0.5rem; }
+.community-warning-icon { color: var(--danger-color); font-size: 18px; line-height: 1; }
 .modal-close {
     background: transparent; border: 0; cursor: pointer;
     color: var(--text-color-muted);
@@ -224,6 +227,14 @@ a.src-url:hover { text-decoration: underline; }
     display: flex; flex-direction: column; gap: 0.85rem;
 }
 .modal-body p { margin: 0; font-size: 13px; line-height: 1.5; }
+.modal-body .community-warning {
+    padding: 0.65rem 0.8rem;
+    border: 1px solid color-mix(in srgb, var(--danger-color) 25%, transparent);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--danger-color) 8%, var(--background-color-default));
+    color: var(--text-color-default);
+}
+.community-warning strong { color: var(--danger-color); }
 .modal-body code {
     font-size: 12px;
     background: var(--background-color-elevated);
@@ -265,4 +276,3 @@ a.src-url:hover { text-decoration: underline; }
     border-top: 1px solid var(--border-color-default);
     background: var(--background-color-elevated);
 }
-
