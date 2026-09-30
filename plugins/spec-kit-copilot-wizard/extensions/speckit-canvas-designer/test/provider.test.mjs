@@ -264,6 +264,9 @@ test("empty shell renders without a handoff and keeps the token gate", async (t)
 
 test("canvas reloads session skills before opening valid pages and exposes an init reload tool", async (t) => {
     const workspace = await fixture(t);
+    const checkout = await fixture(t);
+    assert.notEqual(checkout, process.cwd());
+    assert.notEqual(checkout, workspace);
     const source = fileURLToPath(new URL("../", import.meta.url));
     const extension = join(workspace, "provider");
     const sdk = join(extension, "node_modules", "@github", "copilot-sdk");
@@ -271,20 +274,30 @@ test("canvas reloads session skills before opening valid pages and exposes an in
     for (const file of ["extension.mjs", "handoff.mjs", "server.mjs", "source.mjs"]) {
         await copyFile(join(source, file), join(extension, file));
     }
+    const sharedEnv = join(workspace, "speckit-wizard-canvas", "env");
+    await mkdir(sharedEnv, { recursive: true });
+    await copyFile(join(source, "..", "speckit-wizard-canvas", "env", "workspace.mjs"),
+        join(sharedEnv, "workspace.mjs"));
     await cp(join(source, "ui"), join(extension, "ui"), { recursive: true });
     await writeFile(join(extension, "pages.mjs"), `
         export const PAGE_NAME = "^[a-z][a-z0-9-]{0,79}$";
-        export async function assertPageCommand() {
+        function checkProject(project) {
+            if (project !== ${JSON.stringify(checkout)}) throw new Error("Wrong Designer checkout");
+        }
+        export async function assertPageCommand(project) {
+            checkProject(project);
             if (globalThis.__designerTestCommandMissing) throw new Error("skill missing");
         }
-        export async function storeDesignerPages(_handoff, _workspace, _project, pages, isCurrent) {
+        export async function storeDesignerPages(_handoff, _workspace, project, pages, isCurrent) {
+            checkProject(project);
             if (!pages?.length) throw new Error("No resolved paths");
             if (!isCurrent()) throw new Error("Superseded");
             globalThis.__designerTestPagesValid = true;
             globalThis.__designerTestStores = (globalThis.__designerTestStores ?? 0) + 1;
             return ${JSON.stringify(model)};
         }
-        export async function loadDesignerPages() {
+        export async function loadDesignerPages(_handoff, _workspace, project) {
+            checkProject(project);
             if (!globalThis.__designerTestPagesValid) throw new Error("Registered pages are invalid");
             return ${JSON.stringify(model)};
         }
@@ -309,7 +322,10 @@ test("canvas reloads session skills before opening valid pages and exposes an in
                 log: async (message, options) => {
                     globalThis.__designerTestWarnings.push({ message, options });
                 },
-                rpc: { skills: { reload: async () => {
+                rpc: { metadata: { snapshot: async () => {
+                    if (globalThis.__designerTestMetadataError) throw new Error("metadata unavailable");
+                    return globalThis.__designerTestMetadata;
+                } }, skills: { reload: async () => {
                     globalThis.__designerTestReloads++;
                     if (globalThis.__designerTestReloadError) throw new Error("reload unavailable");
                     return globalThis.__designerTestDiagnostics;
@@ -338,6 +354,21 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
             (error) => error.code === "designer_handoff_invalid");
         await saveHandoff(workspace);
+        for (const metadata of [undefined, {}, { workingDirectory: "relative-checkout" }]) {
+            globalThis.__designerTestMetadata = metadata;
+            const failure = await loadTool.handler({ handoffId: ID,
+                pages: [{ name: "canvas-settings-setup", path: "resolved.json" }] });
+            assert.equal(failure.resultType, "failure");
+            assert.match(failure.textResultForLlm, /checkout is unavailable in session metadata/);
+            await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+                (error) => error.code === "designer_open_failed"
+                    && /checkout is unavailable in session metadata/.test(error.message));
+        }
+        globalThis.__designerTestMetadataError = true;
+        await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
+            /checkout is unavailable in session metadata/);
+        delete globalThis.__designerTestMetadataError;
+        globalThis.__designerTestMetadata = { workingDirectory: checkout };
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
             (error) => error.code === "designer_open_failed");
         assert.equal(globalThis.__designerTestReloads, 0);
@@ -409,6 +440,18 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         assert.equal((await fetch(endpoint, { method: "POST" })).status, 202);
         await new Promise((resolve) => setImmediate(resolve));
         assert.match((await (await fetch(state)).json()).load.error, /send failed/);
+        await canvas.onClose({ instanceId: "same" });
+        globalThis.__designerTestMetadata = { workspace: { cwd: checkout } };
+        await import(`${pathToFileURL(join(extension, "extension.mjs")).href}?recovery`);
+        const recovered = globalThis.__designerTestCanvas;
+        try {
+            const reopened = await recovered.open({ instanceId: "recovered", input: { handoffId: ID } });
+            const recoveredState = new URL(reopened.url);
+            recoveredState.pathname = "/api/state";
+            assert.equal((await (await fetch(recoveredState)).json()).pages[0].title, "Essentials");
+        } finally {
+            await recovered.onClose({ instanceId: "recovered" });
+        }
     } finally {
         await canvas.onClose({ instanceId: "same" });
         delete globalThis.__designerTestPagesValid;
@@ -422,5 +465,8 @@ test("canvas reloads session skills before opening valid pages and exposes an in
         delete globalThis.__designerTestStores;
         delete globalThis.__designerTestSendError;
         delete globalThis.__designerTestCommandMissing;
+        delete globalThis.__designerTestMetadata;
+        delete globalThis.__designerTestMetadataError;
+        delete globalThis.__designerTestCanvas;
     }
 });

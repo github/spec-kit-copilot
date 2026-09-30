@@ -1,13 +1,27 @@
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import { readHandoff, validateHandoffId } from "./handoff.mjs";
 import { startShell } from "./server.mjs";
 import { assertPageCommand, loadDesignerPages, PAGE_NAME, storeDesignerPages } from "./pages.mjs";
+import { fetchSessionRepoPath } from "../speckit-wizard-canvas/env/workspace.mjs";
 
 const servers = new Map();
 const loads = new Map();
 const writing = new Set();
 const handoffIdSchema = { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$" };
+let checkout;
+
+async function getCheckout() {
+    if (!checkout) {
+        const path = await fetchSessionRepoPath(session);
+        if (!path || !isAbsolute(path)) {
+            throw new Error("Designer session checkout is unavailable in session metadata");
+        }
+        checkout = path;
+    }
+    return checkout;
+}
 
 function publish(handoffId, model) {
     for (const entry of servers.values()) {
@@ -29,7 +43,7 @@ async function requestReload(handoffId, retry = false) {
     publish(handoffId);
     try {
         await readHandoff(session.workspacePath, handoffId);
-        await assertPageCommand(process.cwd());
+        await assertPageCommand(await getCheckout());
         await reloadSessionSkills();
         const prompt = `/speckit-canvas-design-load-page
 Invoke the skill tool with name "speckit-canvas-design-load-page" before any other tool call.
@@ -71,8 +85,9 @@ async function acceptPages(input) {
         }
         writing.add(id);
         acquired = true;
-        await assertPageCommand(process.cwd());
-        const model = await storeDesignerPages(handoff, session.workspacePath, process.cwd(), input.pages,
+        const project = await getCheckout();
+        await assertPageCommand(project);
+        const model = await storeDesignerPages(handoff, session.workspacePath, project, input.pages,
             () => loads.get(id)?.requestId === expected);
         loads.set(id, { pending: false, error: "" });
         publish(id, model);
@@ -155,7 +170,7 @@ const session = await joinSession({
             }
             try {
                 const model = handoff
-                    ? await loadDesignerPages(handoff, session.workspacePath, process.cwd()) : null;
+                    ? await loadDesignerPages(handoff, session.workspacePath, await getCheckout()) : null;
                 if (handoff) await reloadSessionSkills();
                 const next = await startShell(handoff, model,
                     { reload: (retry) => requestReload(handoffId, retry), load: loads.get(handoffId) });

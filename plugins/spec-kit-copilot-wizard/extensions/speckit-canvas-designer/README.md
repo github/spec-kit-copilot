@@ -53,6 +53,12 @@ The provider comes from the installed plugin, not a copy in the
 child checkout. Opening `speckit-canvas-designer` without input (or with `{}`)
 shows an empty shell, not a generated canvas.
 
+Loading, reloading and recovering pages use the child checkout reported by
+`session.rpc.metadata.snapshot()`, through the Wizard's shared workspace resolver.
+The provider caches a successfully resolved checkout, never falls back to its
+process cwd or the session-artifact directory, and reports unavailable metadata
+as an error. The saved model's checkout binding remains enforced.
+
 A supplied ID must match the bounded handoff ID pattern; the provider checks the
 handoff structure, fingerprint, size, and session-artifact boundary. A supplied ID
 with a missing or invalid file, changed bundled source, or invalid page templates is
