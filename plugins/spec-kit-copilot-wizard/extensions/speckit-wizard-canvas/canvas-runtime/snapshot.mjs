@@ -164,6 +164,9 @@ export async function snapshot(inst) {
     // /api/skills/reload) so the UI can gate setup completion on the
     // live SDK result rather than a persisted flag or a folder probe.
     snap.skillsReload = inst.skillsReload ?? null;
+    snap.featureFlags = {
+        generateCanvas: inst.generateCanvas === true,
+    };
     inst.state = applyPatch(inst.state ?? {}, {
         currentPhase: scan.currentPhase,
         preset: scan.preset,
