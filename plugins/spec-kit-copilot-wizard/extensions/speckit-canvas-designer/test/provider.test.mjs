@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -157,6 +158,34 @@ test("handoff rejects a different opened file even if the path still passes vali
         readHandoff(workspace, ID, (_path, flags) => open(join(outsideDirectory, "handoff.json"), flags)),
         /Invalid Designer handoff file/,
     );
+});
+
+test("handoff rejects a FIFO promptly instead of waiting for a writer", {
+    skip: process.platform === "win32",
+}, async (t) => {
+    const workspace = await fixture(t);
+    const directory = handoffDirectory(workspace, ID);
+    await mkdir(directory, { recursive: true });
+    const fifo = join(directory, "handoff.json");
+    const created = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
+    assert.equal(created.status, 0, created.stderr || created.error?.message);
+
+    const script = `
+        import { readHandoff } from ${JSON.stringify(new URL("../handoff.mjs", import.meta.url).href)};
+        try {
+            await readHandoff(process.argv[1], ${JSON.stringify(ID)});
+            process.exitCode = 1;
+        } catch (error) {
+            if (!/Invalid Designer handoff file/.test(error.message)) {
+                console.error(error);
+                process.exitCode = 2;
+            }
+        }
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script, workspace],
+        { timeout: 3000, encoding: "utf8" });
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.equal(result.status, 0, result.stderr);
 });
 
 test("shell renders counts without echoing handoff content and restricts HTTP access", async (t) => {

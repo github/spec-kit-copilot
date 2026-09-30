@@ -85,7 +85,8 @@ export async function readHandoff(workspacePath, handoffId, openFile = open) {
     const path = join(folder, "handoff.json");
     let file;
     try {
-        file = await openFile(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        file = await openFile(path, constants.O_RDONLY
+            | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
     } catch (error) {
         if (error.code === "ELOOP") throw new Error("Invalid Designer handoff file", { cause: error });
         throw error;
