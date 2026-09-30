@@ -283,44 +283,80 @@ class CanvasDesignPackageTests(unittest.TestCase):
         version = self.manifest["extension"]["version"]
         tag = f"refs/tags/extension/canvas-design/v{version}"
         cases = [
-            ("refs/pull/1/merge", True),
-            ("refs/heads/main", True),
-            (tag, True),
-            ("refs/tags/extension/canvas-design/v999.0.0", False),
-            ("refs/tags/canvas-design-v0.1.0", False),
+            ("pull_request", "refs/pull/1/merge", "", "", True),
+            ("push", "refs/heads/main", "", "", True),
+            ("push", tag, "", "", True),
+            ("push", "refs/tags/extension/canvas-design/v999.0.0", "", "", False),
+            ("push", "refs/tags/canvas-design-v0.1.0", "", "", False),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", version, True),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", f"v{version}", True),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", "999.0.0", False),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", "", False),
+            ("workflow_dispatch", "refs/heads/main", "canvas-design", f"{version}; echo bad", False),
+            ("workflow_dispatch", "refs/heads/main", "unsupported", version, False),
+            ("workflow_dispatch", "refs/heads/main", "../canvas-design", version, False),
         ]
-        for ref, succeeds in cases:
-            with self.subTest(ref=ref):
-                env = dict(os.environ, GITHUB_REF=ref)
+        for event, ref, extension_id, requested_version, succeeds in cases:
+            with self.subTest(event=event, ref=ref, extension_id=extension_id,
+                              version=requested_version), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "output"
+                env = dict(
+                    os.environ, GITHUB_REF=ref, GITHUB_EVENT_NAME=event,
+                    EXTENSION_ID=extension_id, VERSION=requested_version,
+                    GITHUB_OUTPUT=str(output),
+                )
                 result = subprocess.run(
                     [sys.executable, "-c", self.workflow_python("Validate release version")],
                     cwd=EXTENSIONS.parent, env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode == 0, succeeds,
                                  result.stdout + result.stderr)
+                if succeeds:
+                    self.assertEqual(output.read_text(), f"tag={tag.removeprefix('refs/tags/')}\n")
+                else:
+                    self.assertFalse(output.exists())
 
     def test_release_triggers_and_permissions(self):
         triggers = self.workflow["on"]
-        self.assertEqual(set(triggers), {"pull_request", "push"})
+        self.assertEqual(set(triggers), {"workflow_call", "pull_request", "push"})
         self.assertEqual(triggers["push"]["tags"], ["extension/canvas-design/v*"])
         self.assertEqual(triggers["pull_request"]["branches"], ["main"])
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+        self.assertEqual(triggers["workflow_call"]["inputs"], {
+            "extension_id": {"required": "true", "type": "string"},
+            "version": {"required": "true", "type": "string"},
+        })
+        trigger = yaml.load(
+            (EXTENSIONS.parent / ".github/workflows/release-extension-trigger.yml").read_text("utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(set(trigger["on"]), {"workflow_dispatch"})
+        inputs = trigger["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["extension_id"]["options"], ["canvas-design"])
+        self.assertEqual(inputs["version"]["required"], "true")
+        caller = trigger["jobs"]["tag-and-release"]
+        self.assertEqual(caller["uses"], "./.github/workflows/release-extension.yml")
+        self.assertEqual(caller["permissions"], {"contents": "write"})
+        self.assertEqual(caller["with"], {
+            "extension_id": "${{ inputs.extension_id }}",
+            "version": "${{ inputs.version }}",
+        })
+        for event in ("pull_request", "push"):
+            self.assertIn(".github/workflows/release-extension-trigger.yml", triggers[event]["paths"])
         release = self.workflow["jobs"]["release"]
         self.assertEqual(release["needs"], "package")
         self.assertEqual(release["permissions"], {"contents": "write"})
         self.assertEqual(
             release["if"],
+            "github.event_name == 'workflow_dispatch' || "
             "startsWith(github.ref, 'refs/tags/extension/canvas-design/v')",
         )
         publish = next(
             step for step in release["steps"]
             if step.get("name") == "Publish validated extension"
         )["run"]
-        self.assertIn('TAG="${GITHUB_REF#refs/tags/}"', publish)
         self.assertIn('gh release create "$TAG" canvas-design.zip', publish)
         self.assertIn("--verify-tag", publish)
-        for step in release["steps"]:
-            self.assertNotRegex(step.get("run", ""), r"\bgit\s+(tag|push|ls-remote)\b")
 
     def test_release_rejects_catalog_drift(self):
         version = self.manifest["extension"]["version"]
@@ -341,7 +377,8 @@ class CanvasDesignPackageTests(unittest.TestCase):
                     result = subprocess.run(
                         [sys.executable, "-c", self.workflow_python("Validate release version")],
                         cwd=root,
-                        env=dict(os.environ, GITHUB_REF=f"refs/tags/extension/canvas-design/v{version}"),
+                        env=dict(os.environ, GITHUB_EVENT_NAME="push",
+                                 GITHUB_REF=f"refs/tags/extension/canvas-design/v{version}"),
                         capture_output=True, text=True,
                     )
                     self.assertNotEqual(result.returncode, 0)
