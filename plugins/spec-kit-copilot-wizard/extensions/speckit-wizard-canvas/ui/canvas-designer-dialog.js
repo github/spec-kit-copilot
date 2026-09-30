@@ -1,6 +1,7 @@
 import { escapeHtml } from "./client.js";
 import { state, TOKEN } from "./state.js";
 import { openCommunityInstallModal } from "./modals.js";
+import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 
 const KINDS = [["presets", "Presets"], ["extensions", "Extensions"], ["bundles", "Bundles"]];
 let confirming = false;
@@ -8,6 +9,56 @@ let selections = null;
 let bundleMembers = new Map();
 let deselectedMembers = new Set();
 let restoreFocus = null;
+let launching = false;
+let inspecting = 0;
+let errorMessage = "";
+
+function phaseIds(snapshot) {
+    return [...new Set(effectivePipelinePhases(snapshot).map((phase) =>
+        stripCommandsPrefix(phase.id)))];
+}
+
+export async function submitDesignerLaunch(snapshot, checked, fetcher = fetch) {
+    let response;
+    try {
+        response = await fetcher(`/api/designer/launch?token=${encodeURIComponent(TOKEN)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Canvas-Token": TOKEN },
+            body: JSON.stringify({
+                selections: checked,
+                catalogFingerprint: snapshot.catalog.designerFingerprint,
+                expectedPhases: phaseIds(snapshot),
+            }),
+        });
+    } catch (error) {
+        throw new Error(`Could not reach the Wizard: ${error.message}`);
+    }
+    if (!response?.ok) {
+        const text = await response?.text();
+        let detail = text;
+        try { detail = JSON.parse(text).error ?? text; } catch { /* plain response */ }
+        throw new Error(`Designer launch failed (${response?.status ?? "unknown"}): ${detail || "Try again."}`);
+    }
+    const result = await response.json();
+    if (result?.queued !== true) throw new Error("Wizard did not queue the Designer session.");
+    return result;
+}
+
+function updateLaunch(root) {
+    const submit = root.querySelector(".designer-submit");
+    if (!submit) return;
+    const ready = ["presets", "extensions", "bundles"].every((kind) =>
+        Array.isArray(state.snapshot?.catalog?.[kind]))
+        && typeof state.snapshot.catalog.designerFingerprint === "string";
+    submit.disabled = launching || confirming || inspecting || !ready;
+    submit.textContent = launching ? "Sending request…" : "Launch designer";
+    submit.setAttribute("aria-busy", String(launching));
+    root.querySelectorAll("[data-designer-kind], [data-designer-tab], .wizard-modal-close, .wizard-modal-cancel")
+        .forEach((element) => { element.disabled = launching; });
+    const error = root.querySelector(".designer-error");
+    error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching." : "");
+    error.hidden = !error.textContent;
+}
 
 export function canvasDesignEntries(snapshot, kind) {
     const items = snapshot?.catalog?.[kind];
@@ -36,10 +87,13 @@ export function currentCanvasDesignerSelections() {
 }
 
 function closeDialog() {
+    if (launching) return;
     document.getElementById("wizard-modal-root")?.replaceChildren();
     selections = null;
     bundleMembers = new Map();
     deselectedMembers = new Set();
+    errorMessage = "";
+    inspecting = 0;
     if (restoreFocus?.isConnected) restoreFocus.focus();
     restoreFocus = null;
 }
@@ -100,11 +154,12 @@ export function openCanvasDesignerDialog() {
     selections = freshCanvasDesignerSelections();
     bundleMembers = new Map();
     deselectedMembers = new Set();
+    errorMessage = "";
     root.innerHTML = `<div class="wizard-modal-backdrop designer-backdrop">
         <section class="wizard-modal generation-modal designer-modal" role="dialog" aria-modal="true" aria-labelledby="designer-title" aria-describedby="designer-description">
             <header class="wizard-modal-head"><h3 id="designer-title">Canvas designer setup</h3><button type="button" class="wizard-modal-close" aria-label="Close">✕</button></header>
             <div class="wizard-modal-body">
-                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles to customize the canvas designer's settings and generation behavior. Your selections will be installed in a separate designer session, leaving the wizard's configuration unchanged.</p>
+                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles for the canvas designer. Your selections are passed to a separate session for future installation; nothing is installed yet, and the wizard's configuration stays unchanged.</p>
                 <p class="wizard-modal-desc">Choose from the available catalogs.</p>
                 <p class="designer-error" role="alert" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">
@@ -112,7 +167,7 @@ export function openCanvasDesignerDialog() {
                 </nav>
                 ${KINDS.map(([kind, label]) => renderChoices(snapshot, kind, label)).join("")}
             </div>
-            <footer class="wizard-modal-foot"><button type="button" class="btn btn-secondary wizard-modal-cancel">Cancel</button><span title="Launching a Canvas designer session is not available yet."><button type="button" class="btn btn-primary designer-submit" disabled aria-label="Launch designer (not available yet)">Launch designer</button></span></footer>
+            <footer class="wizard-modal-foot"><button type="button" class="btn btn-secondary wizard-modal-cancel">Cancel</button><button type="button" class="btn btn-primary designer-submit">Launch designer</button></footer>
         </section></div>`;
     const dialog = root.querySelector(".designer-modal");
     root.querySelector(".wizard-modal-close").addEventListener("click", closeDialog);
@@ -133,8 +188,9 @@ export function openCanvasDesignerDialog() {
         });
     };
     tabs.forEach((tab, index) => {
-        tab.addEventListener("click", () => activateTab(tab));
+        tab.addEventListener("click", () => { if (!launching) activateTab(tab); });
         tab.addEventListener("keydown", (event) => {
+            if (launching) return;
             let target;
             if (event.key === "ArrowRight") target = (index + 1) % tabs.length;
             else if (event.key === "ArrowLeft") target = (index - 1 + tabs.length) % tabs.length;
@@ -147,7 +203,7 @@ export function openCanvasDesignerDialog() {
         });
     });
     root.querySelectorAll("[data-designer-kind]").forEach((input) => input.addEventListener("change", async () => {
-        if (confirming || input.disabled) return;
+        if (confirming || launching || input.disabled) return;
         const dialogSelections = selections;
         const kind = input.dataset.designerKind;
         const item = canvasDesignEntries(snapshot, kind)[Number(input.dataset.designerIndex)];
@@ -157,6 +213,7 @@ export function openCanvasDesignerDialog() {
         error.textContent = "";
         if (input.checked && (item.installAllowed === false || item.source === "community")) {
             confirming = true;
+            updateLaunch(root);
             const backdrop = root.querySelector(".designer-backdrop");
             const restoreBackdrop = () => {
                 backdrop.removeAttribute("aria-hidden");
@@ -179,6 +236,7 @@ export function openCanvasDesignerDialog() {
             } finally {
                 restoreBackdrop();
                 confirming = false;
+                updateLaunch(root);
             }
             if (selections !== dialogSelections) return;
             if (!approved) { input.checked = false; input.focus(); return; }
@@ -186,6 +244,8 @@ export function openCanvasDesignerDialog() {
         if (kind === "bundles") {
             const key = `${item.source}:${item.id}`;
             if (input.checked) {
+                inspecting += 1;
+                updateLaunch(root);
                 const restoreInputFocus = document.activeElement === input;
                 input.disabled = true;
                 try {
@@ -202,11 +262,15 @@ export function openCanvasDesignerDialog() {
                 } catch (err) {
                     if (selections !== dialogSelections) return;
                     input.checked = false;
-                    error.textContent = `Could not inspect ${item.name ?? item.id}: ${err.message}`;
-                    error.hidden = false;
+                    errorMessage = `Could not inspect ${item.name ?? item.id}: ${err.message}`;
+                    updateLaunch(root);
                     return;
                 } finally {
                     input.disabled = false;
+                    if (selections === dialogSelections) {
+                        inspecting -= 1;
+                        updateLaunch(root);
+                    }
                     if (restoreInputFocus && input.isConnected
                         && (document.activeElement === document.body || document.activeElement === input)) {
                         input.focus();
@@ -226,7 +290,26 @@ export function openCanvasDesignerDialog() {
             id: item.id, source: item.source, approved: true,
         });
         if (kind === "bundles") refreshBundleChoices(root, snapshot);
+        errorMessage = "";
+        updateLaunch(root);
     }));
+    root.querySelector(".designer-submit").addEventListener("click", async () => {
+        if (launching || confirming || inspecting) return;
+        const checked = currentCanvasDesignerSelections();
+        launching = true;
+        errorMessage = "";
+        updateLaunch(root);
+        try {
+            await submitDesignerLaunch(state.snapshot, checked);
+            launching = false;
+            closeDialog();
+        } catch (error) {
+            launching = false;
+            errorMessage = error.message;
+            updateLaunch(root);
+        }
+    });
+    updateLaunch(root);
     dialog.addEventListener("keydown", (event) => {
         if (event.key === "Escape") { event.preventDefault(); closeDialog(); }
         if (event.key !== "Tab") return;

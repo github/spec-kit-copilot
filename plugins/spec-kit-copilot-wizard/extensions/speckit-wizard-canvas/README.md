@@ -70,9 +70,17 @@ components absent from the standalone catalogs are not listed. Removing a
 bundle releases its selections unless another selected bundle or a direct
 selection still requires them; an inspection failure is shown in the dialog.
 
-**Launch designer** is deliberately disabled. The dialog does not yet
-create a nested session or dispatch a launch request; this will be wired
-up separately. The Catalogs page continues to install items as before.
+**Launch designer** sends a versioned handoff with the active phase IDs and
+explicit preset, extension, and bundle selections (including empty lists)
+to the Wizard's agent. It creates a nested, app-native **Canvas designer**
+session in the same project, starting from the project's default branch.
+The child stores the handoff in its own session artifacts, registers a
+session-local Designer canvas provider, and opens a minimal shell. The
+Wizard reports only that launch was queued; child setup and errors appear
+in the child session. Selected design customizations are handed off, **not
+installed yet**; Designer pages and installation support will follow in
+later increments. The current Wizard project remains unchanged. The
+Catalogs page continues to install items as before.
 
 ### Browser tests
 
