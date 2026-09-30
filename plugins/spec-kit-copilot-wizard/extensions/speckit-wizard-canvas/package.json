@@ -10,7 +10,7 @@
         "test:e2e": "playwright test"
     },
     "dependencies": {
-        "js-yaml": "^5.2.3"
+        "js-yaml": "^5.4.1"
     },
     "devDependencies": {
         "@playwright/test": "^1.56.1"
