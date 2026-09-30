@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-settings-artifacts",
+  "title": "Artifacts",
+  "description": "Configure canvas artifacts.",
+  "order": 20,
+  "enabled": true,
+  "fields": []
+}
