@@ -20,11 +20,13 @@ const empty = { presets: [], extensions: [], bundles: [] };
 
 function fixture(overrides = {}) {
     const sent = [];
+    const errors = [];
     const inst = { workspacePath: process.cwd() };
     let current = snapshot;
     const handler = createHandler({
         token: "secret",
         session: { send: async (message) => { sent.push(message); } },
+        log: async (message, level) => { errors.push({ message, level }); },
         getInstance: () => inst,
         getState: async () => current,
         registerSse() {}, broadcast() {},
@@ -41,9 +43,10 @@ function fixture(overrides = {}) {
             end(data) { this.body = JSON.parse(data); },
         };
         await handler(req, res);
+        await new Promise(setImmediate);
         return res;
     }
-    return { post, sent, inst, setSnapshot: (value) => { current = value; } };
+    return { post, sent, errors, inst, setSnapshot: (value) => { current = value; } };
 }
 const request = (selections = empty) => ({
     selections, catalogFingerprint: "catalog-v1", expectedPhases: ["plan"],
@@ -107,21 +110,42 @@ test("selected catalog entries are validated and normalized from the server's ca
     }
 });
 
-test("stale, unauthenticated, unavailable and failing dispatch never acknowledge launch", async () => {
+test("stale, unauthenticated and unavailable requests never acknowledge launch", async () => {
     const { post, sent, inst, setSnapshot } = fixture();
     assert.equal((await post(request(), "wrong")).statusCode, 401);
     assert.equal((await post({ ...request(), catalogFingerprint: "old" })).statusCode, 409);
     assert.equal((await post({ ...request(), expectedPhases: [] })).statusCode, 409);
-    inst.designerDispatching = true;
-    assert.equal((await post(request())).statusCode, 409);
-    inst.designerDispatching = false;
     assert.equal(sent.length, 0);
     setSnapshot({ ...snapshot, catalog: { ...catalog, designerFingerprint: "new" } });
     assert.equal((await post(request())).statusCode, 409);
     assert.equal(sent.length, 0);
+    const unavailable = fixture({ session: {} });
+    assert.equal((await unavailable.post(request())).statusCode, 503);
+});
+
+test("parallel launch requests acknowledge before agent turns finish and have separate handoffs", async () => {
+    const sent = [];
+    let finish;
+    const completion = new Promise((resolve) => { finish = resolve; });
+    const { post } = fixture({ session: { send: async (message) => {
+        sent.push(message);
+        await completion;
+    } } });
+    const [first, second] = await Promise.all([post(request()), post(request())]);
+    assert.equal(first.statusCode, 202);
+    assert.equal(second.statusCode, 202);
+    assert.equal(sent.length, 2);
+    const handoffIds = sent.map(({ prompt }) =>
+        JSON.parse(prompt.match(/\nHANDOFF_JSON:\n([^\n]+)\n/)[1]).handoffId);
+    assert.equal(new Set(handoffIds).size, 2);
+    finish();
+});
+
+test("deferred send failures are logged without changing an accepted response", async () => {
     const failing = fixture({ session: { send: async () => { throw new Error("no session"); } } });
-    assert.equal((await failing.post(request())).statusCode, 503);
-    assert.equal(failing.inst.designerDispatching, false);
+    const response = await failing.post(request());
+    assert.equal(response.statusCode, 202);
+    assert.deepEqual(failing.errors, [{ message: "Designer dispatch failed: no session", level: "error" }]);
 });
 
 test("oversized Designer handoff returns 413 without dispatching", async () => {

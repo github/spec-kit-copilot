@@ -78,7 +78,10 @@ The child stores the handoff in its own session artifacts and opens the
 Designer canvas provider bundled with the installed Wizard plugin. No provider
 files are copied into the child worktree. The
 Wizard reports only that launch was queued; child setup and errors appear
-in the child session. Selected design customizations are handed off, **not
+in the child session (dispatch failures appear in the Wizard session log).
+The dialog remains open and interactive after each queued launch so more
+Designer sessions can be requested with the same or different selections;
+each receives its own handoff. Selected design customizations are handed off, **not
 installed yet**; Designer pages and installation support will follow in
 later increments. The current Wizard project remains unchanged. The
 Catalogs page continues to install items as before.

@@ -89,7 +89,7 @@ test("confirms community selection and checks only listed design bundle members"
     expect(writes).toEqual([]);
 });
 
-test("launch queues a new session with the current selections and closes the dialog", async ({ page }) => {
+test("launch queues separate sessions while the dialog stays usable", async ({ page }) => {
     const dialog = page.getByRole("dialog", { name: "Canvas designer setup" });
     const responsePromise = page.waitForResponse((response) =>
         response.url().includes("/api/designer/launch") && response.request().method() === "POST");
@@ -101,5 +101,18 @@ test("launch queues a new session with the current selections and closes the dia
         selections: { presets: [], extensions: [], bundles: [] },
         catalogFingerprint: "e2e-catalog",
     });
+    await expect(dialog.getByRole("status")).toContainText("1 Designer launch queued");
+    await expect(dialog.getByRole("button", { name: "Launch designer" })).toBeEnabled();
+    await dialog.getByRole("checkbox", { name: /Copilot preset/ }).check();
+    const secondResponsePromise = page.waitForResponse((reply) =>
+        reply.url().includes("/api/designer/launch") && reply.request().method() === "POST");
+    await dialog.getByRole("button", { name: "Launch designer" }).click();
+    const secondResponse = await secondResponsePromise;
+    expect(secondResponse.status()).toBe(202);
+    expect(secondResponse.request().postDataJSON().selections.presets).toEqual([
+        { id: "foreign-preset", source: "copilot", approved: true },
+    ]);
+    await expect(dialog.getByRole("status")).toContainText("2 Designer launches queued");
+    await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toHaveCount(0);
 });
