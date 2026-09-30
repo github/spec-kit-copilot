@@ -58,6 +58,52 @@ test("Designer theme, keyboard navigation, and narrow layout remain usable", asy
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("Designer status labels meet normal-text contrast in both themes", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto("/designer");
+    await expect(page.getByRole("heading", { name: "Essentials" })).toBeVisible();
+    const darkColors = {
+        connecting: [240, 195, 109],
+        live: [76, 208, 139],
+        lost: [255, 122, 107],
+    };
+    for (const theme of ["light", "dark"]) {
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        const labels = await page.evaluate(() => {
+            const rgb = (color) => color.match(/[\d.]+/g).map(Number);
+            const luminance = (channels) => channels.map((channel) => {
+                const value = channel / 255;
+                return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+            }).reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+            const header = document.querySelector(".app-header");
+            const backdrop = rgb(getComputedStyle(header).backgroundColor);
+            return ["connecting", "live", "lost"].map((state) => {
+                const label = document.createElement("span");
+                label.className = `conn conn-${state}`;
+                label.textContent = state;
+                header.querySelector(".toolbar-actions").append(label);
+                const style = getComputedStyle(label);
+                const foreground = rgb(style.color);
+                const tint = rgb(style.backgroundColor);
+                const alpha = tint[3] ?? 1;
+                const background = tint.slice(0, 3).map((value, i) =>
+                    value * alpha + backdrop[i] * (1 - alpha));
+                const light = luminance(foreground), dark = luminance(background);
+                const result = { state, foreground, fontSize: style.fontSize,
+                    contrast: (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05) };
+                label.remove();
+                return result;
+            });
+        });
+        for (const label of labels) {
+            expect(label.fontSize).toBe("12px");
+            expect.soft(label.contrast, `${theme} ${label.state} contrast`).toBeGreaterThanOrEqual(4.5);
+            if (theme === "dark") expect(label.foreground).toEqual(darkColors[label.state]);
+        }
+        if (theme === "light") await page.locator("#theme-toggle").click();
+    }
+});
+
 test("connection status reflects failure and reconnects without losing edits", async ({ page }) => {
     await page.route("**/events?*", (route) => route.abort());
     await page.goto("/designer");
