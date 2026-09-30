@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, mkdir, open, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -211,6 +212,22 @@ test("shell renders counts without echoing handoff content and restricts HTTP ac
     ]) {
         assert.equal((await fetch(address, options)).status, 404);
     }
+});
+
+test("malformed raw request targets return 404 without stopping the shell", async (t) => {
+    const shell = await startShell();
+    t.after(() => shell.close());
+    const url = new URL(shell.url);
+    const status = await new Promise((resolve, reject) => {
+        const req = request({ hostname: url.hostname, port: url.port, path: "//[" }, (res) => {
+            res.resume();
+            res.on("end", () => resolve(res.statusCode));
+        });
+        req.on("error", reject);
+        req.end();
+    });
+    assert.equal(status, 404);
+    assert.equal((await fetch(shell.url)).status, 200);
 });
 
 test("empty shell renders without a handoff and keeps the token gate", async (t) => {

@@ -33,7 +33,13 @@ ${summary}
 export async function startShell(handoff = null) {
     const token = randomBytes(24).toString("hex");
     const server = createServer((req, res) => {
-        const url = new URL(req.url, "http://127.0.0.1");
+        let url;
+        try {
+            url = new URL(req.url, "http://127.0.0.1");
+        } catch {
+            res.writeHead(404).end();
+            return;
+        }
         const supplied = url.searchParams.get("token");
         const actual = typeof supplied === "string" ? Buffer.from(supplied) : Buffer.alloc(0);
         const expected = Buffer.from(token);
