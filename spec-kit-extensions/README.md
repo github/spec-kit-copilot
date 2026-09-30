@@ -10,19 +10,8 @@ manifests and versions. Copilot canvas providers remain under `plugins/`.
 
 ## Versioning and releases
 
-Each extension is versioned independently in its `extension.yml`. Canvas Design
-uses `extension/canvas-design/vX.Y.Z` tags and the `canvas-design.zip` release
-asset. This tag namespace does not match the preset release workflow.
-There is no extension catalog in this extraction.
+Each extension is versioned independently in its `extension.yml`. Update the
+manifest and package README version together.
 
-The **Release Extension** workflow validates the package, builds the ZIP inline,
-and checks its contents on relevant pull requests and pushes to `main`.
-Publishing follows the existing **Release Preset** approach: a maintainer pushes
-a version tag, and the tag-triggered workflow packages and publishes the release.
-There is no separate manual-dispatch publishing path, and the workflow does not
-create or push tags. A failed release job can be rerun against its existing tag.
-Update the manifest and package README version together before a future release.
-After those changes merge, tag the reviewed commit on `main` with
-`extension/canvas-design/v<manifest-version>` and push that tag normally.
-Publishing is a separate maintainer action; adding this package does not publish
-it, enable a Designer, or migrate an existing Wizard consumer.
+The **Release Extension** workflow validates and publishes Canvas Design as
+`canvas-design.zip` when an `extension/canvas-design/vX.Y.Z` tag is pushed.
