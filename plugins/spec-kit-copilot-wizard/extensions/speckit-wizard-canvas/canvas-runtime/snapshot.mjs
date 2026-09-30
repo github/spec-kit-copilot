@@ -120,7 +120,7 @@ export async function snapshot(inst) {
             sources: [...inst.cachedCatalogSources],
         };
     }
-    if (inst.cachedExtensionItems?.length) {
+    if (Array.isArray(inst.cachedExtensionItems)) {
         snap.catalog = {
             ...(snap.catalog ?? {}),
             extensions: [...inst.cachedExtensionItems],
@@ -132,7 +132,7 @@ export async function snapshot(inst) {
             extensionSources: [...inst.cachedExtensionCatalogSources],
         };
     }
-    if (inst.cachedBundleItems?.length) {
+    if (Array.isArray(inst.cachedBundleItems)) {
         snap.catalog = {
             ...(snap.catalog ?? {}),
             bundles: [...inst.cachedBundleItems],
