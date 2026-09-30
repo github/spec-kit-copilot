@@ -99,11 +99,10 @@ test("required-only selections produce a complete immutable inline handoff and o
     assert.equal((await otherProject.post(request())).statusCode, 202);
 });
 
-test("child kickoff requires skill-led init and installs, real reloads and validation in order", () => {
+test("child kickoff delegates setup and failure reporting to skills without a verification script", () => {
     const handoff = buildDesignerHandoff(snapshot, empty);
     const prompt = buildDesignerLaunchPrompt(handoff);
     const checkpoints = [
-        "arguments preflight",
         "invoke the skill tool with each named skill",
         "use speckit-init",
         "After init, call speckit_designer_reload_skills",
@@ -112,7 +111,6 @@ test("child kickoff requires skill-led init and installs, real reloads and valid
         "speckit-extension for remaining",
         "speckit-preset for remaining",
         "After all installations, call speckit_designer_reload_skills",
-        "verify instead of preflight",
         "Call extensions_reload",
         'call open_canvas({canvasId:"speckit-canvas-designer"',
     ];
@@ -124,10 +122,14 @@ test("child kickoff requires skill-led init and installs, real reloads and valid
     }
     assert.match(prompt, /--integration copilot --integration-options="--skills" and --script ps/);
     assert.match(prompt, /Otherwise skip init; never overwrite an incompatible existing setup/);
-    assert.match(prompt, /skip matching enabled packages \(including bundle-owned members\)/);
+    assert.match(prompt, /Use the skills to inspect CLI results and re-list installed packages/);
+    assert.match(prompt, /components just installed by a selected bundle/);
+    assert.match(prompt, /Do not treat ID\/version alone as proof/);
     assert.match(prompt, /do NOT emit \/skills reload as plain text/);
-    assert.match(prompt, /On ANY setup, reload or validation failure stop/);
-    assert.doesNotMatch(prompt, /bootstrap\.mjs|install\.mjs/);
+    assert.match(prompt, /On ANY setup or reload failure stop/);
+    assert.match(prompt, /You own setup success\/failure reporting/);
+    assert.match(prompt, /do not create a setup receipt or run a separate package-verification script/);
+    assert.doesNotMatch(prompt, /bootstrap\.mjs|install\.mjs|validate-setup|preflight|setup\.json/);
     assert.ok(Buffer.byteLength(prompt) - Buffer.byteLength(JSON.stringify(handoff)) <= 4096,
         "kickoff instructions must fit the allowance above the handoff limit");
     assert.ok(Buffer.byteLength(prompt) <= HANDOFF_LIMIT + 4096);

@@ -251,7 +251,7 @@ test("empty shell renders without a handoff and keeps the token gate", async (t)
     assert.equal((await fetch(url.origin)).status, 404);
 });
 
-test("canvas reloads session skills before opening a prepared handoff and exposes an init reload tool", async (t) => {
+test("canvas reloads session skills before opening valid pages and exposes an init reload tool", async (t) => {
     const workspace = await fixture(t);
     const source = fileURLToPath(new URL("../", import.meta.url));
     const extension = join(workspace, "provider");
@@ -262,8 +262,8 @@ test("canvas reloads session skills before opening a prepared handoff and expose
     }
     await cp(join(source, "ui"), join(extension, "ui"), { recursive: true });
     await writeFile(join(extension, "pages.mjs"), `
-        export async function loadPreparedPages() {
-            if (!globalThis.__designerTestPrepared) throw new Error("Project is not prepared");
+        export async function loadDesignerPages() {
+            if (!globalThis.__designerTestPagesValid) throw new Error("Registered pages are invalid");
             return ${JSON.stringify(model)};
         }
     `);
@@ -316,7 +316,7 @@ test("canvas reloads session skills before opening a prepared handoff and expose
         assert.equal(globalThis.__designerTestReloads, 0);
         assert.deepEqual(JSON.parse(await reloadTool.handler()), { errors: [], warnings: [] });
         assert.equal(globalThis.__designerTestReloads, 1);
-        globalThis.__designerTestPrepared = true;
+        globalThis.__designerTestPagesValid = true;
         globalThis.__designerTestDiagnostics = { errors: ["bad SKILL.md"], warnings: [] };
         await assert.rejects(reloadTool.handler(), /bad SKILL.md/);
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),
@@ -344,7 +344,7 @@ test("canvas reloads session skills before opening a prepared handoff and expose
         assert.equal((await canvas.open({ instanceId: "same", input: { handoffId: ID } })).url, filled.url);
     } finally {
         await canvas.onClose({ instanceId: "same" });
-        delete globalThis.__designerTestPrepared;
+        delete globalThis.__designerTestPagesValid;
         delete globalThis.__designerTestTools;
         delete globalThis.__designerTestSession;
         delete globalThis.__designerTestReloads;

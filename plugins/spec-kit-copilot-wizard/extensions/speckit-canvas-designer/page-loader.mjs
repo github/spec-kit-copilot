@@ -1,10 +1,9 @@
 import { execFile } from "node:child_process";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const runFile = promisify(execFile);
-const GROUPS = { presets: "preset", extensions: "extension", bundles: "bundle" };
 
 async function commandEnvironment() {
     const extra = [join(process.env.USERPROFILE ?? process.env.HOME ?? "", ".local", "bin")];
@@ -34,21 +33,7 @@ async function executable(name, env) {
         try { if ((await stat(candidate)).isFile()) return await realpath(candidate); }
         catch (error) { if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error; }
     }
-    throw new Error(`${name} is unavailable; install Specify CLI >=1.0.7 before preparing Designer`);
-}
-
-export async function runSpecify(args, cwd) {
-    const env = await commandEnvironment();
-    const command = await executable(process.platform === "win32" ? "specify.exe" : "specify", env);
-    try {
-        const { stdout } = await runFile(command, args, {
-            cwd, env, timeout: 120_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
-        });
-        return stdout;
-    } catch (error) {
-        throw new Error(`Specify ${args.slice(0, 2).join(" ")} failed: ${
-            (error.stderr || error.stdout || error.message).trim().slice(-2000)}`);
-    }
+    throw new Error(`${name} is unavailable; install Specify CLI >=1.0.7 to load Designer pages`);
 }
 
 export async function runPageLoader(script, project, source) {
@@ -82,39 +67,4 @@ export async function runPageLoader(script, project, source) {
         }
     }
     throw new Error(`Python with Specify CLI >=1.0.7 is unavailable. ${diagnostics.join("; ")}`);
-}
-
-export async function installedInventory(project, run = runSpecify) {
-    const installed = {};
-    for (const [kind, group] of Object.entries(GROUPS)) {
-        const entries = JSON.parse(await run([group, "list", "--json"], project));
-        if (!Array.isArray(entries) || entries.some((item) =>
-            typeof item?.id !== "string" || typeof item.version !== "string")
-            || new Set(entries.map((item) => item.id)).size !== entries.length) {
-            throw new Error(`Invalid Specify ${kind} inventory`);
-        }
-        installed[kind] = entries;
-    }
-    return installed;
-}
-
-export async function assertSkillsMode(project) {
-    const options = JSON.parse(await readFile(join(project, ".specify", "init-options.json"), "utf8"));
-    if ((options.integration ?? options.ai) !== "copilot" || options.ai_skills !== true) {
-        throw new Error("Child project must use Copilot skills mode; initialize it with --integration copilot --integration-options=\"--skills\"");
-    }
-}
-
-export function matchingInstalled(item, entries) {
-    const installed = entries.find((entry) => entry.id === item.id);
-    if (!installed) return false;
-    if (item.version && installed.version !== item.version) {
-        throw new Error(`Installed ${item.id} v${installed.version} conflicts with selected v${item.version}`);
-    }
-    if (installed.enabled === false) throw new Error(`Selected package ${item.id} is disabled`);
-    const installedUrl = installed.source?.url;
-    if (installedUrl && item.downloadUrl && installedUrl !== item.downloadUrl) {
-        throw new Error(`Installed ${item.id} source conflicts with the selected source`);
-    }
-    return true;
 }

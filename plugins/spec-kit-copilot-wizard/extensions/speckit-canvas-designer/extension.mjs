@@ -1,7 +1,7 @@
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
 import { readHandoff } from "./handoff.mjs";
 import { startShell } from "./server.mjs";
-import { loadPreparedPages } from "./pages.mjs";
+import { loadDesignerPages } from "./pages.mjs";
 
 const servers = new Map();
 
@@ -31,7 +31,7 @@ const session = await joinSession({
     canvases: [createCanvas({
         id: "speckit-canvas-designer",
         displayName: "Spec Kit Canvas Designer",
-        description: "Open the Designer shell, or load registered pages for a prepared Wizard handoff.",
+        description: "Open the Designer shell, or load registered pages from the current project for a Wizard handoff.",
         inputSchema: {
             type: "object", additionalProperties: false,
             properties: { handoffId: {
@@ -54,7 +54,7 @@ const session = await joinSession({
             }
             try {
                 const model = handoff
-                    ? await loadPreparedPages(handoff, session.workspacePath, process.cwd()) : null;
+                    ? await loadDesignerPages(handoff, process.cwd()) : null;
                 if (handoff) await reloadSessionSkills();
                 const next = await startShell(handoff, model);
                 servers.set(ctx.instanceId, { ...next, handoffId });

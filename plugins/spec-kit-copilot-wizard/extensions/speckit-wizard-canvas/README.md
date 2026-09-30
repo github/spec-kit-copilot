@@ -75,22 +75,25 @@ approved preset, extension, and bundle selections, plus the validated required
 extension source, version, and content fingerprint,
 to the Wizard's agent. It creates a nested, app-native **Canvas designer**
 session in the same project, starting from the project's default branch.
-The child stores the handoff unchanged in its own session artifacts and runs
-validation-only preflight. The child agent invokes `speckit-init` to initialize
+The child stores the handoff unchanged in its own session artifacts.
+The child agent invokes `speckit-init` to initialize
 Specify in Copilot skills mode only if needed, `speckit-extension` for the required
 local extension, then `speckit-bundle`, `speckit-extension` and `speckit-preset` for
-approved selections. No JavaScript helper initializes or installs packages.
+approved selections. The agent inspects CLI results, re-lists packages through the
+skills as needed, and reports setup failures in its conversation, stopping the
+launch on failure. No JavaScript helper initializes, installs or independently
+verifies packages; there is no separate setup receipt or package-provenance gate.
 The agent calls `speckit_designer_reload_skills` after init and after installation
 to actually reload its session's skills via the same RPC as the Wizard (not a
-printed slash command). It verifies the installed inventory and resolves registered
-pages before opening the Designer provider bundled with the installed Wizard plugin.
+printed slash command). It then opens the Designer provider bundled with the
+installed Wizard plugin, which validates the handoff and resolves registered pages.
 No provider files are copied into the child worktree. After extension reload,
 opening Designer also requires a successful skill reload. The
 Wizard reports only that launch was queued; child setup and errors appear
 in the child session (dispatch failures appear in the Wizard session log).
 The dialog remains open and interactive after each queued launch so more
 Designer sessions can be requested with the same or different selections;
-each receives its own handoff. Failed preparation does not open Designer. The current
+each receives its own handoff. The agent does not open Designer after failed setup. The current
 Wizard project remains unchanged. The
 Catalogs page continues to install items as before.
 
@@ -114,10 +117,10 @@ catalog data; no `specify` installation or live catalog is required.
 when the Wizard plugin or Canvas Design package changes. The check is advisory until branch protection
 is configured separately; its always-present gate can later be made required
 without blocking unrelated PRs on a skipped workflow.
-The workflow also runs the Python page-loader tests and Designer preparation tests
+The workflow also runs the Python page-loader tests and Designer page-loading tests
 against Specify. Locally, set `DESIGNER_CLI_TESTS=1` when running the Node tests to
-include real skill CLI init/install commands followed by validation and page
-resolution; the default Node suite uses mocked read-only CLI calls. These tests
+include real skill CLI init/install commands followed directly by page
+resolution, without a readiness receipt; the default Node suite mocks page loading. These tests
 do not run a live nested agent or prove its skill invocations.
 
 ## Quickstart
