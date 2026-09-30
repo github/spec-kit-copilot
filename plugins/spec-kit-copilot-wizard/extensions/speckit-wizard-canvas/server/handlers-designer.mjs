@@ -202,6 +202,11 @@ export async function handleDesignerLaunch(res, body, {
             return jsonError(res, 503,
                 `Canvas Designer is unavailable: ${error.message} Inspect the Wizard plugin extension status and retry.`);
         }
+        const readyState = await getState();
+        if (readyState?.catalog?.designerFingerprint !== snapshot.catalog.designerFingerprint
+            || JSON.stringify(designerPhaseIds(readyState)) !== JSON.stringify(phases)) {
+            return jsonError(res, 409, "Wizard pipeline or catalog changed; reopen the Designer setup");
+        }
         await dispatchPromptToSession({
             prompt,
             send: (message) => session.send(message),

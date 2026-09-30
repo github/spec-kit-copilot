@@ -234,6 +234,42 @@ test("launches cannot overlap while readiness is being checked", async () => {
     assert.equal((await delayed.post(request())).statusCode, 202);
 });
 
+test("catalog or pipeline changes during provider readiness reject the stale launch", async () => {
+    for (const changed of [
+        { ...snapshot, catalog: { ...catalog, designerFingerprint: "catalog-v2" } },
+        { ...snapshot, pipeline: [{ id: "commands/tasks" }] },
+    ]) {
+        let release;
+        let entered;
+        const ready = new Promise((resolve) => { release = resolve; });
+        const checking = new Promise((resolve) => { entered = resolve; });
+        const delayed = fixture({
+            session: {
+                rpc: {
+                    extensions: { list: async () => {
+                        entered();
+                        await ready;
+                        return { extensions: [{
+                            id: DESIGNER_EXTENSION_ID, source: "plugin", status: "running",
+                        }] };
+                    } },
+                    canvas: { list: async () => ({ canvases: [{
+                        extensionId: DESIGNER_EXTENSION_ID, canvasId: "speckit-canvas-designer",
+                    }] }) },
+                },
+            },
+        });
+        const launch = delayed.post(request());
+        await checking;
+        delayed.setSnapshot(changed);
+        release();
+        const response = await launch;
+        assert.equal(response.statusCode, 409);
+        assert.match(response.body.error, /pipeline or catalog changed/);
+        assert.equal(delayed.sent.length, 0);
+    }
+});
+
 test("consecutive launch requests acknowledge before agent turns finish and have separate handoffs", async () => {
     const sent = [];
     let finish;
