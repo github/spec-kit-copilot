@@ -1,0 +1,26 @@
+name: Release Extension Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      extension_id:
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., extension-canvas-design)'
+        required: true
+        type: string
+      version:
+        description: 'Version to release (e.g., 0.1.0; optional v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tag-and-release:
+    permissions:
+      contents: write
+    # Call the publisher directly: GITHUB_TOKEN tag pushes do not start workflows.
+    uses: ./.github/workflows/release-extension.yml
+    with:
+      extension_id: ${{ inputs.extension_id }}
+      version: ${{ inputs.version }}

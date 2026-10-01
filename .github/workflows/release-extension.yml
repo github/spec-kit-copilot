@@ -1,24 +1,38 @@
 name: Release Extension
 
 on:
+  workflow_call:
+    inputs:
+      extension_id:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
   pull_request:
     branches: [main]
     paths:
       - 'spec-kit-extensions/**'
       - '.github/workflows/release-extension.yml'
+      - '.github/workflows/release-extension-trigger.yml'
   push:
     branches: [main]
     paths:
       - 'spec-kit-extensions/**'
       - '.github/workflows/release-extension.yml'
+      - '.github/workflows/release-extension-trigger.yml'
     tags:
-      - 'extension/canvas-design/v*'
+      - 'extension-*-v*'
 permissions:
   contents: read
 
 jobs:
   package:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      extension_id: ${{ steps.validate.outputs.extension_id }}
+      extension_name: ${{ steps.validate.outputs.extension_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,88 +41,180 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install package test dependencies
-        run: python -m pip install -r spec-kit-extensions/tests/requirements.txt
+      - name: Install manifest parser
+        run: python -m pip install "PyYAML>=6.0.2,<7"
 
       - name: Validate release version
+        id: validate
+        env:
+          EXTENSION_ID: ${{ inputs.extension_id }}
+          VERSION: ${{ inputs.version }}
         run: |
           python - <<'PY'
           import json
           import os
           import re
+          from pathlib import Path
           import yaml
 
-          with open("spec-kit-extensions/canvas-design/extension.yml") as source:
-              version = yaml.safe_load(source)["extension"]["version"]
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-              raise SystemExit(f"Invalid manifest version: {version}")
-          tag = f"extension/canvas-design/v{version}"
-          with open("spec-kit-extensions/catalog.json") as source:
-              entry = json.load(source)["extensions"]["canvas-design"]
-          if entry["version"] != version:
-              raise SystemExit("Catalog version must match extension.yml version")
-          download_url = f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/canvas-design.zip"
-          if entry["download_url"] != download_url:
-              raise SystemExit("Catalog download URL must match the release asset")
-          if os.environ["GITHUB_REF"].startswith("refs/tags/"):
-              if os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
+          root = Path("spec-kit-extensions")
+          ref = os.environ["GITHUB_REF"]
+          selected_id = ""
+          requested_version = None
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+              selected_id = os.environ["EXTENSION_ID"]
+              if not selected_id:
+                  raise SystemExit("Extension ID is required")
+              requested_version = os.environ["VERSION"].removeprefix("v")
+          elif ref.startswith("refs/tags/"):
+              match = re.fullmatch(r"refs/tags/(extension-[a-z0-9]+(?:-[a-z0-9]+)*)-v([0-9]+\.[0-9]+\.[0-9]+)", ref)
+              if not match:
+                  raise SystemExit("Invalid extension release tag")
+              selected_id, requested_version = match.groups()
+          extension_ids = [selected_id] if selected_id else sorted(
+              path.parent.name for path in root.glob("*/extension.yml")
+          )
+          if not extension_ids:
+              raise SystemExit("No extension manifests found")
+          with open(root / "catalog.json") as source:
+              catalog = json.load(source)["extensions"]
+          outputs = {"extension_ids": json.dumps(extension_ids)}
+          for extension_id in extension_ids:
+              if not re.fullmatch(r"extension-[a-z0-9]+(?:-[a-z0-9]+)*", extension_id):
+                  raise SystemExit(f"Invalid extension ID: {extension_id}")
+              package = root / extension_id
+              if package.is_symlink() or not (package / "extension.yml").is_file():
+                  raise SystemExit(f"Extension directory must contain extension.yml: {extension_id}")
+              with open(package / "extension.yml") as source:
+                  manifest = yaml.safe_load(source)
+              extension = manifest["extension"]
+              if extension["id"] != extension_id:
+                  raise SystemExit("Manifest ID must match extension directory")
+              version = extension["version"]
+              if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+                  raise SystemExit(f"Invalid manifest version: {version}")
+              if requested_version is not None and requested_version != version:
+                  raise SystemExit("Requested version must match extension.yml version")
+              if extension_id not in catalog:
+                  raise SystemExit(f"Extension is missing from catalog: {extension_id}")
+              entry = catalog[extension_id]
+              if entry["id"] != extension_id:
+                  raise SystemExit("Catalog ID must match extension directory")
+              if entry["version"] != version:
+                  raise SystemExit("Catalog version must match extension.yml version")
+              if entry["requires"] != manifest["requires"]:
+                  raise SystemExit("Catalog requirements must match extension.yml requirements")
+              tag = f"{extension_id}-v{version}"
+              download_url = f"https://github.com/github/spec-kit-copilot/releases/download/{tag}/{extension_id}.zip"
+              if entry["download_url"] != download_url:
+                  raise SystemExit("Catalog download URL must match the release asset")
+              if ref.startswith("refs/tags/") and ref != f"refs/tags/{tag}":
                   raise SystemExit("Release tag must match extension.yml version")
+              if selected_id:
+                  name = extension["name"]
+                  if not isinstance(name, str) or not name.strip() or "\n" in name or "\r" in name:
+                      raise SystemExit("Extension name must be a nonempty single line")
+                  outputs.update(tag=tag, extension_id=extension_id, extension_name=name)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for key, value in outputs.items():
+                  output.write(f"{key}={value}\n")
           PY
 
-      - name: Test package contracts
-        run: python -m unittest discover -s spec-kit-extensions/tests -v
-
       - name: Create extension ZIP
+        env:
+          EXTENSION_IDS: ${{ steps.validate.outputs.extension_ids }}
         run: |
           python - <<'PY'
-          from pathlib import Path
+          import json
+          import os
+          from pathlib import Path, PurePosixPath
           from zipfile import ZIP_DEFLATED, ZipFile
+          import yaml
 
-          package = Path("spec-kit-extensions/canvas-design")
-          with ZipFile("canvas-design.zip", "w", ZIP_DEFLATED) as archive:
+          for extension_id in json.loads(os.environ["EXTENSION_IDS"]):
+              package = Path("spec-kit-extensions") / extension_id
+              files = {}
               for path in sorted(package.rglob("*")):
                   if path.is_symlink():
                       raise SystemExit(f"Cannot package symlink: {path}")
                   if path.is_file():
-                      archive.write(path, path.relative_to(package).as_posix())
+                      files[path.relative_to(package).as_posix()] = path
+              with open(package / "extension.yml") as source:
+                  manifest = yaml.safe_load(source)
+              for kind, declarations in manifest.get("provides", {}).items():
+                  for declaration in declarations:
+                      for field in ("file", "template"):
+                          if field not in declaration:
+                              continue
+                          name = declaration[field]
+                          if not isinstance(name, str) or PurePosixPath(name).as_posix() not in files:
+                              raise SystemExit(
+                                  f"Declared {kind} {field} is not a regular package file: "
+                                  f"{extension_id}/{name!r}"
+                              )
+              with ZipFile(f"{extension_id}.zip", "w", ZIP_DEFLATED) as archive:
+                  for name, path in files.items():
+                      archive.write(path, name)
+              with ZipFile(f"{extension_id}.zip") as archive:
+                  if archive.namelist() != list(files) or archive.testzip() is not None:
+                      raise SystemExit(f"Invalid release archive: {extension_id}")
+                  for name, path in files.items():
+                      if archive.read(name) != path.read_bytes():
+                          raise SystemExit(f"Archive content mismatch: {extension_id}/{name}")
           PY
-
-      - name: Verify release archive
-        env:
-          CANVAS_DESIGN_ARCHIVE: canvas-design.zip
-        run: python -m unittest discover -s spec-kit-extensions/tests -v
 
       - name: Upload validated archive
         uses: actions/upload-artifact@v4
         with:
-          name: canvas-design-package
-          path: canvas-design.zip
+          name: extension-packages
+          path: '*.zip'
           if-no-files-found: error
 
   release:
     needs: package
-    if: startsWith(github.ref, 'refs/tags/extension/canvas-design/v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/extension-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: canvas-design-release
+      group: extension-release-${{ needs.package.outputs.extension_id }}
       cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
-          name: canvas-design-package
+          name: extension-packages
+
+      - name: Create or verify release tag
+        env:
+          TAG: ${{ needs.package.outputs.tag }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            if [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "Error: Tag '$TAG' points to a different commit; refusing to move it." >&2
+              exit 1
+            fi
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            git tag "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+          else
+            echo "Error: Release tag '$TAG' is missing." >&2
+            exit 1
+          fi
 
       - name: Publish validated extension
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.package.outputs.tag }}
+          EXTENSION_ID: ${{ needs.package.outputs.extension_id }}
+          EXTENSION_NAME: ${{ needs.package.outputs.extension_name }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          gh release create "$TAG" canvas-design.zip \
+          gh release create "$TAG" "$EXTENSION_ID.zip" \
             --verify-tag \
             --latest=false \
-            --title "Canvas Design ${TAG##*/}" \
-            --notes "Specify CLI extension: page templates and the load-page command. Requires a separate compatible Designer provider exposing speckit_designer_load_pages; this package does not ship a Designer."
+            --title "$EXTENSION_ID ${TAG##*-}" \
+            --notes "Specify CLI extension: $EXTENSION_NAME. See spec-kit-extensions/$EXTENSION_ID/README.md for installation and requirements."
