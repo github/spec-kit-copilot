@@ -45,12 +45,16 @@ To publish an extension from the GitHub Actions UI after merging those updates:
 4. Click **Run workflow** and monitor the trigger run and subsequent release run.
 
 Like **Release Preset Trigger**, the extension trigger validates its inputs,
-checks that the extension directory and manifest exist, rejects existing tags,
-then creates and pushes `<extension-id>-vX.Y.Z`. The separate **Release Extension**
-workflow validates the tag version against the manifest and catalog, builds
+checks that the extension directory and manifest exist, verifies the requested
+version against both the manifest and catalog, and rejects existing tags before
+creating and pushing `<extension-id>-vX.Y.Z`. Both the trigger and the separate
+**Release Extension** workflow require the catalog's `download_url` to match
+the release repository, tag, and `<extension-id>.zip` asset. The publisher
+rechecks the tag version against the manifest and catalog before it builds
 `<extension-id>.zip` inline, generates release notes, and publishes the release
 in one job. The extension must have an `extension.yml` and a matching entry in
 this directory's `catalog.json`; no workflow edit is needed when adding one.
+When bumping the catalog version, update its `download_url` to the new tag too.
 
 Both extension workflow files follow the same structure as their preset
 counterparts and Spec Kit's release model. Only package-specific tag filters,

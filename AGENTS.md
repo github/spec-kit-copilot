@@ -146,6 +146,10 @@ Preset publishers listen for `copilot-*-vX.Y.Z` tags and extension publishers
 listen for `extension-*-vX.Y.Z` tags, so releases do not start the other package
 type's workflow. Parse versions after the final `-v`, and pass changelog notes
 through a file rather than interpolating them into shell scripts.
+Both manual triggers must verify the requested version against the manifest and
+catalog before creating a tag. Both triggers and publishers must verify that the
+catalog `download_url` matches the release repository, tag, and ZIP asset name;
+keep these checks aligned so direct tag pushes cannot bypass them.
 
 ## When revving the core skills plugin
 

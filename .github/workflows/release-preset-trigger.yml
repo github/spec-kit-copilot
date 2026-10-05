@@ -55,6 +55,25 @@ jobs:
 
           TAG="${PRESET_ID}-v${VERSION}"
 
+          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["version"])' "spec-kit-presets/$PRESET_ID/preset.yml")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["version"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
+            exit 1
+          fi
+
+          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["download_url"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
+          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PRESET_ID}.zip"
+          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
+            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
+            exit 1
+          fi
+
           # Check if tag already exists
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Error: Tag '$TAG' already exists" >&2

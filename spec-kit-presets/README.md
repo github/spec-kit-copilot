@@ -106,6 +106,12 @@ Either path fires `release-preset.yml`, which builds the zip and creates the Git
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
 
+The trigger checks the requested version against the manifest and catalog before
+creating any tag. Both the trigger and publisher also require the catalog's
+`download_url` to match the release repository, tag, and `<preset>.zip` asset.
+Update that URL when bumping the catalog version. Direct tag pushes receive the
+same version and URL checks in the publisher before packaging or publication.
+
 The preset publisher listens only for `copilot-*-vX.Y.Z` tags, while extension
 publishers listen for `extension-*-vX.Y.Z` tags. Their workflow structure remains
 aligned with Spec Kit's manual-trigger and separate tag-push publisher model.
