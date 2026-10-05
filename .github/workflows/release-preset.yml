@@ -32,15 +32,37 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$PRESET_ID" =~ ^copilot-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid preset ID '$PRESET_ID'. Must be copilot-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-presets" || -L "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset package path must not be a symlink" >&2
+            exit 1
+          fi
+
           # Validate preset directory exists
           if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
             echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
             exit 1
           fi
 
+          SYMLINK=$(find -P "spec-kit-presets/$PRESET_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
+            exit 1
+          fi
+
           # Validate preset.yml exists
           if [[ ! -f "spec-kit-presets/$PRESET_ID/preset.yml" ]]; then
             echo "Error: spec-kit-presets/$PRESET_ID/preset.yml not found" >&2
+            exit 1
+          fi
+
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["id"])' "spec-kit-presets/$PRESET_ID/preset.yml")
+          if [[ "$MANIFEST_ID" != "$PRESET_ID" ]]; then
+            echo "Error: preset.yml ID '$MANIFEST_ID' != directory '$PRESET_ID'" >&2
             exit 1
           fi
 

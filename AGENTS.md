@@ -132,8 +132,8 @@ Extensions are independently versioned and released through
 `.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
 and `.github/workflows/release-extension.yml`. Keep both files structurally
 aligned with their preset counterparts and Spec Kit's release model. Only
-package-specific tag filters, input examples, and terminology differ; apply
-shared behavior fixes to both package types. The trigger validates its inputs,
+package-specific naming prefixes, tag filters, input examples, and terminology
+differ; apply shared behavior fixes to both package types. The trigger validates its inputs,
 creates and pushes the tag; the separate tag-push workflow validates, zips, and
 publishes in one job.
 Do not add extension-only jobs, triggers, routing guards, or reusable calls.
@@ -150,6 +150,12 @@ Both manual triggers must verify the requested version against the manifest and
 catalog before creating a tag. Both triggers and publishers must verify that the
 catalog `download_url` matches the release repository, tag, and ZIP asset name;
 keep these checks aligned so direct tag pushes cannot bypass them.
+Require manifest IDs to match the selected directory in both triggers and
+publishers. Package IDs use lowercase letters, digits, and single hyphen
+separators with the `copilot-` preset or `extension-` extension prefix. Reject
+symlinks in the package root or contents before reading manifests or creating
+archives; shell `zip` follows links and must never archive files outside the
+package.
 
 ## When revving the core skills plugin
 

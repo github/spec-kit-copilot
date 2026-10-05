@@ -111,6 +111,10 @@ creating any tag. Both the trigger and publisher also require the catalog's
 `download_url` to match the release repository, tag, and `<preset>.zip` asset.
 Update that URL when bumping the catalog version. Direct tag pushes receive the
 same version and URL checks in the publisher before packaging or publication.
+Both workflows require the manifest ID to match the directory. Package IDs use
+lowercase letters, digits, and single hyphen separators after `copilot-`.
+Symlinks in the package root or contents (including hidden and dangling links)
+are rejected before reading manifests or creating archives.
 
 The preset publisher listens only for `copilot-*-vX.Y.Z` tags, while extension
 publishers listen for `extension-*-vX.Y.Z` tags. Their workflow structure remains

@@ -45,9 +45,10 @@ To publish an extension from the GitHub Actions UI after merging those updates:
 4. Click **Run workflow** and monitor the trigger run and subsequent release run.
 
 Like **Release Preset Trigger**, the extension trigger validates its inputs,
-checks that the extension directory and manifest exist, verifies the requested
-version against both the manifest and catalog, and rejects existing tags before
-creating and pushing `<extension-id>-vX.Y.Z`. Both the trigger and the separate
+checks that the extension directory and manifest exist and the declared ID
+matches the directory, verifies the requested version against both the manifest
+and catalog, and rejects existing tags before creating and pushing
+`<extension-id>-vX.Y.Z`. Both the trigger and the separate
 **Release Extension** workflow require the catalog's `download_url` to match
 the release repository, tag, and `<extension-id>.zip` asset. The publisher
 rechecks the tag version against the manifest and catalog before it builds
@@ -55,12 +56,17 @@ rechecks the tag version against the manifest and catalog before it builds
 in one job. The extension must have an `extension.yml` and a matching entry in
 this directory's `catalog.json`; no workflow edit is needed when adding one.
 When bumping the catalog version, update its `download_url` to the new tag too.
+The publisher also checks the manifest ID, so direct tag pushes cannot publish
+a package under the wrong identity. Package IDs use lowercase letters, digits,
+and single hyphen separators after `extension-`. Both workflows reject package
+symlinks, including directory, hidden, and dangling links, before reading
+manifests or creating archives.
 
 Both extension workflow files follow the same structure as their preset
-counterparts and Spec Kit's release model. Only package-specific tag filters,
-input examples, and terminology differ. Keep shared behavior aligned; do not add
-separate jobs, reusable workflow calls, artifact handoffs, or extension-only
-behavior.
+counterparts and Spec Kit's release model. Only package-specific naming prefixes,
+tag filters, input examples, and terminology differ. Keep shared behavior aligned;
+do not add separate jobs, reusable workflow calls, artifact handoffs, or
+extension-only behavior.
 
 Both manual triggers require a repository Actions secret named **`RELEASE_PAT`**
 containing a token authorized to push tags. Checkout persists this credential

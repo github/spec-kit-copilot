@@ -32,15 +32,37 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$EXTENSION_ID" =~ ^extension-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid extension ID '$EXTENSION_ID'. Must be extension-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-extensions" || -L "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension package path must not be a symlink" >&2
+            exit 1
+          fi
+
           # Validate extension directory exists
           if [[ ! -d "spec-kit-extensions/$EXTENSION_ID" ]]; then
             echo "Error: Extension directory 'spec-kit-extensions/$EXTENSION_ID' not found" >&2
             exit 1
           fi
 
+          SYMLINK=$(find -P "spec-kit-extensions/$EXTENSION_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
+            exit 1
+          fi
+
           # Validate extension.yml exists
           if [[ ! -f "spec-kit-extensions/$EXTENSION_ID/extension.yml" ]]; then
             echo "Error: spec-kit-extensions/$EXTENSION_ID/extension.yml not found" >&2
+            exit 1
+          fi
+
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["extension"]["id"])' "spec-kit-extensions/$EXTENSION_ID/extension.yml")
+          if [[ "$MANIFEST_ID" != "$EXTENSION_ID" ]]; then
+            echo "Error: extension.yml ID '$MANIFEST_ID' != directory '$EXTENSION_ID'" >&2
             exit 1
           fi
 
