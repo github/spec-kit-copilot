@@ -85,7 +85,15 @@ release-asset zip via each entry's `download_url`, tagged
 
 Releases are cut by CI — there is no local build script. The zip is built **inside**
 the release workflow (`.github/workflows/release-preset.yml`) from the preset
-directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
+directory, so `preset.yml` and `commands/` sit at the archive root.
+
+The manual trigger requires a repository Actions secret named **`RELEASE_PAT`**
+containing a token authorized to push tags. Checkout persists this credential for
+the tag push, matching Spec Kit's core release trigger and allowing the separate
+release workflow to start. Do not use the default `GITHUB_TOKEN` for this handoff:
+its tag pushes do not trigger another workflow.
+
+To publish:
 
 - **Preferred:** run the **Release Preset Trigger** workflow
   (`.github/workflows/release-preset-trigger.yml`) via *Actions → Run workflow* with
@@ -97,4 +105,3 @@ directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
 Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
-

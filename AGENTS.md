@@ -128,6 +128,21 @@ the preset version suffix. Keep discovery tags such as `canvas-design`, template
 IDs such as `canvas-settings-*`, and Copilot provider/tool IDs independent of
 the package identity. Standard manifest filenames remain `extension.yml`.
 
+Extensions are independently versioned and released through
+`.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
+and `.github/workflows/release-extension.yml`. Keep both files verbatim copies
+of their preset counterparts, changing only `preset`/`Preset`/`PRESET` to the
+extension equivalents. The trigger validates its inputs, creates and pushes the
+tag; the separate tag-push workflow validates, zips, and publishes in one job.
+Do not add extension-only jobs, triggers, routing guards, or reusable calls.
+Bump the manifest, catalog entry, and package README together before releasing.
+Both trigger checkouts use `token: ${{ secrets.RELEASE_PAT }}` and persist that
+credential for the tag push, matching Spec Kit's core release trigger. Configure
+the repository Actions secret with a token authorized to push tags; do not
+replace it with `GITHUB_TOKEN`, whose pushes do not trigger another workflow.
+Both release workflows share the tag filter and retain the same directory
+checks; the workflow for the other package type fails without its directory.
+
 ## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release

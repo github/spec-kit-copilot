@@ -1,26 +1,76 @@
 name: Release Extension Trigger
 
+# Manually dispatch with a extension id + version; it validates and pushes a
+# `<extension-id>-vX.Y.Z` tag, which fires release-extension.yml.
+
 on:
   workflow_dispatch:
     inputs:
       extension_id:
-        description: 'Extension directory name under spec-kit-extensions/ (e.g., extension-canvas-design)'
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., copilot-sub-agents)'
         required: true
         type: string
       version:
-        description: 'Version to release (e.g., 0.1.0; optional v prefix)'
+        description: 'Version to release (e.g., 1.0.0)'
         required: true
         type: string
 
-permissions:
-  contents: read
-
 jobs:
   tag-and-release:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Call the publisher directly: GITHUB_TOKEN tag pushes do not start workflows.
-    uses: ./.github/workflows/release-extension.yml
-    with:
-      extension_id: ${{ inputs.extension_id }}
-      version: ${{ inputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
+
+      - name: Validate inputs
+        env:
+          EXTENSION_ID: ${{ github.event.inputs.extension_id }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Strip optional v prefix
+          VERSION="${VERSION#v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'. Must be X.Y.Z" >&2
+            exit 1
+          fi
+
+          # Validate extension directory exists
+          if [[ ! -d "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension directory 'spec-kit-extensions/$EXTENSION_ID' not found" >&2
+            exit 1
+          fi
+
+          # Validate extension.yml exists
+          if [[ ! -f "spec-kit-extensions/$EXTENSION_ID/extension.yml" ]]; then
+            echo "Error: spec-kit-extensions/$EXTENSION_ID/extension.yml not found" >&2
+            exit 1
+          fi
+
+          TAG="${EXTENSION_ID}-v${VERSION}"
+
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: Tag '$TAG' already exists" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_ENV"
+          echo "Will create tag: $TAG"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag "$tag"
+          git push origin "$tag"
+          echo "Pushed tag $tag — release workflow will handle the rest"
