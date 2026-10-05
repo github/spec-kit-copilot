@@ -130,18 +130,22 @@ the package identity. Standard manifest filenames remain `extension.yml`.
 
 Extensions are independently versioned and released through
 `.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
-and `.github/workflows/release-extension.yml`. Keep both files verbatim copies
-of their preset counterparts, changing only `preset`/`Preset`/`PRESET` to the
-extension equivalents. The trigger validates its inputs, creates and pushes the
-tag; the separate tag-push workflow validates, zips, and publishes in one job.
+and `.github/workflows/release-extension.yml`. Keep both files structurally
+aligned with their preset counterparts and Spec Kit's release model. Only
+package-specific tag filters, input examples, and terminology differ; apply
+shared behavior fixes to both package types. The trigger validates its inputs,
+creates and pushes the tag; the separate tag-push workflow validates, zips, and
+publishes in one job.
 Do not add extension-only jobs, triggers, routing guards, or reusable calls.
 Bump the manifest, catalog entry, and package README together before releasing.
 Both trigger checkouts use `token: ${{ secrets.RELEASE_PAT }}` and persist that
 credential for the tag push, matching Spec Kit's core release trigger. Configure
 the repository Actions secret with a token authorized to push tags; do not
 replace it with `GITHUB_TOKEN`, whose pushes do not trigger another workflow.
-Both release workflows share the tag filter and retain the same directory
-checks; the workflow for the other package type fails without its directory.
+Preset publishers listen for `copilot-*-vX.Y.Z` tags and extension publishers
+listen for `extension-*-vX.Y.Z` tags, so releases do not start the other package
+type's workflow. Parse versions after the final `-v`, and pass changelog notes
+through a file rather than interpolating them into shell scripts.
 
 ## When revving the core skills plugin
 

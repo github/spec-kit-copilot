@@ -7,7 +7,7 @@ name: Release Preset
 on:
   push:
     tags:
-      - '*-v[0-9]+.[0-9]+.[0-9]+'
+      - 'copilot-*-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
@@ -24,7 +24,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           # Extract preset id (everything before the last -vX.Y.Z)
           PRESET_ID="${TAG%-v*}"
-          VERSION="${TAG#*-v}"
+          VERSION="${TAG##*-v}"
 
           # Validate version format
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -70,38 +70,34 @@ jobs:
             -x '.*' '__pycache__/*'
 
       - name: Generate release notes
-        id: notes
+        env:
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          VERSION="${{ steps.parse.outputs.version }}"
           CHANGELOG="spec-kit-presets/$PRESET_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
 
-          {
-            echo 'body<<EOF'
-            if [[ -f "$CHANGELOG" ]]; then
-              # Extract the section for this version from CHANGELOG.md
-              awk -v ver="$VERSION" '
-                /^## \[/ {
-                  if (found) exit
-                  if (index($0, ver)) found=1
-                }
-                found { print }
-              ' "$CHANGELOG"
-            else
-              echo "Release $PRESET_ID v$VERSION"
-            fi
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          if [[ -f "$CHANGELOG" ]]; then
+            # Extract the section for this version from CHANGELOG.md
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Release $PRESET_ID v$VERSION" > "$NOTES"
+          fi
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          TAG="${{ steps.parse.outputs.tag }}"
-          VERSION="${{ steps.parse.outputs.version }}"
-
           gh release create "$TAG" \
             "$PRESET_ID.zip" \
             --title "$PRESET_ID v$VERSION" \
-            --notes "${{ steps.notes.outputs.body }}"
+            --notes-file "$RUNNER_TEMP/release-notes.md"

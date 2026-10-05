@@ -52,10 +52,11 @@ workflow validates the tag version against the manifest and catalog, builds
 in one job. The extension must have an `extension.yml` and a matching entry in
 this directory's `catalog.json`; no workflow edit is needed when adding one.
 
-Both extension workflow files are verbatim copies of their preset counterparts,
-with only `preset`/`Preset`/`PRESET` replaced by their extension equivalents.
-Keep them aligned; do not add separate jobs, reusable workflow calls, artifact
-handoffs, or extension-only behavior.
+Both extension workflow files follow the same structure as their preset
+counterparts and Spec Kit's release model. Only package-specific tag filters,
+input examples, and terminology differ. Keep shared behavior aligned; do not add
+separate jobs, reusable workflow calls, artifact handoffs, or extension-only
+behavior.
 
 Both manual triggers require a repository Actions secret named **`RELEASE_PAT`**
 containing a token authorized to push tags. Checkout persists this credential
@@ -71,14 +72,16 @@ git push origin extension-canvas-design-v0.1.0
 ```
 
 The directory name is used unchanged in tags and ZIP names; no additional
-prefix or suffix is added by the workflows. Both release workflows share the
-same tag filter. Without a matching directory in both package trees, the other
-package type's release workflow fails its directory check. This is retained
-rather than adding routing guards.
+prefix or suffix is added by the workflows. Extension publishers listen for
+`extension-*-vX.Y.Z` tags; preset publishers listen for `copilot-*-vX.Y.Z` tags.
+Each package release starts only its own publisher. Versions are parsed after
+the final `-v`, including when a directory name itself contains `-v`.
 
 Release notes use the extension's `CHANGELOG.md` when present, otherwise a
-short release title. ZIPs use the same shell `zip` command and exclusion patterns
-as presets. Pull requests and branch pushes do not run the release workflow.
+short release title. Notes are passed to GitHub CLI through a file so changelog
+content is never interpolated into a shell script. ZIPs use the same shell `zip`
+command and exclusion patterns as presets. Pull requests and branch pushes do not
+run the release workflow.
 
 If tagging succeeds but publication fails, retry the failed **Release Extension**
 run, not the trigger (which rejects the existing tag). Existing releases are not

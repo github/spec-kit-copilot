@@ -7,7 +7,7 @@ name: Release Extension
 on:
   push:
     tags:
-      - '*-v[0-9]+.[0-9]+.[0-9]+'
+      - 'extension-*-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
@@ -24,7 +24,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           # Extract extension id (everything before the last -vX.Y.Z)
           EXTENSION_ID="${TAG%-v*}"
-          VERSION="${TAG#*-v}"
+          VERSION="${TAG##*-v}"
 
           # Validate version format
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -70,38 +70,34 @@ jobs:
             -x '.*' '__pycache__/*'
 
       - name: Generate release notes
-        id: notes
+        env:
+          EXTENSION_ID: ${{ steps.parse.outputs.extension_id }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          EXTENSION_ID="${{ steps.parse.outputs.extension_id }}"
-          VERSION="${{ steps.parse.outputs.version }}"
           CHANGELOG="spec-kit-extensions/$EXTENSION_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
 
-          {
-            echo 'body<<EOF'
-            if [[ -f "$CHANGELOG" ]]; then
-              # Extract the section for this version from CHANGELOG.md
-              awk -v ver="$VERSION" '
-                /^## \[/ {
-                  if (found) exit
-                  if (index($0, ver)) found=1
-                }
-                found { print }
-              ' "$CHANGELOG"
-            else
-              echo "Release $EXTENSION_ID v$VERSION"
-            fi
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          if [[ -f "$CHANGELOG" ]]; then
+            # Extract the section for this version from CHANGELOG.md
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Release $EXTENSION_ID v$VERSION" > "$NOTES"
+          fi
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTENSION_ID: ${{ steps.parse.outputs.extension_id }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          EXTENSION_ID="${{ steps.parse.outputs.extension_id }}"
-          TAG="${{ steps.parse.outputs.tag }}"
-          VERSION="${{ steps.parse.outputs.version }}"
-
           gh release create "$TAG" \
             "$EXTENSION_ID.zip" \
             --title "$EXTENSION_ID v$VERSION" \
-            --notes "${{ steps.notes.outputs.body }}"
+            --notes-file "$RUNNER_TEMP/release-notes.md"

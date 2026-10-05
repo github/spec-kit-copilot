@@ -1,13 +1,13 @@
 name: Release Extension Trigger
 
-# Manually dispatch with a extension id + version; it validates and pushes a
+# Manually dispatch with an extension id + version; it validates and pushes a
 # `<extension-id>-vX.Y.Z` tag, which fires release-extension.yml.
 
 on:
   workflow_dispatch:
     inputs:
       extension_id:
-        description: 'Extension directory name under spec-kit-extensions/ (e.g., copilot-sub-agents)'
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., extension-canvas-design)'
         required: true
         type: string
       version:

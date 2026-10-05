@@ -105,3 +105,9 @@ To publish:
 Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
+
+The preset publisher listens only for `copilot-*-vX.Y.Z` tags, while extension
+publishers listen for `extension-*-vX.Y.Z` tags. Their workflow structure remains
+aligned with Spec Kit's manual-trigger and separate tag-push publisher model.
+Versions are parsed after the final `-v`; changelog notes are passed through a
+file rather than interpolated into shell scripts.
