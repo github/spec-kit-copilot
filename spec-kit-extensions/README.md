@@ -42,34 +42,58 @@ To publish an extension from the GitHub Actions UI after merging those updates:
 3. Leave **Use workflow from** set to **main**, enter the extension's directory
    name under `spec-kit-extensions/` (for example, `extension-canvas-design`), and enter
    its manifest version (for example, `0.1.0`; an optional `v` prefix is accepted).
-4. Click **Run workflow** and monitor its packaging and release jobs.
+4. Click **Run workflow** and monitor the trigger run and subsequent release run.
 
-The trigger calls the reusable **Release Extension** workflow as part of the
-same run. GitHub's built-in `GITHUB_TOKEN` can create tags and publish releases,
-but tags pushed with it do not automatically start another workflow. Calling
-the publisher directly avoids that limitation; no personal access token is
-needed. The publisher validates the requested extension/version, manifest,
-catalog version and download URL, builds and verifies the ZIP, then creates
-`<extension-id>-vX.Y.Z` at the selected commit
-and publishes `<extension-id>.zip`. The extension must have an `extension.yml`
-and a matching entry in this directory's `catalog.json`; no workflow edit is
-needed when adding another extension.
+Like **Release Preset Trigger**, the extension trigger validates its inputs,
+checks that the extension directory and manifest exist and the declared ID
+matches the directory, verifies the requested version against both the manifest
+and catalog, and rejects existing tags before creating and pushing
+`<extension-id>-vX.Y.Z`. Both the trigger and the separate
+**Release Extension** workflow require the catalog's `download_url` to match
+the release repository, tag, and `<extension-id>.zip` asset. The publisher
+rechecks the tag version against the manifest and catalog before it builds
+`<extension-id>.zip` inline, generates release notes, and publishes the release
+in one job. The extension must have an `extension.yml` and a matching entry in
+this directory's `catalog.json`; no workflow edit is needed when adding one.
+When bumping the catalog version, update its `download_url` to the new tag too.
+The publisher also checks the manifest ID, so direct tag pushes cannot publish
+a package under the wrong identity. Package IDs use lowercase letters, digits,
+and single hyphen separators after `extension-`. Both workflows reject package
+symlinks, including directory, hidden, and dangling links, before reading
+manifests or creating archives.
 
-Packaging rejects missing or non-file assets declared under `provides`,
-including command files, templates, and configuration templates. The ZIP is
-verified against the complete package file inventory before a tag is created.
+Both extension workflow files follow the same structure as their preset
+counterparts and Spec Kit's release model. Only package-specific naming prefixes,
+tag filters, input examples, and terminology differ. Keep shared behavior aligned;
+do not add separate jobs, reusable workflow calls, artifact handoffs, or
+extension-only behavior.
 
-Direct pushes of `extension-<name>-vX.Y.Z` tags run the same publisher
-for that extension. Pull requests and relevant pushes to `main` validate and
-package every extension directory containing `extension.yml`; they do not
-create tags or releases.
-The preset publisher excludes `extension-*` tags so it does not attempt to
-publish an extension as a preset.
+Both manual triggers require a repository Actions secret named **`RELEASE_PAT`**
+containing a token authorized to push tags. Checkout persists this credential
+for the tag push, matching Spec Kit's core release trigger and allowing the
+separate release workflow to start. Do not use the default `GITHUB_TOKEN` for
+this handoff: its tag pushes do not trigger another workflow.
 
-If tagging succeeds but no release is created, use **Re-run failed jobs** on the
-original Actions run to retry the same commit. An existing tag is reused only
-if it points to that commit; a tag pointing elsewhere is rejected and never
-moved. Publication uses the same single `gh release create` command as preset
-releases; existing releases are not overwritten or repaired automatically.
-If a code fix is needed after tagging, release a new version instead of moving
-the old tag.
+A maintainer can also push the tag directly:
+
+```bash
+git tag extension-canvas-design-v0.1.0
+git push origin extension-canvas-design-v0.1.0
+```
+
+The directory name is used unchanged in tags and ZIP names; no additional
+prefix or suffix is added by the workflows. Extension publishers listen for
+`extension-*-vX.Y.Z` tags; preset publishers listen for `copilot-*-vX.Y.Z` tags.
+Each package release starts only its own publisher. Versions are parsed after
+the final `-v`, including when a directory name itself contains `-v`.
+
+Release notes use the extension's `CHANGELOG.md` when present, otherwise a
+short release title. Notes are passed to GitHub CLI through a file so changelog
+content is never interpolated into a shell script. ZIPs use the same shell `zip`
+command and exclusion patterns as presets. Pull requests and branch pushes do not
+run the release workflow.
+
+If tagging succeeds but publication fails, retry the failed **Release Extension**
+run, not the trigger (which rejects the existing tag). Existing releases are not
+overwritten automatically. Release a new version if a code fix is needed after
+tagging, rather than moving the old tag.

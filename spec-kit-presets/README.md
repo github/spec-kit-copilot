@@ -85,7 +85,15 @@ release-asset zip via each entry's `download_url`, tagged
 
 Releases are cut by CI — there is no local build script. The zip is built **inside**
 the release workflow (`.github/workflows/release-preset.yml`) from the preset
-directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
+directory, so `preset.yml` and `commands/` sit at the archive root.
+
+The manual trigger requires a repository Actions secret named **`RELEASE_PAT`**
+containing a token authorized to push tags. Checkout persists this credential for
+the tag push, matching Spec Kit's core release trigger and allowing the separate
+release workflow to start. Do not use the default `GITHUB_TOKEN` for this handoff:
+its tag pushes do not trigger another workflow.
+
+To publish:
 
 - **Preferred:** run the **Release Preset Trigger** workflow
   (`.github/workflows/release-preset-trigger.yml`) via *Actions → Run workflow* with
@@ -98,3 +106,18 @@ Either path fires `release-preset.yml`, which builds the zip and creates the Git
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
 
+The trigger checks the requested version against the manifest and catalog before
+creating any tag. Both the trigger and publisher also require the catalog's
+`download_url` to match the release repository, tag, and `<preset>.zip` asset.
+Update that URL when bumping the catalog version. Direct tag pushes receive the
+same version and URL checks in the publisher before packaging or publication.
+Both workflows require the manifest ID to match the directory. Package IDs use
+lowercase letters, digits, and single hyphen separators after `copilot-`.
+Symlinks in the package root or contents (including hidden and dangling links)
+are rejected before reading manifests or creating archives.
+
+The preset publisher listens only for `copilot-*-vX.Y.Z` tags, while extension
+publishers listen for `extension-*-vX.Y.Z` tags. Their workflow structure remains
+aligned with Spec Kit's manual-trigger and separate tag-push publisher model.
+Versions are parsed after the final `-v`; changelog notes are passed through a
+file rather than interpolated into shell scripts.
