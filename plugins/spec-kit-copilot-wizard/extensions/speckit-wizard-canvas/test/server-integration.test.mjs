@@ -136,6 +136,57 @@ test("createHandler throws without token", () => {
     assert.throws(() => createHandler({}), /token/);
 });
 
+test("designer bundle inspection validates catalog identity and returns members without dispatch", async () => {
+    const calls = [];
+    const deps = baseDeps({
+        getState: async () => ({ catalog: { bundles: [{ id: "design-kit", source: "community" }] } }),
+        inspectBundle: async (id, cwd) => {
+            calls.push({ id, cwd });
+            return { source: "community", members: [{ kind: "presets", id: "design-style" }] };
+        },
+    });
+    const handler = createHandler(deps);
+    for (const query of ["id=bad%26command&source=community", "id=design-kit&source=copilot"]) {
+        const res = mockRes();
+        await handler(mockReq({ url: `/api/designer/bundle-members?token=secret-token&${query}` }), res);
+        assert.ok(res.statusCode >= 400);
+    }
+    const res = mockRes();
+    await handler(mockReq({
+        url: "/api/designer/bundle-members?token=secret-token&id=design-kit&source=community",
+    }), res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), { members: [{ kind: "presets", id: "design-style" }] });
+    assert.deepEqual(calls, [{ id: "design-kit", cwd: "/proj" }]);
+    assert.deepEqual(deps._sessionCalls, []);
+});
+
+test("designer bundle inspection rejects mismatched CLI source explicitly", async () => {
+    const handler = createHandler(baseDeps({
+        getState: async () => ({ catalog: { bundles: [{ id: "design-kit", source: "copilot" }] } }),
+        inspectBundle: async () => ({ source: "community", members: [] }),
+    }));
+    const res = mockRes();
+    await handler(mockReq({
+        url: "/api/designer/bundle-members?token=secret-token&id=design-kit&source=copilot",
+    }), res);
+    assert.equal(res.statusCode, 502);
+    assert.match(JSON.parse(res.body).error, /different catalog/);
+});
+
+test("designer bundle inspection accepts a Default catalog bundle", async () => {
+    const handler = createHandler(baseDeps({
+        getState: async () => ({ catalog: { bundles: [{ id: "default-kit", source: "default" }] } }),
+        inspectBundle: async () => ({ source: "default", members: [{ kind: "presets", id: "core-style" }] }),
+    }));
+    const res = mockRes();
+    await handler(mockReq({
+        url: "/api/designer/bundle-members?token=secret-token&id=default-kit&source=default",
+    }), res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), { members: [{ kind: "presets", id: "core-style" }] });
+});
+
 test("returns 401 when token is missing", async () => {
     const h = createHandler(baseDeps());
     const req = mockReq({ method: "GET", url: "/api/state" });

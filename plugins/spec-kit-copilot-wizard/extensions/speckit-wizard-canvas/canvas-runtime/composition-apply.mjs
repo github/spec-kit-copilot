@@ -74,19 +74,42 @@ function normalizeCompositionCatalogItems(items, knownItems) {
 
 export function normalizeHookArtifactsInComposition(composition) {
     if (!composition || !Array.isArray(composition.artifacts)) return composition;
+    const commandName = (value) => {
+        if (typeof value !== "string" || !value.trim()) return null;
+        const name = value.startsWith("commands/") ? value.slice("commands/".length) : value;
+        return name && !name.includes("/") ? name : null;
+    };
+    const commandFromId = (id) => typeof id === "string" && id.startsWith("commands/")
+        ? commandName(id)
+        : null;
     const commandIds = new Set(
         composition.artifacts
             .filter((artifact) => artifact?.kind === "command")
             .map((artifact) => artifact.id),
     );
-    const commandByProvider = new Map();
+    const commandsByProvider = new Map();
     for (const artifact of composition.artifacts) {
         if (artifact?.kind !== "command") continue;
         const active = artifact.stack?.find((layer) => layer?.active);
         const provider = active?.extensionId ?? active?.presetId;
-        if (!provider || !String(artifact.id).startsWith("commands/speckit.")) continue;
-        if (!commandByProvider.has(provider)) commandByProvider.set(provider, artifact);
+        if (!provider || !commandFromId(artifact.id)) continue;
+        const commands = commandsByProvider.get(provider) ?? [];
+        commands.push(artifact);
+        commandsByProvider.set(provider, commands);
     }
+    const unresolvedByProvider = new Map();
+    for (const artifact of composition.artifacts) {
+        if (artifact?.kind !== "hook") continue;
+        const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+            ? artifact.hookBindings
+            : (artifact.hookBinding ? [artifact.hookBinding] : []);
+        if (bindings.some((binding) => commandName(binding?.targetCommand))
+            || commandName(artifact.targetCommand) || commandFromId(artifact.id)) continue;
+        const active = artifact.stack?.find((layer) => layer?.active);
+        const provider = active?.extensionId ?? active?.presetId;
+        if (provider) unresolvedByProvider.set(provider, (unresolvedByProvider.get(provider) ?? 0) + 1);
+    }
+    const replacedCommandIds = new Set();
     const artifacts = composition.artifacts
         .filter((artifact) => {
             // Mixed preset manifests may be incorrectly echoed by the
@@ -100,22 +123,44 @@ export function normalizeHookArtifactsInComposition(composition) {
         })
         .map((artifact) => {
             if (artifact?.kind !== "hook") return artifact;
+            const sourceBindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
+                ? artifact.hookBindings
+                : (artifact.hookBinding ? [artifact.hookBinding] : []);
+            const declaredTargets = new Set(sourceBindings.map((b) => commandName(b?.targetCommand)).filter(Boolean));
             const active = artifact.stack?.find((layer) => layer?.active);
             const provider = active?.extensionId ?? active?.presetId;
-            const target = provider ? commandByProvider.get(provider) : null;
+            const candidates = provider ? commandsByProvider.get(provider) ?? [] : [];
+            const ownTarget = commandName(artifact.targetCommand) ?? commandFromId(artifact.id);
+            // Legacy provider inference is safe only when both sides are unique.
+            const fallback = !declaredTargets.size && !ownTarget && candidates.length === 1
+                && unresolvedByProvider.get(provider) === 1
+                ? commandFromId(candidates[0].id)
+                : null;
+            const target = declaredTargets.size === 1
+                ? [...declaredTargets][0]
+                : (declaredTargets.size ? null : ownTarget ?? fallback);
             if (!target) return artifact;
-            const targetCommand = target.id.replace(/^commands\//, "");
-            const bindings = Array.isArray(artifact.hookBindings) && artifact.hookBindings.length
-                ? artifact.hookBindings.map((b) => ({ ...b, targetCommand }))
-                : [{ ...(artifact.hookBinding ?? {}), targetCommand }];
+            const bindings = sourceBindings.map((binding) => ({
+                ...binding,
+                targetCommand: commandName(binding?.targetCommand) ?? target,
+            }));
+            const id = `commands/${target}`;
+            const matchingCommand = candidates.find((candidate) => candidate.id === id);
+            if (matchingCommand) replacedCommandIds.add(id);
             return {
                 ...artifact,
-                id: target.id,
+                id,
+                ...(matchingCommand
+                    ? { stack: matchingCommand.stack }
+                    : {}),
                 hookBindings: bindings,
-                hookBinding: bindings[0],
+                ...(bindings.length ? { hookBinding: bindings[0] } : {}),
             };
         });
-    return { ...composition, artifacts };
+    return {
+        ...composition,
+        artifacts: artifacts.filter((artifact) => artifact?.kind !== "command" || !replacedCommandIds.has(artifact.id)),
+    };
 }
 
 export async function applyComposition(inst, input) {

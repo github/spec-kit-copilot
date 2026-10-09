@@ -37,6 +37,7 @@ runs the CLI.
    - `speckit-cli-setup` → detect/install the `specify` CLI (bootstrap; prerequisite for all others)
    - `speckit-init`    → `specify init` (Copilot only)
    - `speckit-check`   → `specify check`, `specify version`
+   - `speckit-artifact` → `specify artifact …`
    - `speckit-extension` → `specify extension …` (+ `catalog`)
    - `speckit-preset`  → `specify preset …` (+ `catalog`)
    - `speckit-bundle`  → `specify bundle …` (+ `catalog`)
@@ -53,7 +54,8 @@ runs the CLI.
 3. **Plugins are independently versioned and are not pinned to Specify CLI.** The
    core `spec-kit-copilot` plugin targets the
    **latest** `specify` published on PyPI (package `specify-cli`), with a minimum floor
-   of **>= 0.11** for the `bundle` / `workflow step` skills — do **not** hard-pin an
+   of **>= 0.11** for the `bundle` / `workflow step` skills and **>= 1.0.7** for the
+   `artifact` skill and preset/extension JSON inventory — do **not** hard-pin an
    `@vX.Y.Z` install tag in the skills. The plugin's own `version` in `plugin.json` and
    `.github/plugin/marketplace.json` is an **independent** semver that tracks changes to
    the plugin/skills themselves, not the CLI release. Marketplace metadata and each
@@ -112,6 +114,74 @@ toolchains:
   When revving a preset, bump `preset.yml` + the `catalog.json` entry together
   **before** tagging.
 
+## Spec Kit extensions (`spec-kit-extensions/`)
+
+This directory and its `catalog.json` hold **Copilot-specific Specify CLI
+extensions**, parallel to the preset catalog. Entries must depend on Copilot
+tools or providers; do not import general-purpose extensions or add these packages
+to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
+and release URL aligned with its `extension.yml` and package README.
+Package IDs, directory names, catalog keys, and ZIP basenames use
+`extension-<name>` (for example, `extension-canvas-design`). Release tags use
+`<extension-id>-vX.Y.Z` and release titles use `<extension-id> vX.Y.Z`, matching
+the preset version suffix. Keep discovery tags such as `canvas-design`, template
+IDs such as `canvas-settings-*`, and Copilot provider/tool IDs independent of
+the package identity. Standard manifest filenames remain `extension.yml`.
+
+Extensions are independently versioned and released through
+`.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
+and `.github/workflows/release-extension.yml`. Keep both files structurally
+aligned with their preset counterparts and Spec Kit's release model. Only
+package-specific naming prefixes, tag filters, input examples, and terminology
+differ; apply shared behavior fixes to both package types. The trigger validates its inputs,
+creates and pushes the tag; the separate tag-push workflow validates, zips, and
+publishes in one job.
+Do not add extension-only jobs, triggers, routing guards, or reusable calls.
+Bump the manifest, catalog entry, and package README together before releasing.
+Both trigger checkouts use `token: ${{ secrets.RELEASE_PAT }}` and persist that
+credential for the tag push, matching Spec Kit's core release trigger. Configure
+the repository Actions secret with a token authorized to push tags; do not
+replace it with `GITHUB_TOKEN`, whose pushes do not trigger another workflow.
+Preset publishers listen for `copilot-*-vX.Y.Z` tags and extension publishers
+listen for `extension-*-vX.Y.Z` tags, so releases do not start the other package
+type's workflow. Parse versions after the final `-v`, and pass changelog notes
+through a file rather than interpolating them into shell scripts.
+Both manual triggers must verify the requested version against the manifest and
+catalog before creating a tag. Both triggers and publishers must verify that the
+catalog `download_url` matches the release repository, tag, and ZIP asset name;
+keep these checks aligned so direct tag pushes cannot bypass them.
+Require manifest IDs to match the selected directory in both triggers and
+publishers. Package IDs use lowercase letters, digits, and single hyphen
+separators with the `copilot-` preset or `extension-` extension prefix. Reject
+symlinks in the package root or contents before reading manifests or creating
+archives; shell `zip` follows links and must never archive files outside the
+package.
+
+## Advanced CodeQL scanning
+
+`.github/workflows/codeql.yml` follows Spec Kit's advanced workflow, retaining
+this repository's `actions` and `javascript-typescript` languages and default
+query suite. It scans pushes and pull requests targeting `main`, without path
+filters or fork exclusions. Use `pull_request`, never `pull_request_target` with
+untrusted code; GitHub's fork-contributor workflow approval policies still apply.
+The Tuesday 04:23 UTC schedule deliberately preserves default setup's weekly
+coverage, beyond Spec Kit's unscheduled workflow. Keep actions SHA-pinned and
+the analysis job limited to `contents: read` and `security-events: write`.
+No dependency installation or build step is needed for these languages.
+
+Activation requires a coordinated maintainer switch, not just a YAML change:
+
+1. Review and merge the replacement workflow while default setup remains enabled.
+   Default setup rejects advanced CodeQL SARIF uploads while both are present.
+2. Once the approved workflow is on `main`, an authorized maintainer must disable
+   default setup in the target repository's code-scanning settings and re-run the
+   merge-triggered CodeQL workflow. Do not disable default setup prematurely.
+3. Verify successful uploads for both `/language:actions` and
+   `/language:javascript-typescript` on `main` and an approved fork PR run.
+   Local YAML checks are not evidence of a live scan. Required checks, rulesets,
+   fork Actions settings, and other security settings are separate maintainer
+   decisions; do not change them as part of this switch.
+
 ## When revving the core skills plugin
 
 1. Re-enumerate the `specify` CLI surface for the **latest** release
@@ -124,7 +194,7 @@ toolchains:
    `spec-kit-copilot-assess` unless that plugin changes. Update the README "Versioning"
    note. Keep the `speckit-cli-setup` skill installing the
    **latest** `specify-cli` from PyPI (no `@vX.Y.Z` pin); only touch the `>= 0.11`
-   minimum notes if the floor actually changes.
+   and `>= 1.0.7` minimum notes if the floors actually change.
 4. Reinstall and verify. `copilot plugin install` takes a `plugin@marketplace`,
    `owner/repo`, `owner/repo:path`, or git URL — it does **not** accept a local path.
    After the change is pushed and the marketplace catalog is refreshed

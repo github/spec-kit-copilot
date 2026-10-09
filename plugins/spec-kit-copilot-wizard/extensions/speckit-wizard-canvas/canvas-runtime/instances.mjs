@@ -45,6 +45,7 @@ export function newInstance(instanceId) {
         sseClients: null,
         broadcast: (msg) => { /* replaced by startServer */ void msg; },
         workspacePath: null,
+        designerLaunchPending: false,
         cwdBoundState: null,     // last scanner snapshot
         state: null,             // normalized state.json contents
         cachedProbes: null,      // { at: number, results: [], summary }

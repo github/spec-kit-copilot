@@ -1,0 +1,132 @@
+name: Release Extension
+
+# Pushing a `<extension-id>-vX.Y.Z` tag builds that extension's zip inline and publishes it
+# as a release asset — matching the `download_url` entries in
+# spec-kit-extensions/catalog.json.
+
+on:
+  push:
+    tags:
+      - 'extension-*-v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Extract extension id (everything before the last -vX.Y.Z)
+          EXTENSION_ID="${TAG%-v*}"
+          VERSION="${TAG##*-v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'" >&2
+            exit 1
+          fi
+
+          if [[ ! "$EXTENSION_ID" =~ ^extension-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid extension ID '$EXTENSION_ID'. Must be extension-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-extensions" || -L "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension package path must not be a symlink" >&2
+            exit 1
+          fi
+
+          # Validate extension directory exists
+          if [[ ! -d "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension directory 'spec-kit-extensions/$EXTENSION_ID' not found" >&2
+            exit 1
+          fi
+
+          SYMLINK=$(find -P "spec-kit-extensions/$EXTENSION_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
+            exit 1
+          fi
+
+          # Validate extension.yml exists
+          if [[ ! -f "spec-kit-extensions/$EXTENSION_ID/extension.yml" ]]; then
+            echo "Error: spec-kit-extensions/$EXTENSION_ID/extension.yml not found" >&2
+            exit 1
+          fi
+
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["extension"]["id"])' "spec-kit-extensions/$EXTENSION_ID/extension.yml")
+          if [[ "$MANIFEST_ID" != "$EXTENSION_ID" ]]; then
+            echo "Error: extension.yml ID '$MANIFEST_ID' != directory '$EXTENSION_ID'" >&2
+            exit 1
+          fi
+
+          # Ensure the tag version matches the manifest and the catalog entry,
+          # so a typo or direct tag push can't publish a mislabeled archive.
+          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["extension"]["version"])' "spec-kit-extensions/$EXTENSION_ID/extension.yml")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != extension.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["extensions"][sys.argv[2]]["version"])' "spec-kit-extensions/catalog.json" "$EXTENSION_ID")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: tag version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$EXTENSION_ID'" >&2
+            exit 1
+          fi
+
+          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["extensions"][sys.argv[2]]["download_url"])' "spec-kit-extensions/catalog.json" "$EXTENSION_ID")
+          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXTENSION_ID}.zip"
+          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
+            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "extension_id=$EXTENSION_ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $EXTENSION_ID v$VERSION"
+
+      - name: Create extension zip
+        run: |
+          cd "spec-kit-extensions/${{ steps.parse.outputs.extension_id }}"
+          zip -r "$GITHUB_WORKSPACE/${{ steps.parse.outputs.extension_id }}.zip" . \
+            -x '.*' '__pycache__/*'
+
+      - name: Generate release notes
+        env:
+          EXTENSION_ID: ${{ steps.parse.outputs.extension_id }}
+          VERSION: ${{ steps.parse.outputs.version }}
+        run: |
+          CHANGELOG="spec-kit-extensions/$EXTENSION_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+
+          if [[ -f "$CHANGELOG" ]]; then
+            # Extract the section for this version from CHANGELOG.md
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Release $EXTENSION_ID v$VERSION" > "$NOTES"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTENSION_ID: ${{ steps.parse.outputs.extension_id }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          VERSION: ${{ steps.parse.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            "$EXTENSION_ID.zip" \
+            --title "$EXTENSION_ID v$VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"

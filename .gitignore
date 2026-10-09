@@ -6,11 +6,12 @@ build/
 coverage/
 test-results/
 playwright-report/
+plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/test-results/
 
 # Session artifacts (canvas runtime state, spec-kit init output, css coverage snapshots)
 .speckit-wizard/
 .specify/
 .github/skills/
+specs/
 css-baseline-*.png
 css-c*.png
-

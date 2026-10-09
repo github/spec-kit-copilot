@@ -277,44 +277,78 @@ export function confirmModal(message, { confirmLabel = "Remove", cancelLabel = "
 // (non-GitHub) presets and extensions. Falls back to window.confirm if
 // the HTML shell for the modal isn't present in the DOM.
 
-export function openCommunityInstallModal({ displayName, onConfirm, kind }) {
-    const kindWord = kind === "extension" ? "extension" : "preset";
+export function openCommunityInstallModal({
+    displayName, onConfirm, onCancel = () => {}, kind, designerSession = false,
+    afterFocus = () => {}, beforeRestoreFocus = () => {},
+}) {
+    const kindWord = ["extension", "bundle"].includes(kind) ? kind : "preset";
     const learnHref = kind === "extension"
         ? "https://github.com/github/spec-kit/blob/main/extensions/README.md"
-        : "https://github.com/github/spec-kit/blob/main/presets/README.md";
+        : kind === "bundle" ? "https://github.com/github/spec-kit"
+            : "https://github.com/github/spec-kit/blob/main/presets/README.md";
     const modal = document.getElementById("community-install-modal");
     if (!modal) {
-        if (window.confirm(`Install community ${kindWord} "${displayName}"?\n\nCommunity ${kindWord}s are contributed by third parties and are not reviewed, audited, or endorsed by GitHub. Install only if you trust the source.`)) {
-            onConfirm();
-        }
+        const action = designerSession ? "Select" : "Install";
+        const destination = designerSession ? " It will only be installed in the launched Canvas designer session." : "";
+        const approved = window.confirm(`${action} community ${kindWord} "${displayName}"?${destination}\n\nCommunity ${kindWord}s are contributed by third parties and are not reviewed, audited, or endorsed by GitHub. Install only if you trust the source.`);
+        beforeRestoreFocus();
+        if (approved) onConfirm();
+        else onCancel();
         return;
     }
-    const titleEl = modal.querySelector("#cim-title");
+    const titleEl = modal.querySelector("#cim-title-text");
     const nameEl = modal.querySelector("#cim-preset-name");
     const kindWordEl = modal.querySelector("#cim-kind-word");
     const learnLink = modal.querySelector("#cim-learn-link");
+    const actionEl = modal.querySelector("#cim-action");
+    const destinationEl = modal.querySelector("#cim-destination");
     const okBtn = modal.querySelector("#cim-confirm");
     const cancelBtns = modal.querySelectorAll("[data-modal-close]");
-    if (titleEl) titleEl.textContent = `Install community ${kindWord}?`;
+    const previousFocus = document.activeElement;
+    if (titleEl) titleEl.textContent = `${designerSession ? "Select" : "Install"} community ${kindWord}?`;
     if (nameEl) nameEl.textContent = displayName;
     if (kindWordEl) kindWordEl.textContent = `${kindWord}s`;
     if (learnLink) learnLink.href = learnHref;
+    if (actionEl) actionEl.textContent = designerSession ? "You are about to select" : "You are about to install";
+    if (destinationEl) {
+        destinationEl.textContent = designerSession
+            ? "This selection will be installed in the launched Canvas designer session." : "";
+        destinationEl.hidden = !designerSession;
+    }
     modal.hidden = false;
-    const close = () => { modal.hidden = true; };
-    const confirm = () => { close(); onConfirm(); };
+    const close = (confirmed) => {
+        modal.hidden = true;
+        document.removeEventListener("keydown", escHandler);
+        beforeRestoreFocus();
+        if (previousFocus?.isConnected) previousFocus.focus();
+        if (confirmed) onConfirm();
+        else onCancel();
+    };
     // Reset listeners by cloning the confirm button.
     const newOk = okBtn.cloneNode(true);
     okBtn.replaceWith(newOk);
-    newOk.addEventListener("click", confirm, { once: true });
+    newOk.textContent = designerSession ? "Select anyway" : "Install anyway";
+    newOk.addEventListener("click", () => close(true), { once: true });
     cancelBtns.forEach((b) => {
         const nb = b.cloneNode(true);
         b.replaceWith(nb);
-        nb.addEventListener("click", close, { once: true });
+        nb.addEventListener("click", () => close(false), { once: true });
     });
     const escHandler = (e) => {
-        if (e.key === "Escape") { close(); document.removeEventListener("keydown", escHandler); }
+        if (e.key === "Escape") { e.preventDefault(); close(false); }
+        if (e.key !== "Tab") return;
+        const focusable = [...modal.querySelectorAll("button, a[href]")];
+        if (e.shiftKey && document.activeElement === focusable[0]) {
+            e.preventDefault();
+            focusable.at(-1).focus();
+        } else if (!e.shiftKey && document.activeElement === focusable.at(-1)) {
+            e.preventDefault();
+            focusable[0].focus();
+        }
     };
     document.addEventListener("keydown", escHandler);
+    newOk.focus();
+    afterFocus();
 }
 
 

@@ -253,18 +253,35 @@ function constitutionStatus(text) {
     return placeholders > 0 ? "template" : "ratified";
 }
 
+function advanceMarkdownFence(line, openFence) {
+    const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (!match) return { openFence, isFenceLine: false };
+
+    const marker = match[1][0];
+    const length = match[1].length;
+    const rest = match[2];
+    if (!openFence) {
+        if (marker === "`" && rest.includes("`")) {
+            return { openFence: null, isFenceLine: false };
+        }
+        return { openFence: { marker, length }, isFenceLine: true };
+    }
+    if (marker === openFence.marker && length >= openFence.length && !rest.trim()) {
+        return { openFence: null, isFenceLine: true };
+    }
+    return { openFence, isFenceLine: false };
+}
+
 // Count task checkboxes in tasks.md to derive implementation progress.
-function taskProgress(text) {
+export function taskProgress(text) {
     if (typeof text !== "string") return { total: 0, completed: 0 };
     let total = 0;
     let completed = 0;
-    let inFence = false;
+    let openFence = null;
     for (const line of text.split(/\r?\n/)) {
-        if (line.startsWith("```")) {
-            inFence = !inFence;
-            continue;
-        }
-        if (inFence) continue;
+        const fenceState = advanceMarkdownFence(line, openFence);
+        openFence = fenceState.openFence;
+        if (fenceState.isFenceLine || openFence) continue;
         const m = line.match(/^\s*[-*+]\s+\[([ xX])\]/);
         if (!m) continue;
         total++;

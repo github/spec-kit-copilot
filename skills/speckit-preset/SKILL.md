@@ -1,6 +1,6 @@
 ---
 name: speckit-preset
-description: 'Manage Spec Kit presets via `specify preset`. USE FOR: installing/removing presets, searching the preset catalog, showing preset info, resolving which template a preset name maps to, enabling/disabling presets, setting preset resolution priority, managing preset catalogs. DO NOT USE FOR: extensions (use speckit-extension), bundles (use speckit-bundle), or workflows (use speckit-workflow).'
+description: 'Manage Spec Kit presets via `specify preset`. USE FOR: listing installed presets as text or JSON, installing/removing presets, searching the preset catalog, showing preset info, resolving which template a preset name maps to, enabling/disabling presets, setting resolution priority, or managing preset catalogs. DO NOT USE FOR: full artifact composition stacks (use speckit-artifact), extensions (use speckit-extension), bundles (use speckit-bundle), or workflows (use speckit-workflow).'
 argument-hint: '<list|add|remove|search|resolve|info|set-priority|enable|disable|catalog> [preset id]'
 ---
 
@@ -23,6 +23,7 @@ Presets bundle templates/configuration for a particular domain or workflow.
 ```bash
 # Discover
 specify preset list
+specify preset list --json                    # machine-readable installed inventory (CLI >= 1.0.7)
 specify preset search <query>
 specify preset info <id>
 specify preset resolve <name>          # show which template a name resolves to
@@ -48,6 +49,10 @@ specify preset catalog remove <name>
 ## Notes
 
 - Resolution priority: **lower number = higher precedence** (default `10`).
+- `specify preset list --json` requires Specify CLI **>= 1.0.7**. It preserves
+  CLI resolution order (highest precedence first) and returns `id`, `name`,
+  `description`, `version`, nullable `author`, `priority`, `enabled`, normalized
+  `source`, and `provides` counts for commands, templates, and scripts.
 - **Catalogs are added discovery-only by default.** `specify preset catalog add`
   requires `--name` and defaults to `--no-install-allowed`; presets from a
   discovery-only catalog can be browsed but not installed (install errors with a

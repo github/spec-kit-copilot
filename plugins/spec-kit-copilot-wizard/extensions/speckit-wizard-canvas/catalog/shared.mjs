@@ -112,6 +112,7 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
                     source: src.name,
                     version: raw?.version ?? null,
                     description: raw?.description ?? "",
+                    tags: Array.isArray(raw?.tags) ? raw.tags.filter((tag) => typeof tag === "string") : [],
                     active: !!installedId,
                     downloadUrl: raw?.download_url ?? null,
                     installAllowed: src.installAllowed !== false,

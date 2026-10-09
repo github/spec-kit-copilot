@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-settings-appearance",
+  "title": "Appearance",
+  "description": "Configure canvas appearance.",
+  "order": 30,
+  "enabled": true,
+  "fields": []
+}

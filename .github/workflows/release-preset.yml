@@ -7,7 +7,7 @@ name: Release Preset
 on:
   push:
     tags:
-      - '*-v[0-9]+.[0-9]+.[0-9]+'
+      - 'copilot-*-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
@@ -16,7 +16,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Parse tag
         id: parse
@@ -24,11 +24,21 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           # Extract preset id (everything before the last -vX.Y.Z)
           PRESET_ID="${TAG%-v*}"
-          VERSION="${TAG#*-v}"
+          VERSION="${TAG##*-v}"
 
           # Validate version format
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Error: Invalid version format '$VERSION'" >&2
+            exit 1
+          fi
+
+          if [[ ! "$PRESET_ID" =~ ^copilot-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid preset ID '$PRESET_ID'. Must be copilot-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-presets" || -L "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset package path must not be a symlink" >&2
             exit 1
           fi
 
@@ -38,23 +48,42 @@ jobs:
             exit 1
           fi
 
+          SYMLINK=$(find -P "spec-kit-presets/$PRESET_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
+            exit 1
+          fi
+
           # Validate preset.yml exists
           if [[ ! -f "spec-kit-presets/$PRESET_ID/preset.yml" ]]; then
             echo "Error: spec-kit-presets/$PRESET_ID/preset.yml not found" >&2
             exit 1
           fi
 
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["id"])' "spec-kit-presets/$PRESET_ID/preset.yml")
+          if [[ "$MANIFEST_ID" != "$PRESET_ID" ]]; then
+            echo "Error: preset.yml ID '$MANIFEST_ID' != directory '$PRESET_ID'" >&2
+            exit 1
+          fi
+
           # Ensure the tag version matches the manifest and the catalog entry,
           # so a typo or direct tag push can't publish a mislabeled archive.
-          MANIFEST_VERSION=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('spec-kit-presets/$PRESET_ID/preset.yml'))['preset']['version'])")
+          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["version"])' "spec-kit-presets/$PRESET_ID/preset.yml")
           if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
             echo "Error: tag version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
             exit 1
           fi
 
-          CATALOG_VERSION=$(python3 -c "import json,sys; print(json.load(open('spec-kit-presets/catalog.json'))['presets']['$PRESET_ID']['version'])")
+          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["version"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
           if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
             echo "Error: tag version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
+            exit 1
+          fi
+
+          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["download_url"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
+          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PRESET_ID}.zip"
+          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
+            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
             exit 1
           fi
 
@@ -70,38 +99,34 @@ jobs:
             -x '.*' '__pycache__/*'
 
       - name: Generate release notes
-        id: notes
+        env:
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          VERSION="${{ steps.parse.outputs.version }}"
           CHANGELOG="spec-kit-presets/$PRESET_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
 
-          {
-            echo 'body<<EOF'
-            if [[ -f "$CHANGELOG" ]]; then
-              # Extract the section for this version from CHANGELOG.md
-              awk -v ver="$VERSION" '
-                /^## \[/ {
-                  if (found) exit
-                  if (index($0, ver)) found=1
-                }
-                found { print }
-              ' "$CHANGELOG"
-            else
-              echo "Release $PRESET_ID v$VERSION"
-            fi
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          if [[ -f "$CHANGELOG" ]]; then
+            # Extract the section for this version from CHANGELOG.md
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Release $PRESET_ID v$VERSION" > "$NOTES"
+          fi
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          TAG="${{ steps.parse.outputs.tag }}"
-          VERSION="${{ steps.parse.outputs.version }}"
-
           gh release create "$TAG" \
             "$PRESET_ID.zip" \
             --title "$PRESET_ID v$VERSION" \
-            --notes "${{ steps.notes.outputs.body }}"
+            --notes-file "$RUNNER_TEMP/release-notes.md"

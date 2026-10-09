@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-settings-setup",
+  "title": "Essentials",
+  "description": "Configure your canvas.",
+  "order": 10,
+  "enabled": true,
+  "fields": [
+    {"id": "canvas.id", "label": "Canvas ID"},
+    {"id": "canvas.displayName", "label": "Title"},
+    {"id": "canvas.description", "label": "Description"},
+    {"id": "canvas.workflowListName", "label": "Workflow header"},
+    {"id": "workflowSlug.userProvided", "label": "Show slug field", "type": "boolean"}
+  ]
+}

@@ -1,0 +1,117 @@
+name: Release Extension Trigger
+
+# Manually dispatch with an extension id + version; it validates and pushes a
+# `<extension-id>-vX.Y.Z` tag, which fires release-extension.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      extension_id:
+        description: 'Extension directory name under spec-kit-extensions/ (e.g., extension-canvas-design)'
+        required: true
+        type: string
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
+
+      - name: Validate inputs
+        env:
+          EXTENSION_ID: ${{ github.event.inputs.extension_id }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # Strip optional v prefix
+          VERSION="${VERSION#v}"
+
+          # Validate version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format '$VERSION'. Must be X.Y.Z" >&2
+            exit 1
+          fi
+
+          if [[ ! "$EXTENSION_ID" =~ ^extension-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid extension ID '$EXTENSION_ID'. Must be extension-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-extensions" || -L "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension package path must not be a symlink" >&2
+            exit 1
+          fi
+
+          # Validate extension directory exists
+          if [[ ! -d "spec-kit-extensions/$EXTENSION_ID" ]]; then
+            echo "Error: Extension directory 'spec-kit-extensions/$EXTENSION_ID' not found" >&2
+            exit 1
+          fi
+
+          SYMLINK=$(find -P "spec-kit-extensions/$EXTENSION_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
+            exit 1
+          fi
+
+          # Validate extension.yml exists
+          if [[ ! -f "spec-kit-extensions/$EXTENSION_ID/extension.yml" ]]; then
+            echo "Error: spec-kit-extensions/$EXTENSION_ID/extension.yml not found" >&2
+            exit 1
+          fi
+
+          TAG="${EXTENSION_ID}-v${VERSION}"
+
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["extension"]["id"])' "spec-kit-extensions/$EXTENSION_ID/extension.yml")
+          if [[ "$MANIFEST_ID" != "$EXTENSION_ID" ]]; then
+            echo "Error: extension.yml ID '$MANIFEST_ID' != directory '$EXTENSION_ID'" >&2
+            exit 1
+          fi
+
+          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["extension"]["version"])' "spec-kit-extensions/$EXTENSION_ID/extension.yml")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != extension.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["extensions"][sys.argv[2]]["version"])' "spec-kit-extensions/catalog.json" "$EXTENSION_ID")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$EXTENSION_ID'" >&2
+            exit 1
+          fi
+
+          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["extensions"][sys.argv[2]]["download_url"])' "spec-kit-extensions/catalog.json" "$EXTENSION_ID")
+          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${EXTENSION_ID}.zip"
+          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
+            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
+            exit 1
+          fi
+
+          # Check if tag already exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: Tag '$TAG' already exists" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_ENV"
+          echo "Will create tag: $TAG"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          git tag "$tag"
+          git push origin "$tag"
+          echo "Pushed tag $tag — release workflow will handle the rest"

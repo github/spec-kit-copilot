@@ -39,11 +39,11 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 
 | Plugin | Version | Surface | Purpose |
 | --- | --- | --- | --- |
-| `spec-kit-copilot` | 0.15.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
+| `spec-kit-copilot` | 0.16.0 | Copilot CLI and App agent | Core skills that teach Copilot how to run `specify` |
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 | `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
-| `spec-kit-copilot-wizard` | 0.1.1 | Copilot App canvas | Optional guided wizard canvas for the full Spec Kit lifecycle |
+| `spec-kit-copilot-wizard` | 0.4.0 | Copilot App canvases | Guided wizard and an under-development Designer shell (not ready for use) |
 
 The plugins are independently installable and versioned. Install the core skills,
 the assessment canvas, the bug fix canvas, the spec-driven development canvas, the
@@ -78,6 +78,7 @@ the agent knows when and how to drive the CLI on your behalf.
 | `speckit-check` | `specify check`, `specify version` | Verify tools, report version/features |
 | `speckit-extension` | `specify extension …` | Install/update/search spec-kit extensions (+ catalogs) |
 | `speckit-preset` | `specify preset …` | Install/search/resolve presets (+ catalogs) |
+| `speckit-artifact` | `specify artifact …` | Inspect commands, templates, scripts, hooks, and their composition stacks |
 | `speckit-bundle` | `specify bundle …` | Discover, install, update, and author bundles (+ catalogs) |
 | `speckit-workflow` | `specify workflow …` | Run/resume/inspect automation workflows (+ catalogs) |
 | `speckit-workflow-step` | `specify workflow step …` | Manage workflow step types (+ catalogs) |
@@ -101,6 +102,7 @@ own README for full details.
 | [`bugfix-canvas`](plugins/spec-kit-copilot-bugfix/extensions/bugfix-canvas/README.md) | `spec-kit-copilot-bugfix` | Dashboard for the optional `bug` extension — the assess → fix → test triage pipeline. |
 | [`sdd-canvas`](plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/README.md) | `spec-kit-copilot-sdd` | Dashboard for the core spec-driven workflow — constitution → specify → clarify → plan → tasks → analyze → checklist → implement. |
 | [`speckit-wizard-canvas`](plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/README.md) | `spec-kit-copilot-wizard` | Guided wizard for the full Spec Kit lifecycle — setup → constitution → specify → clarify → plan → tasks → analyze → checklist → implement, with preset / extension / composition inspectors. |
+| [`speckit-canvas-designer`](plugins/spec-kit-copilot-wizard/extensions/speckit-canvas-designer/README.md) | `spec-kit-copilot-wizard` | Under development; not ready for use. Direct opening shows only an empty shell. |
 
 ### Previews
 
@@ -127,10 +129,12 @@ own README for full details.
 > **Versioning:** each plugin has an independent version and is not pinned to a
 > specific Specify CLI version. The core plugin targets the **latest** `specify`
 > published on PyPI (package `specify-cli`), with a
-> minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills. Install or
+> minimum floor of **>= 0.11** for the `bundle` / `workflow step` skills and
+> **>= 1.0.7** for the `artifact` skill and preset/extension JSON inventory. Install or
 > upgrade with `uv tool install specify-cli` / `uv tool upgrade specify-cli` (or the
 > `pipx` equivalents), or `specify self upgrade`. Each plugin's own `version` is
-> independent of the CLI version.
+> independent of the CLI version. A plugin's manifest and marketplace entry
+> must match; marketplace metadata is versioned separately when the catalog changes.
 
 ## Installation
 
@@ -252,6 +256,7 @@ spec-kit-copilot/
     ├── speckit-check/SKILL.md
     ├── speckit-extension/SKILL.md
     ├── speckit-preset/SKILL.md
+    ├── speckit-artifact/SKILL.md
     ├── speckit-bundle/SKILL.md
     ├── speckit-workflow/SKILL.md
     ├── speckit-workflow-step/SKILL.md

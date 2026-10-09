@@ -11,6 +11,36 @@
 
 import { hydrateFromCatalogSources, specifyRun } from "./shared.mjs";
 
+export async function inspectBundleMembers(id, workspacePath) {
+    const stdout = await specifyRun(["bundle", "info", id, "--json"], workspacePath);
+    if (!stdout?.trim()) throw new Error(`Cannot inspect bundle ${id}; check that it is available to the Specify CLI.`);
+    let info;
+    try {
+        info = JSON.parse(stdout);
+    } catch {
+        throw new Error(`Specify returned invalid bundle metadata for ${id}.`);
+    }
+    return bundleSelectionMembers(info, id);
+}
+
+export function bundleSelectionMembers(info, id) {
+    if (info?.id !== id || !Array.isArray(info.components)) {
+        throw new Error(`Specify returned incomplete bundle metadata for ${id}.`);
+    }
+    const members = info.components.filter((component) =>
+        ["presets", "extensions"].includes(component.kind)).map((component) => ({
+        kind: component.kind,
+        id: component.id,
+    }));
+    if (info.components.some((component) =>
+        !["presets", "extensions", "steps", "workflows"].includes(component.kind))
+        || members.some(({ id: memberId }) =>
+            typeof memberId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(memberId))) {
+        throw new Error(`Specify returned unsupported bundle members for ${id}.`);
+    }
+    return { source: info.source, members };
+}
+
 // Query `specify bundle list` for installed bundles. Tolerant of the
 // subcommand being absent — returns empty sets on any error so bundle
 // rendering degrades gracefully.

@@ -1,0 +1,77 @@
+name: Wizard E2E
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect Wizard changes
+    runs-on: ubuntu-latest
+    outputs:
+      wizard: ${{ steps.detect.outputs.wizard }}
+    steps:
+      - name: Detect changed Wizard files
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          if grep -q '^plugins/spec-kit-copilot-wizard/' <<< "$files"; then
+            echo "wizard=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wizard=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  browser:
+    name: Wizard browser tests
+    needs: changes
+    if: needs.changes.outputs.wizard == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: wizard-e2e-results
+          path: plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/test-results/
+          retention-days: 7
+
+  gate:
+    name: Wizard E2E gate
+    needs: [changes, browser]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check browser result for Wizard changes
+        env:
+          DETECTION: ${{ needs.changes.result }}
+          WIZARD: ${{ needs.changes.outputs.wizard }}
+          BROWSER: ${{ needs.browser.result }}
+        run: |
+          if [[ "$DETECTION" != "success" ]]; then
+            echo "::error::Could not determine whether Wizard files changed"
+            exit 1
+          fi
+          if [[ "$WIZARD" == "true" && "$BROWSER" != "success" ]]; then
+            echo "::error::Wizard browser tests did not pass ($BROWSER)"
+            exit 1
+          fi
+          echo "Wizard E2E check complete (changed: $WIZARD)"

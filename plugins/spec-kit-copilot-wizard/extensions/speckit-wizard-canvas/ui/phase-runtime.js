@@ -22,6 +22,7 @@ import {
 import { CANONICAL_BY_FULL, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { openCanvasDesignerDialog } from "./canvas-designer-dialog.js";
 
 // -------- Section: phase/clarifications.js --------
 
@@ -435,7 +436,7 @@ export async function dispatchPipeline(action, extra = {}) {
     }
 }
 
-/** Render the top-of-page pipeline toolbar: title, hint, Clear/Reset. */
+/** Render the top-of-page pipeline toolbar. */
 export function renderPipelineBanner() {
     const el = document.getElementById("pipeline-banner");
     if (!el) return;
@@ -443,11 +444,6 @@ export function renderPipelineBanner() {
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
     const items = pipelineItems();
     const edited = pipelineIsEdited();
-    // Nothing to show when the inferred spine is empty AND user hasn't taken control.
-    if (!items.length && !edited) {
-        el.hidden = true; el.innerHTML = "";
-        return;
-    }
     el.hidden = false;
     // Previously a "Pipeline from <extension name>" hint rendered above
     // the chip strip when the inferred pipeline was extension-standalone.
@@ -474,12 +470,16 @@ export function renderPipelineBanner() {
                 </div>
             </div>
             <div class="header-actions pipeline-actions">
-                ${items.length ? `<button type="button" class="btn btn-ghost pipeline-clear" data-action="clear">Clear</button>` : ""}
-                ${`<button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>`}
+                <button type="button" class="btn btn-ghost pipeline-clear" data-action="clear"${items.length ? "" : " disabled"}>Clear</button>
+                <button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>
+                ${state.snapshot?.featureFlags?.generateCanvas === true
+                    ? '<button type="button" class="btn btn-ghost pipeline-generate" aria-label="Generate canvas" title="Choose design customizations and launch a new Canvas designer session from this pipeline.">Generate canvas</button>'
+                    : ""}
             </div>
         </header>
     `;
     wireInfoPopover("pipeline-info-btn", "pipeline-info-popover");
+    el.querySelector(".pipeline-generate")?.addEventListener("click", openCanvasDesignerDialog);
     const clearBtn = el.querySelector(".pipeline-clear");
     if (clearBtn) {
         clearBtn.addEventListener("click", async () => {

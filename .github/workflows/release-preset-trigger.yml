@@ -22,8 +22,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          token: ${{ secrets.RELEASE_PAT }}
           fetch-depth: 0
 
       - name: Validate inputs
@@ -40,9 +41,25 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$PRESET_ID" =~ ^copilot-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Error: Invalid preset ID '$PRESET_ID'. Must be copilot-<name> with lowercase letters, digits, and hyphens" >&2
+            exit 1
+          fi
+
+          if [[ -L "spec-kit-presets" || -L "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset package path must not be a symlink" >&2
+            exit 1
+          fi
+
           # Validate preset directory exists
           if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
             echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
+            exit 1
+          fi
+
+          SYMLINK=$(find -P "spec-kit-presets/$PRESET_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
             exit 1
           fi
 
@@ -53,6 +70,31 @@ jobs:
           fi
 
           TAG="${PRESET_ID}-v${VERSION}"
+
+          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["id"])' "spec-kit-presets/$PRESET_ID/preset.yml")
+          if [[ "$MANIFEST_ID" != "$PRESET_ID" ]]; then
+            echo "Error: preset.yml ID '$MANIFEST_ID' != directory '$PRESET_ID'" >&2
+            exit 1
+          fi
+
+          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["version"])' "spec-kit-presets/$PRESET_ID/preset.yml")
+          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
+            exit 1
+          fi
+
+          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["version"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
+          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
+            echo "Error: requested version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
+            exit 1
+          fi
+
+          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["download_url"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
+          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PRESET_ID}.zip"
+          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
+            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
+            exit 1
+          fi
 
           # Check if tag already exists
           if git rev-parse "$TAG" >/dev/null 2>&1; then

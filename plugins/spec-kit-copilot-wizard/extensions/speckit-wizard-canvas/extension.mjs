@@ -39,10 +39,11 @@ import { runFastComposition, normalizeHookArtifactsInComposition } from "./canva
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
+import { pipelineActions } from "./canvas-runtime/actions/pipeline.mjs";
 import { wizardShellActions } from "./canvas-runtime/actions/wizard-shell.mjs";
 import { depsRecoveryActions } from "./canvas-runtime/actions/deps-recovery.mjs";
 
-const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...wizardShellActions, ...depsRecoveryActions];
+const ACTIONS = [...phaseActions, ...catalogActions, ...compositionActions, ...pipelineActions, ...wizardShellActions, ...depsRecoveryActions];
 
 // --------------------------- per-instance registry --------------------------
 // (record shape + `instances` Map now live in instances.mjs)
@@ -70,6 +71,7 @@ const instances = allInstances();
 async function onOpen(ctx) {
     const inst = getInstance(ctx.instanceId);
     inst._session = getSession();
+    inst.generateCanvas = ctx.input?.generateCanvas === true;
     // If the session repo path wasn't captured at startup (race), try once more.
     if (!sessionState.repoPath && getSession()) {
         sessionState.repoPath = await fetchSessionRepoPath(getSession());
@@ -282,12 +284,20 @@ async function hydrateCatalogs(inst) {
                 priority: 1,
             },
             {
+                name: "copilot",
+                url: EXTENSION_CATALOG_URL.copilot,
+                description: "Copilot-specific Spec Kit extensions",
+                installAllowed: true,
+                builtin: true,
+                priority: 2,
+            },
+            {
                 name: "community",
                 url: EXTENSION_CATALOG_URL.community,
                 description: "Community-contributed extensions",
                 installAllowed: false,
                 builtin: true,
-                priority: 2,
+                priority: 3,
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
@@ -350,6 +360,7 @@ setSession(await joinSession({
                 type: "object",
                 properties: {
                     cwd: { type: "string", description: "Workspace directory. Defaults to the session's cwd." },
+                    generateCanvas: { type: "boolean", description: "Show the experimental Generate canvas button. Defaults to false." },
                 },
             },
             actions: ACTIONS,
