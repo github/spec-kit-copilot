@@ -43,10 +43,11 @@ export function sddPrimaryScope(state, selection, workspacePath) {
     return { scopeType, scopeKey, originStage: stage, originCommand: primary.owningCommand, primary, candidates, roots };
 }
 
-export function createSddReviewService({ workspacePath, instanceId, getState = () => scanFeatures(workspacePath) }) {
+export function createSddReviewService({ workspacePath, instanceId, getState = () => scanFeatures(workspacePath),
+    discoverCandidates = (scope) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates }) }) {
     return createArtifactReviewService({
         canvasId: "sdd-canvas", workspacePath, instanceId,
         getScope: async (selection) => sddPrimaryScope(await getState(), selection, workspacePath),
-        discoverCandidates: (scope) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates }),
+        discoverCandidates,
     });
 }

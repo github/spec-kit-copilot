@@ -643,6 +643,31 @@ test("POST /api/phase/submit acknowledges before session.send completion and cle
     }
 });
 
+test("POST /api/phase/submit rejects invalid clarification batches before dispatch", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const invalid = Object.assign(new Error("batch too large"), { code: "invalid_request" });
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: { getInstance: () => ({ instanceId: "inst-review", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => { throw invalid; } } }) },
+        });
+        const h = createHandler(deps);
+        const res = mockRes();
+        await h(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer",
+                review: { contextId: "ctx_fixture", artifactId: "artifact_fixture",
+                    expectedRevision: `sha256:${"a".repeat(64)}`, answers: [] } }),
+        }), res);
+        assert.equal(res.statusCode, 400);
+        assert.match(JSON.parse(res.body).error, /invalid|limit/i);
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
 test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus call", async () => {
     // Extension commands aren't tracked by the wizard's canonical stepper;
     // wrapping them with a tracking preamble would ask the agent to write

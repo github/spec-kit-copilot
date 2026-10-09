@@ -227,6 +227,40 @@ test("SDD refresh signature detects scoped supporting changes without reading do
     assert.notEqual(await service.signature(), second);
 }));
 
+test("SDD signature validates duplicate contexts once per active scope and skips closed scopes", async () => {
+    const domain = await import("../artifact-review.mjs");
+    const root = await fs.mkdtemp(join(tmpdir(), "sdd-signature-scope-"));
+    try {
+        await fs.mkdir(join(root, "specs/001-fixture"), { recursive: true });
+        await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Fixture\n");
+        const state = { projectRoot: root, features: [{ slug: "001-fixture", stages: { specify: { exists: true } } }] };
+        let stateReads = 0;
+        let discoveryCalls = 0;
+        const service = domain.createSddReviewService({ workspacePath: root, instanceId: "scope-fixture",
+            getState: async () => { stateReads++; return state; },
+            discoverCandidates: async (scope) => {
+                discoveryCalls++;
+                return { candidates: scope.candidates, inspectedCount: scope.candidates.length, limitReached: false };
+            } });
+        const first = await service.open({ feature: "001-fixture", stage: "specify" });
+        const second = await service.open({ feature: "001-fixture", stage: "specify" });
+        stateReads = 0;
+        discoveryCalls = 0;
+        await service.signature();
+        assert.equal(stateReads, 1);
+        assert.equal(discoveryCalls, 1);
+        assert.equal(service.activeContextCount(), 2);
+        service.close(first.contextId);
+        service.close(second.contextId);
+        stateReads = 0;
+        discoveryCalls = 0;
+        await service.signature();
+        assert.equal(stateReads, 0);
+        assert.equal(discoveryCalls, 0);
+        assert.equal(service.activeContextCount(), 0);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
 test("SDD clarification bindings revalidate exact revision, index, and question without batching", () => serviceFixture(async ({ root, service }) => {
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Questions\n\n[NEEDS CLARIFICATION: Which scope?]\n\n`[NEEDS CLARIFICATION: Example?]`\n");
     const opened = await service.open({ feature: "001-fixture", stage: "specify" });

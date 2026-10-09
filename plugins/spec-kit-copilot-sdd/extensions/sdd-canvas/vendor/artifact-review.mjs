@@ -6,6 +6,11 @@ import { parseClarificationSource } from "./artifact-clarifications.mjs";
 
 export const ARTIFACT_PAGE_SIZE = 200;
 export const ARTIFACT_INSPECTION_LIMIT = 10_000;
+export const CLARIFICATION_BATCH_MAX_BYTES = 12 * 1024;
+
+export function clarificationBatchBytes(answers) {
+    return new TextEncoder().encode(JSON.stringify(answers)).byteLength;
+}
 
 function boundedString(value, maximum = 256) {
     return typeof value === "string" && value.length > 0 && value.length <= maximum && !/[\x00-\x1f\x7f]/.test(value);
@@ -49,11 +54,12 @@ export function compareArtifacts(first, second) {
 
 export function createReviewStore({
     canvasId, instanceId, workspacePath, validateScope, discover, resolveMember,
-    now = Date.now, ttlMs = 15 * 60_000, maxContexts = 20,
+    now = Date.now, ttlMs = 15 * 60_000, maxContexts = 20, onInvalidate = () => {},
 }) {
     if (!["speckit-wizard", "sdd-canvas"].includes(canvasId) || !boundedString(instanceId) ||
         typeof workspacePath !== "string" || !path.isAbsolute(workspacePath) ||
         ![validateScope, discover, resolveMember].every((callback) => typeof callback === "function") ||
+        typeof onInvalidate !== "function" ||
         !Number.isSafeInteger(maxContexts) || maxContexts < 1 || maxContexts > 100 ||
         !Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > 24 * 60 * 60_000) {
         throw new ArtifactReadError("invalid_request");
@@ -67,11 +73,19 @@ export function createReviewStore({
         originStage: context.originStage, originCommand: context.originCommand,
     });
 
+    function removeContext(contextId) {
+        const removed = contexts.delete(contextId);
+        if (removed) {
+            try { onInvalidate(contextId); } catch { /* context removal remains authoritative */ }
+        }
+        return removed;
+    }
+
     async function checked(contextId) {
         requireId(contextId, 256);
         const context = contexts.get(contextId);
         if (!context || now() - context.createdAt >= ttlMs) {
-            contexts.delete(contextId);
+            removeContext(contextId);
             throw new ArtifactReadError("invalid_context");
         }
         let valid;
@@ -81,7 +95,7 @@ export function createReviewStore({
             throw new ArtifactReadError("workspace_unavailable");
         }
         if (valid !== true || contexts.get(contextId) !== context) {
-            contexts.delete(contextId);
+            removeContext(contextId);
             throw new ArtifactReadError("invalid_context");
         }
         return context;
@@ -102,9 +116,9 @@ export function createReviewStore({
             if (!["project", "feature", "composition"].includes(scopeType) || !boundedString(scopeKey) ||
                 !Number.isSafeInteger(generation) || generation < 1) throw new ArtifactReadError("invalid_request");
             for (const [id, context] of contexts) {
-                if (now() - context.createdAt >= ttlMs) contexts.delete(id);
+                if (now() - context.createdAt >= ttlMs) removeContext(id);
             }
-            while (contexts.size >= maxContexts) contexts.delete(contexts.keys().next().value);
+            while (contexts.size >= maxContexts) removeContext(contexts.keys().next().value);
             const context = {
                 id: `ctx_${randomUUID()}`, instanceId, workspaceFingerprint,
                 scopeType, scopeKey, generation, originStage, originCommand,
@@ -182,8 +196,15 @@ export function createReviewStore({
             return remember(await checked(contextId), candidate);
         },
 
-        invalidate(contextId) { contexts.delete(contextId); },
-        clear() { contexts.clear(); },
+        activeContexts() {
+            for (const [id, context] of contexts) if (now() - context.createdAt >= ttlMs) removeContext(id);
+            return [...contexts.values()].map(publicContext);
+        },
+        invalidate(contextId) {
+            requireId(contextId, 256);
+            return removeContext(contextId);
+        },
+        clear() { for (const id of [...contexts.keys()]) removeContext(id); },
     };
 }
 
@@ -191,6 +212,13 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
     const selections = new Map();
     const discoveries = new Map();
     const references = new Map();
+    const scopeSignatures = new Map();
+    let signatureCursor = 0;
+    const forgetContext = (contextId) => {
+        selections.delete(contextId);
+        discoveries.delete(contextId);
+        references.delete(contextId);
+    };
     function bindingsFor(contextId, artifact, document) {
         if (!artifact.owningCommand || !["primary", "supporting"].includes(artifact.role) ||
             (canvasId === "sdd-canvas" && (artifact.owningStage !== "specify" || artifact.role !== "primary"))) return [];
@@ -207,9 +235,9 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
         });
     }
     async function currentScope(context) {
-        const selection = selections.get(context.id);
-        if (!selection) return null;
-        const scope = await getScope(selection);
+        const tracked = selections.get(context.id);
+        if (!tracked) return null;
+        const scope = await getScope(tracked.selection);
         return scope?.scopeKey === context.scopeKey ? scope : null;
     }
     async function hydrate(candidate) {
@@ -221,23 +249,25 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
             throw error;
         }
     }
+    async function resolveScopedMember(context, relativePath) {
+        const scope = await currentScope(context);
+        if (!scope) return null;
+        const reference = references.get(context.id)?.get(relativePath);
+        if (reference) {
+            await readArtifact(workspacePath, reference.originPath, { expectedRevision: reference.originRevision });
+            return hydrate(reference);
+        }
+        let candidate = scope.candidates.find((entry) => entry.relativePath === relativePath);
+        if (!candidate && scope.roots?.some((root) => relativePath.startsWith(`${root}/`))) {
+            candidate = discoveries.get(context.id)?.candidates.find((entry) => entry.relativePath === relativePath);
+        }
+        return candidate ? hydrate(candidate) : null;
+    }
     const store = createReviewStore({
         canvasId, instanceId, workspacePath,
+        onInvalidate: forgetContext,
         validateScope: async (context) => Boolean(await currentScope(context)),
-        resolveMember: async (context, relativePath) => {
-            const scope = await currentScope(context);
-            if (!scope) return null;
-            const reference = references.get(context.id)?.get(relativePath);
-            if (reference) {
-                await readArtifact(workspacePath, reference.originPath, { expectedRevision: reference.originRevision });
-                return hydrate(reference);
-            }
-            let candidate = scope.candidates.find((entry) => entry.relativePath === relativePath);
-            if (!candidate && scope.roots?.some((root) => relativePath.startsWith(`${root}/`))) {
-                candidate = discoveries.get(context.id)?.candidates.find((entry) => entry.relativePath === relativePath);
-            }
-            return candidate ? hydrate(candidate) : null;
-        },
+        resolveMember: resolveScopedMember,
         discover: async (context, { resumeKey, limit }) => {
             const scope = await currentScope(context);
             if (!scope) throw new ArtifactReadError("invalid_context");
@@ -271,18 +301,11 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
             const scope = await getScope(selection);
             if (!scope?.primary || !scope.candidates?.length) throw new ArtifactReadError("artifact_unavailable");
             const context = store.createContext(scope);
-            while (selections.size >= 20) {
-                const oldest = selections.keys().next().value;
-                selections.delete(oldest);
-                discoveries.delete(oldest);
-                references.delete(oldest);
-                store.invalidate(oldest);
-            }
-            selections.set(context.id, selection);
+            selections.set(context.id, { selection, scope });
             const page = await store.list(context.id);
             const primary = page.items.find((entry) => entry.relativePath === scope.primary.relativePath);
             if (!primary) throw new ArtifactReadError("artifact_unavailable");
-            return { ...page, primaryArtifactId: primary.id };
+            return { ...page, primaryArtifactId: primary.id, clarificationBatchMaxBytes: CLARIFICATION_BATCH_MAX_BYTES };
         },
         list: (contextId, options) => store.list(contextId, options),
         async content(contextId, artifactId, options) {
@@ -298,6 +321,7 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
         },
         async validateClarifications(contextId, artifactId, expectedRevision, answers, commandName) {
             if (!Array.isArray(answers) || !answers.length || answers.length > (canvasId === "sdd-canvas" ? 1 : 100) ||
+                clarificationBatchBytes(answers) > CLARIFICATION_BATCH_MAX_BYTES ||
                 typeof expectedRevision !== "string" || !/^sha256:[a-f0-9]{64}$/.test(expectedRevision) ||
                 new Set(answers.map((answer) => answer.questionId)).size !== answers.length) throw new ArtifactReadError("invalid_request");
             const artifact = await store.resolve(contextId, artifactId);
@@ -341,6 +365,8 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
                 validateArtifactPath(relativeTarget);
             } catch { return { kind: "inert", reason: "unsupported_target" }; }
             if (relativeTarget === source.relativePath) return { kind: "fragment", artifactId: sourceArtifactId, fragment };
+            const context = await store.getContext(contextId);
+            if (!await resolveScopedMember(context, relativeTarget)) return { kind: "inert", reason: "unsupported_target" };
             const document = await readArtifact(workspacePath, relativeTarget);
             const reference = {
                 relativePath: relativeTarget, label: path.posix.basename(relativeTarget), role: "reference",
@@ -356,30 +382,58 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
             const artifact = await store.register(contextId, reference);
             return { kind: "artifact", artifact, fragment };
         },
+        close(contextId) { return { closed: store.invalidate(contextId) }; },
+        activeContextCount() { return store.activeContexts().length; },
         async signature() {
-            const digest = createHash("sha256");
             let inspected = 0;
-            for (const [contextId, selection] of selections) {
+            const scopes = new Map();
+            for (const context of store.activeContexts()) {
+                const tracked = selections.get(context.id);
+                if (!tracked) { store.invalidate(context.id); continue; }
+                if (!scopes.has(context.scopeKey)) scopes.set(context.scopeKey, []);
+                scopes.get(context.scopeKey).push({ context, tracked });
+            }
+            for (const scopeKey of [...scopeSignatures.keys()]) if (!scopes.has(scopeKey)) scopeSignatures.delete(scopeKey);
+            const available = [...scopes.entries()];
+            const start = available.length ? signatureCursor % available.length : 0;
+            signatureCursor = available.length ? (start + 1) % available.length : 0;
+            const ordered = [...available.slice(start), ...available.slice(0, start)];
+            for (const [scopeKey, entries] of ordered) {
                 if (inspected >= ARTIFACT_INSPECTION_LIMIT) break;
+                let scope;
                 try {
-                    await store.getContext(contextId);
-                    const scope = await getScope(selection);
+                    scope = await getScope(entries[0].tracked.selection);
+                } catch { continue; }
+                if (!scope || scope.scopeKey !== scopeKey) {
+                    for (const { context } of entries) store.invalidate(context.id);
+                    scopeSignatures.delete(scopeKey);
+                    continue;
+                }
+                try {
                     const discovered = discoverCandidates ? await discoverCandidates(scope) : { candidates: scope.candidates };
-                    for (const candidate of discovered.candidates) {
-                        if (inspected++ >= ARTIFACT_INSPECTION_LIMIT) break;
-                        digest.update(candidate.relativePath);
+                    const remaining = ARTIFACT_INSPECTION_LIMIT - inspected;
+                    const scopeDigest = createHash("sha256");
+                    for (const candidate of discovered.candidates.slice(0, remaining)) {
+                        scopeDigest.update(candidate.relativePath);
                         try {
                             const metadata = await inspectArtifact(workspacePath, candidate.relativePath);
-                            digest.update(`${metadata.byteSize}:${metadata.modifiedAt}`);
-                        } catch (error) { digest.update(error.code ?? "unavailable"); }
+                            scopeDigest.update(`${metadata.byteSize}:${metadata.modifiedAt}`);
+                        } catch (error) { scopeDigest.update(error.code ?? "unavailable"); }
                     }
-                } catch {
-                    digest.update("invalid-context");
-                }
+                    const traversalCount = Number.isSafeInteger(discovered.inspectedCount)
+                        ? Math.max(discovered.inspectedCount, discovered.candidates.length) : discovered.candidates.length;
+                    inspected += Math.min(remaining, traversalCount);
+                    scopeSignatures.set(scopeKey, scopeDigest.digest("hex"));
+                } catch { /* transient discovery failures retry on a later sweep */ }
+            }
+            const digest = createHash("sha256");
+            for (const scopeKey of [...scopes.keys()].sort()) {
+                digest.update(scopeKey);
+                digest.update(scopeSignatures.get(scopeKey) ?? "pending");
             }
             return digest.digest("hex");
         },
-        dispose() { selections.clear(); discoveries.clear(); references.clear(); store.clear(); },
+        dispose() { store.clear(); scopeSignatures.clear(); },
     };
 }
 
@@ -453,7 +507,7 @@ export async function handleArtifactReview(req, res, url, service) {
             }
         }
         let data;
-        if (["/api/review/resolve-link", "/api/review/validate-clarifications"].includes(url.pathname) && req.method === "POST") {
+        if (["/api/review/resolve-link", "/api/review/validate-clarifications", "/api/review/close"].includes(url.pathname) && req.method === "POST") {
             if (!/^application\/json(?:;|$)/i.test(req.headers["content-type"] ?? "")) throw new ArtifactReadError("invalid_request");
             const chunks = [];
             let size = 0;
@@ -466,12 +520,15 @@ export async function handleArtifactReview(req, res, url, service) {
             try { body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); }
             catch { throw new ArtifactReadError("invalid_request"); }
             const validation = url.pathname === "/api/review/validate-clarifications";
-            const fields = validation ? ["contextId", "artifactId", "expectedRevision", "answers", "commandName"] : ["contextId", "sourceArtifactId", "expectedRevision", "target"];
+            const closing = url.pathname === "/api/review/close";
+            const fields = closing ? ["contextId"] : validation
+                ? ["contextId", "artifactId", "expectedRevision", "answers", "commandName"]
+                : ["contextId", "sourceArtifactId", "expectedRevision", "target"];
             if (!body || Array.isArray(body) || Object.keys(body).some((key) => !fields.includes(key))) {
                 throw new ArtifactReadError("invalid_request");
             }
-            if (typeof body.expectedRevision !== "string") throw new ArtifactReadError("invalid_request");
-            data = validation
+            if (!closing && typeof body.expectedRevision !== "string") throw new ArtifactReadError("invalid_request");
+            data = closing ? service.close(body.contextId) : validation
                 ? { clarifications: await service.validateClarifications(body.contextId, body.artifactId, body.expectedRevision, body.answers, body.commandName) }
                 : await service.resolveLink(body.contextId, body.sourceArtifactId, body.expectedRevision, body.target);
         } else if (req.method !== "GET") throw new ArtifactReadError("invalid_request");

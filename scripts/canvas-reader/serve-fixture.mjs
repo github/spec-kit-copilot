@@ -79,7 +79,8 @@ export async function startFixture({ canvas, pluginRoot, markdown, allowMutation
         entry.server.on("request", (request, response) => {
             const path = new URL(request.url, "http://127.0.0.1").pathname;
             if (eventsPaused && ["/api/events", "/events"].includes(path)) { response.writeHead(503); response.end(); return; }
-            const readOnlyLink = request.method === "POST" && ["/api/review/resolve-link", "/api/review/validate-clarifications"].includes(path);
+            const readOnlyLink = request.method === "POST" &&
+                ["/api/review/resolve-link", "/api/review/validate-clarifications", "/api/review/close"].includes(path);
             const mockClarification = allowMockDispatch && canvas === "sdd" && request.method === "POST" && path === "/api/clarify";
             if (!mockClarification && !readOnlyLink && (request.method !== "GET" || (path.startsWith("/api/") && !readRoutes.has(path)))) {
                 deniedWrites++;

@@ -215,7 +215,8 @@ const CAP = PAGE_PARAMS.get("cap") || "";
 let artifactReviewGeneration = 0;
 let artifactReviewReturn = null;
 let artifactReview = null;
-let reviewConnected = true;
+let reviewEvents = null;
+let reviewConnected = false;
 let renderedDashboard = "";
 let dashboardRefreshPending = false;
 let STATE = null;
@@ -499,10 +500,33 @@ document.getElementById("specifyBtn").onclick = async () => {
   if (sent) descEl.value = "";
 };
 
-function disposeArtifactReview() {
+function disposeArtifactReview(force = false) {
   artifactReviewGeneration++;
-  artifactReview?.close({ restore: false });
+  artifactReview?.close({ restore: false, force });
   artifactReview = null;
+}
+
+function connectReviewEvents(deepLinked) {
+  try {
+    reviewEvents = new EventSource(endpoint("/events"));
+    reviewEvents.addEventListener("state", (event) => {
+      try {
+        const next = JSON.parse(event.data);
+        if (deepLinked) {
+          STATE = next;
+          artifactReview?.updateControls();
+        } else render(next);
+      } catch (_) {}
+    });
+    reviewEvents.addEventListener("review", (event) => {
+      try {
+        const review = JSON.parse(event.data);
+        if (!review.contextHint || review.contextHint === artifactReview?.context?.contextId) void artifactReview?.refresh();
+      } catch (_) {}
+    });
+    reviewEvents.onopen = () => { reviewConnected = true; artifactReview?.setConnected(true); void artifactReview?.refresh(); };
+    reviewEvents.onerror = () => { reviewConnected = false; artifactReview?.setConnected(false); };
+  } catch (e) { /* fall back to one-shot state fetch */ }
 }
 
 async function viewArtifact(feature, stage, title) {
@@ -807,7 +831,11 @@ document.getElementById("closeArt").onclick = () => {
   if (document.body.classList.contains("artifact-view")) window.location.assign(endpoint("/"));
   else document.getElementById("aside").classList.remove("open");
 };
-window.addEventListener("pagehide", disposeArtifactReview);
+window.addEventListener("pagehide", () => {
+  reviewEvents?.close();
+  reviewEvents = null;
+  disposeArtifactReview(true);
+});
 
 async function initializeArtifactView(feature, stage, title) {
   try {
@@ -823,25 +851,15 @@ async function initializeArtifactView(feature, stage, title) {
 
 const artifactParam = PAGE_PARAMS.get("artifact");
 const artifactStage = PAGE_PARAMS.get("stage");
-if (artifactParam && PREVIEWABLE.has(artifactStage)) {
+const deepLinkedArtifact = Boolean(artifactParam && PREVIEWABLE.has(artifactStage));
+connectReviewEvents(deepLinkedArtifact);
+if (deepLinkedArtifact) {
   document.body.classList.add("artifact-view");
   document.getElementById("closeArt").textContent = "← Dashboard";
   document.getElementById("closeArt").title = "Back to dashboard";
   const feature = artifactParam === "__constitution__" ? "" : artifactParam;
   initializeArtifactView(feature, artifactStage, PAGE_PARAMS.get("title") || LABELS[artifactStage] || "Artifact");
 } else {
-  try {
-    const es = new EventSource(endpoint("/events"));
-    es.addEventListener("state", (e) => { try { render(JSON.parse(e.data)); } catch (_) {} });
-    es.addEventListener("review", (event) => {
-      try {
-        const review = JSON.parse(event.data);
-        if (!review.contextHint || review.contextHint === artifactReview?.context?.contextId) void artifactReview?.refresh();
-      } catch (_) {}
-    });
-    es.onopen = () => { reviewConnected = true; artifactReview?.setConnected(true); void artifactReview?.refresh(); };
-    es.onerror = () => { reviewConnected = false; artifactReview?.setConnected(false); };
-  } catch (e) { /* fall back to one-shot fetch */ }
   fetch(endpoint("/api/state")).then((r) => r.json()).then(render).catch(() => {});
 }
 </script>

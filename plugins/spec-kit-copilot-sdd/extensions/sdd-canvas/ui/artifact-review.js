@@ -34,6 +34,8 @@ export function createArtifactReview({
     let refreshing = false;
     let refreshAgain = false;
     let renewContextQueued = false;
+    let loadingRefreshQueued = false;
+    let loadingRenewContextQueued = false;
 
     function urlFor(route, parameters = {}) {
         const url = new URL(route, document.location.href);
@@ -57,6 +59,18 @@ export function createArtifactReview({
             if (!response.ok || !payload.ok) throw reviewError(payload?.error?.code);
             return payload.data;
         } catch (error) { throw reviewError(error?.code); }
+    }
+
+    function releaseContext(context) {
+        if (!context?.contextId) return;
+        try {
+            const pending = fetchContent(urlFor("/api/review/close"), {
+                method: "POST", keepalive: true,
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({ contextId: context.contextId }),
+            });
+            pending?.catch?.(() => {});
+        } catch { /* server expiry remains the fallback */ }
     }
 
     async function loadMount() {
@@ -220,12 +234,27 @@ export function createArtifactReview({
         } catch (error) {
             await showState(failureState(error, true), requestGeneration);
             return false;
+        } finally {
+            drainLoadingRefresh(context, requestGeneration);
         }
+    }
+
+    function drainLoadingRefresh(context, requestGeneration) {
+        if (!loadingRefreshQueued || requestGeneration !== generation || activeContext !== context) return;
+        const retry = { renewContext: loadingRenewContextQueued };
+        loadingRefreshQueued = false;
+        loadingRenewContextQueued = false;
+        void refresh(retry);
     }
 
     async function refresh({ renewContext = false } = {}) {
         if (canNavigate?.() === false) return false;
-        if (!activeContext || !selectedArtifactId || baseState === "loading") return false;
+        if (baseState === "loading") {
+            loadingRefreshQueued = true;
+            loadingRenewContextQueued ||= renewContext;
+            return false;
+        }
+        if (!activeContext || !selectedArtifactId) return false;
         if (refreshing) { refreshAgain = true; renewContextQueued ||= renewContext; return false; }
         refreshing = true;
         savePosition();
@@ -341,14 +370,16 @@ export function createArtifactReview({
         } catch { return false; }
     }
 
-    function close({ restore = true } = {}) {
-        if (canNavigate?.() === false) return false;
+    function close({ restore = true, force = false } = {}) {
+        if (!force && canNavigate?.() === false) return false;
+        const closingContext = activeContext;
         generation++;
         controller?.abort();
         controller = null;
         mounted?.unmount();
         mounted = null;
         activeContext = null;
+        releaseContext(closingContext);
         contextSelection = null;
         currentDocument = null;
         artifacts = [];
@@ -360,6 +391,8 @@ export function createArtifactReview({
         baseState = "idle";
         refreshAgain = false;
         renewContextQueued = false;
+        loadingRefreshQueued = false;
+        loadingRenewContextQueued = false;
         container.replaceChildren();
         delete container.dataset.reviewContext;
         delete container.dataset.reviewState;
@@ -378,13 +411,17 @@ export function createArtifactReview({
             if (canNavigate?.() === false) return false;
             rememberReturn();
             contextSelection = { ...selection };
+            loadingRefreshQueued = false;
+            loadingRenewContextQueued = false;
             const requestGeneration = ++generation;
             controller?.abort();
             controller = new AbortController();
             const signal = controller.signal;
+            const replacedContext = activeContext;
             mounted?.unmount();
             mounted = null;
             activeContext = null;
+            releaseContext(replacedContext);
             currentDocument = null;
             artifacts = [];
             history = [];
@@ -396,9 +433,11 @@ export function createArtifactReview({
             delete container.dataset.reviewContext;
             container.textContent = "Loading artifact...";
             container.dataset.reviewState = "loading";
+            let openedContext;
             try {
                 const context = await json("/api/review/context", selection, signal);
                 if (requestGeneration !== generation) return false;
+                openedContext = context;
                 activeContext = context;
                 selectedArtifactId = context.primaryArtifactId;
                 artifacts = context.items;
@@ -419,6 +458,12 @@ export function createArtifactReview({
                 if (requestGeneration !== generation || signal.aborted) return false;
                 await showState(failureState(error), requestGeneration);
                 return false;
+            } finally {
+                if (openedContext) drainLoadingRefresh(openedContext, requestGeneration);
+                else if (requestGeneration === generation) {
+                    loadingRefreshQueued = false;
+                    loadingRenewContextQueued = false;
+                }
             }
         },
         close,

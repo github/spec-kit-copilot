@@ -138,14 +138,19 @@ contextTest("counts non-artifact entries and terminates successfully at the cumu
 });
 
 contextTest("expires contexts and cursors and bounds retained context state", async ({ createReviewStore }) => {
-    const setup = fixture(createReviewStore, undefined, { maxContexts: 2 });
+    const invalidated = [];
+    const setup = fixture(createReviewStore, undefined, { maxContexts: 2, onInvalidate: (contextId) => invalidated.push(contextId) });
     setup.advanceClock();
     await assert.rejects(setup.store.list(setup.context.id), { code: "invalid_context" });
+    assert.deepEqual(invalidated, [setup.context.id]);
     const oldest = setup.store.createContext({ scopeType: "feature", scopeKey: "old", generation: 1 });
     setup.store.createContext({ scopeType: "feature", scopeKey: "middle", generation: 1 });
     setup.store.createContext({ scopeType: "feature", scopeKey: "new", generation: 1 });
     await assert.rejects(setup.store.list(oldest.id), { code: "invalid_context" });
+    assert.ok(invalidated.includes(oldest.id));
+    assert.equal(setup.store.activeContexts().length, 2);
     setup.store.clear();
+    assert.equal(setup.store.activeContexts().length, 0);
     await assert.rejects(setup.store.list(setup.context.id), { code: "invalid_context" });
 });
 

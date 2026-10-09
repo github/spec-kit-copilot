@@ -78,6 +78,34 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
 
 export function reviewFreshnessTests(canvas, adapterUrl) {
     for (const mode of ["initial", "selection"]) {
+        test(`${canvas} invalidation during ${mode} loading presents the latest revision`, async () => {
+            const target = mode === "initial" ? "primary" : "related";
+            let resolveUpdated;
+            const updated = new Promise((resolve) => { resolveUpdated = resolve; });
+            await withReview(adapterUrl, async ({ review, documents, remote }) => {
+                if (mode === "selection") await review.open({ stage: "specify" });
+                const delayed = remote.deferNextRead();
+                const loading = mode === "initial" ? review.open({ stage: "specify" }) : review.selectArtifact(target);
+                await delayed.entered;
+                documents.set(target, `# Updated ${target}\n`);
+                assert.equal(await review.refresh(), false);
+                delayed.release();
+                await loading;
+                let timeout;
+                try {
+                    await Promise.race([updated, new Promise((_, reject) => {
+                        timeout = setTimeout(() => reject(new Error("queued refresh was not drained")), 2000);
+                    })]);
+                } finally { clearTimeout(timeout); }
+                assert.equal(review.document.content, `# Updated ${target}\n`);
+                assert.equal(review.document.artifact.id, target);
+            }, { onDocument: (content) => {
+                if (content.content === `# Updated ${target}\n`) resolveUpdated();
+            } });
+        });
+    }
+
+    for (const mode of ["initial", "selection"]) {
         test(`${canvas} refresh during ${mode} presentation still mounts the current document`, async () => {
             let enter;
             let release;

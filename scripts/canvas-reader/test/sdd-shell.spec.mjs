@@ -79,18 +79,23 @@ test("SDD related artifacts, references, and folder navigation preserve the sele
 });
 
 test("SDD preserves the existing artifact deep link and its return to the dashboard", async ({ page }) => {
-    const fixture = await startFixture({ canvas: "sdd" });
+    const fixture = await startFixture({ canvas: "sdd", allowMutations: true });
     const url = new URL(fixture.url);
     url.searchParams.set("artifact", "999-canvas-preview-fixture");
     url.searchParams.set("stage", "specify");
     try {
         await page.goto(url.href, { waitUntil: "domcontentloaded" });
         await expect(page.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
+        await expect.poll(() => page.evaluate(() => reviewConnected)).toBe(true);
+        await fixture.mutateArtifact("spec.md", "# Updated deep-link specification\n");
+        await expect(page.getByRole("heading", { name: "Updated deep-link specification", exact: true })).toBeVisible();
+        await fixture.mutateArtifact("new.markdown", "# New supporting document\n");
+        await expect(page.getByRole("combobox", { name: "Artifacts", exact: true })
+            .getByRole("option", { name: "new.markdown", exact: true })).toHaveCount(1);
         await page.locator("#closeArt").click();
         await page.waitForURL((location) => !location.searchParams.has("artifact"));
         await expect(page.getByTitle("View spec.md", { exact: true })).toBeVisible();
         expect(fixture.dispatchCount()).toBe(0);
-        expect(fixture.workspaceChanged()).toBe(false);
     } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
 });
 

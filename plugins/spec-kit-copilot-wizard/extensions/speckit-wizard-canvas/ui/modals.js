@@ -547,6 +547,11 @@ function renderReviewDraftBanner(message = "") {
     artifactReview?.updateControls();
 }
 
+export function clarificationBatchWithinBudget(answers, maximum) {
+    return Number.isSafeInteger(maximum) && maximum > 0 &&
+        new TextEncoder().encode(JSON.stringify(answers)).byteLength <= maximum;
+}
+
 async function flushReviewedClarifications() {
     const review = artifactReview;
     const context = review?.context;
@@ -556,11 +561,15 @@ async function flushReviewedClarifications() {
     if (!bindings.length || bindings.some((binding) => binding.status === "stale")) return false;
     const commandName = bindings[0].commandName;
     if (isPhaseRunning(commandName)) { renderReviewDraftBanner("The owning command is still running."); return false; }
+    const answers = bindings.map(({ questionId, question, answer }) => ({ questionId, question, answer }));
+    if (!clarificationBatchWithinBudget(answers, context.clarificationBatchMaxBytes)) {
+        renderReviewDraftBanner("Queued answers exceed the review submission limit. Shorten one or more answers.");
+        return false;
+    }
     let submission;
     try { submission = reviewDrafts.begin(bindings); }
     catch { renderReviewDraftBanner("The clarification source is stale or unavailable."); return false; }
     renderReviewDraftBanner();
-    const answers = submission.entries.map(({ questionId, question, answer }) => ({ questionId, question, answer }));
     const lastArgs = getPhaseLastSubmitted(commandName) || "";
     const suffix = answers.map((answer) => `Clarification - ${answer.question}\nAnswer: ${answer.answer}`).join("\n\n");
     const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
@@ -637,11 +646,13 @@ export function setViewersDeps({ postJson, HEADERS, readerMount, onReturn } = {}
     if (typeof onReturn === "function") onArtifactReturn = onReturn;
 }
 
-function disposeArtifactReview() {
+function disposeArtifactReview(force = false) {
     artifactReviewGeneration++;
-    artifactReview?.close({ restore: false });
+    artifactReview?.close({ restore: false, force });
     artifactReview = null;
 }
+
+globalThis.window?.addEventListener?.("pagehide", () => disposeArtifactReview(true));
 
 function captureArtifactReturn() {
     if (artifactReviewReturn) return;

@@ -112,6 +112,53 @@ export function reviewHttpSecurityTests(canvas) {
         } finally { assert.equal((await fixture.stop()).cleaned, true); }
     });
 
+    test(`${canvas} review context close is bounded and idempotent`, async () => {
+        const fixture = await startFixture({ canvas });
+        try {
+            const opened = await openedContext(fixture);
+            const close = () => exchange(endpoint(fixture, "/api/review/close"), {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contextId: opened.contextId }),
+            });
+            const first = await close();
+            assert.equal(first.status, 200);
+            assert.deepEqual(JSON.parse(first.body).data, { closed: true });
+            const second = await close();
+            assert.equal(second.status, 200);
+            assert.deepEqual(JSON.parse(second.body).data, { closed: false });
+            const content = await exchange(endpoint(fixture, "/api/review/content", {
+                context: opened.contextId, artifactId: opened.primaryArtifactId,
+            }));
+            assert.equal(content.status, 404);
+            assert.equal(JSON.parse(content.body).error.code, "invalid_context");
+        } finally { assert.equal((await fixture.stop()).cleaned, true); }
+    });
+
+    if (canvas === "wizard") test("wizard review HTTP rejects an over-budget clarification batch below the transport cap", async () => {
+        const fixture = await startFixture({ canvas, allowMutations: true });
+        try {
+            const questions = ["First?", "Second?", "Third?", "Fourth?"];
+            await fixture.mutateArtifact("spec.md", `# Scope\n\n${questions.map((question) =>
+                `[NEEDS CLARIFICATION: ${question}]`).join("\n\n")}\n`);
+            const opened = await openedContext(fixture);
+            const content = JSON.parse((await exchange(endpoint(fixture, "/api/review/content", {
+                context: opened.contextId, artifactId: opened.primaryArtifactId,
+            }))).body).data;
+            const answers = content.clarifications.map((binding) => ({
+                questionId: binding.questionId, question: binding.question, answer: "x".repeat(3500),
+            }));
+            const body = JSON.stringify({ contextId: opened.contextId, artifactId: opened.primaryArtifactId,
+                expectedRevision: content.revision, answers, commandName: "speckit.specify" });
+            assert.ok(Buffer.byteLength(body) < 16_384, "fixture must reach service validation below the HTTP body cap");
+            const response = await exchange(endpoint(fixture, "/api/review/validate-clarifications"), {
+                method: "POST", headers: { "Content-Type": "application/json" }, body,
+            });
+            assert.equal(response.status, 400);
+            assert.equal(JSON.parse(response.body).error.code, "invalid_request");
+            assert.equal(fixture.dispatchCount(), 0);
+        } finally { assert.equal((await fixture.stop()).cleaned, true); }
+    });
+
     test(`${canvas} contexts and cursor generations cannot cross active HTTP instances`, async () => {
         const first = await startFixture({ canvas, allowMutations: true });
         let second;

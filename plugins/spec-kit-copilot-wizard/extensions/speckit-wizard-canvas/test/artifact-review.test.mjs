@@ -58,7 +58,7 @@ test("Wizard preserves exact legacy-file bytes and refuses a changed expected re
     assert.equal((await fs.readFile(join(root, "specs/001-fixture/spec.md"), "utf8")), "# Updated fixture\n");
 }));
 
-async function adapterFixture(run) {
+async function adapterFixture(run, { canNavigate } = {}) {
     const adapter = await import("../ui/artifact-review.js").catch((error) => {
         if (error.code === "ERR_MODULE_NOT_FOUND") assert.fail("T022: Wizard reader adapter is missing");
         throw error;
@@ -84,6 +84,7 @@ async function adapterFixture(run) {
     };
     const review = adapter.createArtifactReview({
         container, scrollElement, readerId: "wizard-fixture", fetch: request,
+        canNavigate,
         mount: (_element, options) => {
             mounted.push(options);
             options.onRendered?.({ artifactId: options.document?.artifact.id, revision: options.document?.revision });
@@ -102,13 +103,15 @@ test("Wizard adapter mounts in the existing container using GET-only validated c
     assert.deepEqual(calls.map((call) => call.method), ["GET", "GET"]);
 }));
 
-test("Wizard adapter disposes idempotently and restores its invoking control and scroll", () => adapterFixture(async ({ review, scrollElement, trigger, disposed }) => {
+test("Wizard adapter disposes idempotently, releases its context, and restores its invoking control and scroll", () => adapterFixture(async ({ review, scrollElement, trigger, disposed, calls }) => {
     scrollElement.scrollTop = 125;
     await review.open({ stage: "specify" });
     scrollElement.scrollTop = 500;
     review.close();
     review.close();
     assert.equal(disposed(), 1);
+    assert.deepEqual(calls.at(-1), { path: "/api/review/close", method: "POST" });
+    assert.equal(calls.filter((call) => call.path === "/api/review/close").length, 1);
     assert.equal(trigger.ownerDocument.activeElement, trigger);
     assert.equal(scrollElement.scrollTop, 125);
 }));
@@ -120,6 +123,20 @@ test("Wizard adapter can reopen without retaining the previous reader root", () 
     assert.equal(disposed(), 1);
     assert.equal(mounted.filter((options) => options.document).length, 2);
 }));
+
+test("Wizard adapter force-closes and releases its context while navigation is blocked", async () => {
+    let navigationAllowed = true;
+    await adapterFixture(async ({ review, calls, container }) => {
+        await review.open({ stage: "specify" });
+        navigationAllowed = false;
+        assert.equal(review.close(), false);
+        assert.ok(review.context);
+        review.close({ restore: false, force: true });
+        assert.equal(review.context, null);
+        assert.equal(container.children.length, 0);
+        assert.equal(calls.filter((call) => call.path === "/api/review/close").length, 1);
+    }, { canNavigate: () => navigationAllowed });
+});
 
 test("Wizard discovery includes scoped supporting/custom/checklist/contract and constitution artifacts", () => serviceFixture(async ({ root, snapshot, service }) => {
     await fs.mkdir(join(root, "specs/001-fixture/checklists"), { recursive: true });
@@ -159,6 +176,9 @@ test("Wizard discovery paginates actual files without duplicates or workflow cha
 
 test("Wizard resolves revision-bound local references without fetching external targets", () => serviceFixture(async ({ root, service }) => {
     await fs.writeFile(join(root, "specs/001-fixture/research.md"), "# Research\n");
+    await fs.writeFile(join(root, "private.md"), "# Workspace private\n");
+    await fs.mkdir(join(root, "specs/002-other"), { recursive: true });
+    await fs.writeFile(join(root, "specs/002-other/private.md"), "# Other feature\n");
     const opened = await service.open({ stage: "specify" });
     const source = await service.content(opened.contextId, opened.primaryArtifactId);
     assert.equal(typeof service.resolveLink, "function", "T032: safe relative link resolution is missing");
@@ -167,6 +187,10 @@ test("Wizard resolves revision-bound local references without fetching external 
     assert.equal(resolved.artifact.role, "reference");
     assert.equal(resolved.fragment, "research");
     assert.equal((await service.content(opened.contextId, resolved.artifact.id)).content, "# Research\n");
+    assert.deepEqual(await service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "../../private.md"),
+        { kind: "inert", reason: "unsupported_target" });
+    assert.deepEqual(await service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "../002-other/private.md"),
+        { kind: "inert", reason: "unsupported_target" });
     assert.equal((await service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "https://example.invalid/" )).requiresUserAction, true);
     assert.equal((await service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "javascript:alert(1)")).kind, "inert");
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Changed\n");
@@ -354,3 +378,130 @@ test("Wizard clarification bindings are prose-only and reject a stale revision o
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# New scope\n");
     await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId, document.revision, answers, "speckit.specify"), { code: "changed_source" });
 }));
+
+test("Wizard clarification batches enforce one aggregate UTF-8 budget", () => serviceFixture(async ({ root, service }) => {
+    const questions = ["First?", "Second?", "Third?", "Fourth?"];
+    await fs.writeFile(join(root, "specs/001-fixture/spec.md"),
+        `# Scope\n\n${questions.map((question) => `[NEEDS CLARIFICATION: ${question}]`).join("\n\n")}\n`);
+    const opened = await service.open({ stage: "specify" });
+    assert.equal(opened.clarificationBatchMaxBytes, 12 * 1024);
+    const document = await service.content(opened.contextId, opened.primaryArtifactId);
+    const answers = document.clarifications.map((binding) => ({
+        questionId: binding.questionId, question: binding.question, answer: "x".repeat(3500),
+    }));
+    assert.ok(Buffer.byteLength(JSON.stringify(answers), "utf8") > opened.clarificationBatchMaxBytes);
+    await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId,
+        document.revision, answers, "speckit.specify"), { code: "invalid_request" });
+}));
+
+test("review signatures discover once per active scope and stop after explicit close", async () => {
+    const domain = await import("../server/artifact-review.mjs");
+    const root = await fs.mkdtemp(join(tmpdir(), "review-signature-fixture-"));
+    try {
+        for (const feature of ["one", "two"]) {
+            await fs.mkdir(join(root, "specs", feature), { recursive: true });
+            await fs.writeFile(join(root, "specs", feature, "spec.md"), `# ${feature}\n`);
+        }
+        const discoveries = [];
+        const service = domain.createArtifactReviewService({
+            canvasId: "speckit-wizard", workspacePath: root, instanceId: "signature-fixture",
+            getScope: async ({ feature }) => ({
+                scopeType: "feature", scopeKey: feature,
+                primary: { relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" },
+                candidates: [{ relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" }],
+                roots: [],
+            }),
+            discoverCandidates: async (scope) => {
+                discoveries.push(scope.scopeKey);
+                return { candidates: scope.candidates, inspectedCount: 1, limitReached: false };
+            },
+        });
+        const first = await service.open({ feature: "one" });
+        const duplicate = await service.open({ feature: "one" });
+        const other = await service.open({ feature: "two" });
+        discoveries.length = 0;
+        await service.signature();
+        assert.deepEqual(discoveries.toSorted(), ["one", "two"]);
+        assert.equal(service.activeContextCount(), 3);
+        assert.deepEqual(service.close(first.contextId), { closed: true });
+        assert.deepEqual(service.close(first.contextId), { closed: false });
+        discoveries.length = 0;
+        await service.signature();
+        assert.deepEqual(discoveries.toSorted(), ["one", "two"]);
+        service.close(duplicate.contextId);
+        discoveries.length = 0;
+        await service.signature();
+        assert.deepEqual(discoveries, ["two"]);
+        service.close(other.contextId);
+        discoveries.length = 0;
+        await service.signature();
+        assert.deepEqual(discoveries, []);
+        assert.equal(service.activeContextCount(), 0);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test("review signature budget counts traversed non-artifact entries across scopes", async () => {
+    const domain = await import("../server/artifact-review.mjs");
+    const root = await fs.mkdtemp(join(tmpdir(), "review-signature-budget-"));
+    try {
+        for (const feature of ["one", "two"]) {
+            await fs.mkdir(join(root, "specs", feature), { recursive: true });
+            await fs.writeFile(join(root, "specs", feature, "spec.md"), `# ${feature}\n`);
+        }
+        let sweeping = false;
+        const discoveries = [];
+        const service = domain.createArtifactReviewService({
+            canvasId: "speckit-wizard", workspacePath: root, instanceId: "budget-fixture",
+            getScope: async ({ feature }) => ({
+                scopeType: "feature", scopeKey: feature,
+                primary: { relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" },
+                candidates: [{ relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" }], roots: [],
+            }),
+            discoverCandidates: async (scope) => {
+                discoveries.push(scope.scopeKey);
+                return sweeping && scope.scopeKey === "one"
+                    ? { candidates: [], inspectedCount: domain.ARTIFACT_INSPECTION_LIMIT, limitReached: true }
+                    : { candidates: scope.candidates, inspectedCount: 1, limitReached: false };
+            },
+        });
+        await service.open({ feature: "one" });
+        await service.open({ feature: "two" });
+        discoveries.length = 0;
+        sweeping = true;
+        const first = await service.signature();
+        assert.deepEqual(discoveries, ["one"]);
+        discoveries.length = 0;
+        const second = await service.signature();
+        assert.deepEqual(discoveries, ["two", "one"]);
+        discoveries.length = 0;
+        const third = await service.signature();
+        assert.deepEqual(discoveries, ["one"]);
+        assert.notEqual(first, second);
+        assert.equal(second, third);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test("review signature retains contexts across transient discovery failures", async () => {
+    const domain = await import("../server/artifact-review.mjs");
+    const root = await fs.mkdtemp(join(tmpdir(), "review-signature-retry-"));
+    try {
+        await fs.mkdir(join(root, "specs/one"), { recursive: true });
+        await fs.writeFile(join(root, "specs/one/spec.md"), "# one\n");
+        let fail = false;
+        const candidate = { relativePath: "specs/one/spec.md", label: "one", role: "primary", availability: "available" };
+        const service = domain.createArtifactReviewService({
+            canvasId: "speckit-wizard", workspacePath: root, instanceId: "retry-fixture",
+            getScope: async () => ({ scopeType: "feature", scopeKey: "one", primary: candidate, candidates: [candidate], roots: [] }),
+            discoverCandidates: async () => {
+                if (fail) throw new Error("temporary scan failure");
+                return { candidates: [candidate], inspectedCount: 1, limitReached: false };
+            },
+        });
+        const opened = await service.open({ feature: "one" });
+        const baseline = await service.signature();
+        fail = true;
+        assert.equal(await service.signature(), baseline);
+        assert.equal(service.activeContextCount(), 1);
+        assert.equal((await service.content(opened.contextId, opened.primaryArtifactId)).content, "# one\n");
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

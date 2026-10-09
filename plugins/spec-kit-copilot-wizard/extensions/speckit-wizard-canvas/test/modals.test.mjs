@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 import * as runtime from "../ui/phase-runtime.js";
-import { flushClarifications, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
+import { clarificationBatchWithinBudget, flushClarifications, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -168,6 +168,14 @@ describe("wizard modals", () => {
         assert.equal(isPhaseRunning("speckit.plan"), true);
         clearPhaseRunning("speckit.plan");
     });
+});
+
+test("review clarification preflight uses the advertised UTF-8 byte budget", () => {
+    const answers = [{ questionId: "question_scope", question: "Which scope?", answer: "Unicode: ✓" }];
+    const bytes = Buffer.byteLength(JSON.stringify(answers), "utf8");
+    assert.equal(clarificationBatchWithinBudget(answers, bytes), true);
+    assert.equal(clarificationBatchWithinBudget(answers, bytes - 1), false);
+    assert.equal(clarificationBatchWithinBudget(answers, undefined), false);
 });
 
 function draftStore() {

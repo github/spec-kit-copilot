@@ -236,7 +236,7 @@ async function broadcast(entry) {
     entry.broadcasting = true;
     try {
         const state = currentState();
-        const signature = await entry.review.signature();
+        const signature = entry.review.activeContextCount() ? await entry.review.signature() : "";
         const sig = stateSignature(state, signature);
         if (sig === entry.lastSig) return;
         entry.lastSig = sig;

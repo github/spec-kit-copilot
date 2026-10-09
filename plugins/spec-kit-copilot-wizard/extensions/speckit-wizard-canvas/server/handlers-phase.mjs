@@ -83,8 +83,11 @@ export async function handlePhaseSubmit(res, body, deps) {
             if (!service) return jsonError(res, 409, "Review context is no longer available.");
             try {
                 await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
-            } catch {
-                return jsonError(res, 409, "Clarification source changed. Refresh before submitting.");
+            } catch (error) {
+                const changed = error?.code === "changed_source";
+                return jsonError(res, changed ? 409 : 400, changed
+                    ? "Clarification source changed. Refresh before submitting."
+                    : "Clarification answers are invalid or exceed the review submission limit.");
             }
         }
         return dispatchWorkflowCommand(res, {
