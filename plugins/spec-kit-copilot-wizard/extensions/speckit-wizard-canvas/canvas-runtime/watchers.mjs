@@ -106,6 +106,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
     const roots = [
         joinIfPossible(inst.workspacePath, ".specify"),
         joinIfPossible(inst.workspacePath, "specs"),
+        joinIfPossible(inst.workspacePath, ".github/skills"),
     ].filter(Boolean);
 
     const scheduleRescan = () => {
@@ -114,7 +115,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
             inst._artifactWatchDebounce = null;
             try {
                 const snap = await snapshot(inst);
-                inst.broadcast({ type: "state", data: snap });
+                inst.broadcast({ type: "state", data: snap, review: { kind: "artifact-set" } });
             } catch {
                 // best-effort watcher; UI will pick up state on next event
             }

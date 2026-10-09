@@ -248,7 +248,7 @@ export function handleServerMessage(msg) {
                 state.currentPhase = msg.data.currentPhase || null;
             }
             observePhaseProgress();
-            maybeRequestArtifactInference();
+            if (!document.body.classList.contains("artifact-review-open")) maybeRequestArtifactInference();
             resolveSnapshotWaiters();
             __render();
             break;
@@ -286,6 +286,7 @@ export function handleServerMessage(msg) {
                 }
             }
             state.compositionRequested = false;
+            if (document.body.classList.contains("artifact-review-open")) break;
             updateCompositionRefreshButton();
             renderComposition();
             // The pipeline stepper and active phase card read from

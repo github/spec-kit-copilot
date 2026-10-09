@@ -23,6 +23,8 @@ import {
     openArtifactViewer,
     openCommandViewer,
     openCatalogViewer,
+    refreshArtifactReview,
+    setArtifactReviewConnected,
 } from "./modals.js";
 import {
     setCatalogDeps,
@@ -75,8 +77,12 @@ const client = createClient({
     onError: (path, err) => {
         console.error(`${path}: ${err?.message ?? err}`);
     },
-    onMessage: handleServerMessage,
+    onMessage: (message) => {
+        handleServerMessage(message);
+        refreshArtifactReview(message);
+    },
     onConnectionChange: (status) => {
+        setArtifactReviewConnected(status === "live");
         const conn = document.getElementById("conn-status");
         if (!conn) return;
         conn.textContent = status === "live" ? "live" : "reconnecting…";
@@ -97,7 +103,7 @@ setStepperDeps({ renderPhaseCard });
 setPhaseCardDeps({ renderGraphPhaseCard });
 setGraphPhaseCardDeps({ postJson, openArtifactViewer, openCommandViewer, renderPhaseCard, renderStepper });
 setEnvDeps({ postJson });
-setViewersDeps({ postJson, HEADERS });
+setViewersDeps({ postJson, HEADERS, onReturn: render });
 const boot = installBootOverlay({ token: TOKEN });
 setMessagesDeps({ render, refreshState, onBoot: boot.handleBootMessage });
 
@@ -125,8 +131,7 @@ function wireTabs() {
 
 function selectTab(name) {
     if (!name) return;
-    // Gate access to Phases until setup (Environment) is complete.
-    if (name === "phases" && !isSetupComplete()) return;
+    if (name === "phases" && !isSetupComplete() && !Object.values(state.snapshot?.phases ?? {}).some((phase) => phase.artifactPath)) return;
     state.activeTab = name;
     for (const tab of document.querySelectorAll(".tab")) {
         tab.setAttribute("aria-selected", tab.dataset.tab === name ? "true" : "false");
@@ -260,6 +265,7 @@ async function refreshState() {
 
 // -------- Render --------
 function render() {
+    if (document.body.classList.contains("artifact-review-open")) return;
     renderSetupStepper();
     renderEnvironmentCard();
     renderStepper();

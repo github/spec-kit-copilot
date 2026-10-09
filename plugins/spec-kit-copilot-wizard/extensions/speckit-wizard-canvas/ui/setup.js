@@ -82,7 +82,7 @@ export function isSetupComplete() {
 }
 
 export function refreshTabLock() {
-    const locked = !isSetupComplete();
+    const locked = !isSetupComplete() && !Object.values(state.snapshot?.phases ?? {}).some((phase) => phase.artifactPath);
     for (const tab of document.querySelectorAll(".tab")) {
         if (tab.dataset.tab === "phases") {
             tab.classList.toggle("locked", locked);

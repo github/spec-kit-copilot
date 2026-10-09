@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { reviewHttpSecurityTests } from "./review-http-security-fixture.mjs";
 import {
     existsSync,
     mkdirSync,
@@ -36,6 +37,8 @@ afterEach(() => {
     __resetRunTrackerForTests();
     setSession(null);
 });
+
+reviewHttpSecurityTests("wizard");
 
 describe("server", () => {
 // Tests for server.mjs — createHandler with mock req/res + injected deps.
@@ -635,6 +638,31 @@ test("POST /api/phase/submit acknowledges before session.send completion and cle
 
         await new Promise((r) => setImmediate(r));
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rejects invalid clarification batches before dispatch", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const invalid = Object.assign(new Error("batch too large"), { code: "invalid_request" });
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: { getInstance: () => ({ instanceId: "inst-review", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => { throw invalid; } } }) },
+        });
+        const h = createHandler(deps);
+        const res = mockRes();
+        await h(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer",
+                review: { contextId: "ctx_fixture", artifactId: "artifact_fixture",
+                    expectedRevision: `sha256:${"a".repeat(64)}`, answers: [] } }),
+        }), res);
+        assert.equal(res.statusCode, 400);
+        assert.match(JSON.parse(res.body).error, /invalid|limit/i);
+        assert.equal(deps._sessionCalls.length, 0);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }

@@ -77,6 +77,19 @@ export async function handlePhaseSubmit(res, body, deps) {
     // reports a terminal phase status, and opens a witness window so the
     // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
+        if (body.review) {
+            const review = body.review;
+            const service = deps.getInstance?.()?.reviewService;
+            if (!service) return jsonError(res, 409, "Review context is no longer available.");
+            try {
+                await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
+            } catch (error) {
+                const changed = error?.code === "changed_source";
+                return jsonError(res, changed ? 409 : 400, changed
+                    ? "Clarification source changed. Refresh before submitting."
+                    : "Clarification answers are invalid or exceed the review submission limit.");
+            }
+        }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
             args: typeof body.args === "string" ? body.args : "",
