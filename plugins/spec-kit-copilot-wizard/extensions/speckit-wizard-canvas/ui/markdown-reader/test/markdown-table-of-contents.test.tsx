@@ -109,6 +109,27 @@ async function tocFixture(run: (fixture: {
     }
 }
 
+for (const compact of [false, true]) {
+    test(`${compact ? "compact" : "wide"} TOC distinguishes branch and leaf headings with decorative icons`, () => tocFixture(async ({ document, render }) => {
+        await render(compact);
+        if (compact) await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Table of contents"]')!.click());
+        for (const [slug, iconClass, label] of [["title", "lucide-list-tree", "Title"], ["purpose", "lucide-hash", "Purpose"]]) {
+            const button = document.querySelector<HTMLButtonElement>(`[data-toc-slug="${slug}"]`)!;
+            const icon = button.querySelector(`.md-reader__toc-icon.${iconClass}`);
+            assert.ok(icon, `${label} should have its heading-type icon`);
+            assert.equal(icon.getAttribute("aria-hidden"), "true");
+            assert.equal(icon.getAttribute("focusable"), "false");
+            assert.equal(icon.getAttribute("width"), "14");
+            assert.equal(icon.getAttribute("height"), "14");
+            assert.equal(button.textContent, label);
+            assert.equal(button.title, label);
+            assert.equal(button.querySelector(".md-reader__toc-label")?.textContent, label);
+        }
+        assert.equal(document.querySelector('[data-toc-slug="title"]')?.getAttribute("aria-current"), "location");
+        assert.equal(document.querySelector('[data-toc-slug="purpose"]')?.getAttribute("aria-current"), null);
+    }));
+}
+
 test("compact TOC traps focus and Escape restores the trigger and prior inert state", () => tocFixture(async ({ document, window, content, toolbar, render }) => {
     await render();
     const trigger = document.querySelector<HTMLButtonElement>('[aria-label="Table of contents"]')!;

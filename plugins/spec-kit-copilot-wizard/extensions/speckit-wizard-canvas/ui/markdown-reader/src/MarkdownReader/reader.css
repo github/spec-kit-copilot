@@ -103,7 +103,10 @@
 .md-reader__toc-list .md-reader__toc-list { padding-left: 10px; }
 .md-reader__toc-list li { margin: 0; padding: 0; }
 .md-reader__toc-list button {
-    display: block;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    align-items: start;
+    column-gap: 7px;
     width: 100%;
     min-height: 30px;
     padding: 6px 7px;
@@ -121,6 +124,8 @@
     cursor: pointer;
 }
 
+.md-reader__toc-icon { width: 14px; height: 14px; margin-top: 2px; color: var(--md-muted); }
+.md-reader__toc-label { min-width: 0; }
 .md-reader__toc-list button:hover { background: color-mix(in srgb, var(--md-ink) 6%, var(--md-paper)); color: var(--md-ink); }
 .md-reader__toc-list button[aria-current="location"] {
     background: color-mix(in srgb, var(--md-accent) 10%, var(--md-paper));
@@ -128,6 +133,7 @@
     border-left-color: var(--md-accent);
     font-weight: 650;
 }
+.md-reader__toc-list button[aria-current="location"] .md-reader__toc-icon { color: var(--md-accent); }
 
 .md-reader__toc-compact { min-width: 0; }
 .md-reader__toc-trigger {

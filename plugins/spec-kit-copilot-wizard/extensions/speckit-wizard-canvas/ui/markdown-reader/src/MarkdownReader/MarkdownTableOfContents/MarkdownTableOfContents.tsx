@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ListTree, X } from "lucide-react";
+import { Hash, ListTree, X } from "lucide-react";
 import type { HeadingTarget } from "../markdownOutline.ts";
 
 export interface TableOfContentsProps {
@@ -84,11 +84,17 @@ export function MarkdownTableOfContents({ readerId, headings, activeSlug, compac
         else onNavigate(slug, activation);
     };
     const renderBranches = (branches: OutlineBranch[]) => <ol className="md-reader__toc-list">
-        {branches.map(({ heading, children }) => <li key={heading.domId}>
-            <button type="button" data-toc-slug={heading.logicalSlug} aria-current={activeSlug === heading.logicalSlug ? "location" : undefined}
-                title={heading.label} onClick={(event) => navigate(heading.logicalSlug, event.detail === 0 ? "keyboard" : "pointer")}>{heading.label}</button>
-            {children.length > 0 && renderBranches(children)}
-        </li>)}
+        {branches.map(({ heading, children }) => {
+            const HeadingIcon = children.length > 0 ? ListTree : Hash;
+            return <li key={heading.domId}>
+                <button type="button" data-toc-slug={heading.logicalSlug} aria-current={activeSlug === heading.logicalSlug ? "location" : undefined}
+                    title={heading.label} onClick={(event) => navigate(heading.logicalSlug, event.detail === 0 ? "keyboard" : "pointer")}>
+                    <HeadingIcon className="md-reader__toc-icon" size={14} aria-hidden="true" focusable="false" />
+                    <span className="md-reader__toc-label">{heading.label}</span>
+                </button>
+                {children.length > 0 && renderBranches(children)}
+            </li>;
+        })}
     </ol>;
     const outline = renderBranches(outlineTree(headings));
     const heading = <div className="md-reader__toc-title" id={`${readerId}-toc-title`}><ListTree size={16} aria-hidden="true" /><span>Table of contents</span></div>;

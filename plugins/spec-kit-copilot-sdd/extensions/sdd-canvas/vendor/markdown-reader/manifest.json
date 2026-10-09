@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "sourceHash": "sha256:dbfcd64e1ef9244dcdeb53145799ce4c7196bacd00f118c5ba37d1152fa51165",
-  "buildHash": "sha256:b9476765bd2aa82c8e818b0e8a507ae1dd98a514108fdeaf5fc62f3276b97d71",
+  "sourceHash": "sha256:7fd10506f2beb40de0d90c778623a0bbe748ad8f69a3d9cec97dd3521b0ac058",
+  "buildHash": "sha256:8eb0c7a67634f2373dd2010a38dd8fa41532412ebb17a8d8a40e297276d3e5e5",
   "files": [
     {
       "path": "markdown-reader.js",
-      "bytes": 493001,
-      "sha256": "044848bbd060c55a0edb491f46ce670d67c722aa75ebe324d8baa2a49e1905fd"
+      "bytes": 493647,
+      "sha256": "9d83f1aea10d6776add39f7a770f28e2c1074a981238f8d37e7248ad3e8917f9"
     },
     {
       "path": "markdown-reader.css",
-      "bytes": 7751,
-      "sha256": "71df0f222fa9773f74f15e6420fcc015158edc41a963b0d5b1a4e3ebf473193b"
+      "bytes": 8034,
+      "sha256": "de3e50def44e6150d99a53cebfaa30b37219f1e319f94fdf69168287bf14373a"
     },
     {
       "path": "THIRD_PARTY_NOTICES.txt",

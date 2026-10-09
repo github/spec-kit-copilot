@@ -8,6 +8,7 @@ const markdown = [
     "# Canvas review fixture", "## Purpose", "Review the specification without leaving the workflow.",
     ...Array.from({ length: 18 }, () => "A synthetic paragraph keeps the document long enough to exercise section navigation and its explicit scroll container."),
     "## Details", "### Requirements", "- [x] Read existing artifacts\n- [ ] Preserve workflow state",
+    "#### Long nested heading with enough words to wrap beside its section icon",
     `| Name | Value |\n| --- | --- |\n| Wide content | ${"unbroken".repeat(120)} |`,
     `\`\`\`text\n${"wide-code-".repeat(120)}\n\`\`\``, "## References", "A footnote[^fixture] and [research](research.md).",
     "[^fixture]: Synthetic footnote.", "![Non-loading example](https://example.invalid/fixture.png)",
@@ -55,8 +56,28 @@ for (const canvas of ["wizard", "sdd"]) {
                 const readerWidth = await reader.evaluate((element) => element.clientWidth);
                 const compact = readerWidth < 820;
                 await expect(reader).toHaveAttribute("data-reader-layout", compact ? "compact" : "wide", { timeout: 3000 });
+                if (compact) await reader.getByRole("button", { name: "Table of contents", exact: true }).click();
+                const navigation = reader.getByRole("navigation", { name: "Table of contents", exact: true });
+                await expect(navigation).toBeVisible();
+                await expect(navigation.getByRole("button", { name: "Details", exact: true }).locator("svg.lucide-list-tree")).toBeVisible();
+                await expect(navigation.getByRole("button", { name: "Purpose", exact: true }).locator("svg.lucide-hash")).toBeVisible();
+                const iconLayout = await navigation.locator("[data-toc-slug]").evaluateAll((buttons) => buttons.map((button) => {
+                    const icon = button.querySelector(".md-reader__toc-icon").getBoundingClientRect();
+                    const label = button.querySelector(".md-reader__toc-label").getBoundingClientRect();
+                    const bounds = button.getBoundingClientRect();
+                    return { width: icon.width, height: icon.height, gap: label.left - icon.right,
+                        contained: label.right <= bounds.right && label.bottom <= bounds.bottom,
+                        overflowing: button.scrollWidth > button.clientWidth + 1 };
+                }));
+                for (const item of iconLayout) {
+                    expect(item.width).toBe(14);
+                    expect(item.height).toBe(14);
+                    expect(item.gap).toBeGreaterThanOrEqual(6);
+                    expect(item.contained).toBe(true);
+                    expect(item.overflowing).toBe(false);
+                }
+                await navigation.screenshot({ path: testInfo.outputPath(`${canvas}-${width}-toc-icons.png`) });
                 if (compact) {
-                    await reader.getByRole("button", { name: "Table of contents", exact: true }).click();
                     const dialog = reader.getByRole("dialog", { name: "Table of contents", exact: true });
                     await expect(dialog).toBeVisible();
                     const close = dialog.getByRole("button", { name: "Close table of contents", exact: true });
@@ -69,8 +90,6 @@ for (const canvas of ["wizard", "sdd"]) {
                     await target.press("Enter");
                     await expect(dialog).toHaveCount(0);
                 } else {
-                    const navigation = reader.getByRole("navigation", { name: "Table of contents", exact: true });
-                    await expect(navigation).toBeVisible();
                     const target = navigation.getByRole("button", { name: "Details", exact: true });
                     await target.focus();
                     await target.press("Enter");
