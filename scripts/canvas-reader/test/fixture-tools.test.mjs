@@ -56,6 +56,8 @@ test("staging copies complete existing plugins without reader development depend
             assert.ok(plugin.files.some((file) => file.path.endsWith("extension.mjs")));
             assert.ok(plugin.files.every((file) => !file.path.includes("ui/markdown-reader/node_modules")));
             assert.ok(plugin.files.every((file) => !file.path.endsWith(".map")));
+            assert.ok(plugin.files.every((file) => !file.path.includes("/e2e/")));
+            assert.ok(plugin.files.every((file) => !file.path.endsWith("playwright.config.mjs")));
         }
         const wizard = result.plugins.find((plugin) => plugin.id === "spec-kit-copilot-wizard");
         assert.ok(wizard.files.some((file) => file.path.includes("node_modules/js-yaml/")));

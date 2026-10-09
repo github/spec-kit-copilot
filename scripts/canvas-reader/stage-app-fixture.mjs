@@ -7,7 +7,7 @@ import { assertOwnedWorkspace, isInside } from "./fixtures/workspace.mjs";
 import { ASSET_FILES, READER_PACKAGE, REPOSITORY_ROOT, inspectScriptStrings } from "./sync-assets.mjs";
 
 const PLUGINS = ["spec-kit-copilot-wizard", "spec-kit-copilot-sdd"];
-const EXCLUDED = new Set(["node_modules", "dist", "build", "coverage", "test-results", "playwright-report", ".git", ".vscode", "test", "tests"]);
+const EXCLUDED = new Set(["node_modules", "dist", "build", "coverage", "test-results", "playwright-report", ".git", ".vscode", "test", "tests", "e2e", "playwright.config.mjs"]);
 const require = createRequire(new URL(`../../${READER_PACKAGE}/package.json`, import.meta.url));
 const builtinImports = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
