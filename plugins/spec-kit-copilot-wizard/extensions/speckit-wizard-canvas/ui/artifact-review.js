@@ -349,7 +349,17 @@ export function createArtifactReview({
         if (canNavigate?.() === false) return false;
         if (!activeContext || !currentDocument) return false;
         const requestGeneration = generation;
+        let externalWindow;
         try {
+            if (typeof target === "string" && /^https?:\/\//i.test(target)) {
+                externalWindow = window.open("about:blank", "_blank");
+                if (!externalWindow) return false;
+                externalWindow.opener = null;
+                const referrerPolicy = externalWindow.document.createElement("meta");
+                referrerPolicy.name = "referrer";
+                referrerPolicy.content = "no-referrer";
+                externalWindow.document.head.append(referrerPolicy);
+            }
             const resolved = await json("/api/review/resolve-link", {}, controller?.signal, {
                 contextId: activeContext.contextId, sourceArtifactId: currentDocument.artifact.id,
                 expectedRevision: currentDocument.revision, target,
@@ -364,10 +374,18 @@ export function createArtifactReview({
                 else artifacts[index] = resolved.artifact;
                 return selectArtifact(resolved.artifact.id, { fragment: resolved.fragment });
             } else if (resolved.kind === "external" && resolved.requiresUserAction) {
-                window.open(resolved.url, "_blank", "noopener,noreferrer");
+                if (!externalWindow || externalWindow.closed) return false;
+                const link = externalWindow.document.createElement("a");
+                link.href = resolved.url;
+                link.referrerPolicy = "no-referrer";
+                link.rel = "noopener noreferrer";
+                externalWindow.document.body.append(link);
+                link.click();
+                externalWindow = null;
             }
             return resolved.kind !== "inert";
         } catch { return false; }
+        finally { externalWindow?.close(); }
     }
 
     function close({ restore = true, force = false } = {}) {

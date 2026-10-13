@@ -18,6 +18,7 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
     const calls = [];
     const renders = [];
     let deferred;
+    let deferredLink;
     let failure;
     let contextGeneration = 0;
     let expired = false;
@@ -29,6 +30,14 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
             const entered = new Promise((resolve) => { started = resolve; });
             const waiting = new Promise((resolve) => { release = resolve; });
             deferred = { started, waiting };
+            return { entered, release };
+        },
+        deferNextLink(data, error = null) {
+            let started;
+            let release;
+            const entered = new Promise((resolve) => { started = resolve; });
+            const waiting = new Promise((resolve) => { release = resolve; });
+            deferredLink = { started, waiting, data, error };
             return { entered, release };
         },
         failNextRead(code) { failure = code; },
@@ -44,6 +53,16 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
             data = { contextId: `ctx_fixture_${contextGeneration}`, generation: 1, items: items(), primaryArtifactId: "primary", nextCursor: null };
         } else if (expired) return { ok: false, json: async () => ({ ok: false, error: { code: "invalid_context" } }) };
         else if (url.pathname.endsWith("/artifacts")) data = { contextId: `ctx_fixture_${contextGeneration}`, generation: 1, items: items(), nextCursor: null };
+        else if (url.pathname.endsWith("/resolve-link")) {
+            const pending = deferredLink;
+            deferredLink = null;
+            data = pending?.data ?? { kind: "inert" };
+            if (pending) {
+                pending.started();
+                await pending.waiting;
+                if (pending.error) return { ok: false, json: async () => ({ ok: false, error: { code: pending.error } }) };
+            }
+        }
         else {
             const id = url.searchParams.get("artifactId");
             let code = failure;
@@ -76,7 +95,87 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
     finally { review.close(); dom.window.close(); }
 }
 
+function mockPopup(window) {
+    const calls = [];
+    const navigations = [];
+    const popup = {
+        opener: window, closed: false,
+        document: window.document.implementation.createHTMLDocument(""),
+        close() { popup.closed = true; },
+    };
+    popup.document.addEventListener("click", (event) => {
+        event.preventDefault();
+        assert.equal(event.target.referrerPolicy, "no-referrer");
+        assert.equal(event.target.rel, "noopener noreferrer");
+        navigations.push(event.target.href);
+    });
+    window.open = (...parameters) => { calls.push(parameters); return popup; };
+    return { calls, navigations, popup };
+}
+
 export function reviewFreshnessTests(canvas, adapterUrl) {
+    test(`${canvas} external links reserve a protected window before asynchronous validation`, () => withReview(adapterUrl, async ({ review, remote, container }) => {
+        await review.open({ stage: "specify" });
+        const { calls, navigations, popup } = mockPopup(container.ownerDocument.defaultView);
+        const validatedUrl = "https://example.invalid/validated";
+        const delayed = remote.deferNextLink({ kind: "external", url: validatedUrl, requiresUserAction: true });
+        const navigation = review.navigateReference("https://example.invalid/requested");
+        try {
+            assert.deepEqual(calls, [["about:blank", "_blank"]]);
+            assert.equal(popup.opener, null);
+            assert.equal(popup.document.querySelector('meta[name="referrer"]')?.content, "no-referrer");
+            assert.deepEqual(navigations, []);
+            await delayed.entered;
+        } finally { delayed.release(); await navigation; }
+        assert.equal(await navigation, true);
+        assert.deepEqual(navigations, [validatedUrl]);
+        assert.equal(popup.closed, false);
+    }));
+
+    for (const outcome of ["inert", "failed", "stale", "closed"]) {
+        test(`${canvas} external links close unused windows after ${outcome} validation`, () => withReview(adapterUrl, async ({ review, remote, container }) => {
+            await review.open({ stage: "specify" });
+            const { calls, navigations, popup } = mockPopup(container.ownerDocument.defaultView);
+            const delayed = remote.deferNextLink(outcome === "inert" ? { kind: "inert" }
+                : { kind: "external", url: "https://example.invalid/validated", requiresUserAction: true },
+            outcome === "failed" ? "changed_source" : null);
+            const navigation = review.navigateReference("https://example.invalid/requested");
+            try {
+                assert.equal(calls.length, 1);
+                await delayed.entered;
+                if (outcome === "stale") review.close();
+                if (outcome === "closed") popup.close();
+            } finally { delayed.release(); await navigation; }
+            assert.equal(await navigation, false);
+            assert.equal(popup.closed, true);
+            assert.deepEqual(navigations, []);
+            assert.equal(calls.length, 1);
+        }));
+    }
+
+    test(`${canvas} external links report blocked windows without asynchronous popup retries`, () => withReview(adapterUrl, async ({ review, calls, container }) => {
+        await review.open({ stage: "specify" });
+        let attempts = 0;
+        container.ownerDocument.defaultView.open = () => { attempts++; return null; };
+        assert.equal(await review.navigateReference("https://example.invalid/requested"), false);
+        assert.equal(attempts, 1);
+        assert.ok(!calls.some((call) => call.route.endsWith("/resolve-link")));
+        assert.equal(review.document.artifact.id, "primary");
+    }));
+
+    test(`${canvas} local references do not reserve external windows`, () => withReview(adapterUrl, async ({ review, remote, renders, container }) => {
+        await review.open({ stage: "specify" });
+        const { calls } = mockPopup(container.ownerDocument.defaultView);
+        const delayed = remote.deferNextLink({ kind: "fragment", fragment: "scope" });
+        const navigation = review.navigateReference("#scope");
+        try {
+            await delayed.entered;
+            assert.deepEqual(calls, []);
+        } finally { delayed.release(); await navigation; }
+        assert.equal(await navigation, true);
+        assert.equal(renders.at(-1).fragment, "scope");
+    }));
+
     for (const mode of ["initial", "selection"]) {
         test(`${canvas} invalidation during ${mode} loading presents the latest revision`, async () => {
             const target = mode === "initial" ? "primary" : "related";

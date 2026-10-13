@@ -4,6 +4,8 @@ import { startFixture } from "../serve-fixture.mjs";
 const require = createRequire(new URL("../../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader/package.json", import.meta.url));
 const { test, expect } = require("@playwright/test");
 
+test.use({ launchOptions: { ignoreDefaultArgs: ["--disable-popup-blocking"] } });
+
 const markdown = [
     "# Canvas review fixture", "## Purpose", "Review the specification without leaving the workflow.",
     ...Array.from({ length: 18 }, () => "A synthetic paragraph keeps the document long enough to exercise section navigation and its explicit scroll container."),
@@ -15,6 +17,57 @@ const markdown = [
 ].join("\n\n");
 
 for (const canvas of ["wizard", "sdd"]) {
+    test.describe(`${canvas} external navigation`, () => {
+        test("keeps click activation and protects opener and referrer", async ({ page, context }) => {
+            const destination = "https://example.invalid/reviewed-document";
+            const fixture = await startFixture({ canvas, markdown: `# Reviewed document\n\n[External reference](${destination})\n` });
+            let popup;
+            let reportValidation;
+            let releaseValidation;
+            const validationStarted = new Promise((resolve) => { reportValidation = resolve; });
+            const validationPending = new Promise((resolve) => { releaseValidation = resolve; });
+            const referrers = [];
+            await context.route(destination, async (route) => {
+                referrers.push(route.request().headers().referer ?? null);
+                await route.fulfill({ status: 200, contentType: "text/html",
+                    body: "<title>Validated external document</title><h1>Validated external document</h1>" });
+            });
+            await page.route("**/api/review/resolve-link*", async (route) => {
+                const response = await route.fetch();
+                reportValidation();
+                await validationPending;
+                await route.fulfill({ response });
+            });
+            try {
+                await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
+                if (canvas === "wizard") await page.locator('[data-tab="phases"]').click();
+                await (canvas === "wizard" ? page.locator('#phase-card [data-phase-action="view"]')
+                    : page.getByTitle("View spec.md", { exact: true })).click();
+                const reader = page.locator("[data-reader-id]");
+                await expect(reader).toBeVisible();
+                const opened = page.waitForEvent("popup");
+                await reader.getByRole("link", { name: "External reference", exact: true }).click();
+                popup = await opened;
+                await validationStarted;
+                expect(popup.url()).toBe("about:blank");
+                expect(await popup.evaluate(() => window.opener === null)).toBe(true);
+                expect(referrers).toEqual([]);
+                releaseValidation();
+                await popup.waitForURL(destination, { waitUntil: "domcontentloaded" });
+                await expect(popup.getByRole("heading", { name: "Validated external document" })).toBeVisible();
+                expect(await popup.evaluate(() => window.opener === null)).toBe(true);
+                expect(referrers).toEqual([null]);
+                expect(fixture.dispatchCount()).toBe(0);
+                expect(fixture.workspaceChanged()).toBe(false);
+            } finally {
+                releaseValidation();
+                await popup?.close();
+                await page.close();
+                expect((await fixture.stop()).cleaned).toBe(true);
+            }
+        });
+    });
+
     test(`${canvas} TOC layout follows exact reader container widths`, async ({ page }) => {
         const fixture = await startFixture({ canvas, markdown });
         const url = new URL(fixture.url);

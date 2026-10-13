@@ -252,16 +252,17 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
     async function resolveScopedMember(context, relativePath) {
         const scope = await currentScope(context);
         if (!scope) return null;
+        let candidate = scope.candidates.find((entry) => entry.relativePath === relativePath);
+        if (!candidate && scope.roots?.some((root) => relativePath.startsWith(`${root}/`))) {
+            candidate = discoveries.get(context.id)?.candidates.find((entry) => entry.relativePath === relativePath);
+        }
+        if (!candidate) return null;
         const reference = references.get(context.id)?.get(relativePath);
         if (reference) {
             await readArtifact(workspacePath, reference.originPath, { expectedRevision: reference.originRevision });
             return hydrate(reference);
         }
-        let candidate = scope.candidates.find((entry) => entry.relativePath === relativePath);
-        if (!candidate && scope.roots?.some((root) => relativePath.startsWith(`${root}/`))) {
-            candidate = discoveries.get(context.id)?.candidates.find((entry) => entry.relativePath === relativePath);
-        }
-        return candidate ? hydrate(candidate) : null;
+        return hydrate(candidate);
     }
     const store = createReviewStore({
         canvasId, instanceId, workspacePath,

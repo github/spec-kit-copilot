@@ -197,6 +197,28 @@ test("Wizard resolves revision-bound local references without fetching external 
     await assert.rejects(service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "#section"), { code: "changed_source" });
 }));
 
+test("Wizard revalidates registered composition references when their source becomes inactive", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const sourcePath = ".specify/presets/fixture/commands/speckit.specify.md";
+    const href = `../../${sourcePath}`;
+    await fs.mkdir(join(root, ".specify/presets/fixture/commands"), { recursive: true });
+    await fs.writeFile(join(root, sourcePath), "# Active command\n");
+    await fs.writeFile(join(root, "specs/001-fixture/spec.md"), `# Primary fixture\n\n[Command](${href})\n`);
+    snapshot.composition.artifacts = [{
+        id: "commands/speckit.specify", kind: "command",
+        stack: [{ sourcePath, active: true }],
+    }];
+    const opened = await service.open({ stage: "specify" });
+    const primary = await service.content(opened.contextId, opened.primaryArtifactId);
+    const resolved = await service.resolveLink(opened.contextId, opened.primaryArtifactId, primary.revision, href);
+    assert.equal(resolved.kind, "artifact");
+    assert.equal((await service.content(opened.contextId, resolved.artifact.id)).content, "# Active command\n");
+    snapshot.composition.artifacts[0].stack[0].active = false;
+    assert.equal((await service.content(opened.contextId, opened.primaryArtifactId)).revision, primary.revision);
+    await assert.rejects(service.content(opened.contextId, resolved.artifact.id), { code: "artifact_unavailable" });
+    assert.deepEqual(await service.resolveLink(opened.contextId, opened.primaryArtifactId, primary.revision, href),
+        { kind: "inert", reason: "unsupported_target" });
+}));
+
 test("Wizard discovery bounds entry inspection and returns a partial terminal page", async () => {
     const discovery = await import("../server/artifact-discovery.mjs").catch((error) => {
         if (error.code === "ERR_MODULE_NOT_FOUND") assert.fail("T032: bounded scoped discovery is missing");
