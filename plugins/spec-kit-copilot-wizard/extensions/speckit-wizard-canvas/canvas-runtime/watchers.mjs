@@ -106,7 +106,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
     const roots = [
         joinIfPossible(inst.workspacePath, ".specify"),
         joinIfPossible(inst.workspacePath, "specs"),
-        joinIfPossible(inst.workspacePath, ".github/skills"),
+        joinIfPossible(inst.workspacePath, ".github"),
     ].filter(Boolean);
 
     const scheduleRescan = () => {

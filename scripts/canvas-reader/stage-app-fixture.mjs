@@ -19,7 +19,6 @@ export async function verifyStagedPlugin({ pluginRoot: input } = {}) {
     if (!PLUGINS.includes(manifest.name)) throw new Error("Only the two existing canvas plugin identities are allowed.");
     const wizard = manifest.name.endsWith("wizard");
     const extensionPath = `extensions/${wizard ? "speckit-wizard-canvas" : "sdd-canvas"}`;
-    const extensionRoot = join(pluginRoot, extensionPath);
     const files = [];
     async function visit(directory) {
         if ((await lstat(directory)).isSymbolicLink()) throw new Error("Payload path redirects outside its boundary.");

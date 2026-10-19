@@ -4,6 +4,7 @@ import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 import { createArtifactReview } from "./artifact-review.js";
+import { isSetupComplete } from "./setup.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -508,11 +509,13 @@ function renderReviewDraftBanner(message = "") {
     const drafts = reviewDrafts.list(context.contextId, current.artifact.id, current.revision);
     const staleDrafts = reviewDrafts.list(context.contextId, current.artifact.id).filter((draft) => draft.revision !== current.revision);
     const pending = reviewDrafts.isPending(context.contextId);
+    const setupReady = isSetupComplete();
     banner.hidden = !drafts.length && !staleDrafts.length && !message;
     banner.replaceChildren();
     if (!banner.hidden) {
         const text = document.createElement("span");
         text.textContent = message || (staleDrafts.length ? "Saved answers from an earlier revision need confirmation."
+            : !setupReady ? `${drafts.length} clarification${drafts.length === 1 ? "" : "s"} queued. Complete setup before applying.`
             : `${drafts.length} clarification${drafts.length === 1 ? "" : "s"} queued${pending ? "; applying..." : "."}`);
         banner.append(text);
         if (drafts.length) {
@@ -520,7 +523,7 @@ function renderReviewDraftBanner(message = "") {
             button.type = "button";
             button.className = "btn btn-primary btn-sm";
             button.textContent = pending ? "Applying..." : "Apply and Rerun";
-            button.disabled = pending || drafts.some((draft) => draft.status === "stale");
+            button.disabled = pending || !setupReady || drafts.some((draft) => draft.status === "stale");
             button.addEventListener("click", () => void flushReviewedClarifications());
             banner.append(button);
         }
@@ -560,6 +563,10 @@ async function flushReviewedClarifications() {
     if (!context || !current || reviewDrafts.isPending(context.contextId)) return false;
     const bindings = boundReviewClarifications(current, context).filter((binding) => binding.answer).map((binding) => reviewBinding(binding, context.contextId));
     if (!bindings.length || bindings.some((binding) => binding.status === "stale")) return false;
+    if (!isSetupComplete()) {
+        renderReviewDraftBanner("Complete setup before applying clarifications and rerunning.");
+        return false;
+    }
     const commandName = bindings[0].commandName;
     if (isPhaseRunning(commandName)) { renderReviewDraftBanner("The owning command is still running."); return false; }
     const answers = bindings.map(({ questionId, question, answer }) => ({ questionId, question, answer }));
@@ -622,7 +629,7 @@ function openReviewedClarification(descriptorId, previous) {
             close();
             renderReviewDraftBanner();
             const all = boundReviewClarifications(current, context);
-            if (all.length && all.every((item) => item.answer && item.status !== "stale")) await flushReviewedClarifications();
+            if (isSetupComplete() && all.length && all.every((item) => item.answer && item.status !== "stale")) await flushReviewedClarifications();
         },
     });
 }

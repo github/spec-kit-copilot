@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { parseClarificationSource } from "../src/clarificationParser.ts";
 
 test("source parser recognizes only eligible prose with exact source offsets", () => {
-    const source = "# Scope\n\n## *[NEEDS CLARIFICATION: Nested heading?]*\n\n[NEEDS CLARIFICATION: Real?]\n\n[**[NEEDS CLARIFICATION: Nested link?]**](research.md)\n\n`[NEEDS CLARIFICATION: Inline?]`\n\n    [NEEDS CLARIFICATION: Indent?]\n\n~~~md\n[NEEDS CLARIFICATION: Fence?]\n~~~\n\n<!--\n[NEEDS CLARIFICATION: Comment?]\n-->\n";
+    const source = "# Scope\n\n## *[NEEDS CLARIFICATION: Nested heading?]*\n\nA &#38; B &amp; C \\* D [NEEDS CLARIFICATION: Real?] and \\[NEEDS CLARIFICATION: Escaped?] and &#91;NEEDS CLARIFICATION: Entity?]\n\n[**[NEEDS CLARIFICATION: Nested link?]**](research.md)\n\n`[NEEDS CLARIFICATION: Inline?]`\n\n    [NEEDS CLARIFICATION: Indent?]\n\n~~~md\n[NEEDS CLARIFICATION: Fence?]\n~~~\n\n<!--\n[NEEDS CLARIFICATION: Comment?]\n-->\n";
     const questions = parseClarificationSource(source);
     assert.equal(questions.length, 1);
     assert.equal(questions[0]?.question, "Real?");

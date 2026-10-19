@@ -127,11 +127,25 @@ test("Wizard automatically flushes all answered current questions as one real-co
     });
     try {
         await openReader(page, "wizard", fixture);
+        await page.evaluate(async () => {
+            const { state } = await import("/ui/state.js");
+            state.snapshot.setup.skillsReloaded = false;
+        });
         for (const question of ["Which scope?", "Which tests?"]) {
             await page.getByRole("button", { name: `Clarify: ${question}`, exact: true }).click();
             await page.locator(".wizard-modal-textarea").fill(`Synthetic answer for ${question}`);
             await page.getByRole("button", { name: "Save answer", exact: true }).click();
         }
+        await expect(page.locator("#phase-artifact-viewer")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Apply and Rerun", exact: true })).toBeDisabled();
+        expect(submitted).toHaveLength(0);
+        await page.evaluate(async () => {
+            const [{ state }, { openArtifactViewer }] = await Promise.all([import("/ui/state.js"), import("/ui/modals.js")]);
+            state.snapshot.setup.skillsReloaded = true;
+            void openArtifactViewer;
+        });
+        await page.getByRole("button", { name: "Clarify: Which tests?", exact: true }).click();
+        await page.getByRole("button", { name: "Save answer", exact: true }).click();
         await expect(page.locator("#phase-artifact-viewer")).toBeHidden();
         expect(submitted).toHaveLength(1);
         expect(submitted[0].commandName).toBe("speckit.specify");

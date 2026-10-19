@@ -382,7 +382,7 @@ export function createHandler(deps) {
                 // few take different sub-sets of the closure environment.
                 const postRoutes = {
                     "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance }),
-                    "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
+                    "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance, getState }),
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body, { broadcast, getInstance }),
                     "/api/skills/reload": () => handleSkillsReload(res, { session, broadcast, getInstance }),

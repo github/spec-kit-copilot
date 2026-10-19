@@ -112,7 +112,7 @@ function baseDeps(overrides = {}) {
         getState: async () => ({
             workspacePath: "/proj",
             currentPhase: "setup",
-            setup: { cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
             preset: "core",
             phases: {},
             slug: null,
@@ -662,6 +662,38 @@ test("POST /api/phase/submit rejects invalid clarification batches before dispat
         }), res);
         assert.equal(res.statusCode, 400);
         assert.match(JSON.parse(res.body).error, /invalid|limit/i);
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rejects reviewed clarification rerun when setup is incomplete", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const deps = baseDeps({
+            workspacePath: ws,
+            getState: async () => ({
+                workspacePath: ws,
+                currentPhase: "specify",
+                setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: false },
+                preset: "core",
+                phases: {},
+                slug: "001-fixture",
+            }),
+            extras: { getInstance: () => ({ instanceId: "inst-review-gated", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => [{ questionId: "question_scope" }] } }) },
+        });
+        const h = createHandler(deps);
+        const res = mockRes();
+        await h(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer",
+                review: { contextId: "ctx_fixture", artifactId: "artifact_fixture",
+                    expectedRevision: `sha256:${"a".repeat(64)}`, answers: [{ questionId: "question_scope", question: "Which scope?", answer: "Scoped" }] } }),
+        }), res);
+        assert.equal(res.statusCode, 409);
+        assert.match(JSON.parse(res.body).error, /setup/i);
         assert.equal(deps._sessionCalls.length, 0);
     } finally {
         rmSync(ws, { recursive: true, force: true });

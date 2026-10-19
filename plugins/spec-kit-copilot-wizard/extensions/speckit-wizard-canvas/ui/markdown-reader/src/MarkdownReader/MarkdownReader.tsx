@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Files, RefreshCw } from "lucide-react";
 import { createMarkdownOutline, namespaceMarkdownTargets } from "./markdownOutline.ts";
 import { MarkdownTableOfContents } from "./MarkdownTableOfContents/MarkdownTableOfContents.tsx";
 import { scrollToMarkdownHeading, useActiveMarkdownHeading } from "./useActiveMarkdownHeading.ts";
+import { scanTextClarifications } from "../clarificationParser.ts";
 import type { ClarificationDescriptor, ReaderOptions } from "../types.ts";
 
 const STATE_MESSAGES = {
@@ -27,7 +28,7 @@ const STATE_MESSAGES = {
 const ReaderContext = createContext<{ options: ReaderOptions; root: RefObject<HTMLElement | null> } | null>(null);
 const EXCLUDED_CLARIFICATION_CONTAINERS = new Set(["heading", "link", "linkReference"]);
 
-function clarificationTransform(bindings: readonly ClarificationDescriptor[]): Plugin<[], Root> {
+function clarificationTransform(bindings: readonly ClarificationDescriptor[], sourceMarkdown: string): Plugin<[], Root> {
     return () => (tree) => {
         function walk(parent: Parent, ancestors: Parent[]) {
             if (EXCLUDED_CLARIFICATION_CONTAINERS.has(parent.type) ||
@@ -37,18 +38,20 @@ function clarificationTransform(bindings: readonly ClarificationDescriptor[]): P
                 const node = parent.children[index] as Nodes | undefined;
                 if (!node) continue;
                 if (node.type === "text") {
+                    const start = node.position?.start.offset;
+                    const end = node.position?.end.offset;
+                    const raw = start !== undefined && end !== undefined ? sourceMarkdown.slice(start, end) : node.value;
                     const replacements: Array<Text | Emphasis> = [];
                     let offset = 0;
-                    for (const match of node.value.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
-                        const question = match[1]!.trim();
-                        const binding = bindings.find((entry) => entry.question === question &&
-                            (entry.sourceStart === undefined || entry.sourceStart === (node.position?.start.offset ?? 0) + match.index));
+                    for (const match of scanTextClarifications(raw, node.value, start ?? 0)) {
+                        const binding = bindings.find((entry) => entry.question === match.question &&
+                            (entry.sourceStart === undefined || entry.sourceStart === match.startIdx));
                         if (!binding) continue;
-                        if (match.index > offset) replacements.push({ type: "text", value: node.value.slice(offset, match.index) });
-                        replacements.push({ type: "emphasis", children: [{ type: "text", value: match[0] }], data: {
+                        if (match.valueStart > offset) replacements.push({ type: "text", value: node.value.slice(offset, match.valueStart) });
+                        replacements.push({ type: "emphasis", children: [{ type: "text", value: match.rawText }], data: {
                             hName: "span", hProperties: { "data-clarification-id": binding.id },
                         } });
-                        offset = match.index + match[0].length;
+                        offset = match.valueEnd;
                     }
                     if (!replacements.length) continue;
                     if (offset < node.value.length) replacements.push({ type: "text", value: node.value.slice(offset) });
@@ -139,7 +142,7 @@ export function MarkdownReader({ options }: { options: ReaderOptions }) {
         const outline = createMarkdownOutline(options.readerId);
         const bindings = JSON.parse(bindingKey) as ClarificationDescriptor[];
         const body = Markdown({
-            children: content, skipHtml: true, remarkPlugins: [remarkGfm, outline.plugin, clarificationTransform(bindings)],
+            children: content, skipHtml: true, remarkPlugins: [remarkGfm, outline.plugin, clarificationTransform(bindings, content)],
             rehypePlugins: [[namespaceMarkdownTargets, options.readerId]], components: markdownComponents,
         });
         return { body, headings: outline.headings };

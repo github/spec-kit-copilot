@@ -40,7 +40,7 @@ async function assertOrdinaryPath(root, target, allowMissing = false) {
         try { stat = await lstat(current); }
         catch (error) {
             if (allowMissing && error.code === "ENOENT") return;
-            throw new Error("Required asset path is missing or unreadable.");
+            throw new Error("Required asset path is missing or unreadable.", { cause: error });
         }
         if (stat.isSymbolicLink()) throw new Error("Asset path redirects through a link or junction.");
         if (!stat.isDirectory() && !stat.isFile()) throw new Error("Asset path is not an ordinary file or directory.");
@@ -92,7 +92,7 @@ async function collectDependencies(moduleIds) {
             let metadata;
             try { metadata = JSON.parse((await readFile(packagePath)).toString("utf8")); }
             catch (error) {
-                if (error.code !== "ENOENT") throw new Error("Bundled dependency metadata cannot be read.");
+                if (error.code !== "ENOENT") throw new Error("Bundled dependency metadata cannot be read.", { cause: error });
                 directory = dirname(directory);
                 continue;
             }
@@ -198,7 +198,7 @@ async function validateDestination(repositoryRoot, destination, mustExist) {
     await assertOrdinaryPath(repositoryRoot, destination, !mustExist);
     let entries;
     try { entries = await readdir(destination, { withFileTypes: true }); }
-    catch (error) { if (!mustExist && error.code === "ENOENT") return; throw new Error("Packaged assets are missing."); }
+    catch (error) { if (!mustExist && error.code === "ENOENT") return; throw new Error("Packaged assets are missing.", { cause: error }); }
     for (const entry of entries) {
         if (!ASSET_FILES.includes(entry.name) || !entry.isFile() || entry.isSymbolicLink()) throw new Error("Unexpected destination file violates the allowlist; nothing was removed.");
     }

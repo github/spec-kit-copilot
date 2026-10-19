@@ -23,8 +23,36 @@ export default [
                 process: "readonly",
                 setTimeout: "readonly",
                 clearTimeout: "readonly",
+                clearInterval: "readonly",
                 fetch: "readonly",
                 AbortController: "readonly",
+            },
+        },
+    },
+    {
+        basePath: repositoryRoot,
+        files: ["scripts/canvas-reader/test/*.spec.mjs"],
+        languageOptions: {
+            globals: {
+                window: "readonly",
+                document: "readonly",
+                location: "readonly",
+                MutationObserver: "readonly",
+                performance: "readonly",
+                requestAnimationFrame: "readonly",
+                getComputedStyle: "readonly",
+                structuredClone: "readonly",
+            },
+        },
+    },
+    {
+        basePath: repositoryRoot,
+        files: ["scripts/canvas-reader/test/sdd-shell.spec.mjs"],
+        languageOptions: {
+            globals: {
+                STATE: "readonly",
+                render: "readonly",
+                reviewConnected: "readonly",
             },
         },
     },
