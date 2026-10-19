@@ -44,7 +44,7 @@ export function sddPrimaryScope(state, selection, workspacePath) {
 }
 
 export function createSddReviewService({ workspacePath, instanceId, getState = () => scanFeatures(workspacePath),
-    discoverCandidates = (scope) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates }) }) {
+    discoverCandidates = (scope, options) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates, maxInspect: options?.maxInspect }) }) {
     return createArtifactReviewService({
         canvasId: "sdd-canvas", workspacePath, instanceId,
         getScope: async (selection) => sddPrimaryScope(await getState(), selection, workspacePath),

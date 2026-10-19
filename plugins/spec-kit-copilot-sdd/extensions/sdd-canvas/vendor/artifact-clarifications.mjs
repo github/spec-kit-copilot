@@ -18407,39 +18407,48 @@ function remarkGfm(options) {
 }
 //#endregion
 //#region src/clarificationParser.ts
+var EXCLUDED_CONTAINERS = new Set([
+	"heading",
+	"link",
+	"linkReference"
+]);
 function parseClarificationSource(markdown) {
 	if (!/\[NEEDS CLARIFICATION:/i.test(markdown)) return [];
 	const processor = unified().use(remarkParse).use(remarkGfm);
 	const tree = processor.runSync(processor.parse(markdown));
 	const questions = [];
 	let section = "";
-	visit(tree, (node, _index, parent) => {
+	function walk(node, ancestors) {
 		if (node.type === "heading") {
 			section = toString(node);
 			return;
 		}
-		if (node.type !== "text" || !parent || [
-			"heading",
-			"link",
-			"linkReference"
-		].includes(parent.type)) return;
-		const start = node.position?.start.offset;
-		const end = node.position?.end.offset;
-		if (start === void 0 || end === void 0) return;
-		const source = markdown.slice(start, end);
-		if (source !== node.value) return;
-		for (const match of source.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
-			const question = match[1].trim();
-			if (!question || question.length > 4e3) continue;
-			questions.push({
-				index: questions.length,
-				question,
-				section,
-				startIdx: start + match.index,
-				endIdx: start + match.index + match[0].length
-			});
+		if (node.type === "text") {
+			if (!ancestors.length || ancestors.some((ancestor) => EXCLUDED_CONTAINERS.has(ancestor.type))) return;
+			const start = node.position?.start.offset;
+			const end = node.position?.end.offset;
+			if (start === void 0 || end === void 0) return;
+			const source = markdown.slice(start, end);
+			if (source !== node.value) return;
+			for (const match of source.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+				const question = match[1].trim();
+				if (!question || question.length > 4e3) continue;
+				questions.push({
+					index: questions.length,
+					question,
+					section,
+					startIdx: start + match.index,
+					endIdx: start + match.index + match[0].length
+				});
+			}
+			return;
 		}
-	});
+		if ("children" in node && Array.isArray(node.children)) {
+			const nextAncestors = [...ancestors, node];
+			for (const child of node.children) walk(child, nextAncestors);
+		}
+	}
+	walk(tree, []);
 	return questions;
 }
 //#endregion

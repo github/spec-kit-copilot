@@ -15743,37 +15743,49 @@ var Kl = {
 	empty: "This artifact is empty.",
 	"no-heading": "This document has no sections.",
 	error: "The artifact could not be read. Try refreshing it."
-}, ql = (0, U.createContext)(null);
-function Jl(e) {
+}, ql = (0, U.createContext)(null), Jl = new Set([
+	"heading",
+	"link",
+	"linkReference"
+]);
+function Yl(e) {
 	return () => (t) => {
-		Sa(t, "text", (t, n, r) => {
-			if (n === void 0 || !r || ["link", "linkReference"].includes(r.type)) return;
-			let i = [], a = 0;
-			for (let n of t.value.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
-				let r = n[1].trim(), o = e.find((e) => e.question === r && (e.sourceStart === void 0 || e.sourceStart === (t.position?.start.offset ?? 0) + n.index));
-				o && (n.index > a && i.push({
-					type: "text",
-					value: t.value.slice(a, n.index)
-				}), i.push({
-					type: "emphasis",
-					children: [{
-						type: "text",
-						value: n[0]
-					}],
-					data: {
-						hName: "span",
-						hProperties: { "data-clarification-id": o.id }
+		function n(t, r) {
+			if (Jl.has(t.type) || r.some((e) => Jl.has(e.type))) return;
+			let i = [...r, t];
+			for (let r = 0; r < t.children.length; r++) {
+				let a = t.children[r];
+				if (a) if (a.type === "text") {
+					let n = [], i = 0;
+					for (let t of a.value.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+						let r = t[1].trim(), o = e.find((e) => e.question === r && (e.sourceStart === void 0 || e.sourceStart === (a.position?.start.offset ?? 0) + t.index));
+						o && (t.index > i && n.push({
+							type: "text",
+							value: a.value.slice(i, t.index)
+						}), n.push({
+							type: "emphasis",
+							children: [{
+								type: "text",
+								value: t[0]
+							}],
+							data: {
+								hName: "span",
+								hProperties: { "data-clarification-id": o.id }
+							}
+						}), i = t.index + t[0].length);
 					}
-				}), a = n.index + n[0].length);
+					if (!n.length) continue;
+					i < a.value.length && n.push({
+						type: "text",
+						value: a.value.slice(i)
+					}), t.children.splice(r, 1, ...n), r += n.length - 1;
+				} else "children" in a && Array.isArray(a.children) && n(a, i);
 			}
-			if (i.length) return a < t.value.length && i.push({
-				type: "text",
-				value: t.value.slice(a)
-			}), r.children.splice(n, 1, ...i), n + i.length;
-		});
+		}
+		n(t, []);
 	};
 }
-function Yl({ children: e, node: t }) {
+function Xl({ children: e, node: t }) {
 	let n = (0, U.useContext)(ql), r = t?.properties["data-clarification-id"], i = n?.options.clarifications?.find((e) => e.id === r && e.artifactId === n.options.document?.artifact.id && e.revision === n.options.document?.revision);
 	return !i || !n?.options.onClarification ? /* @__PURE__ */ (0, H.jsx)("span", { children: e }) : /* @__PURE__ */ (0, H.jsxs)("span", {
 		className: "md-reader__clarification",
@@ -15793,7 +15805,7 @@ function Yl({ children: e, node: t }) {
 		]
 	});
 }
-function Xl(e) {
+function Zl(e) {
 	if (!e || /^[\s\\/]|[\x00-\x1f\x7f]/.test(e)) return !1;
 	if (/^https?:\/\//i.test(e)) try {
 		let t = new URL(e);
@@ -15803,9 +15815,9 @@ function Xl(e) {
 	}
 	return !e.includes(":");
 }
-function Zl({ href: e, children: t, node: n, id: r, ...i }) {
+function Ql({ href: e, children: t, node: n, id: r, ...i }) {
 	let a = (0, U.useContext)(ql);
-	if (!a?.options.navigationEnabled || !Xl(e)) return /* @__PURE__ */ (0, H.jsx)("span", { children: t });
+	if (!a?.options.navigationEnabled || !Zl(e)) return /* @__PURE__ */ (0, H.jsx)("span", { children: t });
 	let o = Object.hasOwn(n?.properties ?? {}, "dataFootnoteRef"), s = Object.hasOwn(n?.properties ?? {}, "dataFootnoteBackref");
 	return /* @__PURE__ */ (0, H.jsx)("a", {
 		href: o || s ? e : "#",
@@ -15831,9 +15843,9 @@ function Zl({ href: e, children: t, node: n, id: r, ...i }) {
 		children: t
 	});
 }
-var Ql = {
-	a: Zl,
-	span: Yl,
+var $l = {
+	a: Ql,
+	span: Xl,
 	img: ({ alt: e }) => /* @__PURE__ */ (0, H.jsxs)("span", {
 		className: "md-reader__image-placeholder",
 		role: "img",
@@ -15858,7 +15870,7 @@ var Ql = {
 		children: /* @__PURE__ */ (0, H.jsx)("table", { children: e })
 	})
 };
-function $l({ options: e }) {
+function eu({ options: e }) {
 	let t = (0, U.useRef)(null), n = (0, U.useRef)(null), r = (0, U.useRef)(null), i = (0, U.useRef)(null), [a, o] = (0, U.useState)({
 		compact: !0,
 		height: 600
@@ -15879,10 +15891,10 @@ function $l({ options: e }) {
 				remarkPlugins: [
 					bl,
 					t.plugin,
-					Jl(n)
+					Yl(n)
 				],
 				rehypePlugins: [[zl, e.readerId]],
-				components: Ql
+				components: $l
 			}),
 			headings: t.headings
 		};
@@ -16046,7 +16058,7 @@ function $l({ options: e }) {
 }
 //#endregion
 //#region src/mount.tsx
-var eu = /* @__PURE__ */ new WeakMap(), tu = /* @__PURE__ */ new Set(), nu = new Set([
+var tu = /* @__PURE__ */ new WeakMap(), nu = /* @__PURE__ */ new Set(), ru = new Set([
 	"idle",
 	"loading",
 	"ready",
@@ -16058,11 +16070,11 @@ var eu = /* @__PURE__ */ new WeakMap(), tu = /* @__PURE__ */ new Set(), nu = new
 	"no-heading",
 	"error"
 ]);
-function ru(e, t) {
+function iu(e, t) {
 	if (!e?.isConnected || !e.ownerDocument) throw Error("Reader container must be connected.");
 	if (!t || !/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(t.readerId)) throw Error("Invalid readerId.");
 	if (!t.scrollElement?.isConnected || !t.scrollElement.contains(e)) throw Error("Reader scroll container must be connected and contain the mount.");
-	if (!nu.has(t.state)) throw Error("Invalid reader state.");
+	if (!ru.has(t.state)) throw Error("Invalid reader state.");
 	if (!["connected", "disconnected"].includes(t.connectionState)) throw Error("Invalid connection state.");
 	if (["ready", "no-heading"].includes(t.state) && !t.document) throw Error("Ready reader requires an artifact document.");
 	if (t.document && [
@@ -16089,15 +16101,15 @@ function ru(e, t) {
 		if (!Number.isInteger(t.document.byteSize) || t.document.byteSize < 0 || t.document.byteSize > 5242880) throw Error("Invalid artifact byte size.");
 	}
 }
-function iu(e, t) {
-	if (ru(e, t), eu.has(e)) throw Error("Reader already mounted in this container.");
-	if (tu.has(t.readerId)) throw Error("ReaderId is already mounted.");
+function au(e, t) {
+	if (iu(e, t), tu.has(e)) throw Error("Reader already mounted in this container.");
+	if (nu.has(t.readerId)) throw Error("ReaderId is already mounted.");
 	let n = t.readerId, r = (0, Nl.createRoot)(e, { identifierPrefix: `${n}-` }), i = !1, a = 0, o = {
 		update(t) {
 			if (i) throw Error("Cannot update an unmounted reader.");
-			if (ru(e, t), t.readerId !== n) throw Error("readerId cannot change during update.");
+			if (iu(e, t), t.readerId !== n) throw Error("readerId cannot change during update.");
 			let o = ++a;
-			r.render(/* @__PURE__ */ (0, H.jsx)($l, { options: {
+			r.render(/* @__PURE__ */ (0, H.jsx)(eu, { options: {
 				...t,
 				onRendered: (e) => {
 					!i && a === o && t.onRendered?.(e);
@@ -16105,10 +16117,10 @@ function iu(e, t) {
 			} }));
 		},
 		unmount() {
-			i || (i = !0, a++, r.unmount(), eu.delete(e), tu.delete(n));
+			i || (i = !0, a++, r.unmount(), tu.delete(e), nu.delete(n));
 		}
 	};
-	return eu.set(e, o), tu.add(n), o.update(t), o;
+	return tu.set(e, o), nu.add(n), o.update(t), o;
 }
 //#endregion
-export { iu as mountMarkdownReader };
+export { au as mountMarkdownReader };

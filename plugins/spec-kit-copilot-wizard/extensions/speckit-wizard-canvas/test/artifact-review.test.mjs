@@ -320,14 +320,14 @@ test("Wizard toolbar disables neighboring navigation while a document loads", ()
     assert.equal(mounted.at(-1).canNavigateForward, true);
 }));
 
-test("Wizard history restores scroll only for the same revision", () => adapterFixture(async ({ review, scrollElement, revisions }) => {
+test("Wizard history restores scroll only for the same revision", () => adapterFixture(async ({ review, mounted, scrollElement, revisions }) => {
     await review.open({ stage: "specify" });
     scrollElement.scrollTop = 125;
-    await review.selectArtifact("artifact_0");
+    await mounted.at(-1).onSelectArtifact("artifact_0");
     scrollElement.scrollTop = 222;
-    await review.navigateHistory("back");
+    await mounted.at(-1).onSelectArtifact("artifact_fixture");
     assert.equal(scrollElement.scrollTop, 125);
-    await review.navigateHistory("forward");
+    await mounted.at(-1).onSelectArtifact("artifact_0");
     assert.equal(scrollElement.scrollTop, 222);
     revisions.set("artifact_fixture", `sha256:${"c".repeat(64)}`);
     await review.navigateHistory("back");
@@ -388,7 +388,7 @@ test("Wizard refresh keeps context when its primary is deleted or atomically rep
     await assert.rejects(service.content(opened.contextId, opened.primaryArtifactId), { code: "artifact_unavailable" });
 }));
 
-test("Wizard clarification bindings are prose-only and reject a stale revision or another command", () => serviceFixture(async ({ root, service }) => {
+test("Wizard clarification bindings are prose-only and reject a stale revision or another command", () => serviceFixture(async ({ root, snapshot, service }) => {
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n\n`[NEEDS CLARIFICATION: Example?]`\n");
     const opened = await service.open({ stage: "specify" });
     const document = await service.content(opened.contextId, opened.primaryArtifactId);
@@ -399,6 +399,16 @@ test("Wizard clarification bindings are prose-only and reject a stale revision o
     await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId, document.revision, answers, "speckit.plan"), { code: "changed_source" });
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# New scope\n");
     await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId, document.revision, answers, "speckit.specify"), { code: "changed_source" });
+
+    await fs.mkdir(join(root, ".specify/assessments/fixture"), { recursive: true });
+    await fs.writeFile(join(root, ".specify/assessments/fixture/intake.md"), "# Intake\n\n[NEEDS CLARIFICATION: Target environment?]\n");
+    snapshot.phases["commands/speckit.assess.intake"] = { artifactPath: ".specify/assessments/fixture/intake.md" };
+    snapshot.commands = [{ id: "commands/speckit.assess.intake", commandName: "speckit.assess.intake", artifactPath: ".specify/assessments/fixture/intake.md" }];
+    const extOpened = await service.open({ stage: "commands/speckit.assess.intake", source: ".specify/assessments/fixture/intake.md" });
+    const extDoc = await service.content(extOpened.contextId, extOpened.primaryArtifactId);
+    assert.equal(extDoc.artifact.owningCommand, "speckit.assess.intake");
+    assert.equal(extDoc.clarifications.length, 1);
+    assert.equal(extDoc.clarifications[0].commandName, "speckit.assess.intake");
 }));
 
 test("Wizard clarification batches enforce one aggregate UTF-8 budget", () => serviceFixture(async ({ root, service }) => {
@@ -479,11 +489,11 @@ test("review signature budget counts traversed non-artifact entries across scope
                 primary: { relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" },
                 candidates: [{ relativePath: `specs/${feature}/spec.md`, label: feature, role: "primary", availability: "available" }], roots: [],
             }),
-            discoverCandidates: async (scope) => {
-                discoveries.push(scope.scopeKey);
+            discoverCandidates: async (scope, options) => {
+                discoveries.push({ scopeKey: scope.scopeKey, maxInspect: options?.maxInspect });
                 return sweeping && scope.scopeKey === "one"
-                    ? { candidates: [], inspectedCount: domain.ARTIFACT_INSPECTION_LIMIT, limitReached: true }
-                    : { candidates: scope.candidates, inspectedCount: 1, limitReached: false };
+                    ? { candidates: [], inspectedCount: domain.ARTIFACT_INSPECTION_LIMIT - 1, limitReached: false }
+                    : { candidates: scope.candidates, inspectedCount: Math.min(options?.maxInspect ?? 1, 1), limitReached: false };
             },
         });
         await service.open({ feature: "one" });
@@ -491,15 +501,17 @@ test("review signature budget counts traversed non-artifact entries across scope
         discoveries.length = 0;
         sweeping = true;
         const first = await service.signature();
-        assert.deepEqual(discoveries, ["one"]);
+        assert.deepEqual(discoveries, [
+            { scopeKey: "one", maxInspect: domain.ARTIFACT_INSPECTION_LIMIT },
+            { scopeKey: "two", maxInspect: 1 },
+        ]);
         discoveries.length = 0;
         const second = await service.signature();
-        assert.deepEqual(discoveries, ["two", "one"]);
-        discoveries.length = 0;
-        const third = await service.signature();
-        assert.deepEqual(discoveries, ["one"]);
-        assert.notEqual(first, second);
-        assert.equal(second, third);
+        assert.deepEqual(discoveries, [
+            { scopeKey: "two", maxInspect: domain.ARTIFACT_INSPECTION_LIMIT },
+            { scopeKey: "one", maxInspect: domain.ARTIFACT_INSPECTION_LIMIT - 1 },
+        ]);
+        assert.equal(first, second);
     } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

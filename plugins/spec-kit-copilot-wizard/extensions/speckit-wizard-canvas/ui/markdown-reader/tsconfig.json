@@ -17,6 +17,6 @@
         "noEmit": true,
         "types": ["node", "react", "react-dom"]
     },
-    "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "vite.config.ts"],
+    "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "vite.config.ts", "vite.parser.config.ts"],
     "exclude": ["node_modules", "dist", "coverage", "test-results", "playwright-report"]
 }

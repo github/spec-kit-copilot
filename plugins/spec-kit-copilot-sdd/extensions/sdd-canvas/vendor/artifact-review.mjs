@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { ArtifactReadError, inspectArtifact, readArtifact, validateArtifactPath } from "./artifact-read.mjs";
-import { deriveWizardArtifacts, scanArtifactCandidates } from "./artifact-discovery.mjs";
+import { deriveWizardArtifacts, scanArtifactCandidates, wizardOwningCommand } from "./artifact-discovery.mjs";
 import { parseClarificationSource } from "./artifact-clarifications.mjs";
 
 export const ARTIFACT_PAGE_SIZE = 200;
@@ -411,8 +411,8 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
                     continue;
                 }
                 try {
-                    const discovered = discoverCandidates ? await discoverCandidates(scope) : { candidates: scope.candidates };
                     const remaining = ARTIFACT_INSPECTION_LIMIT - inspected;
+                    const discovered = discoverCandidates ? await discoverCandidates(scope, { maxInspect: remaining }) : { candidates: scope.candidates };
                     const scopeDigest = createHash("sha256");
                     for (const candidate of discovered.candidates.slice(0, remaining)) {
                         scopeDigest.update(candidate.relativePath);
@@ -449,7 +449,7 @@ export function wizardPrimaryScope(snapshot, selection, workspacePath) {
         if (!artifactPath) continue;
         candidates.push({
             relativePath: artifactPath.replaceAll("\\", "/"), label: phase.name || stage,
-            role: "primary", owningStage: stage, owningCommand: `speckit.${stage}`,
+            role: "primary", owningStage: stage, owningCommand: wizardOwningCommand(stage, phase, snapshot.commands),
         });
     }
     for (const command of snapshot.commands ?? []) {
@@ -492,7 +492,7 @@ export function createWizardReviewService({ workspacePath, instanceId, getState 
     return createArtifactReviewService({
         canvasId: "speckit-wizard", workspacePath, instanceId,
         getScope: async (selection) => wizardPrimaryScope(await getState(), selection, workspacePath),
-        discoverCandidates: (scope) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates }),
+        discoverCandidates: (scope, options) => scanArtifactCandidates({ workspacePath, roots: scope.roots, explicit: scope.candidates, maxInspect: options?.maxInspect }),
     });
 }
 

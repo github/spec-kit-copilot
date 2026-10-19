@@ -108,7 +108,10 @@ export function createArtifactReview({
             canNavigateBack: navigationAvailable && Boolean(neighbors.back),
             canNavigateForward: navigationAvailable && Boolean(neighbors.forward),
             fragment: currentFragment || undefined,
-            onSelectArtifact: (artifactId) => selectArtifact(artifactId),
+            onSelectArtifact: (artifactId) => {
+                const targetIndex = history.findLastIndex((entry) => entry.artifactId === artifactId);
+                return selectArtifact(artifactId, targetIndex < 0 ? {} : { targetIndex });
+            },
             onNavigateReference: (target) => navigateReference(target),
             onNavigateHistory: (direction) => navigateSibling(direction),
             onReturnToWorkflow: () => { if (onReturn) onReturn(); else close(); },
@@ -188,7 +191,9 @@ export function createArtifactReview({
 
     async function present(content, requestGeneration, { targetIndex, fragment = "" } = {}) {
         if (requestGeneration !== generation) return false;
-        const previous = targetIndex !== undefined ? history[targetIndex] : null;
+        const previous = targetIndex !== undefined
+            ? history[targetIndex]
+            : history.findLast((entry) => entry.artifactId === content.artifact.id);
         const restore = previous?.revision === content.revision;
         currentDocument = content;
         selectedArtifactId = content.artifact.id;
@@ -200,7 +205,12 @@ export function createArtifactReview({
             if (!restore) history[historyIndex] = { artifactId: content.artifact.id, revision: content.revision, scrollOffset: 0, logicalFragment: fragment };
         } else if (history[historyIndex]?.artifactId !== content.artifact.id || history[historyIndex]?.revision !== content.revision) {
             history = history.slice(0, historyIndex + 1);
-            history.push({ artifactId: content.artifact.id, revision: content.revision, scrollOffset: 0, logicalFragment: fragment });
+            history.push({
+                artifactId: content.artifact.id,
+                revision: content.revision,
+                scrollOffset: restore ? previous.scrollOffset : 0,
+                logicalFragment: currentFragment,
+            });
             if (history.length > 50) history.shift();
             historyIndex = history.length - 1;
         }
@@ -254,7 +264,9 @@ export function createArtifactReview({
             loadingRenewContextQueued ||= renewContext;
             return false;
         }
-        if (!activeContext || !selectedArtifactId) return false;
+        if (!activeContext || !selectedArtifactId) {
+            return renewContext && contextSelection ? review.open(contextSelection) : false;
+        }
         if (refreshing) { refreshAgain = true; renewContextQueued ||= renewContext; return false; }
         refreshing = true;
         savePosition();
@@ -289,7 +301,10 @@ export function createArtifactReview({
             }
             if (requestGeneration !== generation) return false;
             if (previousDocument?.revision === content.revision && mounted) {
+                const previous = history[historyIndex];
                 currentDocument = content;
+                baseState = content.content.trim() ? "ready" : "empty";
+                pendingRestore = { offset: previous?.revision === content.revision ? previous.scrollOffset : scrollElement.scrollTop };
                 container.dataset.reviewState = baseState;
                 mounted.update(optionsFor(content));
                 return true;
@@ -372,7 +387,11 @@ export function createArtifactReview({
                 const index = artifacts.findIndex((artifact) => artifact.id === resolved.artifact.id);
                 if (index < 0) artifacts.push(resolved.artifact);
                 else artifacts[index] = resolved.artifact;
-                return selectArtifact(resolved.artifact.id, { fragment: resolved.fragment });
+                const targetIndex = history.findLastIndex((entry) => entry.artifactId === resolved.artifact.id);
+                return selectArtifact(resolved.artifact.id, {
+                    ...(targetIndex < 0 ? {} : { targetIndex }),
+                    fragment: resolved.fragment,
+                });
             } else if (resolved.kind === "external" && resolved.requiresUserAction) {
                 if (!externalWindow || externalWindow.closed) return false;
                 const link = externalWindow.document.createElement("a");

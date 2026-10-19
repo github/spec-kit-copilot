@@ -98,8 +98,29 @@ test("Wizard applies workflow progress received during review on return", async 
             const { markPhaseRunning } = await import("/ui/phase-runtime.js");
             markPhaseRunning("speckit.specify");
         });
+        await page.evaluate(async () => {
+            const [{ state }, { handleServerMessage }] = await Promise.all([import("/ui/state.js"), import("/ui/client.js")]);
+            const snapshot = structuredClone(state.snapshot);
+            snapshot.composition = {
+                ...snapshot.composition,
+                artifacts: [
+                    ...(snapshot.composition?.artifacts ?? []),
+                    {
+                        id: "commands/speckit.ext.custom",
+                        kind: "command",
+                        stack: [{ layer: "extension", presetId: "ext", sourcePath: ".github/skills/speckit-specify/SKILL.md", active: true }],
+                    },
+                ],
+            };
+            handleServerMessage({ type: "state", data: snapshot });
+        });
+        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceQueued)).toBe(true);
+        expect(fixture.blockedWrites()).toBe(0);
         await page.locator(".artifact-viewer-back").click();
         await expect(page.locator("#phase-card").getByRole("button", { name: /Running/ })).toBeDisabled();
+        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceQueued)).toBe(false);
+        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceSignature)).toBe(".github/skills/speckit-specify/SKILL.md");
+        expect(fixture.blockedWrites()).toBe(1);
         await expect(trigger).toBeFocused();
         expect(fixture.dispatchCount()).toBe(0);
         expect(fixture.workspaceChanged()).toBe(false);

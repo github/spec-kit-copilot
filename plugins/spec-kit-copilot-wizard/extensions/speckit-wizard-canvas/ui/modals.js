@@ -13,6 +13,7 @@ import {
     getPhaseLastSubmitted,
     isPhaseRunning,
     markPhaseRunning,
+    maybeRequestArtifactInference,
     queueClarification,
     setPhaseLastSubmitted,
 } from "./phase-runtime.js";
@@ -916,6 +917,10 @@ export async function closeArtifactViewer() {
         root.innerHTML = "";
     }
     document.body.classList.remove("artifact-review-open");
+    if (state.artifactInferenceQueued) {
+        state.artifactInferenceQueued = false;
+        maybeRequestArtifactInference();
+    }
     onArtifactReturn();
     const closedGeneration = artifactReviewGeneration;
     const frame = document.defaultView?.requestAnimationFrame?.bind(document.defaultView);

@@ -8,12 +8,14 @@ import { MarkdownReader } from "../src/MarkdownReader/MarkdownReader.tsx";
 import type { ClarificationDescriptor } from "../src/types.ts";
 import { readerOptions } from "./reader-fixture.ts";
 
-const markdown = "# Questions\n\n[NEEDS CLARIFICATION: Which scope?]\n\n`[NEEDS CLARIFICATION: Code question?]`\n\n<!-- [NEEDS CLARIFICATION: Comment?] -->\n\n[NEEDS CLARIFICATION: Unbound question?]\n";
+const markdown = "# Questions\n\n## *[NEEDS CLARIFICATION: Heading question?]*\n\n[NEEDS CLARIFICATION: Which scope?]\n\n[**[NEEDS CLARIFICATION: Nested link question?]**](research.md)\n\n`[NEEDS CLARIFICATION: Code question?]`\n\n<!-- [NEEDS CLARIFICATION: Comment?] -->\n\n[NEEDS CLARIFICATION: Unbound question?]\n";
 
 function optionsWithBindings() {
     const options = readerOptions(markdown);
     const descriptors: ClarificationDescriptor[] = [
         { id: "binding_scope", questionId: "question_scope", question: "Which scope?", artifactId: options.document!.artifact.id, revision: options.document!.revision, commandName: "speckit.specify", mode: "wizard-batched" },
+        { id: "binding_heading", questionId: "question_heading", question: "Heading question?", artifactId: options.document!.artifact.id, revision: options.document!.revision, commandName: "speckit.specify", mode: "wizard-batched" },
+        { id: "binding_link", questionId: "question_link", question: "Nested link question?", artifactId: options.document!.artifact.id, revision: options.document!.revision, commandName: "speckit.specify", mode: "wizard-batched" },
         { id: "binding_code", questionId: "question_code", question: "Code question?", artifactId: options.document!.artifact.id, revision: options.document!.revision, commandName: "speckit.specify", mode: "wizard-batched" },
         { id: "binding_comment", questionId: "question_comment", question: "Comment?", artifactId: options.document!.artifact.id, revision: options.document!.revision, commandName: "speckit.specify", mode: "wizard-batched" },
     ];

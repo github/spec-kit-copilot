@@ -19,13 +19,24 @@ async function* directoryEntries(workspacePath, relativeDirectory) {
     for await (const entry of handle) yield entry;
 }
 
-export async function scanArtifactCandidates({ workspacePath, roots = [], explicit = [], entries = directoryEntries }) {
+export function wizardOwningCommand(stage, phase, commands = []) {
+    if (typeof phase?.commandName === "string" && phase.commandName) return phase.commandName;
+    const normalizedPath = typeof phase?.artifactPath === "string" ? phase.artifactPath.replaceAll("\\", "/") : null;
+    const matched = (commands ?? []).find((command) => command?.id === stage ||
+        (normalizedPath && command?.artifactPath?.replaceAll("\\", "/") === normalizedPath));
+    if (typeof matched?.commandName === "string" && matched.commandName) return matched.commandName;
+    const bare = String(stage ?? "").replace(/^commands\//, "");
+    return /^speckit[.-]/i.test(bare) ? bare : `speckit.${bare}`;
+}
+
+export async function scanArtifactCandidates({ workspacePath, roots = [], explicit = [], entries = directoryEntries, maxInspect = INSPECTION_LIMIT }) {
     if (typeof workspacePath !== "string" || !path.isAbsolute(workspacePath)) throw new ArtifactReadError("workspace_unavailable");
+    const limit = Number.isSafeInteger(maxInspect) ? Math.max(0, Math.min(INSPECTION_LIMIT, maxInspect)) : INSPECTION_LIMIT;
     const candidates = new Map();
     let inspectedCount = 0;
     let limitReached = false;
     for (const candidate of explicit) {
-        if (inspectedCount >= INSPECTION_LIMIT) { limitReached = true; break; }
+        if (inspectedCount >= limit) { limitReached = true; break; }
         inspectedCount++;
         try {
             validateArtifactPath(candidate.relativePath);
@@ -44,14 +55,14 @@ export async function scanArtifactCandidates({ workspacePath, roots = [], explic
         visited.add(directory);
         try {
             for await (const entry of entries(workspacePath, directory)) {
-                if (inspectedCount >= INSPECTION_LIMIT) { limitReached = true; break; }
+                if (inspectedCount >= limit) { limitReached = true; break; }
                 inspectedCount++;
                 if (entry.isSymbolicLink() || entry.name.toLowerCase() === ".git") continue;
                 const relativePath = `${directory}/${entry.name}`;
                 if (entry.isDirectory()) {
                     try { validateArtifactPath(`${relativePath}/review-sentinel.md`); }
                     catch { continue; }
-                    if (pending.length < INSPECTION_LIMIT) pending.push(relativePath);
+                    if (pending.length < limit) pending.push(relativePath);
                 } else if (entry.isFile()) {
                     try { validateArtifactPath(relativePath); }
                     catch { continue; }
@@ -80,7 +91,7 @@ export function deriveWizardArtifacts(snapshot, primary) {
         candidates.set(relativePath, { relativePath, label: path.posix.basename(relativePath), role: "supporting", ...metadata });
     };
     for (const [stage, phase] of Object.entries(snapshot.phases ?? {})) {
-        add(phase.artifactPath, { owningStage: stage, owningCommand: `speckit.${stage}` });
+        add(phase.artifactPath, { owningStage: stage, owningCommand: wizardOwningCommand(stage, phase, snapshot.commands) });
     }
     for (const command of snapshot.commands ?? []) {
         add(command.artifactPath, { owningStage: command.id, owningCommand: command.commandName });

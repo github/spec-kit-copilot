@@ -3,8 +3,7 @@ import type { ComponentPropsWithoutRef, CSSProperties, RefObject } from "react";
 import Markdown from "react-markdown";
 import type { Components, ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { visit } from "unist-util-visit";
-import type { Emphasis, Root, Text } from "mdast";
+import type { Emphasis, Nodes, Parent, Root, Text } from "mdast";
 import type { Plugin } from "unified";
 import { ChevronLeft, ChevronRight, Files, RefreshCw } from "lucide-react";
 import { createMarkdownOutline, namespaceMarkdownTargets } from "./markdownOutline.ts";
@@ -26,29 +25,41 @@ const STATE_MESSAGES = {
 };
 
 const ReaderContext = createContext<{ options: ReaderOptions; root: RefObject<HTMLElement | null> } | null>(null);
+const EXCLUDED_CLARIFICATION_CONTAINERS = new Set(["heading", "link", "linkReference"]);
 
 function clarificationTransform(bindings: readonly ClarificationDescriptor[]): Plugin<[], Root> {
     return () => (tree) => {
-        visit(tree, "text", (node, index, parent) => {
-            if (index === undefined || !parent || ["link", "linkReference"].includes(parent.type)) return;
-            const replacements: Array<Text | Emphasis> = [];
-            let offset = 0;
-            for (const match of node.value.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
-                const question = match[1]!.trim();
-                const binding = bindings.find((entry) => entry.question === question &&
-                    (entry.sourceStart === undefined || entry.sourceStart === (node.position?.start.offset ?? 0) + match.index));
-                if (!binding) continue;
-                if (match.index > offset) replacements.push({ type: "text", value: node.value.slice(offset, match.index) });
-                replacements.push({ type: "emphasis", children: [{ type: "text", value: match[0] }], data: {
-                    hName: "span", hProperties: { "data-clarification-id": binding.id },
-                } });
-                offset = match.index + match[0].length;
+        function walk(parent: Parent, ancestors: Parent[]) {
+            if (EXCLUDED_CLARIFICATION_CONTAINERS.has(parent.type) ||
+                ancestors.some((ancestor) => EXCLUDED_CLARIFICATION_CONTAINERS.has(ancestor.type))) return;
+            const nextAncestors = [...ancestors, parent];
+            for (let index = 0; index < parent.children.length; index++) {
+                const node = parent.children[index] as Nodes | undefined;
+                if (!node) continue;
+                if (node.type === "text") {
+                    const replacements: Array<Text | Emphasis> = [];
+                    let offset = 0;
+                    for (const match of node.value.matchAll(/\[NEEDS CLARIFICATION:\s*([^\]]+)\]/gi)) {
+                        const question = match[1]!.trim();
+                        const binding = bindings.find((entry) => entry.question === question &&
+                            (entry.sourceStart === undefined || entry.sourceStart === (node.position?.start.offset ?? 0) + match.index));
+                        if (!binding) continue;
+                        if (match.index > offset) replacements.push({ type: "text", value: node.value.slice(offset, match.index) });
+                        replacements.push({ type: "emphasis", children: [{ type: "text", value: match[0] }], data: {
+                            hName: "span", hProperties: { "data-clarification-id": binding.id },
+                        } });
+                        offset = match.index + match[0].length;
+                    }
+                    if (!replacements.length) continue;
+                    if (offset < node.value.length) replacements.push({ type: "text", value: node.value.slice(offset) });
+                    parent.children.splice(index, 1, ...(replacements as Parent["children"]));
+                    index += replacements.length - 1;
+                } else if ("children" in node && Array.isArray(node.children)) {
+                    walk(node as Parent, nextAncestors);
+                }
             }
-            if (!replacements.length) return;
-            if (offset < node.value.length) replacements.push({ type: "text", value: node.value.slice(offset) });
-            parent.children.splice(index, 1, ...replacements);
-            return index + replacements.length;
-        });
+        }
+        walk(tree, []);
     };
 }
 

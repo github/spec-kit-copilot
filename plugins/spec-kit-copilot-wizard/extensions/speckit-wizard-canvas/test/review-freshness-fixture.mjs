@@ -20,10 +20,12 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
     let deferred;
     let deferredLink;
     let failure;
+    let contextFailure;
     let contextGeneration = 0;
     let expired = false;
     const remote = {
         expireContext() { expired = true; },
+        failNextContext(code = "read_failed") { contextFailure = code; },
         deferNextRead() {
             let started;
             let release;
@@ -48,6 +50,11 @@ async function withReview(adapterUrl, run, { onDocument } = {}) {
         calls.push({ route: url.pathname, expectedRevision: url.searchParams.get("expectedRevision"), method: options?.method ?? "GET" });
         let data;
         if (url.pathname.endsWith("/context")) {
+            if (contextFailure) {
+                const code = contextFailure;
+                contextFailure = null;
+                return { ok: false, json: async () => ({ ok: false, error: { code } }) };
+            }
             expired = false;
             contextGeneration++;
             data = { contextId: `ctx_fixture_${contextGeneration}`, generation: 1, items: items(), primaryArtifactId: "primary", nextCursor: null };
@@ -330,5 +337,17 @@ export function reviewFreshnessTests(canvas, adapterUrl) {
         assert.equal(review.document, null);
         assert.deepEqual(review.history, []);
         assert.equal(review.context.contextId, "ctx_fixture_2");
+    }));
+
+    test(`${canvas} explicit refresh recovers after initial context load fails`, () => withReview(adapterUrl, async ({ review, renders, remote, container }) => {
+        remote.failNextContext("read_failed");
+        assert.equal(await review.open({ stage: "specify" }), false);
+        assert.equal(review.context, null);
+        assert.equal(container.dataset.reviewState, "error");
+        assert.equal(await review.refresh(), false);
+        await renders.at(-1).onRefresh();
+        assert.ok(review.context);
+        assert.equal(review.document.artifact.id, "primary");
+        assert.equal(container.dataset.reviewState, "ready");
     }));
 }

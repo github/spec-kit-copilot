@@ -248,7 +248,12 @@ export function handleServerMessage(msg) {
                 state.currentPhase = msg.data.currentPhase || null;
             }
             observePhaseProgress();
-            if (!document.body.classList.contains("artifact-review-open")) maybeRequestArtifactInference();
+            if (document.body.classList.contains("artifact-review-open")) {
+                state.artifactInferenceQueued = true;
+            } else {
+                state.artifactInferenceQueued = false;
+                maybeRequestArtifactInference();
+            }
             resolveSnapshotWaiters();
             __render();
             break;
