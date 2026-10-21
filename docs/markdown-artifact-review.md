@@ -98,8 +98,8 @@ edit their canonical sources and rebuild, not the copies.
 
 ## Build And Test
 
-Use Node 24.19.0 and the locked dependencies. From the repository root in
-PowerShell:
+Use Node 24.19.0, npm 11.17.0, and the locked dependencies. From the repository
+root in PowerShell:
 
 ```powershell
 $wizard = "plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas"
@@ -116,6 +116,11 @@ npm --prefix $reader run test:tools
 npm --prefix $reader run test:browser
 npm --prefix $reader audit --audit-level=low --ignore-scripts
 ```
+
+After dependency or lockfile updates, rebuild and verify both packaged payloads
+with this toolchain. The source fingerprint includes the lockfile, so tooling-only
+updates still require regenerated provenance manifests even if the bundled
+JavaScript and CSS remain unchanged.
 
 The [validation workflow](../.github/workflows/canvas-reader-validation.yml)
 runs Windows and Linux checks. CI builds without synchronizing first, so

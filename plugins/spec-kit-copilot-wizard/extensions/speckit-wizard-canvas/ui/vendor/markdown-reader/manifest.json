@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "sourceHash": "sha256:668a0b24a3770aeefbfc1a2fa66c1e1cda13cabbb98bdc0c8b06f46b007ec2b6",
-  "buildHash": "sha256:8caa97a3d09781b5cf59447f6e9e6212d8183cdd94512f5d4ea75602f2defe45",
+  "sourceHash": "sha256:8aa6375534149c334448721b73686c2d18140c18906239290ee88e41b035e61e",
+  "buildHash": "sha256:45f0bb7787a0a74a8cc04e0f637cd00556ee0a63d627499a13329993fbbb0882",
   "files": [
     {
       "path": "markdown-reader.js",
-      "bytes": 495615,
-      "sha256": "8f1ec4e33f763569a85ae21377dca171688760726d24f444f8217fc78690a22c"
+      "bytes": 495701,
+      "sha256": "c3acacb4579fff9a7b0ed178cdff70f0de1f5249a329507fe7da3451c7227ed4"
     },
     {
       "path": "markdown-reader.css",
@@ -475,6 +475,6 @@
     "node": "24.19.0",
     "packageManager": "11.17.0",
     "typescript": "5.9.3",
-    "bundler": "vite 8.0.16"
+    "bundler": "vite 8.1.6"
   }
 }

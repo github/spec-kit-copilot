@@ -1350,7 +1350,7 @@ var e = Object.create, t = Object.defineProperty, n = Object.getOwnPropertyDescr
 			default: return !0;
 		}
 	}
-	var Xt = new Map([
+	var Xt = /* @__PURE__ */ new Map([
 		["acceptCharset", "accept-charset"],
 		["htmlFor", "for"],
 		["httpEquiv", "http-equiv"],
@@ -3748,7 +3748,7 @@ var e = Object.create, t = Object.defineProperty, n = Object.getOwnPropertyDescr
 		}
 		var o = n.stateNode;
 		o !== null && typeof o.componentDidCatch == "function" && (e.callback = function() {
-			Ks(t, n, r), typeof i != "function" && (Gl === null ? Gl = new Set([this]) : Gl.add(this));
+			Ks(t, n, r), typeof i != "function" && (Gl === null ? Gl = /* @__PURE__ */ new Set([this]) : Gl.add(this));
 			var e = r.stack;
 			this.componentDidCatch(r.value, { componentStack: e === null ? "" : e });
 		});
@@ -3757,12 +3757,12 @@ var e = Object.create, t = Object.defineProperty, n = Object.getOwnPropertyDescr
 		if (n.flags |= 32768, typeof r == "object" && r && typeof r.then == "function") {
 			if (t = n.alternate, t !== null && Ji(t, n, a, !0), n = Os.current, n !== null) {
 				switch (n.tag) {
-					case 13: return ks === null ? mu() : n.alternate === null && Nl === 0 && (Nl = 3), n.flags &= -257, n.flags |= 65536, n.lanes = a, r === ba ? n.flags |= 16384 : (t = n.updateQueue, t === null ? n.updateQueue = new Set([r]) : t.add(r), Mu(e, r, a)), !1;
+					case 13: return ks === null ? mu() : n.alternate === null && Nl === 0 && (Nl = 3), n.flags &= -257, n.flags |= 65536, n.lanes = a, r === ba ? n.flags |= 16384 : (t = n.updateQueue, t === null ? n.updateQueue = /* @__PURE__ */ new Set([r]) : t.add(r), Mu(e, r, a)), !1;
 					case 22: return n.flags |= 65536, r === ba ? n.flags |= 16384 : (t = n.updateQueue, t === null ? (t = {
 						transitions: null,
 						markerInstances: null,
-						retryQueue: new Set([r])
-					}, n.updateQueue = t) : (n = t.retryQueue, n === null ? t.retryQueue = new Set([r]) : n.add(r)), Mu(e, r, a)), !1;
+						retryQueue: /* @__PURE__ */ new Set([r])
+					}, n.updateQueue = t) : (n = t.retryQueue, n === null ? t.retryQueue = /* @__PURE__ */ new Set([r]) : n.add(r)), Mu(e, r, a)), !1;
 				}
 				throw Error(i(435, n.tag));
 			}
@@ -7756,7 +7756,7 @@ function x(e, t) {
 //#region node_modules/hast-util-whitespace/lib/index.js
 var S = /[ \t\n\f\r]/g;
 function te(e) {
-	return typeof e == "object" ? e.type === "text" ? C(e.value) : !1 : C(e);
+	return typeof e == "object" ? e.type === "text" && C(e.value) : C(e);
 }
 function C(e) {
 	return e.replace(S, "") === "";
@@ -8872,89 +8872,89 @@ function De(e) {
 //#endregion
 //#region node_modules/inline-style-parser/cjs/index.js
 var Oe = /* @__PURE__ */ o(((e, t) => {
-	var n = /\/\*[^*]*\*+([^/*][^*]*\*+)*\//g, r = /\n/g, i = /^\s*/, a = /^(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/, o = /^:\s*/, s = /^((?:'(?:\\'|.)*?'|"(?:\\"|.)*?"|\([^)]*?\)|[^};])+)/, c = /^[;\s]*/, l = /^\s+|\s+$/g, u = "\n", d = "/", f = "*", p = "", m = "comment", h = "declaration";
-	function g(e, t) {
+	var n = /\/\*[^*]*\*+([^/*][^*]*\*+)*\//g, r = /\n/g, i = /^\s*/, a = /^(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/, o = /^:\s*/, s = /^((?:'(?:\\'|.)*?'|"(?:\\"|.)*?"|\([^)]*?\)|[^};])+)/, c = /^[;\s]*/, l = /^\s+|\s+$/g;
+	function u(e, t) {
 		if (typeof e != "string") throw TypeError("First argument must be a string");
 		if (!e) return [];
 		t ||= {};
-		var l = 1, g = 1;
-		function v(e) {
+		var l = 1, u = 1;
+		function f(e) {
 			var t = e.match(r);
 			t && (l += t.length);
-			var n = e.lastIndexOf(u);
-			g = ~n ? e.length - n : g + e.length;
+			var n = e.lastIndexOf("\n");
+			u = ~n ? e.length - n : u + e.length;
 		}
-		function y() {
+		function p() {
 			var e = {
 				line: l,
-				column: g
+				column: u
 			};
 			return function(t) {
-				return t.position = new b(e), S(), t;
+				return t.position = new m(e), _(), t;
 			};
 		}
-		function b(e) {
+		function m(e) {
 			this.start = e, this.end = {
 				line: l,
-				column: g
+				column: u
 			}, this.source = t.source;
 		}
-		b.prototype.content = e;
-		function ee(n) {
-			var r = /* @__PURE__ */ Error(t.source + ":" + l + ":" + g + ": " + n);
-			if (r.reason = n, r.filename = t.source, r.line = l, r.column = g, r.source = e, !t.silent) throw r;
+		m.prototype.content = e;
+		function h(n) {
+			var r = /* @__PURE__ */ Error(t.source + ":" + l + ":" + u + ": " + n);
+			if (r.reason = n, r.filename = t.source, r.line = l, r.column = u, r.source = e, !t.silent) throw r;
 		}
-		function x(t) {
+		function g(t) {
 			var n = t.exec(e);
 			if (n) {
 				var r = n[0];
-				return v(r), e = e.slice(r.length), n;
+				return f(r), e = e.slice(r.length), n;
 			}
 		}
-		function S() {
-			x(i);
+		function _() {
+			g(i);
 		}
-		function te(e) {
+		function v(e) {
 			var t;
-			for (e ||= []; t = C();) t !== !1 && e.push(t);
+			for (e ||= []; t = y();) t !== !1 && e.push(t);
 			return e;
 		}
-		function C() {
-			var t = y();
-			if (!(d != e.charAt(0) || f != e.charAt(1))) {
-				for (var n = 2; p != e.charAt(n) && (f != e.charAt(n) || d != e.charAt(n + 1));) ++n;
-				if (n += 2, p === e.charAt(n - 1)) return ee("End of comment missing");
+		function y() {
+			var t = p();
+			if (!(e.charAt(0) != "/" || e.charAt(1) != "*")) {
+				for (var n = 2; e.charAt(n) != "" && (e.charAt(n) != "*" || e.charAt(n + 1) != "/");) ++n;
+				if (n += 2, e.charAt(n - 1) === "") return h("End of comment missing");
 				var r = e.slice(2, n - 2);
-				return g += 2, v(r), e = e.slice(n), g += 2, t({
-					type: m,
+				return u += 2, f(r), e = e.slice(n), u += 2, t({
+					type: "comment",
 					comment: r
 				});
 			}
 		}
-		function w() {
-			var e = y(), t = x(a);
+		function b() {
+			var e = p(), t = g(a);
 			if (t) {
-				if (C(), !x(o)) return ee("property missing ':'");
-				var r = x(s), i = e({
-					type: h,
-					property: _(t[0].replace(n, p)),
-					value: r ? _(r[0].replace(n, p)) : p
+				if (y(), !g(o)) return h("property missing ':'");
+				var r = g(s), i = e({
+					type: "declaration",
+					property: d(t[0].replace(n, "")),
+					value: r ? d(r[0].replace(n, "")) : ""
 				});
-				return x(c), i;
+				return g(c), i;
 			}
 		}
-		function ne() {
+		function ee() {
 			var e = [];
-			te(e);
-			for (var t; t = w();) t !== !1 && (e.push(t), te(e));
+			v(e);
+			for (var t; t = b();) t !== !1 && (e.push(t), v(e));
 			return e;
 		}
-		return S(), ne();
+		return _(), ee();
 	}
-	function _(e) {
-		return e ? e.replace(l, p) : p;
+	function d(e) {
+		return e ? e.replace(l, "") : "";
 	}
-	t.exports = g;
+	t.exports = u;
 })), ke = /* @__PURE__ */ o(((e) => {
 	var t = e && e.__importDefault || function(e) {
 		return e && e.__esModule ? e : { default: e };
@@ -9051,13 +9051,13 @@ var Be = class extends Error {
 Be.prototype.file = "", Be.prototype.name = "", Be.prototype.reason = "", Be.prototype.message = "", Be.prototype.stack = "", Be.prototype.column = void 0, Be.prototype.line = void 0, Be.prototype.ancestors = void 0, Be.prototype.cause = void 0, Be.prototype.fatal = void 0, Be.prototype.place = void 0, Be.prototype.ruleId = void 0, Be.prototype.source = void 0;
 //#endregion
 //#region node_modules/hast-util-to-jsx-runtime/lib/index.js
-var Ve = /* @__PURE__ */ l(je(), 1), He = {}.hasOwnProperty, Ue = /* @__PURE__ */ new Map(), We = /[A-Z]/g, Ge = new Set([
+var Ve = /* @__PURE__ */ l(je(), 1), He = {}.hasOwnProperty, Ue = /* @__PURE__ */ new Map(), We = /[A-Z]/g, Ge = /* @__PURE__ */ new Set([
 	"table",
 	"tbody",
 	"thead",
 	"tfoot",
 	"tr"
-]), Ke = new Set(["td", "th"]);
+]), Ke = /* @__PURE__ */ new Set(["td", "th"]);
 function qe(e, t) {
 	if (!t || t.Fragment === void 0) throw TypeError("Expected `Fragment` in options");
 	let n = t.filePath || void 0, r;
@@ -9099,7 +9099,7 @@ function Ye(e, t, n) {
 	t.tagName.toLowerCase() === "svg" && r.space === "html" && (i = Ee, e.schema = i), e.ancestors.push(t);
 	let a = ut(e, t.tagName, !1), o = at(e, t), s = st(e, t);
 	return Ge.has(t.tagName) && (s = s.filter(function(e) {
-		return typeof e == "string" ? !te(e) : !0;
+		return typeof e != "string" || !te(e);
 	})), tt(e, o, a, t), nt(o, s), e.ancestors.pop(), e.schema = r, e.create(t, a, o, n);
 }
 function Xe(e, t) {
@@ -9184,7 +9184,7 @@ function ot(e, t) {
 			let t = r.value.data.estree.body[0];
 			t.type, a = e.evaluater.evaluateExpression(t.expression);
 		} else dt(e, t.position);
-		else a = r.value === null ? !0 : r.value;
+		else a = r.value === null || r.value;
 		n[i] = a;
 	}
 	return n;
@@ -9343,7 +9343,7 @@ var ht = {
 })), vt = {};
 function yt(e, t) {
 	let n = t || vt;
-	return bt(e, typeof n.includeImageAlt == "boolean" ? n.includeImageAlt : !0, typeof n.includeHtml == "boolean" ? n.includeHtml : !0);
+	return bt(e, typeof n.includeImageAlt != "boolean" || n.includeImageAlt, typeof n.includeHtml != "boolean" || n.includeHtml);
 }
 function bt(e, t, n) {
 	if (St(e)) {
@@ -9368,7 +9368,7 @@ function wt(e) {
 	let t = "&" + e + ";";
 	Ct.innerHTML = t;
 	let n = Ct.textContent;
-	return n.charCodeAt(n.length - 1) === 59 && e !== "semi" || n === t ? !1 : n;
+	return n.charCodeAt(n.length - 1) === 59 && e !== "semi" ? !1 : n !== t && n;
 }
 //#endregion
 //#region node_modules/micromark-util-chunked/index.js
@@ -15794,7 +15794,7 @@ var ql = {
 	empty: "This artifact is empty.",
 	"no-heading": "This document has no sections.",
 	error: "The artifact could not be read. Try refreshing it."
-}, Jl = (0, U.createContext)(null), Yl = new Set([
+}, Jl = (0, U.createContext)(null), Yl = /* @__PURE__ */ new Set([
 	"heading",
 	"link",
 	"linkReference"
@@ -16109,7 +16109,7 @@ function tu({ options: e }) {
 }
 //#endregion
 //#region src/mount.tsx
-var nu = /* @__PURE__ */ new WeakMap(), ru = /* @__PURE__ */ new Set(), iu = new Set([
+var nu = /* @__PURE__ */ new WeakMap(), ru = /* @__PURE__ */ new Set(), iu = /* @__PURE__ */ new Set([
 	"idle",
 	"loading",
 	"ready",

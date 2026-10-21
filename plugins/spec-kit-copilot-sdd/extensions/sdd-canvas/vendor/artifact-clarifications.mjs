@@ -18407,7 +18407,7 @@ function remarkGfm(options) {
 }
 //#endregion
 //#region src/clarificationParser.ts
-var EXCLUDED_CONTAINERS = new Set([
+var EXCLUDED_CONTAINERS = /* @__PURE__ */ new Set([
 	"heading",
 	"link",
 	"linkReference"
