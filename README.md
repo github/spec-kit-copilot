@@ -59,12 +59,14 @@ confused with Copilot plugin/marketplace plumbing.
 
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
+| [`copilot-lean-sdd`](spec-kit-presets/copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream-derived minimal SDD baseline with Copilot skill invocation and interactive `ask_user`; ten hook-free command replacements. Initial release pending; use the documented local-development install. |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
 boundary, install commands, and versioning. Only Copilot-specific presets are hosted
-here; agent-agnostic presets do not belong in this Copilot integration hub.
+here, including independently maintained upstream-derived baselines adapted to
+Copilot; unadapted agent-agnostic presets do not belong in this integration hub.
 
 ## Core skills plugin
 

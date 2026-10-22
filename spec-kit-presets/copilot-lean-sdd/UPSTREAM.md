@@ -1,0 +1,50 @@
+# Upstream provenance and attribution
+
+Copilot Lean SDD is independently maintained here, not a re-export or a claim of
+upstream endorsement. Its independent initial version is **1.0.0**.
+
+The authoritative upstream is [GitHub Spec Kit](https://github.com/github/spec-kit),
+whose [first-party preset catalog at the imported commit](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/catalog.json)
+identifies the bundled **Lean Workflow** preset, id `lean`, version **1.0.0**,
+author `github`. The source is `presets/lean/`, not a separate repository inferred
+from the informal name "lean-preset".
+
+**Exact source commit:** `27d14e20c187c1f2916540ea201ecbdc9f8ed588`
+(retrieved 2026-10-22). Upstream preset version and source commit are separate:
+the manifest version alone does not identify the imported content.
+
+## Imported and adapted material
+
+| Local files | Source at the exact commit above |
+| --- | --- |
+| `commands/speckit.{constitution,specify,plan,tasks,implement}.md` | [`presets/lean/commands/`](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/commands) |
+| `preset.yml` packaging structure, five original declarations | [`presets/lean/preset.yml`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/preset.yml) |
+| Lean workflow/artifact description | [`presets/lean/README.md`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/README.md) |
+| `commands/speckit.{clarify,analyze,checklist,converge,taskstoissues}.md` semantics, condensed and adapted | [`templates/commands/`](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands) |
+| `LICENSE` (verbatim) | [`LICENSE`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/LICENSE) |
+
+Copyright GitHub, Inc. Upstream material is MIT licensed. The accompanying
+[LICENSE](LICENSE) retains the copyright and permission notice and must ship in
+the preset archive with this attribution.
+
+## Copilot-specific changes
+
+- Retain the five Lean outlines: explicit feature directory, `feature.json`,
+  single-file spec/plan/tasks, direct task execution, and governance-only constitution.
+- Add Copilot skills-mode follow-up naming and interactive `ask_user` requirements;
+  no integration switching, agent dispatch, or automatic follow-up execution.
+- Add explicit missing-input/failure reporting and project-contained feature paths.
+- Replace all five shared core commands with self-contained Lean-compatible
+  adaptations. Remove their script/template dependencies and extension lifecycle-hook
+  dispatch rather than inheriting Full SDD core fallbacks.
+- Preserve clarification's five-question limit and incremental answers, read-only
+  analysis and constitution authority, reviewer-owned requirements-quality
+  checklists, append-only convergence, and authorized/deduplicated issue conversion.
+- Do not generate or synchronize a built-in spec quality checklist. Existing custom
+  checklists are not automatically rewritten or treated as mandatory Lean gates.
+- Change package identity, minimum tested CLI version, and release metadata.
+  No automatic upstream synchronization or project migration is implied.
+
+When updating, inspect both the five upstream Lean commands and the complete core
+command inventory. Preserve this provenance trail, license, minimal-artifact
+contract, and hook-free replacement coverage; review new commands explicitly.

@@ -1,8 +1,28 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-08-06T00:00:00Z",
+  "updated_at": "2026-10-22T00:00:00Z",
   "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json",
   "presets": {
+    "copilot-lean-sdd": {
+      "name": "Copilot Lean SDD",
+      "id": "copilot-lean-sdd",
+      "version": "1.0.0",
+      "description": "Copilot skills-mode Lean SDD baseline: ten self-contained core commands, minimal artifacts, and no embedded extension lifecycle-hook dispatch.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-lean-sdd-v1.0.0/copilot-lean-sdd.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-lean-sdd/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.8"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 10
+      },
+      "tags": ["copilot", "lean", "sdd", "baseline"]
+    },
     "copilot-sub-agents": {
       "name": "Copilot Sub-Agent Delegation",
       "id": "copilot-sub-agents",
