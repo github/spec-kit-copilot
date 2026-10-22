@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,13 @@ COMMANDS = {
     "constitution", "specify", "clarify", "plan", "tasks",
     "analyze", "checklist", "implement", "converge", "taskstoissues",
 }
+UPSTREAM_SHA256 = {
+    "constitution": "56ca2ffc2938d04285adc8e0a7cc33164d7f0b8538d5b8aa70791de6ddb9f0a0",
+    "specify": "9d68997ce418cc3293f66f946681bed0a33328c64a05757c0554ded19eec0ce2",
+    "plan": "d4dbd594dc8ea9853583353cfc556ac419ffedf2300c207d4ce75c24debe2ab9",
+    "tasks": "b363acd5cdbc3312b2fa03c763913515947feb214702281fe13355401ebd0210",
+    "implement": "d50654ebfad997092a939d7020e546c48be47aa676c7ddeb90eb70b5cf20767c",
+}
 FILES = {
     "preset.yml", "README.md", "UPSTREAM.md", "LICENSE",
     *(f"commands/speckit.{name}.md" for name in COMMANDS),
@@ -23,7 +31,7 @@ FILES = {
 FORBIDDEN = (
     ".specify/extensions.yml", "EXECUTE_COMMAND", "HookExecutor",
     "hooks.before_", "hooks.after_", "{SCRIPT}", "{ARGS}",
-    "__SPECKIT_COMMAND_", "check-prerequisites",
+    "check-prerequisites",
 )
 
 
@@ -82,7 +90,13 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Initial release pending", readme)
         self.assertIn("not** model compliance", readme)
 
-    def test_self_contained_copilot_commands_without_hook_dispatch(self):
+    def test_original_five_are_byte_identical_to_pinned_upstream(self):
+        for name, digest in UPSTREAM_SHA256.items():
+            with self.subTest(command=name):
+                path = PACKAGE / f"commands/speckit.{name}.md"
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
+
+    def test_self_contained_commands_without_hook_dispatch(self):
         for name, text in self.commands.items():
             with self.subTest(command=name):
                 frontmatter, body = text[4:].split("\n---\n", 1)
@@ -90,10 +104,10 @@ class LeanPackageTests(unittest.TestCase):
                 self.assertIn("description", metadata)
                 self.assertNotIn("scripts", metadata)
                 self.assertIn("$ARGUMENTS", body)
-                self.assertIn("Copilot", body)
                 for forbidden in FORBIDDEN:
                     self.assertNotIn(forbidden, text)
-                if name not in ("constitution", "specify"):
+                if name not in UPSTREAM_SHA256:
+                    self.assertIn("Copilot", body)
                     self.assertIn(".specify/feature.json", text)
                     self.assertIn("unsafe paths", text)
                     self.assertIn("missing", text)
@@ -164,7 +178,9 @@ class LeanCliTests(unittest.TestCase):
                     self.assertIn("copilot-lean-sdd", resolved)
                     skill = (project / f".github/skills/speckit-{name}/SKILL.md").read_text()
                     body = (PACKAGE / f"commands/speckit.{name}.md").read_text().split("\n---\n", 1)[1]
-                    self.assertIn(body.strip(), skill)
+                    for part in body.strip().split("__SPECKIT_COMMAND_SPECIFY__"):
+                        self.assertIn(part, skill)
+                    self.assertNotIn("__SPECKIT_COMMAND_", skill)
                     for forbidden in FORBIDDEN:
                         self.assertNotIn(forbidden, skill)
                     self.assertIsNone(re.search(r"hooks\.(before|after)_", skill))

@@ -3,7 +3,9 @@
 Copilot Lean SDD **1.0.0** is an independently maintained, Copilot-specific
 adaptation of upstream Lean Workflow **1.0.0**. It preserves Lean's small
 `specify -> plan -> tasks -> implement` workflow: one focused Markdown file per
-authoring command, no separate design templates or boilerplate artifacts.
+authoring command, no separate design templates or boilerplate artifacts. The five
+original Lean command files are imported **byte-for-byte unchanged**; Copilot-specific
+guidance is confined to the five additional shared-command replacements.
 See [UPSTREAM.md](UPSTREAM.md) for the exact source commit, changes, and MIT attribution.
 
 The package id and directory are **`copilot-lean-sdd`**. The workstream name
@@ -14,8 +16,9 @@ This is Specify CLI plumbing, **not** a `copilot plugin` package.
 
 Requires Specify CLI **>= 1.0.8** and Copilot **skills mode**. This floor is the
 oldest locally verified CLI for this package, not a claim that upstream Lean needs it.
-Interactive commands require Copilot's `ask_user`; they report an unavailable
-tool rather than silently guessing. No delegation tools or extensions are required.
+The shared-command adaptations use Copilot's `ask_user` for interactive decisions
+and report a missing tool when a blocking question cannot be asked. The original
+five commands retain upstream's own wording. No delegation tools or extensions are required.
 
 **Initial release pending.** No release/tag/asset is created by adding this source.
 Use a disposable project for local development, starting from a clone of this repo:
@@ -46,7 +49,9 @@ plugins, upstream Lean, and Specify CLI.
 Installation registers `.github/skills/speckit-<command>/SKILL.md`. Use
 `/skills reload` in the current Copilot session after generated skills change;
 new sessions discover them automatically. The commands run directly in Copilot,
-not through a different agent. They use `ask_user` for interactive decisions.
+not through a different agent. The five shared-command adaptations use `ask_user`
+for interactive decisions. Specify renders upstream constitution's command placeholder
+for the selected integration when generating its skill.
 
 ## Minimal artifact contract and supported commands
 
@@ -58,21 +63,21 @@ lifecycle-hook dispatch. Future core additions require an inventory review.
 | Command / Copilot skill | Required inputs | Output / behavior |
 | --- | --- | --- |
 | `constitution` / `speckit-constitution` | User direction and repository context | `.specify/memory/constitution.md`; governance only |
-| `specify` / `speckit-specify` | Feature description and user-confirmed project-local directory | `.specify/feature.json`, `<feature>/spec.md`; honor authored constitution if present |
+| `specify` / `speckit-specify` | Feature description and user-provided feature directory | `.specify/feature.json`, `<feature>/spec.md` |
 | `clarify` / `speckit-clarify` | `feature.json`, authored `spec.md`; constitution if present | Optional, up to five questions; answers saved incrementally in `spec.md` |
-| `plan` / `speckit-plan` | `feature.json`, authored constitution and `spec.md` | `<feature>/plan.md` only |
-| `tasks` / `speckit-tasks` | `feature.json`, authored constitution, `spec.md`, `plan.md` | `<feature>/tasks.md`, dependency-ordered checkbox tasks |
+| `plan` / `speckit-plan` | `feature.json`, constitution and `spec.md` context | `<feature>/plan.md` only |
+| `tasks` / `speckit-tasks` | `feature.json`, constitution, `spec.md`, `plan.md` context | `<feature>/tasks.md`, dependency-ordered checkbox tasks |
 | `analyze` / `speckit-analyze` | `feature.json`, authored constitution, `spec.md`, `plan.md`, `tasks.md` | Optional, read-only in-session consistency/coverage report |
 | `checklist` / `speckit-checklist` | `feature.json`, authored `spec.md`; plan/tasks/constitution if present | Optional, explicitly requested `checklists/<domain>.md`, reviewer-owned requirements-quality checks |
-| `implement` / `speckit-implement` | `feature.json`, authored constitution, `spec.md`, `plan.md`, `tasks.md` | Code, validation, task progress; halt on failure |
+| `implement` / `speckit-implement` | `feature.json`, constitution, `spec.md`, `plan.md`, `tasks.md` context | Code, validation, task progress; halt on failure |
 | `converge` / `speckit-converge` | `feature.json`, authored spec/plan/tasks, prior implementation; constitution if authored | Optional, append-only remaining work in `tasks.md`; no code changes |
 | `taskstoissues` / `speckit-taskstoissues` | `feature.json`, authored `tasks.md`, exact GitHub remote, issue tools, explicit write authorization | Optional deprecated conversion with open/closed issue deduplication; no automatic extension install |
 
-All command ids are prefixed `speckit.` in the manifest. Paths are project-relative;
-feature directories must resolve inside the project and outside `.specify`, `.git`,
-and `.github`. Missing/malformed configuration, unsafe paths, or required artifacts
-stop the command with an actionable error rather than selecting a branch or
-creating unexpected fallback artifacts. No branch-name convention is required.
+All command ids are prefixed `speckit.` in the manifest. The original five commands
+keep upstream's direct feature-path and context-loading instructions without added
+path checks or prerequisite gates. The five shared-command adaptations explicitly
+reject unsafe feature paths and report missing/malformed inputs rather than
+selecting a branch or generating fallback artifacts. No branch-name convention is required.
 
 **Clarify/analyze/checklist compatibility:** Lean prose and headings are enough;
 Full SDD headings, FR/SC identifiers, `research.md`, `data-model.md`, `contracts/`,
@@ -80,8 +85,9 @@ Full SDD headings, FR/SC identifiers, `research.md`, `data-model.md`, `contracts
 after specify and before plan; checklist can run as early as specify; analyze
 runs after tasks and before implement. None is inserted as a mandatory extra
 phase. Custom checklist checkboxes are not task completion or an automatic
-implementation gate. An authored constitution remains required for plan, tasks,
-analyze, and implement, as it is in the upstream Lean workflow's context.
+implementation gate. Upstream plan, tasks, and implement load the constitution as
+context; they do not add an authored-content validation gate. The shared analyze
+adaptation explicitly requires authored inputs, including the constitution.
 
 ## Baseline and composition boundary
 
@@ -115,7 +121,7 @@ Set `SPECIFY_BIN` to the absolute `specify` executable to include isolated real-
 init/install/resolve/generated-skills checks. Set `LEAN_PRESET_ARCHIVE` to a locally
 built release zip to validate archive contents too. Tests never publish or call an
 agent. Static checks cover manifest/catalog alignment, ten replacement commands,
-minimal-artifact prompt contracts, provenance/license packaging, and forbidden hook
+byte-identical upstream imports, minimal-artifact prompt contracts, provenance/license packaging, and forbidden hook
 dispatch. Real CLI checks establish registration/composition, **not** model compliance:
 live Copilot CLI/App question handling and end-to-end authored artifact quality
 still need interactive validation. No live-agent run is claimed by these tests.

@@ -29,11 +29,13 @@ the preset archive with this attribution.
 
 ## Copilot-specific changes
 
-- Retain the five Lean outlines: explicit feature directory, `feature.json`,
-  single-file spec/plan/tasks, direct task execution, and governance-only constitution.
-- Add Copilot skills-mode follow-up naming and interactive `ask_user` requirements;
-  no integration switching, agent dispatch, or automatic follow-up execution.
-- Add explicit missing-input/failure reporting and project-contained feature paths.
+- Import the five original Lean command files **byte-for-byte unchanged**, including
+  frontmatter and whitespace. Tests pin their SHA-256 hashes to the source commit.
+  Keep their explicit feature directory, `feature.json`, single-file spec/plan/tasks,
+  direct task execution, and governance-only constitution without added guidance.
+- The five shared-command adaptations add Copilot skills-mode follow-up naming,
+  interactive `ask_user`, explicit missing-input/failure reporting, and
+  project-contained feature paths. These additions do not alter the original five.
 - Replace all five shared core commands with self-contained Lean-compatible
   adaptations. Remove their script/template dependencies and extension lifecycle-hook
   dispatch rather than inheriting Full SDD core fallbacks.
