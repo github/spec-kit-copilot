@@ -1,0 +1,92 @@
+# Copilot Full SDD
+
+Copilot Full SDD **1.0.0** preserves the traditional full Spec Kit workflow in
+Copilot skills mode. Its nine command replacements retain template resolution,
+research and design artifacts, constitution checks, quality gates, and validation.
+Source: [GitHub Spec Kit core commands](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands)
+at revision `27d14e20c187c1f2916540ea201ecbdc9f8ed588`.
+Copyright GitHub, Inc.; [MIT licensed](LICENSE).
+
+The upstream commands are imported with only extension lifecycle-hook dispatch
+and its dependent branch/report/checklist references removed, plus Copilot
+`ask_user` guidance and serial question delivery in `specify`. Script metadata
+and portable command references remain for Specify to render for the project.
+This is a Specify preset, not a `copilot plugin` package.
+
+## Installation and prerequisites
+
+Requires Specify CLI **>= 1.0.8**, a project initialized with Copilot **skills
+mode**, its installed core templates and workflow scripts, and Copilot's
+interactive `ask_user` tool for questions and approvals. The CLI floor is the
+oldest locally verified version for this package. No extensions are required.
+
+**Initial release pending.** The catalog reserves the normal release URL; no
+tag, release, or asset is created by adding this source. For local development
+in a disposable project:
+
+```bash
+specify init /path/to/full-project --integration copilot --integration-options="--skills" --non-interactive
+cd /path/to/full-project
+specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-full-sdd
+specify preset resolve speckit.plan
+```
+
+After publication, register the [preset catalog](../README.md#installing-a-preset)
+and run `specify preset add copilot-full-sdd`. See the shared
+[release guide](../README.md#versioning--distribution) for distribution.
+Installation generates `.github/skills/speckit-<command>/SKILL.md`.
+Run `/skills reload` after generated skills change in the current Copilot
+session; new sessions discover them automatically.
+
+## Full artifact and command contract
+
+Feature commands locate the active feature through `.specify/feature.json`.
+Core scripts resolve project/preset/extension template layers and report missing
+prerequisites. They are supplied by `specify init`, not bundled again here.
+
+| Command | Required context | Output / safeguards |
+| --- | --- | --- |
+| `constitution` | Resolved constitution template, project context, principles | `.specify/memory/constitution.md`; governance-only scope, version/date/placeholder validation, Sync Impact Report |
+| `specify` | Feature description, resolved spec template; constitution if present | `<feature>/spec.md`, `feature.json`, `checklists/requirements.md`; testable requirements, measurable success criteria, bounded clarification and validation iterations |
+| `clarify` | Active `spec.md`; constitution if present | Up to five targeted questions; incremental spec updates, coverage report, built-in quality checklist revalidation |
+| `plan` | `spec.md`, constitution, resolved plan template | `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, interface `contracts/` where applicable; resolve unknowns and evaluate constitution gates before/after design |
+| `tasks` | `spec.md`, `plan.md`, resolved tasks template; available design artifacts | `tasks.md`; user-story phases, dependency graph, file paths, task IDs, parallel markers and independent test criteria; test tasks only when requested |
+| `analyze` | `spec.md`, `plan.md`, complete `tasks.md`, constitution | Read-only consistency/coverage report; constitution violations are CRITICAL; edits require separate approval |
+| `checklist` | Active feature, `spec.md`, resolved checklist template; plan/tasks if present | Append-only `checklists/<domain>.md`; requirements-quality questions, not implementation tests; new items unchecked and reviewer-owned |
+| `implement` | `plan.md`, complete `tasks.md`, existing checklists and available design artifacts | Code, validation and task progress; checklist approval gate, phase/dependency ordering, failure reporting and completion checks |
+| `converge` | `spec.md`, `plan.md`, complete `tasks.md`, implementation already attempted; constitution | Only append traceable remediation tasks; no code/spec/plan edits, no existing-task rewriting; leave tasks byte-identical when converged |
+
+`clarify` normally runs after specify and before plan. `analyze` requires tasks;
+`checklist` reads plan/tasks only when present, but its upstream setup script
+requires `plan.md`. Run plan before checklist. Full's custom checklist state
+is an implementation approval gate, not evidence of completed implementation.
+Spec quality checklist markers are maintained by specify/clarify; custom
+checklists remain reviewer-owned.
+
+All manifest command ids are prefixed `speckit.` and use `replace`. `taskstoissues`
+is excluded because it is moving out of core SDD. Older CLI versions may still
+generate that legacy command; this preset neither replaces nor removes it. It
+is outside the supported nine-command inventory and hook-dispatch exclusion.
+
+## Composition boundary
+
+Full and [Lean](../copilot-lean-sdd) are **alternative baselines**, not cumulative
+layers. Use only one replacement baseline. This preset does not enforce
+exclusivity, activate bundle components, switch baselines, reconcile disabled
+presets, or migrate existing artifacts.
+
+These nine command bodies do not read `.specify/extensions.yml` or dispatch
+extension lifecycle hooks. Opt-in extension lifecycle dispatch belongs to a
+separate preset, not this baseline. This does **not** disable or remove native
+Copilot hooks/events, user-invoked extension commands, CLI-owned behavior, or
+instructions added by other composition layers.
+
+## Validation
+
+Run `python -m unittest discover -s spec-kit-presets/tests -v` in an environment
+with the existing `spec-kit-presets/tests/requirements.txt` dependencies.
+Set `SPECIFY_BIN` to the absolute Specify executable for isolated
+init/install/resolve/generated-skill and prerequisite-script checks.
+Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
+These checks cover package and instruction contracts, not model compliance or
+runtime guarantees.
