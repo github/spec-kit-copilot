@@ -100,20 +100,12 @@ toolchains:
   Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
   namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
   the plumbing boundary and bloat `specify preset add`.
-- **Promotion criterion: Copilot-specific only.** A preset belongs here if it
+- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
   depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
   `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
   requires Copilot's interactive `ask_user` tool with no plain-text fallback).
-  Upstream-derived SDD baselines are also permitted when independently maintained
-  for Copilot: preserve upstream license and exact provenance, retain the baseline's
-  artifact contract, and make execution genuinely Copilot-specific (skills-mode
-  command invocation and interactive `ask_user`, not merely a renamed package).
-  Baselines must replace all nine supported core SDD commands, including shared
-  commands, without embedded extension lifecycle-hook dispatch. Exclude deprecated
-  `taskstoissues`, which is moving out of core SDD. Optional hook handling belongs
-  in its own opt-in layer, not core fallbacks. This does not disable Copilot native hooks.
-  Unadapted agent-agnostic presets (generic themes, or workflows tied to an extension
-  rather than to Copilot's tools) do **not** belong here. Do not import them.
+  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
+  than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
