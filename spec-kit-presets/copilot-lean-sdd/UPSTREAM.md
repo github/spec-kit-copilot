@@ -33,9 +33,10 @@ the preset archive with this attribution.
   frontmatter and whitespace. Tests pin their SHA-256 hashes to the source commit.
   Keep their explicit feature directory, `feature.json`, single-file spec/plan/tasks,
   direct task execution, and governance-only constitution without added guidance.
-- The five shared-command adaptations add Copilot skills-mode follow-up naming,
-  interactive `ask_user`, explicit missing-input/failure reporting, and
-  project-contained feature paths. These additions do not alter the original five.
+- The five shared-command adaptations use Lean's short User Input / Outline format,
+  with direct context loading and essential constraints rather than repeated
+  execution guidance. Interactive questions use Copilot's `ask_user`; missing inputs
+  and failures are reported. These additions do not alter the original five.
 - Replace all five shared core commands with self-contained Lean-compatible
   adaptations. Remove their script/template dependencies and extension lifecycle-hook
   dispatch rather than inheriting Full SDD core fallbacks.

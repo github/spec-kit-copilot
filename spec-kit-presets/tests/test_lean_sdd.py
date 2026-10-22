@@ -107,10 +107,22 @@ class LeanPackageTests(unittest.TestCase):
                 for forbidden in FORBIDDEN:
                     self.assertNotIn(forbidden, text)
                 if name not in UPSTREAM_SHA256:
-                    self.assertIn("Copilot", body)
                     self.assertIn(".specify/feature.json", text)
-                    self.assertIn("unsafe paths", text)
                     self.assertIn("missing", text)
+
+    def test_shared_commands_follow_lean_outline_and_length(self):
+        originals = [self.commands[name] for name in UPSTREAM_SHA256]
+        max_words = max(len(text.split()) for text in originals)
+        max_lines = max(len(text.splitlines()) for text in originals)
+        for name in COMMANDS - UPSTREAM_SHA256.keys():
+            with self.subTest(command=name):
+                text = self.commands[name]
+                self.assertLessEqual(len(text.split()), max_words)
+                self.assertLessEqual(len(text.splitlines()), max_lines)
+                self.assertEqual(
+                    re.findall(r"^## (.+)$", text, re.MULTILINE),
+                    ["User Input", "Outline"],
+                )
 
     def test_lean_and_optional_command_contracts(self):
         self.assertIn("**Ask the user**", self.commands["specify"])
@@ -121,22 +133,25 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Halt on failure", self.commands["implement"])
         self.assertIn("MUST NOT", self.commands["constitution"])
         self.assertIn("non-governance", self.commands["constitution"])
-        self.assertIn("at most five questions", self.commands["clarify"])
+        self.assertIn("up to five material clarification questions", self.commands["clarify"])
+        self.assertIn("Copilot's `ask_user`, one at a time", self.commands["clarify"])
         self.assertIn("After each accepted answer", self.commands["clarify"])
-        self.assertIn("No plan, tasks, templates, or checklist are required", self.commands["clarify"])
-        self.assertIn("STRICTLY READ-ONLY", self.commands["analyze"])
+        self.assertIn("No plan, tasks, or checklist required", self.commands["clarify"])
+        self.assertIn("**Read-only**: Do not modify files", self.commands["analyze"])
         self.assertIn("constitution.md", self.commands["analyze"])
         self.assertIn("CRITICAL", self.commands["analyze"])
         self.assertIn(
-            "No plan, tasks,\n   separate template, or Full SDD design artifacts are prerequisites",
+            "No plan, tasks, or separate template required",
             self.commands["checklist"],
         )
-        self.assertIn("All new items remain `[ ]`", self.commands["checklist"])
+        self.assertIn("Leave new items unchecked", self.commands["checklist"])
         self.assertIn("reviewer-owned", self.commands["checklist"])
-        self.assertIn("APPEND-ONLY", self.commands["converge"])
-        self.assertIn("byte-for-byte unchanged", self.commands["converge"])
-        self.assertIn("open AND closed", self.commands["taskstoissues"])
+        self.assertIn("**Append-only**: Preserve existing tasks", self.commands["converge"])
+        self.assertIn("leave `tasks.md` unchanged", self.commands["converge"])
+        self.assertIn("do not duplicate open tasks", self.commands["converge"])
+        self.assertIn("open and closed", self.commands["taskstoissues"])
         self.assertIn("explicit permission", self.commands["taskstoissues"])
+        self.assertIn("Copilot's `ask_user`", self.commands["taskstoissues"])
         self.assertIn(r"\bT\d{3,}\b", self.commands["taskstoissues"])
 
     @unittest.skipUnless(os.environ.get("LEAN_PRESET_ARCHIVE"), "Set LEAN_PRESET_ARCHIVE for archive validation")
