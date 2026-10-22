@@ -7,17 +7,17 @@ Source: [GitHub Spec Kit core commands](https://github.com/github/spec-kit/tree/
 at revision `27d14e20c187c1f2916540ea201ecbdc9f8ed588`.
 Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
-The upstream commands are imported with only extension lifecycle-hook dispatch
-and its dependent branch/report/checklist references removed, plus Copilot
-`ask_user` guidance and serial question delivery in `specify`. Script metadata
+The upstream commands are imported with only extension lifecycle-hook dispatch,
+its separators, and dependent branch/report/checklist references deleted. No
+instructions are added or rewritten; questioning, execution, and validation
+instructions otherwise remain identical to the pinned core sources. Script metadata
 and portable command references remain for Specify to render for the project.
 This is a Specify preset, not a `copilot plugin` package.
 
 ## Installation and prerequisites
 
 Requires Specify CLI **>= 1.0.8**, a project initialized with Copilot **skills
-mode**, its installed core templates and workflow scripts, and Copilot's
-interactive `ask_user` tool for questions and approvals. The CLI floor is the
+mode** and its installed core templates and workflow scripts. The CLI floor is the
 oldest locally verified version for this package. No extensions are required.
 
 **Initial release pending.** The catalog reserves the normal release URL; no
@@ -88,5 +88,8 @@ with the existing `spec-kit-presets/tests/requirements.txt` dependencies.
 Set `SPECIFY_BIN` to the absolute Specify executable for isolated
 init/install/resolve/generated-skill and prerequisite-script checks.
 Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
+Set `FULL_CORE_SOURCE` to a checkout of the pinned Spec Kit source for
+authenticated source comparison: every command must exactly match core with
+only the enumerated hook-related deletions, with no added bytes.
 These checks cover package and instruction contracts, not model compliance or
 runtime guarantees.

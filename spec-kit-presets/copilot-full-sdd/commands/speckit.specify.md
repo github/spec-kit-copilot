@@ -18,13 +18,6 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-**Copilot interaction**: Run this workflow directly in Copilot. For questions or approval,
-use Copilot's `ask_user` tool and wait for the response before continuing; ask one
-question per call, retaining the options, recommendations, and limits below.
-If the tool is unavailable when an answer is required, stop and report the blocker;
-do not assume approval or substitute a plain-text question. Command references are
-Copilot skills, not instructions to switch agents.
-
 ## Outline
 
 The text the user typed after `__SPECKIT_COMMAND_SPECIFY__` in the triggering message **is** the feature description. Assume you always have it available in this conversation even if `{ARGS}` appears literally below. Do not ask the user to repeat it unless they provided an empty command.
@@ -42,8 +35,6 @@ Given that feature description, do this:
      - "Implement OAuth2 integration for the API" → "oauth2-api-integration"
      - "Create a dashboard for analytics" → "analytics-dashboard"
      - "Fix payment processing timeout bug" → "fix-payment-timeout"
-
-2. **Branch independence**: This command does not create or switch git branches.
 
 3. **Create the spec feature directory**:
 
@@ -156,7 +147,7 @@ Given that feature description, do this:
 
    c. **Handle Validation Results**:
 
-      - **If all items pass**: Mark checklist complete and proceed to the Completion Report
+      - **If all items pass**: Mark checklist complete
 
       - **If items fail (excluding [NEEDS CLARIFICATION])**:
         1. List the failing items and specific issues
@@ -194,8 +185,8 @@ Given that feature description, do this:
            - Header separator must have at least 3 dashes: `|--------|`
            - Test that the table renders correctly in markdown preview
         5. Number questions sequentially (Q1, Q2, Q3 - max 3 total)
-        6. Ask each question in order using Copilot's `ask_user`, one question per call
-        7. Wait for and capture each answer before asking the next question
+        6. Present all questions together before waiting for responses
+        7. Wait for user to respond with their choices for all questions (e.g., "Q1: A, Q2: Custom - [details], Q3: B")
         8. Update the spec by replacing each [NEEDS CLARIFICATION] marker with the user's selected or provided answer
         9. Re-run validation after all clarifications are resolved
 
@@ -209,7 +200,7 @@ Report completion to the user with:
 - Checklist results summary
 - Readiness for the next phase (`__SPECKIT_COMMAND_CLARIFY__` or `__SPECKIT_COMMAND_PLAN__`)
 
-**NOTE:** Spec directory and file creation are handled by this command independently of git branches.
+**NOTE:** Spec directory and file creation are always handled by this core command.
 
 ## Quick Guidelines
 

@@ -27,18 +27,28 @@ FORBIDDEN = (
     "hooks.before_", "hooks.after_", "Extension Hooks",
     "Mandatory Post-Execution Hooks", "before_specify",
 )
-# Pinned core imports after the hook removal and Copilot adaptations documented
-# in the package README. Changes require an explicit source/contract review.
+# Pinned core imports with only hook-related deletions.
 IMPORT_SHA256 = {
-    "constitution": "80a952d35318da14791a6043664d0de0fd067d4773cef45df347595deb8b5478",
-    "specify": "fd7a1e51bf1554cd509032abe4dc616cc7fdabfa8a88f0472fa68661fd502917",
-    "clarify": "b1698e4ceceb4e53244a80e4b9691d61195ea3764feb093a0a58803a0203a04a",
-    "plan": "49eb550a250da4f7c5ca8f1b0552f0d941f1dc06f126dd6396421495edcfbac7",
-    "tasks": "542617339670616c572d9e3e218fa72fe1006db5ad0d122fd2080c616233f307",
-    "analyze": "f294039d7fdac56c5ca6ff991b0c5c67a566e5e2b3e0496b9ea1fc537514aff6",
-    "checklist": "ce5150af901be0e60ee73fddd91e57bcc774d0f0d9f39ab15605f6077e233b98",
-    "implement": "1bdd95c4a3220d5af0d8a37db13dae91ba199b9b25a19ac4d5a9b24c838886da",
-    "converge": "974d84928c58ed947fd829c9cb6a6610d0989897026e1ddd120c45cf04fcbfcb",
+    "constitution": "775a220b62d7d59b8740df9f01b36465478cea511e619d21ae3d558599946143",
+    "specify": "090c4af532316e6529373e722d7957bec2f27cd74b3f18d525fdbeeaa1aae320",
+    "clarify": "dcae481e2a2934576ee9ba8278c37b6d911d423b2087fbd456b48d8619ba21c6",
+    "plan": "018293a3440991384ff13b7c5b1bc328d652296fa6304db8c5ad93f9df31605f",
+    "tasks": "acd75ba6d4a46704cd2fea7a05bb7578533a9e0b283b14c6140a28c8cd0a22a6",
+    "analyze": "e03e7c94a7253d2537fab197e5f2365a7ed9b9cdc6ef8fbec9d3c2663a7c9588",
+    "checklist": "cca87df5a8586b0681ef3b0a3e6baca063748eed9546c52775d2f342abcaa143",
+    "implement": "7658bcbfff7a78bfb8f6e3ae29b50b7f327f9e6da1e0cf1f57fcc27c5d4e1b55",
+    "converge": "2a3cbec425ccf205e7d048f0629584f0d3242d2b92402da196a0c3022198c79e",
+}
+CORE_GIT_BLOBS = {
+    "analyze": "7de2d28f0da797998e5e30d6323b7316a74e60ff",
+    "checklist": "6e33f5d4225c539fa1c3860e5409f098a6a8d827",
+    "clarify": "f48d8bd703d7eb3fe4eadf2d3d283ca508e6bb80",
+    "constitution": "f2c107a15865344ffb684d33c09cb3de7baf1bea",
+    "converge": "f6a44c3e91b3c0100aa4553d498e758b1125b9a5",
+    "implement": "f98ba525de1bb29efdb520695a4fd3fa8499bbf6",
+    "plan": "d559e517ae59bb3e664b59b528372444baac4626",
+    "specify": "52b2b2456500c68c6a9cfbac5de9d2df7bedf918",
+    "tasks": "1b9c4255fe8d9cd76e8f3e5952ada7a17c62a87e",
 }
 
 
@@ -98,6 +108,43 @@ class FullPackageTests(unittest.TestCase):
                 content = (PACKAGE / f"commands/speckit.{name}.md").read_bytes()
                 self.assertEqual(hashlib.sha256(content).hexdigest(), digest)
 
+    @unittest.skipUnless(os.environ.get("FULL_CORE_SOURCE"), "Set FULL_CORE_SOURCE for authenticated core comparison")
+    def test_only_hook_deletions_from_authenticated_core(self):
+        source = Path(os.environ["FULL_CORE_SOURCE"]) / "templates/commands"
+        for name in sorted(COMMANDS):
+            with self.subTest(command=name):
+                original = (source / f"{name}.md").read_bytes()
+                blob = hashlib.sha1(b"blob " + str(len(original)).encode() + b"\0" + original).hexdigest()
+                self.assertEqual(blob, CORE_GIT_BLOBS[name], "Source must match the pinned upstream revision")
+                expected = original.decode()
+                for heading in (
+                    r"## Pre-Execution Checks",
+                    r"## Post-Execution Checks",
+                    r"## Mandatory Post-Execution Hooks",
+                    r"### 9\. Check for extension hooks",
+                ):
+                    pattern = rf"^{heading}\n.*?(?=^## |\Z)"
+                    for section in re.findall(pattern, expected, flags=re.M | re.S):
+                        self.assertIn(".specify/extensions.yml", section)
+                        self.assertRegex(section, rf"hooks\.(?:before|after)_{name}")
+                    expected = re.sub(pattern, "", expected, flags=re.M | re.S)
+                expected = re.sub(r"^- \[ \] Extension hooks dispatched.*\n", "", expected, flags=re.M)
+                expected = expected.replace(" and proceed to the Mandatory Post-Execution Hooks section", "")
+                if name == "specify":
+                    expected = re.sub(
+                        r"^2\. \*\*Branch creation\*\* \(optional, via hook\):\n.*?(?=^3\. \*\*Create the spec feature directory)",
+                        "", expected, flags=re.M | re.S,
+                    )
+                    expected = expected.replace(", never by the hook", "")
+                    expected = expected.replace(
+                        "Branch creation is handled by the `before_specify` hook (git extension). ", "",
+                    )
+                expected = expected.rstrip("\n") + "\n"
+                actual = (PACKAGE / f"commands/speckit.{name}.md").read_bytes()
+                self.assertEqual(actual, expected.encode(), "Non-hook instructions must be byte-identical")
+                source_iterator = iter(original)
+                self.assertTrue(all(byte in source_iterator for byte in actual), "No added bytes allowed")
+
     def test_no_lifecycle_dispatch_and_preserved_script_metadata(self):
         for name, text in self.commands.items():
             with self.subTest(command=name):
@@ -106,7 +153,7 @@ class FullPackageTests(unittest.TestCase):
                 metadata = yaml.safe_load(text.split("---", 2)[1])
                 self.assertIn("description", metadata)
                 self.assertIn("$ARGUMENTS", text)
-                self.assertIn("Copilot's `ask_user`", text)
+                self.assertNotIn("Copilot interaction", text)
                 if name == "specify":
                     self.assertNotIn("scripts", metadata)
                 else:
@@ -226,7 +273,6 @@ class FullCliTests(unittest.TestCase):
                             else:
                                 self.assertNotIn(forbidden, skill)
                         self.assertNotIn("scripts:", skill.split("---", 2)[1])
-                        self.assertIn("Copilot's `ask_user`", skill)
                         if name != "specify":
                             invocation = re.search(r"Run `([^`]+)`", skill)
                             self.assertIsNotNone(invocation, name)

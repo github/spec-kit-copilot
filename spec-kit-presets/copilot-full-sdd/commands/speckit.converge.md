@@ -14,13 +14,6 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-**Copilot interaction**: Run this workflow directly in Copilot. For questions or approval,
-use Copilot's `ask_user` tool and wait for the response before continuing; ask one
-question per call, retaining the options, recommendations, and limits below.
-If the tool is unavailable when an answer is required, stop and report the blocker;
-do not assume approval or substitute a plain-text question. Command references are
-Copilot skills, not instructions to switch agents.
-
 ## Goal
 
 Close the gap between what a feature's specification, plan, and tasks call for and what the

@@ -22,7 +22,7 @@ their canonical home.
 
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
-| [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Full core workflow with Copilot skill invocation and `ask_user`; nine command replacements preserving traditional artifacts and gates without extension lifecycle-hook dispatch. Initial release pending. |
+| [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Full core workflow registered as Copilot skills; nine commands identical to pinned core except for extension lifecycle-hook deletions. Initial release pending. |
 | [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. Initial release pending. |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
