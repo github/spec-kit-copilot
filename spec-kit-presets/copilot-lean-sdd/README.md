@@ -6,7 +6,8 @@ adaptation of upstream Lean Workflow **1.0.0**. It preserves Lean's small
 authoring command, no separate design templates or boilerplate artifacts. The five
 original Lean command files are imported **byte-for-byte unchanged**; Copilot-specific
 guidance is confined to the four additional shared-command replacements.
-See [UPSTREAM.md](UPSTREAM.md) for the exact source commit, changes, and MIT attribution.
+Source: [GitHub Spec Kit Lean 1.0.0](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean).
+Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
 The package id and directory are **`copilot-lean-sdd`**. The workstream name
 `copilot-lean-sdd-preset` refers to this one package, not a second preset or alias.
@@ -43,7 +44,7 @@ The aligned catalog URL reserves
 `https://github.com/github/spec-kit-copilot/releases/download/copilot-lean-sdd-v1.0.0/copilot-lean-sdd.zip`;
 it must not be presented as an existing downloadable asset before publication.
 The existing preset release workflow packages `preset.yml`, `commands/`, README,
-provenance, and license at archive root. Version this package independently of
+and license at archive root. Version this package independently of
 plugins, upstream Lean, and Specify CLI.
 
 Installation registers `.github/skills/speckit-<command>/SKILL.md`. Use
@@ -125,7 +126,7 @@ init/install/resolve/generated-skills checks. Set `LEAN_PRESET_ARCHIVE` to a loc
 built release zip to validate archive contents too. Tests never publish or call an
 agent. Static checks cover manifest/catalog alignment, nine replacement commands,
 byte-identical upstream imports, Lean-style shared-command length/structure,
-minimal-artifact prompt contracts, provenance/license packaging, and forbidden hook
+minimal-artifact prompt contracts, license packaging, and forbidden hook
 dispatch. Real CLI checks establish registration/composition, **not** model compliance:
 live Copilot CLI/App question handling and end-to-end authored artifact quality
 still need interactive validation. No live-agent run is claimed by these tests.

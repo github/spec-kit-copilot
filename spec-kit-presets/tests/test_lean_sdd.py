@@ -25,7 +25,7 @@ UPSTREAM_SHA256 = {
     "implement": "d50654ebfad997092a939d7020e546c48be47aa676c7ddeb90eb70b5cf20767c",
 }
 FILES = {
-    "preset.yml", "README.md", "UPSTREAM.md", "LICENSE",
+    "preset.yml", "README.md", "LICENSE",
     *(f"commands/speckit.{name}.md" for name in COMMANDS),
 }
 FORBIDDEN = (
@@ -71,21 +71,18 @@ class LeanPackageTests(unittest.TestCase):
             f"{metadata['repository']}/releases/download/{release}/copilot-lean-sdd.zip",
         )
 
-    def test_package_files_provenance_and_license(self):
+    def test_package_files_and_license(self):
         self.assertEqual(
             {p.relative_to(PACKAGE).as_posix() for p in PACKAGE.rglob("*") if p.is_file()},
             FILES,
         )
         self.assertFalse(any(p.is_symlink() for p in PACKAGE.rglob("*")))
-        provenance = (PACKAGE / "UPSTREAM.md").read_text()
-        self.assertIn("27d14e20c187c1f2916540ea201ecbdc9f8ed588", provenance)
-        self.assertIn("presets/lean/commands", provenance)
-        self.assertIn("templates/commands", provenance)
         license_text = (PACKAGE / "LICENSE").read_text()
         self.assertIn("Copyright GitHub, Inc.", license_text)
         self.assertIn("Permission is hereby granted", license_text)
         self.assertIn('THE SOFTWARE IS PROVIDED "AS IS"', license_text)
         readme = (PACKAGE / "README.md").read_text()
+        self.assertIn("27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean", readme)
         self.assertIn(f"**{self.manifest['preset']['version']}**", readme)
         self.assertIn("Initial release pending", readme)
         self.assertIn("not** model compliance", readme)

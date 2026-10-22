@@ -79,7 +79,6 @@ spec-kit-presets/
 ├── copilot-lean-sdd/
 │   ├── preset.yml
 │   ├── LICENSE
-│   ├── UPSTREAM.md
 │   └── commands/
 ├── copilot-sub-agents/
 │   ├── preset.yml
