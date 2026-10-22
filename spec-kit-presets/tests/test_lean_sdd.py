@@ -29,9 +29,10 @@ UPSTREAM_IMPLEMENT_EXECUTION = """3. **Execute tasks** in order:
    - Mark completed tasks by changing `- [ ]` to `- [x]` in `<feature_directory>/tasks.md`
    - Halt on failure and report the issue"""
 IMPLEMENT_EXECUTION = """3. **Execute tasks sequentially**, in dependency order:
-   - Work on one task at a time; wait for its commands and file writes to finish
-   - Verify the task's stated outcome, mark it `[x]`, and wait for that write to finish before starting another task
-   - Never batch different tasks, including checkbox updates, or run validation alongside changes from a later task
+   - Work on one task at a time; finish its file writes before running validation, and wait for the result
+   - Verify the task's stated outcome, mark it `[x]`, wait for the write, then read `tasks.md` back
+   - Only after confirming the saved marker, select and start the next task
+   - Never batch different tasks, including checkbox updates, or run validation alongside unfinished file writes
    - If a task fails or its outcome cannot be verified, stop and report; leave it unchecked"""
 FILES = {
     "preset.yml", "README.md", "LICENSE",
@@ -178,6 +179,15 @@ class LeanPackageTests(unittest.TestCase):
     def test_implementation_requires_verified_sequential_task_completion(self):
         text = self.commands["implement"]
         self.assertIn(IMPLEMENT_EXECUTION, text)
+        steps = [
+            "finish its file writes before running validation",
+            "Verify the task's stated outcome",
+            "mark it `[x]`, wait for the write",
+            "then read `tasks.md` back",
+            "Only after confirming the saved marker",
+        ]
+        positions = [text.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
         self.assertNotIn("Follow TDD", text)
         self.assertNotIn("parallel tasks [P]", text)
 
