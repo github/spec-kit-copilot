@@ -22,8 +22,8 @@ async function* directoryEntries(workspacePath, relativeDirectory) {
 export function wizardOwningCommand(stage, phase, commands = []) {
     if (typeof phase?.commandName === "string" && phase.commandName) return phase.commandName;
     const normalizedPath = typeof phase?.artifactPath === "string" ? phase.artifactPath.replaceAll("\\", "/") : null;
-    const matched = (commands ?? []).find((command) => command?.id === stage ||
-        (normalizedPath && command?.artifactPath?.replaceAll("\\", "/") === normalizedPath));
+    const matched = (commands ?? []).find((command) => command?.id === stage) ??
+        (commands ?? []).find((command) => normalizedPath && command?.artifactPath?.replaceAll("\\", "/") === normalizedPath);
     if (typeof matched?.commandName === "string" && matched.commandName) return matched.commandName;
     const bare = String(stage ?? "").replace(/^commands\//, "");
     return /^speckit[.-]/i.test(bare) ? bare : `speckit.${bare}`;

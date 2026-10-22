@@ -43,6 +43,87 @@ test("Wizard reviews scanner-owned primary Markdown while execution is unavailab
     assert.deepEqual(snapshot, before);
 }));
 
+test("Wizard normalized extension artifacts remain reviewable while setup gates execution", async () => {
+    const { state } = await import("../ui/state.js");
+    const { renderStepper, renderPhaseCard, renderGraphPhaseCard, setStepperDeps, setPhaseCardDeps, setGraphPhaseCardDeps } = await import("../ui/phase-card.js");
+    const dom = new JSDOM('<ul id="stepper"></ul><section id="phase-card"></section>');
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    const priorPhase = state.currentPhase;
+    const id = "speckit.assess.intake";
+    const artifactPath = ".specify/assessments/fixture/intake.md";
+    let opened = 0;
+    let dispatched = 0;
+    globalThis.document = dom.window.document;
+    setStepperDeps({ renderPhaseCard });
+    setPhaseCardDeps({ renderGraphPhaseCard });
+    setGraphPhaseCardDeps({
+        openArtifactViewer: (phase) => {
+            assert.equal(phase.id, id);
+            assert.equal(phase.artifactPath, artifactPath);
+            opened++;
+        },
+        postJson: async () => { dispatched++; return { queued: true }; },
+    });
+    try {
+        state.snapshot = {
+            setup: { pluginInstalled: false, cliInstalled: false, projectInitialized: false, skillsReloaded: false },
+            pipeline: [{ id }],
+            commands: [{ id: "specify", commandName: "speckit.specify" }],
+            phases: { [`commands/${id}`]: { artifactPath, status: "done" } },
+            composition: {
+                extensions: [{ id: "assess", name: "Assess" }],
+                artifacts: [{
+                    id: `commands/${id}`, kind: "command",
+                    stack: [{ layer: "extension", active: true, presetId: "assess" }],
+                }],
+            },
+        };
+        for (const status of ["empty", "done"]) {
+            state.currentPhase = "specify";
+            state.snapshot.phases[`commands/${id}`].status = status;
+            renderStepper();
+            const step = document.querySelector(`[data-phase="${id}"]`);
+            assert.ok(step);
+            assert.equal(step.classList.contains("locked"), false);
+            step.click();
+            assert.equal(state.currentPhase, id);
+            const card = document.getElementById("phase-card");
+            const view = card.querySelector('[data-phase-action="view"]');
+            assert.ok(view);
+            assert.equal(view.disabled, false);
+            view.click();
+            const run = card.querySelector(status === "done" ? '[data-phase-action="redo"]' : 'button[type="submit"]');
+            assert.ok(run);
+            assert.equal(run.disabled, true);
+            run.click();
+            card.querySelector("form").dispatchEvent(new dom.window.Event("submit", { cancelable: true }));
+            assert.equal(dispatched, 0);
+        }
+        assert.equal(opened, 2);
+        delete state.snapshot.phases[`commands/${id}`].artifactPath;
+        state.currentPhase = "specify";
+        renderStepper();
+        const unavailable = document.querySelector(`[data-phase="${id}"]`);
+        assert.equal(unavailable.classList.contains("locked"), true);
+        unavailable.click();
+        assert.equal(state.currentPhase, "specify");
+        assert.equal(dispatched, 0);
+    } finally {
+        state.snapshot = priorSnapshot;
+        state.currentPhase = priorPhase;
+        setStepperDeps({ renderPhaseCard: () => {} });
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        setGraphPhaseCardDeps({
+            openArtifactViewer: () => {},
+            postJson: async () => { throw new Error("Workflow dispatch outside the review fixture."); },
+        });
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+        dom.window.close();
+    }
+});
+
 test("Wizard denies fabricated source hints and invalidates a changed feature context", () => serviceFixture(async ({ service, snapshot }) => {
     await assert.rejects(service.open({ stage: "specify", source: "private.md" }), { code: "artifact_unavailable" });
     const opened = await service.open({ stage: "specify" });
@@ -410,6 +491,43 @@ test("Wizard clarification bindings are prose-only and reject a stale revision o
     assert.equal(extDoc.clarifications.length, 1);
     assert.equal(extDoc.clarifications[0].commandName, "speckit.assess.intake");
 }));
+
+test("Wizard shared-output clarification bindings prefer the selected stage command", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const artifactPath = snapshot.phases.specify.artifactPath;
+    await fs.writeFile(join(root, artifactPath), "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    snapshot.phases.clarify = { artifactPath };
+    snapshot.commands = [
+        { id: "specify", commandName: "speckit.specify", artifactPath },
+        { id: "clarify", commandName: "speckit.clarify", artifactPath },
+    ];
+    for (const stage of ["clarify", "specify"]) {
+        const command = `speckit.${stage}`;
+        const otherCommand = stage === "clarify" ? "speckit.specify" : "speckit.clarify";
+        const opened = await service.open({ stage });
+        const document = await service.content(opened.contextId, opened.primaryArtifactId);
+        assert.equal(document.artifact.owningStage, stage);
+        assert.equal(document.artifact.owningCommand, command);
+        assert.equal(document.clarifications.length, 1);
+        const binding = document.clarifications[0];
+        assert.equal(binding.commandName, command);
+        const answers = [{ questionId: binding.questionId, question: binding.question, answer: "Current feature" }];
+        assert.equal((await service.validateClarifications(opened.contextId, opened.primaryArtifactId,
+            document.revision, answers, command))[0].commandName, command);
+        await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId,
+            document.revision, answers, otherCommand), { code: "changed_source" });
+        service.close(opened.contextId);
+    }
+}));
+
+test("Wizard owning command retains explicit names, normalized path fallback, and stage defaults", async () => {
+    const { wizardOwningCommand } = await import("../server/artifact-discovery.mjs");
+    const phase = { artifactPath: "specs\\001-fixture\\spec.md" };
+    const commands = [{ id: "specify", commandName: "speckit.custom.specify", artifactPath: "specs/001-fixture/spec.md" }];
+    assert.equal(wizardOwningCommand("legacy", phase, commands), "speckit.custom.specify");
+    assert.equal(wizardOwningCommand("specify", { ...phase, commandName: "speckit.explicit.specify" }, commands), "speckit.explicit.specify");
+    assert.equal(wizardOwningCommand("clarify", {}, null), "speckit.clarify");
+    assert.equal(wizardOwningCommand("commands/speckit.assess.intake", {}), "speckit.assess.intake");
+});
 
 test("Wizard clarification batches enforce one aggregate UTF-8 budget", () => serviceFixture(async ({ root, service }) => {
     const questions = ["First?", "Second?", "Third?", "Fourth?"];

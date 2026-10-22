@@ -199,7 +199,7 @@ export function renderStepper() {
         const li = document.createElement("li");
         li.className = "step";
         if (id === state.currentPhase && !orphan) li.classList.add("active");
-        const canReview = Boolean(state.snapshot.phases?.[id]?.artifactPath || lookup.get(id)?.artifactPath);
+        const canReview = Boolean(p.artifactPath || state.snapshot.phases?.[id]?.artifactPath || lookup.get(id)?.artifactPath);
         if (p.locked && !canReview) li.classList.add("locked");
         if (p.optional) li.classList.add("is-optional");
         if (orphan) li.classList.add("orphan");

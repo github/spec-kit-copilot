@@ -40,9 +40,10 @@ the authorized scope remains unavailable.
   and non-Markdown source previews retain their existing entry points.
 - SDD feature targeting, constitution, progress, optional quality gates,
   new-feature flow, and artifact deep links are retained.
-- Existing artifacts can be viewed even when setup or execution is gated.
-  This intentionally makes SDD feature cards and Wizard artifact navigation
-  available earlier; it does not enable execution or perform setup.
+- Existing artifacts, including normalized extension pipeline entries, can be
+  viewed even when setup or execution is gated. This intentionally makes SDD
+  feature cards and Wizard artifact navigation available earlier; it does not
+  enable execution or perform setup.
 - Reading, changing documents, following local links, and returning do not
   dispatch a workflow, install dependencies, or write project files. The
   Wizard's existing startup and dependency bootstrap are unchanged.
@@ -50,10 +51,11 @@ the authorized scope remains unavailable.
 Clarification controls remain explicit workflow actions. SDD still confirms
 and submits a targeted answer; Wizard retains queued answers and its
 apply-and-rerun flow. Reader answers are additionally bound to the current
-context, artifact, revision, question, and owning command. Changed questions
-must be refreshed and reconfirmed. Code examples and HTML comments do not
-become actionable clarification markers. Existing callers without reader
-metadata retain their original action contracts.
+context, artifact, revision, question, and owning command. When stages share an
+output file, the selected stage's command takes precedence over artifact-path
+matches. Changed questions must be refreshed and reconfirmed. Code examples and
+HTML comments do not become actionable clarification markers. Existing callers
+without reader metadata retain their original action contracts.
 
 ## Read Boundary
 
