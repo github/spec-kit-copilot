@@ -17,9 +17,8 @@
 ## What lives here
 
 These are the **Copilot-specific** Spec Kit presets — presets that depend on
-**Copilot's own agent mechanisms**, including independently maintained upstream-derived
-SDD baselines adapted for Copilot skills mode and interactive tools. This directory
-is their canonical home.
+**Copilot's own agent mechanisms** rather than being agent-agnostic. This directory is
+their canonical home.
 
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
@@ -27,7 +26,7 @@ is their canonical home.
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
 
-Only Copilot-specific presets belong here. Unadapted agent-agnostic presets (generic themes,
+Only Copilot-specific presets belong here. Agent-agnostic presets (generic themes,
 extension-specific workflows that don't rely on Copilot's tools) do **not** belong in
 this Copilot integration hub.
 
@@ -110,3 +109,4 @@ directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
 Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
+

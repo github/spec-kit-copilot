@@ -65,8 +65,7 @@ confused with Copilot plugin/marketplace plumbing.
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
 boundary, install commands, and versioning. Only Copilot-specific presets are hosted
-here, including independently maintained upstream-derived baselines adapted to
-Copilot; unadapted agent-agnostic presets do not belong in this integration hub.
+here; agent-agnostic presets do not belong in this Copilot integration hub.
 
 ## Core skills plugin
 

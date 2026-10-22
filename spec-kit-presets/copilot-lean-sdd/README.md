@@ -10,8 +10,7 @@ is in the four additional shared-command replacements.
 Source: [GitHub Spec Kit Lean 1.0.0](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean).
 Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
-The package id and directory are **`copilot-lean-sdd`**. The workstream name
-`copilot-lean-sdd-preset` refers to this one package, not a second preset or alias.
+The package id and directory are **`copilot-lean-sdd`**.
 This is Specify CLI plumbing, **not** a `copilot plugin` package.
 
 ## Installation and status
@@ -41,12 +40,8 @@ specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-cop
 specify preset add copilot-lean-sdd
 ```
 
-The aligned catalog URL reserves
-`https://github.com/github/spec-kit-copilot/releases/download/copilot-lean-sdd-v1.0.0/copilot-lean-sdd.zip`;
-it must not be presented as an existing downloadable asset before publication.
-The existing preset release workflow packages `preset.yml`, `commands/`, README,
-and license at archive root. Version this package independently of
-plugins, upstream Lean, and Specify CLI.
+See the shared
+[versioning and release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution).
 
 Installation registers `.github/skills/speckit-<command>/SKILL.md`. Use
 `/skills reload` in the current Copilot session after generated skills change;
@@ -109,10 +104,6 @@ CLI-owned behavior. Other installed composition layers can still add instruction
 the hook-free guarantee here is for this baseline alone. Opt-in extension hooks
 and delegation compatibility are separate workstreams, not implemented here.
 
-The planned `copilot-sdd-bundle` will select Lean by default. That is future bundle
-work, not current installed-by-default behavior or an activation mechanism in this
-preset. Full SDD, delegation presets, and existing projects are unchanged.
-
 ## Validation
 
 From the repository root, use the existing Specify tool environment (which supplies
@@ -124,10 +115,6 @@ python -m unittest discover -s spec-kit-presets/tests -v
 
 Set `SPECIFY_BIN` to the absolute `specify` executable to include isolated real-CLI
 init/install/resolve/generated-skills checks. Set `LEAN_PRESET_ARCHIVE` to a locally
-built release zip to validate archive contents too. Tests never publish or call an
-agent. Static checks cover manifest/catalog alignment, nine replacement commands,
-byte-identical upstream imports, Lean-style shared-command length/structure,
-minimal-artifact prompt contracts, license packaging, and forbidden hook
-dispatch. Real CLI checks establish registration/composition, **not** model compliance:
-live Copilot CLI/App question handling and end-to-end authored artifact quality
-still need interactive validation. No live-agent run is claimed by these tests.
+built release zip to validate archive contents too. These checks cover package
+metadata, files, license/provenance, command contracts, CLI registration, and
+archive contents. They do not invoke an agent or verify model instruction-following.

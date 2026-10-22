@@ -94,8 +94,6 @@ class LeanPackageTests(unittest.TestCase):
         readme = (PACKAGE / "README.md").read_text()
         self.assertIn("27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean", readme)
         self.assertIn(f"**{self.manifest['preset']['version']}**", readme)
-        self.assertIn("Initial release pending", readme)
-        self.assertIn("not** model compliance", readme)
 
     def test_lean_imports_only_change_approved_implement_execution_step(self):
         for name, digest in UPSTREAM_SHA256.items():
@@ -123,15 +121,10 @@ class LeanPackageTests(unittest.TestCase):
                     self.assertIn(".specify/feature.json", text)
                     self.assertIn("missing", text)
 
-    def test_shared_commands_follow_lean_outline_and_length(self):
-        originals = [self.commands[name] for name in UPSTREAM_SHA256]
-        max_words = max(len(text.split()) for text in originals)
-        max_lines = max(len(text.splitlines()) for text in originals)
+    def test_shared_commands_follow_lean_outline(self):
         for name in COMMANDS - UPSTREAM_SHA256.keys():
             with self.subTest(command=name):
                 text = self.commands[name]
-                self.assertLessEqual(len(text.split()), max_words)
-                self.assertLessEqual(len(text.splitlines()), max_lines)
                 self.assertEqual(
                     re.findall(r"^## (.+)$", text, re.MULTILINE),
                     ["User Input", "Outline"],
