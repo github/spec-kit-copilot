@@ -181,6 +181,18 @@ class LeanPackageTests(unittest.TestCase):
         self.assertNotIn("Follow TDD", text)
         self.assertNotIn("parallel tasks [P]", text)
 
+    def test_convergence_requires_verified_outcomes_before_declaring_completion(self):
+        text = self.commands["converge"]
+        self.assertIn("every task outcome, including checked tasks", text)
+        self.assertIn("documented local validation checks sequentially; wait for each result", text)
+        self.assertIn("A failed required check is remaining work, even if another command passes", text)
+        self.assertIn("If verification is blocked, report it as unverified; do not declare convergence", text)
+        self.assertIn("Declare convergence only when all required outcomes are verified", text)
+        self.assertLess(
+            text.index("Run the feature's documented local validation checks"),
+            text.index("Append missing work"),
+        )
+
     @unittest.skipUnless(os.environ.get("LEAN_PRESET_ARCHIVE"), "Set LEAN_PRESET_ARCHIVE for archive validation")
     def test_release_archive(self):
         with ZipFile(os.environ["LEAN_PRESET_ARCHIVE"]) as archive:
