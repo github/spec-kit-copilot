@@ -15,7 +15,7 @@ PRESETS = Path(__file__).resolve().parents[1]
 PACKAGE = PRESETS / "copilot-lean-sdd"
 COMMANDS = {
     "constitution", "specify", "clarify", "plan", "tasks",
-    "analyze", "checklist", "implement", "converge", "taskstoissues",
+    "analyze", "checklist", "implement", "converge",
 }
 UPSTREAM_SHA256 = {
     "constitution": "56ca2ffc2938d04285adc8e0a7cc33164d7f0b8538d5b8aa70791de6ddb9f0a0",
@@ -55,10 +55,10 @@ class LeanPackageTests(unittest.TestCase):
         self.assertRegex(metadata["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(self.manifest["requires"], self.catalog["requires"])
         self.assertEqual(self.manifest["requires"]["speckit_version"], ">=1.0.8")
-        self.assertEqual(self.catalog["provides"], {"templates": 0, "commands": 10})
+        self.assertEqual(self.catalog["provides"], {"templates": 0, "commands": 9})
         self.assertEqual(self.manifest["tags"], self.catalog["tags"])
         entries = self.manifest["provides"]["templates"]
-        self.assertEqual(len(entries), 10)
+        self.assertEqual(len(entries), 9)
         self.assertEqual({e["name"] for e in entries}, {f"speckit.{n}" for n in COMMANDS})
         for entry in entries:
             self.assertEqual(entry["type"], "command")
@@ -149,10 +149,6 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("**Append-only**: Preserve existing tasks", self.commands["converge"])
         self.assertIn("leave `tasks.md` unchanged", self.commands["converge"])
         self.assertIn("do not duplicate open tasks", self.commands["converge"])
-        self.assertIn("open and closed", self.commands["taskstoissues"])
-        self.assertIn("explicit permission", self.commands["taskstoissues"])
-        self.assertIn("Copilot's `ask_user`", self.commands["taskstoissues"])
-        self.assertIn(r"\bT\d{3,}\b", self.commands["taskstoissues"])
 
     @unittest.skipUnless(os.environ.get("LEAN_PRESET_ARCHIVE"), "Set LEAN_PRESET_ARCHIVE for archive validation")
     def test_release_archive(self):
@@ -185,7 +181,10 @@ class LeanCliTests(unittest.TestCase):
                 "--integration-options=--skills", "--ignore-agent-tools", "--non-interactive",
             )
             core = {p.parent.name.removeprefix("speckit-") for p in (project / ".github/skills").glob("*/SKILL.md")}
-            self.assertEqual(core, COMMANDS, "Review new core commands before claiming complete baseline coverage")
+            self.assertEqual(
+                core - {"taskstoissues"}, COMMANDS,
+                "Review new core commands before claiming complete baseline coverage",
+            )
             run("preset", "add", "--dev", str(PACKAGE), cwd=project)
             for name in sorted(COMMANDS):
                 with self.subTest(command=name):

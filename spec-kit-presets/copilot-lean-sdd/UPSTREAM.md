@@ -20,7 +20,7 @@ the manifest version alone does not identify the imported content.
 | `commands/speckit.{constitution,specify,plan,tasks,implement}.md` | [`presets/lean/commands/`](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/commands) |
 | `preset.yml` packaging structure, five original declarations | [`presets/lean/preset.yml`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/preset.yml) |
 | Lean workflow/artifact description | [`presets/lean/README.md`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean/README.md) |
-| `commands/speckit.{clarify,analyze,checklist,converge,taskstoissues}.md` semantics, condensed and adapted | [`templates/commands/`](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands) |
+| `commands/speckit.{clarify,analyze,checklist,converge}.md` semantics, condensed and adapted | [`templates/commands/`](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands) |
 | `LICENSE` (verbatim) | [`LICENSE`](https://github.com/github/spec-kit/blob/27d14e20c187c1f2916540ea201ecbdc9f8ed588/LICENSE) |
 
 Copyright GitHub, Inc. Upstream material is MIT licensed. The accompanying
@@ -33,16 +33,18 @@ the preset archive with this attribution.
   frontmatter and whitespace. Tests pin their SHA-256 hashes to the source commit.
   Keep their explicit feature directory, `feature.json`, single-file spec/plan/tasks,
   direct task execution, and governance-only constitution without added guidance.
-- The five shared-command adaptations use Lean's short User Input / Outline format,
+- The four shared-command adaptations use Lean's short User Input / Outline format,
   with direct context loading and essential constraints rather than repeated
   execution guidance. Interactive questions use Copilot's `ask_user`; missing inputs
   and failures are reported. These additions do not alter the original five.
-- Replace all five shared core commands with self-contained Lean-compatible
+- Replace the four supported shared core commands with self-contained Lean-compatible
   adaptations. Remove their script/template dependencies and extension lifecycle-hook
   dispatch rather than inheriting Full SDD core fallbacks.
 - Preserve clarification's five-question limit and incremental answers, read-only
   analysis and constitution authority, reviewer-owned requirements-quality
-  checklists, append-only convergence, and authorized/deduplicated issue conversion.
+  checklists, and append-only convergence.
+- Exclude deprecated `taskstoissues`, which is moving out of core SDD. Older CLI
+  versions may still expose it independently; this preset does not manage it.
 - Do not generate or synchronize a built-in spec quality checklist. Existing custom
   checklists are not automatically rewritten or treated as mandatory Lean gates.
 - Change package identity, minimum tested CLI version, and release metadata.

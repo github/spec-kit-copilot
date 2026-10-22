@@ -108,8 +108,9 @@ toolchains:
   for Copilot: preserve upstream license and exact provenance, retain the baseline's
   artifact contract, and make execution genuinely Copilot-specific (skills-mode
   command invocation and interactive `ask_user`, not merely a renamed package).
-  Baselines must replace all ten supported core commands, including shared commands,
-  without embedded extension lifecycle-hook dispatch. Optional hook handling belongs
+  Baselines must replace all nine supported core SDD commands, including shared
+  commands, without embedded extension lifecycle-hook dispatch. Exclude deprecated
+  `taskstoissues`, which is moving out of core SDD. Optional hook handling belongs
   in its own opt-in layer, not core fallbacks. This does not disable Copilot native hooks.
   Unadapted agent-agnostic presets (generic themes, or workflows tied to an extension
   rather than to Copilot's tools) do **not** belong here. Do not import them.

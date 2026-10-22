@@ -5,7 +5,7 @@ adaptation of upstream Lean Workflow **1.0.0**. It preserves Lean's small
 `specify -> plan -> tasks -> implement` workflow: one focused Markdown file per
 authoring command, no separate design templates or boilerplate artifacts. The five
 original Lean command files are imported **byte-for-byte unchanged**; Copilot-specific
-guidance is confined to the five additional shared-command replacements.
+guidance is confined to the four additional shared-command replacements.
 See [UPSTREAM.md](UPSTREAM.md) for the exact source commit, changes, and MIT attribution.
 
 The package id and directory are **`copilot-lean-sdd`**. The workstream name
@@ -55,8 +55,8 @@ for the selected integration when generating its skill.
 
 ## Minimal artifact contract and supported commands
 
-The supported inventory is exactly these **ten** commands. Each uses `replace`,
-including the five shared commands upstream Lean does not override. This prevents
+The supported inventory is exactly these **nine** commands. Each uses `replace`,
+including the four shared commands upstream Lean does not override. This prevents
 shared commands from falling back to core instructions containing extension
 lifecycle-hook dispatch. Future core additions require an inventory review.
 
@@ -71,11 +71,10 @@ lifecycle-hook dispatch. Future core additions require an inventory review.
 | `checklist` / `speckit-checklist` | `feature.json`, `spec.md`; plan/tasks/constitution if present | Optional, explicitly requested `checklists/<domain>.md`, reviewer-owned requirements-quality checks |
 | `implement` / `speckit-implement` | `feature.json`, constitution, `spec.md`, `plan.md`, `tasks.md` context | Code, validation, task progress; halt on failure |
 | `converge` / `speckit-converge` | `feature.json`, constitution, spec/plan/tasks, prior implementation | Optional, append-only remaining work in `tasks.md`; no code changes |
-| `taskstoissues` / `speckit-taskstoissues` | `feature.json`, `tasks.md`, exact GitHub remote, issue tools, explicit write authorization | Optional deprecated conversion with open/closed issue deduplication; no automatic extension install |
 
 All command ids are prefixed `speckit.` in the manifest. The original five commands
 keep upstream's direct feature-path and context-loading instructions without added
-path checks or prerequisite gates. The five shared-command adaptations follow the
+path checks or prerequisite gates. The four shared-command adaptations follow the
 same short User Input / Outline format and report missing configuration or required
 inputs. No branch-name convention is required.
 
@@ -88,6 +87,10 @@ phase. Custom checklist checkboxes are not task completion or an automatic
 implementation gate. Upstream plan, tasks, and implement load the constitution as
 context; they do not add an authored-content validation gate. Analyze requires those
 same artifacts; clarify and checklist need only the spec and feature configuration.
+
+`taskstoissues` is excluded because it is moving out of core SDD. Older CLI versions
+may still generate that deprecated command; this preset neither replaces nor removes
+it. It is outside this baseline's supported inventory and hook-free guarantee.
 
 ## Baseline and composition boundary
 
@@ -120,7 +123,7 @@ python -m unittest discover -s spec-kit-presets/tests -v
 Set `SPECIFY_BIN` to the absolute `specify` executable to include isolated real-CLI
 init/install/resolve/generated-skills checks. Set `LEAN_PRESET_ARCHIVE` to a locally
 built release zip to validate archive contents too. Tests never publish or call an
-agent. Static checks cover manifest/catalog alignment, ten replacement commands,
+agent. Static checks cover manifest/catalog alignment, nine replacement commands,
 byte-identical upstream imports, Lean-style shared-command length/structure,
 minimal-artifact prompt contracts, provenance/license packaging, and forbidden hook
 dispatch. Real CLI checks establish registration/composition, **not** model compliance:

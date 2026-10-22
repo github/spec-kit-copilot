@@ -4,7 +4,7 @@ preset:
   id: "copilot-lean-sdd"
   name: "Copilot Lean SDD"
   version: "1.0.0"
-  description: "Copilot skills-mode Lean SDD baseline: ten self-contained core commands, minimal artifacts, and no embedded extension lifecycle-hook dispatch."
+  description: "Copilot skills-mode Lean SDD baseline: nine self-contained core commands, minimal artifacts, and no embedded extension lifecycle-hook dispatch."
   author: "mnriem"
   repository: "https://github.com/github/spec-kit-copilot"
   license: "MIT"
@@ -68,13 +68,6 @@ provides:
       description: "Append traceable remaining work without rewriting existing artifacts"
       replaces: "speckit.converge"
       strategy: "replace"
-    - type: "command"
-      name: "speckit.taskstoissues"
-      file: "commands/speckit.taskstoissues.md"
-      description: "Deprecated, explicitly authorized task-to-issue conversion"
-      replaces: "speckit.taskstoissues"
-      strategy: "replace"
-
 tags:
   - "copilot"
   - "lean"
