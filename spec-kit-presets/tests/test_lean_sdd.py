@@ -24,6 +24,15 @@ UPSTREAM_SHA256 = {
     "tasks": "b363acd5cdbc3312b2fa03c763913515947feb214702281fe13355401ebd0210",
     "implement": "d50654ebfad997092a939d7020e546c48be47aa676c7ddeb90eb70b5cf20767c",
 }
+UPSTREAM_IMPLEMENT_EXECUTION = """3. **Execute tasks** in order:
+   - Complete each task before moving to the next
+   - Mark completed tasks by changing `- [ ]` to `- [x]` in `<feature_directory>/tasks.md`
+   - Halt on failure and report the issue"""
+IMPLEMENT_EXECUTION = """3. **Execute tasks sequentially**, in dependency order:
+   - Work on one task at a time; wait for its commands and file writes to finish
+   - Verify the task's stated outcome, mark it `[x]`, and wait for that write to finish before starting another task
+   - Never batch different tasks, including checkbox updates, or run validation alongside changes from a later task
+   - If a task fails or its outcome cannot be verified, stop and report; leave it unchecked"""
 FILES = {
     "preset.yml", "README.md", "LICENSE",
     *(f"commands/speckit.{name}.md" for name in COMMANDS),
@@ -87,11 +96,17 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Initial release pending", readme)
         self.assertIn("not** model compliance", readme)
 
-    def test_original_five_are_byte_identical_to_pinned_upstream(self):
+    def test_lean_imports_only_change_approved_implement_execution_step(self):
         for name, digest in UPSTREAM_SHA256.items():
             with self.subTest(command=name):
                 path = PACKAGE / f"commands/speckit.{name}.md"
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
+                content = path.read_bytes()
+                if name == "implement":
+                    self.assertEqual(content.count(IMPLEMENT_EXECUTION.encode()), 1)
+                    content = content.replace(
+                        IMPLEMENT_EXECUTION.encode(), UPSTREAM_IMPLEMENT_EXECUTION.encode(), 1
+                    )
+                self.assertEqual(hashlib.sha256(content).hexdigest(), digest)
 
     def test_self_contained_commands_without_hook_dispatch(self):
         for name, text in self.commands.items():
@@ -127,7 +142,7 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Every requirement must be testable", self.commands["specify"])
         self.assertIn("Design decisions, architecture, file structure", self.commands["plan"])
         self.assertIn("dependency-ordered", self.commands["tasks"])
-        self.assertIn("Halt on failure", self.commands["implement"])
+        self.assertIn("If a task fails or its outcome cannot be verified, stop and report", self.commands["implement"])
         self.assertIn("MUST NOT", self.commands["constitution"])
         self.assertIn("non-governance", self.commands["constitution"])
         self.assertIn("Repeat for up to five material questions", self.commands["clarify"])
@@ -159,6 +174,12 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Never batch questions, run questions and writes in parallel", text)
         self.assertIn("or saving fails", text)
         self.assertIn("Do not start another command", text)
+
+    def test_implementation_requires_verified_sequential_task_completion(self):
+        text = self.commands["implement"]
+        self.assertIn(IMPLEMENT_EXECUTION, text)
+        self.assertNotIn("Follow TDD", text)
+        self.assertNotIn("parallel tasks [P]", text)
 
     @unittest.skipUnless(os.environ.get("LEAN_PRESET_ARCHIVE"), "Set LEAN_PRESET_ARCHIVE for archive validation")
     def test_release_archive(self):

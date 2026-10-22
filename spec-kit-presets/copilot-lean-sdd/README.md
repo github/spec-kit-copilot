@@ -3,9 +3,10 @@
 Copilot Lean SDD **1.0.0** is an independently maintained, Copilot-specific
 adaptation of upstream Lean Workflow **1.0.0**. It preserves Lean's small
 `specify -> plan -> tasks -> implement` workflow: one focused Markdown file per
-authoring command, no separate design templates or boilerplate artifacts. The five
-original Lean command files are imported **byte-for-byte unchanged**; Copilot-specific
-guidance is confined to the four additional shared-command replacements.
+authoring command, no separate design templates or boilerplate artifacts. Four
+original Lean command files are imported **byte-for-byte unchanged**; `implement`
+has a focused execution-order clarification. Copilot-specific interactive guidance
+is in the four additional shared-command replacements.
 Source: [GitHub Spec Kit Lean 1.0.0](https://github.com/github/spec-kit/tree/27d14e20c187c1f2916540ea201ecbdc9f8ed588/presets/lean).
 Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
@@ -18,8 +19,8 @@ This is Specify CLI plumbing, **not** a `copilot plugin` package.
 Requires Specify CLI **>= 1.0.8** and Copilot **skills mode**. This floor is the
 oldest locally verified CLI for this package, not a claim that upstream Lean needs it.
 The shared-command adaptations use Copilot's `ask_user` for interactive decisions
-and report a missing tool when a blocking question cannot be asked. The original
-five commands retain upstream's own wording. No delegation tools or extensions are required.
+and report a missing tool when a blocking question cannot be asked.
+No delegation tools or extensions are required.
 
 **Initial release pending.** No release/tag/asset is created by adding this source.
 Use a disposable project for local development, starting from a clone of this repo:
@@ -73,7 +74,7 @@ lifecycle-hook dispatch. Future core additions require an inventory review.
 | `implement` / `speckit-implement` | `feature.json`, constitution, `spec.md`, `plan.md`, `tasks.md` context | Code, validation, task progress; halt on failure |
 | `converge` / `speckit-converge` | `feature.json`, constitution, spec/plan/tasks, prior implementation | Optional, append-only remaining work in `tasks.md`; no code changes |
 
-All command ids are prefixed `speckit.` in the manifest. The original five commands
+All command ids are prefixed `speckit.` in the manifest. The five Lean-derived commands
 keep upstream's direct feature-path and context-loading instructions without added
 path checks or prerequisite gates. The four shared-command adaptations follow the
 same short User Input / Outline format and report missing configuration or required
