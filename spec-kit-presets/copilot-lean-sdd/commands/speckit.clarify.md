@@ -16,11 +16,11 @@ $ARGUMENTS
    - Stop and report missing configuration or spec
    - No plan, tasks, or checklist required
 
-3. **Ask the user** up to five material clarification questions using Copilot's `ask_user`, one at a time.
-   - Focus on ambiguous requirements, scenarios, edge cases, and success criteria
-   - Stop if the tool is unavailable or the user declines further questions
+3. **Repeat for up to five material questions**, strictly in this order:
+   - Ask **one** question using Copilot's `ask_user`, then wait for its answer
+   - Write the accepted question and answer under Clarifications in `spec.md`; update the relevant requirement, preserving unrelated content
+   - Read back the saved text to verify the answer is recorded; **only then** consider the next question
+   - Never batch questions, run questions and writes in parallel, or defer saving until the end
+   - Stop and report if the tool is unavailable, the user declines, or saving fails
 
-4. After each accepted answer, update `spec.md` and record the question and answer under Clarifications.
-   - Resolve conflicting wording; preserve unrelated content
-
-5. Report remaining ambiguities before planning.
+4. Report remaining ambiguities before planning. Do not start another command.

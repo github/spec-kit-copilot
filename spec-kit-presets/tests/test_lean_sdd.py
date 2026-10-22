@@ -130,9 +130,8 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("Halt on failure", self.commands["implement"])
         self.assertIn("MUST NOT", self.commands["constitution"])
         self.assertIn("non-governance", self.commands["constitution"])
-        self.assertIn("up to five material clarification questions", self.commands["clarify"])
-        self.assertIn("Copilot's `ask_user`, one at a time", self.commands["clarify"])
-        self.assertIn("After each accepted answer", self.commands["clarify"])
+        self.assertIn("Repeat for up to five material questions", self.commands["clarify"])
+        self.assertIn("Ask **one** question using Copilot's `ask_user`, then wait for its answer", self.commands["clarify"])
         self.assertIn("No plan, tasks, or checklist required", self.commands["clarify"])
         self.assertIn("**Read-only**: Do not modify files", self.commands["analyze"])
         self.assertIn("constitution.md", self.commands["analyze"])
@@ -146,6 +145,20 @@ class LeanPackageTests(unittest.TestCase):
         self.assertIn("**Append-only**: Preserve existing tasks", self.commands["converge"])
         self.assertIn("leave `tasks.md` unchanged", self.commands["converge"])
         self.assertIn("do not duplicate open tasks", self.commands["converge"])
+
+    def test_clarification_requires_serial_ask_save_verify_loop(self):
+        text = self.commands["clarify"]
+        steps = [
+            "Ask **one** question",
+            "Write the accepted question and answer",
+            "Read back the saved text",
+            "**only then** consider the next question",
+        ]
+        positions = [text.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("Never batch questions, run questions and writes in parallel", text)
+        self.assertIn("or saving fails", text)
+        self.assertIn("Do not start another command", text)
 
     @unittest.skipUnless(os.environ.get("LEAN_PRESET_ARCHIVE"), "Set LEAN_PRESET_ARCHIVE for archive validation")
     def test_release_archive(self):
