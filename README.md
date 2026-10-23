@@ -63,6 +63,7 @@ confused with Copilot plugin/marketplace plumbing.
 | [`copilot-full-sdd`](spec-kit-presets/copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Alternative full SDD baseline retaining traditional artifacts and quality gates; nine command replacements without extension lifecycle-hook dispatch. Initial release pending; use the documented local-development install. |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
+| [`copilot-extension-hooks`](spec-kit-presets/copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in Specify extension lifecycle dispatch through Copilot skills; not native Copilot hooks |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
 boundary, install commands, and versioning. Maintainers judge whether a package

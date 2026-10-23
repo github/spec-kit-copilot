@@ -1,8 +1,28 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-10-22T00:00:00Z",
+  "updated_at": "2026-10-23T00:00:00Z",
   "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json",
   "presets": {
+    "copilot-extension-hooks": {
+      "name": "Copilot Extension Hooks",
+      "id": "copilot-extension-hooks",
+      "version": "1.0.0",
+      "description": "Opt-in Specify extension lifecycle-hook dispatch around either Copilot SDD baseline in Copilot skills mode.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-extension-hooks-v1.0.0/copilot-extension-hooks.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-extension-hooks/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": "==1.2.3"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 9
+      },
+      "tags": ["copilot", "extension-hooks", "sdd"]
+    },
     "copilot-full-sdd": {
       "name": "Copilot Full SDD",
       "id": "copilot-full-sdd",

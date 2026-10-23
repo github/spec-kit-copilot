@@ -23,6 +23,7 @@ for maintainer guidance on which packages belong here.
 
 | Preset | Requires | Copilot purpose |
 | --- | --- | --- |
+| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
 | [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Full core workflow registered as Copilot skills; nine commands identical to pinned core except for extension lifecycle-hook deletions. Initial release pending. |
 | [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. Initial release pending. |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
@@ -41,6 +42,8 @@ specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-cop
 # then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
+# Opt-in, after selecting one compatible Copilot SDD baseline:
+specify preset add copilot-extension-hooks --priority 5
 ```
 
 `copilot-lean-sdd` **1.0.0 is not released yet**. Its catalog entry reserves the
@@ -52,6 +55,10 @@ for baseline selection, prerequisites, and compatibility limits.
 `copilot-full-sdd` **1.0.0 is also pending release**; use its
 [local-development install](copilot-full-sdd#installation-and-prerequisites)
 until publication. Full and Lean are alternative baselines, not cumulative layers.
+
+`copilot-extension-hooks` **1.0.0 is also pending release**; use its
+[local-development install](copilot-extension-hooks#install-and-configure).
+It is an opt-in layer over one selected baseline, not another baseline.
 
 The two methods below are escape hatches, not the primary path:
 
@@ -70,6 +77,7 @@ The two methods below are escape hatches, not the primary path:
   specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
   specify preset add --dev ./spec-kit-presets/copilot-lean-sdd
   specify preset add --dev ./spec-kit-presets/copilot-full-sdd  # alternative to Lean
+  specify preset add --dev ./spec-kit-presets/copilot-extension-hooks --priority 5  # opt-in layer
   ```
 
 ## Layout
@@ -78,6 +86,10 @@ The two methods below are escape hatches, not the primary path:
 spec-kit-presets/
 ├── README.md              # this file (the plumbing boundary note)
 ├── catalog.json           # Spec Kit preset catalog (NOT the Copilot marketplace)
+├── copilot-extension-hooks/
+│   ├── preset.yml
+│   ├── LICENSE
+│   └── commands/
 ├── copilot-full-sdd/
 │   ├── preset.yml
 │   ├── LICENSE
