@@ -61,6 +61,7 @@ confused with Copilot plugin/marketplace plumbing.
 | --- | --- | --- |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
+| [`copilot-extension-hooks`](spec-kit-presets/copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in Specify extension lifecycle dispatch through Copilot skills; not native Copilot hooks |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
 boundary, install commands, and versioning. Only Copilot-specific presets are hosted

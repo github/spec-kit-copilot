@@ -22,6 +22,7 @@ their canonical home.
 
 | Preset | Requires | Why it is Copilot-specific |
 | --- | --- | --- |
+| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
 
@@ -42,6 +43,8 @@ specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-cop
 # then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
+# Opt-in, after selecting one compatible Copilot SDD baseline:
+specify preset add copilot-extension-hooks --priority 5
 ```
 
 The two methods below are escape hatches, not the primary path:
@@ -67,6 +70,9 @@ The two methods below are escape hatches, not the primary path:
 spec-kit-presets/
 ├── README.md              # this file (the plumbing boundary note)
 ├── catalog.json           # Spec Kit preset catalog (NOT the Copilot marketplace)
+├── copilot-extension-hooks/
+│   ├── preset.yml
+│   └── commands/
 ├── copilot-sub-agents/
 │   ├── preset.yml
 │   └── commands/
@@ -97,4 +103,3 @@ directory, so `preset.yml` and `commands/` sit at the archive root. To publish:
 Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
 release with that asset. When revving a preset, bump its `preset.yml` version and the
 matching `catalog.json` entry together **before** tagging.
-
