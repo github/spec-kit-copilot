@@ -55,10 +55,10 @@ CORE_GIT_BLOBS = {
 class FullPackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.manifest = yaml.safe_load((PACKAGE / "preset.yml").read_text())
-        cls.catalog = json.loads((PRESETS / "catalog.json").read_text())["presets"][PACKAGE.name]
+        cls.manifest = yaml.safe_load((PACKAGE / "preset.yml").read_text(encoding="utf-8"))
+        cls.catalog = json.loads((PRESETS / "catalog.json").read_text(encoding="utf-8"))["presets"][PACKAGE.name]
         cls.commands = {
-            name: (PACKAGE / f"commands/speckit.{name}.md").read_text()
+            name: (PACKAGE / f"commands/speckit.{name}.md").read_text(encoding="utf-8")
             for name in COMMANDS
         }
 
@@ -94,11 +94,11 @@ class FullPackageTests(unittest.TestCase):
             FILES,
         )
         self.assertFalse(any(p.is_symlink() for p in PACKAGE.rglob("*")))
-        license_text = (PACKAGE / "LICENSE").read_text()
+        license_text = (PACKAGE / "LICENSE").read_text(encoding="utf-8")
         self.assertIn("Copyright GitHub, Inc.", license_text)
         self.assertIn("Permission is hereby granted", license_text)
         self.assertIn('THE SOFTWARE IS PROVIDED "AS IS"', license_text)
-        readme = (PACKAGE / "README.md").read_text()
+        readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
         self.assertIn("27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands", readme)
         self.assertIn(f"**{self.manifest['preset']['version']}**", readme)
 
@@ -236,10 +236,11 @@ class FullCliTests(unittest.TestCase):
                     project = root / script_type
                     env = dict(os.environ)
                     env["PATH"] = str(Path(executable).parent) + os.pathsep + env["PATH"]
+                    env["PYTHONIOENCODING"] = "utf-8"
 
                     def run(args, cwd=project, success=True):
                         result = subprocess.run(
-                            args, cwd=cwd, env=env, text=True,
+                            args, cwd=cwd, env=env, text=True, encoding="utf-8",
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
                         )
                         if success:
@@ -263,7 +264,7 @@ class FullCliTests(unittest.TestCase):
                     for name in sorted(COMMANDS):
                         resolved = run([executable, "preset", "resolve", f"speckit.{name}"])
                         self.assertIn(PACKAGE.name, resolved.stdout)
-                        skill = (project / f".github/skills/speckit-{name}/SKILL.md").read_text()
+                        skill = (project / f".github/skills/speckit-{name}/SKILL.md").read_text(encoding="utf-8")
                         metadata = yaml.safe_load(skill.split("---", 2)[1])
                         self.assertEqual(metadata["metadata"]["source"], f"preset:{PACKAGE.name}")
                         self.assertEqual(metadata["name"], f"speckit-{name}")
@@ -286,7 +287,7 @@ class FullCliTests(unittest.TestCase):
                     feature = project / "specs/001-contract"
                     feature.mkdir(parents=True)
                     config = project / ".specify/feature.json"
-                    config.write_text(json.dumps({"feature_directory": "specs/001-contract"}) + "\n")
+                    config.write_text(json.dumps({"feature_directory": "specs/001-contract"}) + "\n", encoding="utf-8")
                     before = config.read_bytes()
                     paths = json.loads(run(scripts["clarify"]).stdout)
                     self.assertEqual(Path(paths["FEATURE_SPEC"]), feature / "spec.md")
@@ -296,13 +297,20 @@ class FullCliTests(unittest.TestCase):
                     for name in ("tasks", "checklist", "analyze", "implement", "converge"):
                         failure = run(scripts[name], success=False)
                         self.assertIn("plan.md", failure.stdout + failure.stderr)
-                    (feature / "spec.md").write_text("# Contract feature\n\n## Requirements\n- FR-001: Return a greeting.\n")
+                    (feature / "spec.md").write_text(
+                        "# Contract feature\n\n## Requirements\n- FR-001: Return a greeting.\n",
+                        encoding="utf-8",
+                    )
                     plan = json.loads(run(scripts["plan"]).stdout)
                     self.assertEqual(Path(plan["IMPL_PLAN"]), feature / "plan.md")
-                    plan_content = (feature / "plan.md").read_text()
+                    plan_content = (feature / "plan.md").read_text(encoding="utf-8")
                     self.assertIn("Constitution Check", plan_content)
+                    authored_plan = (
+                        plan_content + "\n## Authored decision\nKeep this decision \u2014 do not replace it.\n"
+                    ).encode("utf-8")
+                    (feature / "plan.md").write_bytes(authored_plan)
                     self.assertEqual(run(scripts["plan"]).returncode, 0)
-                    self.assertEqual((feature / "plan.md").read_text(), plan_content)
+                    self.assertEqual((feature / "plan.md").read_bytes(), authored_plan)
                     tasks = json.loads(run(scripts["tasks"]).stdout)
                     self.assertIn("TASKS_TEMPLATE_CONTENT", tasks)
                     self.assertIn("User Story", tasks["TASKS_TEMPLATE_CONTENT"])
@@ -311,7 +319,9 @@ class FullCliTests(unittest.TestCase):
                     for name in ("analyze", "implement", "converge"):
                         failure = run(scripts[name], success=False)
                         self.assertIn("tasks.md", failure.stdout + failure.stderr)
-                    (feature / "tasks.md").write_text("# Tasks\n- [ ] T001 Return greeting in hello.py\n")
+                    (feature / "tasks.md").write_text(
+                        "# Tasks\n- [ ] T001 Return greeting in hello.py\n", encoding="utf-8",
+                    )
                     for name in ("analyze", "implement", "converge"):
                         result = json.loads(run(scripts[name]).stdout)
                         self.assertIn("tasks.md", result["AVAILABLE_DOCS"])
