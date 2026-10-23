@@ -52,6 +52,10 @@ CORE_GIT_BLOBS = {
 }
 
 
+def lf_bytes(content):
+    return content.replace(b"\r\n", b"\n")
+
+
 class FullPackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -105,15 +109,24 @@ class FullPackageTests(unittest.TestCase):
     def test_reviewed_full_imports_remain_intact(self):
         for name, digest in IMPORT_SHA256.items():
             with self.subTest(command=name):
-                content = (PACKAGE / f"commands/speckit.{name}.md").read_bytes()
-                self.assertEqual(hashlib.sha256(content).hexdigest(), digest)
+                content = lf_bytes((PACKAGE / f"commands/speckit.{name}.md").read_bytes())
+                for ending in (b"\n", b"\r\n"):
+                    with self.subTest(line_ending=ending):
+                        checkout = content.replace(b"\n", ending)
+                        self.assertEqual(hashlib.sha256(lf_bytes(checkout)).hexdigest(), digest)
+
+    def test_line_ending_normalization_preserves_other_bytes(self):
+        self.assertEqual(lf_bytes(b"one\r\ntwo\nthree\rfour \t"), b"one\ntwo\nthree\rfour \t")
+        content = "Quality \u226580%\n".encode("utf-8")
+        self.assertEqual(lf_bytes(content), content)
+        self.assertNotEqual(lf_bytes(content + b" "), content)
 
     @unittest.skipUnless(os.environ.get("FULL_CORE_SOURCE"), "Set FULL_CORE_SOURCE for authenticated core comparison")
     def test_only_hook_deletions_from_authenticated_core(self):
         source = Path(os.environ["FULL_CORE_SOURCE"]) / "templates/commands"
         for name in sorted(COMMANDS):
             with self.subTest(command=name):
-                original = (source / f"{name}.md").read_bytes()
+                original = lf_bytes((source / f"{name}.md").read_bytes())
                 blob = hashlib.sha1(b"blob " + str(len(original)).encode() + b"\0" + original).hexdigest()
                 self.assertEqual(blob, CORE_GIT_BLOBS[name], "Source must match the pinned upstream revision")
                 expected = original.decode()
@@ -140,8 +153,8 @@ class FullPackageTests(unittest.TestCase):
                         "Branch creation is handled by the `before_specify` hook (git extension). ", "",
                     )
                 expected = expected.rstrip("\n") + "\n"
-                actual = (PACKAGE / f"commands/speckit.{name}.md").read_bytes()
-                self.assertEqual(actual, expected.encode(), "Non-hook instructions must be byte-identical")
+                actual = lf_bytes((PACKAGE / f"commands/speckit.{name}.md").read_bytes())
+                self.assertEqual(actual, expected.encode(), "Non-hook instructions must match after LF normalization")
                 source_iterator = iter(original)
                 self.assertTrue(all(byte in source_iterator for byte in actual), "No added bytes allowed")
 
@@ -222,7 +235,7 @@ class FullPackageTests(unittest.TestCase):
             self.assertEqual(set(names), FILES)
             self.assertEqual(len(names), len(FILES))
             for name in names:
-                self.assertEqual(archive.read(name), (PACKAGE / name).read_bytes())
+                self.assertEqual(lf_bytes(archive.read(name)), lf_bytes((PACKAGE / name).read_bytes()))
 
 
 @unittest.skipUnless(os.environ.get("SPECIFY_BIN"), "Set SPECIFY_BIN for real CLI validation")

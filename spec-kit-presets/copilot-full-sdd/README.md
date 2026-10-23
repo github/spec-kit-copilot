@@ -90,6 +90,8 @@ init/install/resolve/generated-skill and prerequisite-script checks.
 Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
 Set `FULL_CORE_SOURCE` to a checkout of the pinned Spec Kit source for
 authenticated source comparison: every command must exactly match core with
-only the enumerated hook-related deletions, with no added bytes.
+only the enumerated hook-related deletions, with no added bytes after normalizing
+CRLF line endings to LF. Digest, source, and archive comparisons use the same
+normalization so checkout line-ending conversion does not change their results.
 These checks cover package and instruction contracts, not model compliance or
 runtime guarantees.
