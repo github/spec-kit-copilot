@@ -5,6 +5,7 @@ import { createHandler } from "../server.mjs";
 const repoPath = fileURLToPath(new URL("../../../../../", import.meta.url));
 const snapshot = {
     workspacePath: process.cwd(),
+    featureFlags: { generateCanvas: true },
     currentPhase: "constitution",
     setup: {
         pluginInstalled: true,

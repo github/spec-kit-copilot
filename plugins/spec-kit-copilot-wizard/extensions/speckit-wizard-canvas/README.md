@@ -50,52 +50,6 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
-### Canvas designer setup (first increment)
-
-The **Generate canvas** button in the Phases pipeline header opens the
-**Canvas designer setup** dialog. It offers separate Presets, Extensions,
-and Bundles tabs with source badges and checkboxes for entries tagged
-`canvas-design`. Presets and extensions come from the Copilot and Community
-catalogs; bundles come from the available Default and Community catalogs.
-No eligible items are expected in this first increment, so the tabs show
-empty states until those catalogs publish design-time customizations.
-Selections reset when the dialog closes and do not install anything in the
-current project.
-Community selections use the same prominent confirmation warning as
-adding an item from the Catalogs page.
-Selecting a bundle inspects its components without installing it and checks
-same-source presets and extensions already listed in the standalone catalogs.
-Those checkboxes remain editable and show which bundle includes them;
-components absent from the standalone catalogs are not listed. Removing a
-bundle releases its selections unless another selected bundle or a direct
-selection still requires them; an inspection failure is shown in the dialog.
-
-**Launch designer** sends a versioned handoff with the active phase IDs and
-explicit preset, extension, and bundle selections (including empty lists)
-to the Wizard's agent. Only on launch, the Wizard checks that the official
-`plugin:spec-kit-copilot-wizard:speckit-canvas-designer` extension is running
-in this session and its canvas is registered. If disabled, launching enables
-it only for this session and verifies readiness before queueing. Missing or failed extensions
-and activation errors leave the dialog and selections intact with an error.
-No plugin is installed, global preference changed, or preview canvas substituted.
-Environment checks and opening the dialog never perform this check.
-The launch creates a nested, app-native **Canvas designer**
-session in the same project, starting from the project's default branch.
-The child stores the handoff in its own session artifacts and opens the
-Designer canvas provider bundled with the installed Wizard plugin. No provider
-files are copied into the child worktree. The
-Wizard returns an accepted launch request; child setup and errors appear
-in the child session (dispatch failures appear in the Wizard session log).
-The child writes the handoff and opens the official plugin canvas directly;
-opening fails visibly in the child if its own provider is unavailable. Enabling
-the Wizard session's provider does not enable it in the child session.
-The dialog closes once the launch request is accepted; if a check or request
-fails, it stays open with selections intact and shows the error. Selected
-design customizations are handed off, **not
-installed yet**; Designer pages and installation support will follow in
-later increments. The current Wizard project remains unchanged. The
-Catalogs page continues to install items as before.
-
 ### Browser tests
 
 From this extension directory, run `npm ci`, `npx playwright install chromium`,

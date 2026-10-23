@@ -71,6 +71,7 @@ const instances = allInstances();
 async function onOpen(ctx) {
     const inst = getInstance(ctx.instanceId);
     inst._session = getSession();
+    inst.generateCanvas = ctx.input?.generateCanvas === true;
     // If the session repo path wasn't captured at startup (race), try once more.
     if (!sessionState.repoPath && getSession()) {
         sessionState.repoPath = await fetchSessionRepoPath(getSession());
@@ -359,6 +360,7 @@ setSession(await joinSession({
                 type: "object",
                 properties: {
                     cwd: { type: "string", description: "Workspace directory. Defaults to the session's cwd." },
+                    generateCanvas: { type: "boolean", description: "Show the experimental Generate canvas button. Defaults to false." },
                 },
             },
             actions: ACTIONS,

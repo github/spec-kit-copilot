@@ -642,7 +642,7 @@ test("Phases header exposes Generate canvas even without steps", () => {
     globalThis.document = { getElementById: (id) => id === "pipeline-banner" ? banner : null };
     state.activeTab = "phases";
     try {
-        state.snapshot = { pipeline: [] };
+        state.snapshot = { pipeline: [], featureFlags: { generateCanvas: true } };
         renderPipelineBanner();
         assert.equal(banner.hidden, false);
         assert.match(banner.innerHTML, /pipeline-generate" aria-label="Generate canvas"[^>]*>Generate canvas<\/button>/);

@@ -80,9 +80,8 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** — this repo is their
-canonical, sole home. Guard the boundary so contributors never conflate the two
-toolchains:
+`spec-kit-presets/` holds Spec Kit presets maintained for Copilot. Guard the
+boundary so contributors never conflate the two toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
   `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
@@ -100,12 +99,6 @@ toolchains:
   Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
   namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
   the plumbing boundary and bloat `specify preset add`.
-- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
-  depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
-  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
-  requires Copilot's interactive `ask_user` tool with no plain-text fallback).
-  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
-  than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
@@ -116,11 +109,70 @@ toolchains:
 
 ## Spec Kit extensions (`spec-kit-extensions/`)
 
-This directory and its `catalog.json` hold **Copilot-specific Specify CLI
-extensions**, parallel to the preset catalog. Entries must depend on Copilot
-tools or providers; do not import general-purpose extensions or add these packages
-to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
+This directory and its `catalog.json` hold **Specify CLI extensions maintained
+for Copilot**, parallel to the preset catalog. Do not add these packages to the
+Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
+Package IDs, directory names, catalog keys, and ZIP basenames use
+`extension-<name>` (for example, `extension-canvas-design`). Release tags use
+`<extension-id>-vX.Y.Z` and release titles use `<extension-id> vX.Y.Z`, matching
+the preset version suffix. Keep discovery tags such as `canvas-design`, template
+IDs such as `canvas-settings-*`, and Copilot provider/tool IDs independent of
+the package identity. Standard manifest filenames remain `extension.yml`.
+
+Extensions are independently versioned and released through
+`.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
+and `.github/workflows/release-extension.yml`. Keep both files structurally
+aligned with their preset counterparts and Spec Kit's release model. Only
+package-specific naming prefixes, tag filters, input examples, and terminology
+differ; apply shared behavior fixes to both package types. The trigger validates its inputs,
+creates and pushes the tag; the separate tag-push workflow validates, zips, and
+publishes in one job.
+Do not add extension-only jobs, triggers, routing guards, or reusable calls.
+Bump the manifest, catalog entry, and package README together before releasing.
+Both trigger checkouts use `token: ${{ secrets.RELEASE_PAT }}` and persist that
+credential for the tag push, matching Spec Kit's core release trigger. Configure
+the repository Actions secret with a token authorized to push tags; do not
+replace it with `GITHUB_TOKEN`, whose pushes do not trigger another workflow.
+Preset publishers listen for `copilot-*-vX.Y.Z` tags and extension publishers
+listen for `extension-*-vX.Y.Z` tags, so releases do not start the other package
+type's workflow. Parse versions after the final `-v`, and pass changelog notes
+through a file rather than interpolating them into shell scripts.
+Both manual triggers must verify the requested version against the manifest and
+catalog before creating a tag. Both triggers and publishers must verify that the
+catalog `download_url` matches the release repository, tag, and ZIP asset name;
+keep these checks aligned so direct tag pushes cannot bypass them.
+Require manifest IDs to match the selected directory in both triggers and
+publishers. Package IDs use lowercase letters, digits, and single hyphen
+separators with the `copilot-` preset or `extension-` extension prefix. Reject
+symlinks in the package root or contents before reading manifests or creating
+archives; shell `zip` follows links and must never archive files outside the
+package.
+
+## Advanced CodeQL scanning
+
+`.github/workflows/codeql.yml` follows Spec Kit's advanced workflow, retaining
+this repository's `actions` and `javascript-typescript` languages and default
+query suite. It scans pushes and pull requests targeting `main`, without path
+filters or fork exclusions. Use `pull_request`, never `pull_request_target` with
+untrusted code; GitHub's fork-contributor workflow approval policies still apply.
+The Tuesday 04:23 UTC schedule deliberately preserves default setup's weekly
+coverage, beyond Spec Kit's unscheduled workflow. Keep actions SHA-pinned and
+the analysis job limited to `contents: read` and `security-events: write`.
+No dependency installation or build step is needed for these languages.
+
+Activation requires a coordinated maintainer switch, not just a YAML change:
+
+1. Review and merge the replacement workflow while default setup remains enabled.
+   Default setup rejects advanced CodeQL SARIF uploads while both are present.
+2. Once the approved workflow is on `main`, an authorized maintainer must disable
+   default setup in the target repository's code-scanning settings and re-run the
+   merge-triggered CodeQL workflow. Do not disable default setup prematurely.
+3. Verify successful uploads for both `/language:actions` and
+   `/language:javascript-typescript` on `main` and an approved fork PR run.
+   Local YAML checks are not evidence of a live scan. Required checks, rulesets,
+   fork Actions settings, and other security settings are separate maintainer
+   decisions; do not change them as part of this switch.
 
 ## When revving the core skills plugin
 

@@ -23,6 +23,46 @@
       },
       "tags": ["copilot", "extension-hooks", "sdd"]
     },
+    "copilot-full-sdd": {
+      "name": "Copilot Full SDD",
+      "id": "copilot-full-sdd",
+      "version": "1.0.0",
+      "description": "Copilot skills-mode Full SDD baseline: nine core commands, traditional artifacts and quality gates, without embedded extension lifecycle-hook dispatch.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-full-sdd-v1.0.0/copilot-full-sdd.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-full-sdd/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": "==1.2.3"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 9
+      },
+      "tags": ["copilot", "full", "sdd", "baseline"]
+    },
+    "copilot-lean-sdd": {
+      "name": "Copilot Lean SDD",
+      "id": "copilot-lean-sdd",
+      "version": "1.0.0",
+      "description": "Copilot skills-mode Lean SDD baseline: nine self-contained core commands, minimal artifacts, and no embedded extension lifecycle-hook dispatch.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-lean-sdd-v1.0.0/copilot-lean-sdd.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-lean-sdd/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.8"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 9
+      },
+      "tags": ["copilot", "lean", "sdd", "baseline"]
+    },
     "copilot-sub-agents": {
       "name": "Copilot Sub-Agent Delegation",
       "id": "copilot-sub-agents",

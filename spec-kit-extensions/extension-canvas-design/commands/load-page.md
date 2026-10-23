@@ -32,8 +32,8 @@ set; they do not run a second load operation.
    each name from the project root. Resolve all pages before submitting any.
    Use Specify CLI >=1.0.7. Its human-readable output looks like:
 
-       canvas-settings-setup: C:\project\.specify\extensions\canvas-design\pages\setup.json
-         (top layer from: extension:canvas-design v0.1.0)
+       canvas-settings-setup: C:\project\.specify\extensions\extension-canvas-design\pages\setup.json
+         (top layer from: extension:extension-canvas-design v0.1.0)
 
    Ignore leading indentation and record the complete path following the exact
    `<name>:` prefix. Preserve spaces and drive-letter colons; do not split on
