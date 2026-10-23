@@ -1,0 +1,17 @@
+/.gitattributes text eol=lf
+
+# Preserve exact bytes used by runtime package hash checks.
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/vendor/markdown-reader/** -text linguist-generated=true
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-read.mjs -text
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-review.mjs -text
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-discovery.mjs -text
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-clarifications.mjs -text linguist-generated=true
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-clarifications.NOTICES.txt -text linguist-generated=true
+/plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/artifact-review.js -text
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/markdown-reader/** -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-read.mjs -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-review.mjs -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-discovery.mjs -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.mjs -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.NOTICES.txt -text linguist-generated=true
+/plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/ui/artifact-review.js -text linguist-generated=true

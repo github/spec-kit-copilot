@@ -1,0 +1,30 @@
+#phase-artifact-viewer:has([data-review-context]) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#phase-artifact-viewer .artifact-viewer-body[data-review-context] {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    overflow-wrap: anywhere;
+}
+
+#phase-artifact-viewer .artifact-viewer-header { flex: 0 0 auto; }
+#phase-artifact-viewer[hidden] { display: none; }
+
+body.artifact-review-open { overflow: hidden; }
+body.artifact-review-open > .app-body,
+body.artifact-review-open > header {
+    min-width: 0;
+    max-width: 100%;
+    overflow: clip;
+    visibility: hidden;
+}
+
+#phase-artifact-viewer .md-reader__toolbar {
+    min-height: 44px;
+}

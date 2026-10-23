@@ -67,6 +67,18 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
     }
 }
 
+function isSnapshotSetupComplete(snapshot) {
+    if (!snapshot) return false;
+    const setup = snapshot.setup ?? {};
+    const env = snapshot.environment ?? {};
+    const pluginOk = Boolean(env.pluginInstalled || setup.pluginInstalled);
+    const cliOk = Boolean(env.cliInstalled || setup.cliInstalled);
+    return pluginOk &&
+        cliOk &&
+        Boolean(snapshot.projectInitialized || setup.projectInitialized) &&
+        Boolean(setup.skillsReloaded);
+}
+
 export async function handlePhaseSubmit(res, body, deps) {
     // New (v2) dispatch path: when the client sends `commandName` (e.g.
     // "speckit.constitution") we dispatch a literal Copilot Chat slash
@@ -77,6 +89,24 @@ export async function handlePhaseSubmit(res, body, deps) {
     // reports a terminal phase status, and opens a witness window so the
     // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
+        if (body.review) {
+            const review = body.review;
+            const inst = deps.getInstance?.();
+            const service = inst?.reviewService;
+            if (!service) return jsonError(res, 409, "Review context is no longer available.");
+            try {
+                await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
+            } catch (error) {
+                const changed = error?.code === "changed_source";
+                return jsonError(res, changed ? 409 : 400, changed
+                    ? "Clarification source changed. Refresh before submitting."
+                    : "Clarification answers are invalid or exceed the review submission limit.");
+            }
+            const snapshot = (await deps.getState?.()) ?? inst?.state;
+            if (!isSnapshotSetupComplete(snapshot)) {
+                return jsonError(res, 409, "Complete setup before applying clarifications and rerunning.");
+            }
+        }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
             args: typeof body.args === "string" ? body.args : "",
