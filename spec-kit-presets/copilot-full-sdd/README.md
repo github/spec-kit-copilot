@@ -84,8 +84,11 @@ instructions added by other composition layers.
 
 Run `python -m unittest discover -s spec-kit-presets/tests -v` in an environment
 with the existing `spec-kit-presets/tests/requirements.txt` dependencies.
-Set `SPECIFY_BIN` to the absolute Specify executable for isolated
-init/install/resolve/generated-skill and prerequisite-script checks.
+Set `FULL_SPECIFY_BIN` to the absolute Specify **1.2.3** executable for isolated
+init/install/resolve/generated-skill and prerequisite-script checks. This is
+independent of Lean's `SPECIFY_BIN`, so directory-wide discovery can validate
+each preset with its own compatible CLI. Leaving `FULL_SPECIFY_BIN` unset skips
+only Full's real-CLI checks, even when `SPECIFY_BIN` is set for Lean.
 Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
 Set `FULL_CORE_SOURCE` to a checkout of the pinned Spec Kit source for
 authenticated source comparison: every command must exactly match core with

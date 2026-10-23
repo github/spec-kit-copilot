@@ -238,10 +238,10 @@ class FullPackageTests(unittest.TestCase):
                 self.assertEqual(lf_bytes(archive.read(name)), lf_bytes((PACKAGE / name).read_bytes()))
 
 
-@unittest.skipUnless(os.environ.get("SPECIFY_BIN"), "Set SPECIFY_BIN for real CLI validation")
+@unittest.skipUnless(os.environ.get("FULL_SPECIFY_BIN"), "Set FULL_SPECIFY_BIN for real CLI validation")
 class FullCliTests(unittest.TestCase):
     def test_registration_rendering_and_prerequisites(self):
-        executable = str(Path(os.environ["SPECIFY_BIN"]).resolve())
+        executable = str(Path(os.environ["FULL_SPECIFY_BIN"]).resolve())
         with tempfile.TemporaryDirectory(prefix="copilot-full-sdd-") as temp:
             root = Path(temp).resolve()
             for script_type in ("sh", "py"):
