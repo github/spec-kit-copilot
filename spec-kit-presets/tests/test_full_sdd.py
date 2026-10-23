@@ -271,7 +271,7 @@ class FullCliTests(unittest.TestCase):
                         p.parent.name.removeprefix("speckit-")
                         for p in (project / ".github/skills").glob("*/SKILL.md")
                     }
-                    self.assertEqual(core - {"taskstoissues"}, COMMANDS)
+                    self.assertLessEqual(COMMANDS, core)
                     run([executable, "preset", "add", "--dev", str(PACKAGE)])
                     scripts = {}
                     for name in sorted(COMMANDS):

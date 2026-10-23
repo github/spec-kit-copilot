@@ -65,10 +65,7 @@ is an implementation approval gate, not evidence of completed implementation.
 Spec quality checklist markers are maintained by specify/clarify; custom
 checklists remain reviewer-owned.
 
-All manifest command ids are prefixed `speckit.` and use `replace`. `taskstoissues`
-is excluded because it is moving out of core SDD. Older CLI versions may still
-generate that legacy command; this preset neither replaces nor removes it. It
-is outside the supported nine-command inventory and hook-dispatch exclusion.
+All manifest command ids are prefixed `speckit.` and use `replace`.
 
 ## Composition boundary
 
