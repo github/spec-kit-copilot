@@ -134,5 +134,19 @@ disabled/conditional/optional skipping, duplicate suppression, missing baseline
 inputs, denied execution, mandatory pre/post failure, absent-layer behavior, and
 malformed YAML. Each host process has a five-minute timeout. To retain diagnostic
 transcripts, set `HOOKS_EVIDENCE_DIR` to a private directory outside the repository.
+The marker-hook cases seed registrations and command skills directly; they do
+not exercise extension installation.
+
+For the separate end-to-end installed-extension test, also set
+`HOOKS_SPECIFY_SOURCE` to the extracted Spec Kit **1.2.3** source tree. That test
+installs the unmodified bundled `git` extension with `specify extension add --dev`,
+checks enabled inventory and automatically registered hooks/generated skills,
+then executes `specify` with each baseline. It verifies that the mandatory
+`before_specify` hook actually invokes the extension's branch-creation script
+once and creates a local branch before specification completes. Optional commit
+hooks remain unrequested. All Git operations are confined to throwaway
+repositories without remotes; no existing project or global Git configuration
+is changed.
+
 They are behavioral samples, not proof of enforcement in every host; Copilot App
 behavior is not established by CLI tests.

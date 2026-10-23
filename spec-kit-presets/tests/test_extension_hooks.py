@@ -440,6 +440,149 @@ class CopilotBehaviorTests(unittest.TestCase):
                         self.assertIn("mandatory", result.stdout.lower())
                         self.assertIn("parse", result.stdout.lower())
 
+    @unittest.skipUnless(os.environ.get("HOOKS_SPECIFY_SOURCE"), "Set HOOKS_SPECIFY_SOURCE for installed Git extension exercises")
+    def test_installed_git_extension_registers_and_executes_before_specify(self):
+        source = Path(os.environ["HOOKS_SPECIFY_SOURCE"]) / "extensions/git"
+        manifest = yaml.safe_load((source / "extension.yml").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["extension"]["id"], "git")
+        declared = manifest["hooks"]["before_specify"]
+        self.assertEqual(declared["command"], "speckit.git.feature")
+        self.assertIs(declared["optional"], False)
+        source_hashes = {
+            str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in source.rglob("*") if p.is_file()
+        }
+        for baseline in ("copilot-lean-sdd", "copilot-full-sdd"):
+            with self.subTest(baseline=baseline), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                project = root / "project"
+                self.run_cli(
+                    root, "init", str(project), "--integration", "copilot",
+                    "--integration-options=--skills", "--ignore-agent-tools",
+                    "--non-interactive", "--script", "py",
+                )
+                self.run_cli(project, "preset", "add", "--dev", str(BASELINES / baseline), "--priority", "10")
+                self.run_cli(project, "preset", "add", "--dev", str(PACKAGE), "--priority", "5")
+                self.run_cli(project, "extension", "add", str(source), "--dev")
+                inventory = json.loads(self.run_cli(project, "extension", "list", "--json"))
+                installed = next(e for e in inventory if e["id"] == "git")
+                self.assertIs(installed["enabled"], True)
+                self.assertEqual(installed["version"], manifest["extension"]["version"])
+                config = project / ".specify/extensions.yml"
+                config_bytes = config.read_bytes()
+                registered = yaml.safe_load(config_bytes)
+                hook = next(h for h in registered["hooks"]["before_specify"] if h["extension"] == "git")
+                self.assertEqual(hook["command"], declared["command"])
+                self.assertIs(hook["enabled"], True)
+                self.assertIs(hook["optional"], False)
+                installed_script = project / ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh"
+                self.assertEqual(
+                    installed_script.read_bytes(),
+                    (source / "scripts/bash/create-new-feature-branch.sh").read_bytes(),
+                )
+                skill = project / ".github/skills/speckit-git-feature/SKILL.md"
+                self.assertTrue(skill.is_file(), "The extension installer must generate its hook skill")
+                skill_bytes = skill.read_bytes()
+                self.assertIn(
+                    START, (project / ".github/skills/speckit-specify/SKILL.md").read_text(encoding="utf-8"),
+                )
+
+                def git(*args):
+                    result = subprocess.run(
+                        ["git", *args], cwd=project, text=True, encoding="utf-8",
+                        capture_output=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    return result.stdout.strip()
+
+                git("-c", "init.defaultBranch=fixture-base", "init", "-q")
+                git(
+                    "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-q",
+                    "-m", "Initialize disposable extension validation repository",
+                    "-m", "Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>",
+                )
+                original_head = git("rev-parse", "HEAD")
+                original_branch = git("branch", "--show-current")
+                self.assertEqual(git("remote"), "", "Fixture repository must have no remote")
+                prompt = (
+                    "Run this project's speckit-specify skill. Feature directory provided by the user: "
+                    "specs/offline-greeting (SPECIFY_FEATURE_DIRECTORY=specs/offline-greeting). "
+                    "Feature: a local greeting utility for a single user. With no name it prints "
+                    "'Hello, world!' followed by a newline. With one nonempty name it prints "
+                    "'Hello, <name>!' followed by a newline. Blank names are rejected with a clear "
+                    "error and nonzero exit. It works entirely offline with no accounts, storage, "
+                    "or external services. Create only the specification and the selected baseline's "
+                    "required specification artifacts; do not implement it or run plan/tasks. "
+                    "Use the installed extension lifecycle handling normally. Optional hooks have "
+                    "not been requested. This disposable repository has no remotes; any local "
+                    "feature branch created by the installed mandatory hook is authorized. "
+                    "Do not change global configuration, install anything, spawn agents, edit "
+                    "installed skills/extensions or extensions.yml, push, or use GitHub."
+                )
+                env = dict(os.environ)
+                env["PATH"] = str(Path(self.cli).parent) + os.pathsep + env["PATH"]
+                result = subprocess.run(
+                    [
+                        str(Path(COPILOT).resolve()), "-C", str(project), "-p", prompt,
+                        "--trust-folder", "--allow-all-tools", "--disable-builtin-mcps",
+                        "--available-tools=bash,view,rg,glob,skill,apply_patch",
+                        "--deny-tool=shell(gh:*)", "--deny-tool=shell(curl:*)",
+                        "--deny-tool=shell(git push:*)",
+                        "--log-dir", str(root / "host-logs"), "--output-format", "json",
+                    ],
+                    env=env, text=True, encoding="utf-8", capture_output=True, timeout=300,
+                )
+                current_branch = git("branch", "--show-current")
+                feature_file = project / ".specify/feature.json"
+                feature = project / "specs/offline-greeting/spec.md"
+                evidence = os.environ.get("HOOKS_EVIDENCE_DIR")
+                if evidence:
+                    folder = Path(evidence) / f"{baseline}-installed-git"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / "host.jsonl").write_text(result.stdout, encoding="utf-8")
+                    (folder / "stderr.txt").write_text(result.stderr, encoding="utf-8")
+                    (folder / "extensions.yml").write_bytes(config_bytes)
+                    (folder / "inventory.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
+                    (folder / "outcome.json").write_text(json.dumps({
+                        "original_branch": original_branch, "current_branch": current_branch,
+                        "original_head": original_head, "current_head": git("rev-parse", "HEAD"),
+                        "branches": git("branch", "--format=%(refname:short)").splitlines(),
+                        "feature_directory": json.loads(feature_file.read_text()) if feature_file.exists() else None,
+                    }, indent=2), encoding="utf-8")
+                    if feature.exists():
+                        (folder / "spec.md").write_bytes(feature.read_bytes())
+                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+                self.assertNotEqual(current_branch, original_branch, "The real mandatory hook must create a branch")
+                self.assertEqual(git("rev-parse", "HEAD"), original_head, "Optional commit hooks must not execute")
+                self.assertEqual(len(git("branch", "--format=%(refname:short)").splitlines()), 2)
+                self.assertEqual(json.loads(feature_file.read_text())["feature_directory"], "specs/offline-greeting")
+                self.assertTrue(feature.is_file())
+                self.assertIn("Hello", feature.read_text(encoding="utf-8"))
+                if baseline == "copilot-full-sdd":
+                    self.assertTrue((feature.parent / "checklists/requirements.md").is_file())
+                self.assertEqual(config.read_bytes(), config_bytes, "No hook registrations may be hand-seeded")
+                self.assertEqual(skill.read_bytes(), skill_bytes, "Use the installer's unmodified generated skill")
+                events = [json.loads(line) for line in result.stdout.splitlines()]
+                requests = [
+                    r for e in events if e["type"] == "assistant.message"
+                    for r in e["data"].get("toolRequests", [])
+                ]
+                hook_loads = [
+                    r for r in requests if r.get("name") == "skill"
+                    and r.get("arguments", {}).get("skill") == "speckit-git-feature"
+                ]
+                executions = [
+                    r for r in requests if r.get("name") == "bash"
+                    and "create-new-feature-branch.sh" in r.get("arguments", {}).get("command", "")
+                ]
+                self.assertEqual(len(hook_loads), 1)
+                self.assertEqual(len(executions), 1, "Actually execute the installed extension's script exactly once")
+                self.assertEqual(source_hashes, {
+                    str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in source.rglob("*") if p.is_file()
+                })
+
 
 if __name__ == "__main__":
     unittest.main()
