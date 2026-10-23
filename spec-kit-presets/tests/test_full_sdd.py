@@ -75,7 +75,7 @@ class FullPackageTests(unittest.TestCase):
         self.assertEqual(metadata["name"], "Copilot Full SDD")
         self.assertRegex(metadata["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(self.manifest["requires"], self.catalog["requires"])
-        self.assertEqual(self.manifest["requires"]["speckit_version"], ">=1.0.8")
+        self.assertEqual(self.manifest["requires"]["speckit_version"], "==1.2.3")
         self.assertEqual(self.manifest["tags"], self.catalog["tags"])
         self.assertEqual(self.catalog["provides"], {"templates": 0, "commands": 9})
         entries = self.manifest["provides"]["templates"]
@@ -314,6 +314,11 @@ class FullCliTests(unittest.TestCase):
                         "# Contract feature\n\n## Requirements\n- FR-001: Return a greeting.\n",
                         encoding="utf-8",
                     )
+                    (feature / "plan.md").write_bytes(b"")
+                    for name in ("checklist", "analyze", "implement", "converge"):
+                        failure = run(scripts[name], success=False)
+                        self.assertIn("plan.md is empty", failure.stdout + failure.stderr)
+                    (feature / "plan.md").unlink()
                     plan = json.loads(run(scripts["plan"]).stdout)
                     self.assertEqual(Path(plan["IMPL_PLAN"]), feature / "plan.md")
                     plan_content = (feature / "plan.md").read_text(encoding="utf-8")

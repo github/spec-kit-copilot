@@ -60,7 +60,7 @@ confused with Copilot plugin/marketplace plumbing.
 | Preset | Requires | Copilot purpose |
 | --- | --- | --- |
 | [`copilot-lean-sdd`](spec-kit-presets/copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream-derived minimal SDD baseline with Copilot skill invocation and interactive `ask_user`; nine hook-free command replacements. Initial release pending; use the documented local-development install. |
-| [`copilot-full-sdd`](spec-kit-presets/copilot-full-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Alternative full SDD baseline retaining traditional artifacts and quality gates; nine command replacements without extension lifecycle-hook dispatch. Initial release pending; use the documented local-development install. |
+| [`copilot-full-sdd`](spec-kit-presets/copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Alternative full SDD baseline retaining traditional artifacts and quality gates; nine command replacements without extension lifecycle-hook dispatch. Initial release pending; use the documented local-development install. |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
 

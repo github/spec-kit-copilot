@@ -16,15 +16,17 @@ This is a Specify preset, not a `copilot plugin` package.
 
 ## Installation and prerequisites
 
-Requires Specify CLI **>= 1.0.8**, a project initialized with Copilot **skills
-mode** and its installed core templates and workflow scripts. The CLI floor is the
-oldest locally verified version for this package. No extensions are required.
+Requires Specify CLI **1.2.3 exactly**, a project initialized with Copilot **skills
+mode** and its installed core templates and workflow scripts from that release.
+The preset is pinned to this released CLI version, independently of the command
+source revision above. No extensions are required.
 
 **Initial release pending.** The catalog reserves the normal release URL; no
 tag, release, or asset is created by adding this source. For local development
 in a disposable project:
 
 ```bash
+uv tool install "specify-cli==1.2.3"
 specify init /path/to/full-project --integration copilot --integration-options="--skills" --non-interactive
 cd /path/to/full-project
 specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-full-sdd
@@ -57,7 +59,7 @@ prerequisites. They are supplied by `specify init`, not bundled again here.
 | `converge` | `spec.md`, `plan.md`, complete `tasks.md`, implementation already attempted; constitution | Only append traceable remediation tasks; no code/spec/plan edits, no existing-task rewriting; leave tasks byte-identical when converged |
 
 `clarify` normally runs after specify and before plan. `analyze` requires tasks;
-`checklist` requires a nonempty `plan.md` through its upstream setup script;
+`checklist` requires a nonempty `plan.md` through the Spec Kit 1.2.3 setup script;
 `tasks.md` is optional. Run plan before checklist. Full's custom checklist state
 is an implementation approval gate, not evidence of completed implementation.
 Spec quality checklist markers are maintained by specify/clarify; custom

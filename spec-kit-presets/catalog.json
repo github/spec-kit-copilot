@@ -15,7 +15,7 @@
       "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-full-sdd/README.md",
       "license": "MIT",
       "requires": {
-        "speckit_version": ">=1.0.8"
+        "speckit_version": "==1.2.3"
       },
       "provides": {
         "templates": 0,
