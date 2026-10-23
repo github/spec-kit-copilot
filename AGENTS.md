@@ -80,8 +80,7 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** and the upstream-derived
-Copilot Lean/Full SDD baselines — this repo is their canonical, sole home. Guard the
+`spec-kit-presets/` holds Spec Kit presets maintained for Copilot. Guard the
 boundary so contributors never conflate the two toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
@@ -100,15 +99,6 @@ boundary so contributors never conflate the two toolchains:
   Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
   namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
   the plumbing boundary and bloat `specify preset add`.
-- **Promotion criterion: Copilot-specific, with a scoped SDD baseline exception.**
-  A preset belongs here if it depends on Copilot's own agent mechanisms
-  (e.g. `copilot-sub-agents` uses the VS Code
-  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
-  requires Copilot's interactive `ask_user` tool with no plain-text fallback).
-  The explicit exceptions are `copilot-lean-sdd` and `copilot-full-sdd`: upstream-derived
-  SDD baselines maintained for Copilot skills mode, even when their command instructions
-  remain portable. Other agent-agnostic presets (generic themes, or workflows tied
-  to an extension rather than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
@@ -119,10 +109,9 @@ boundary so contributors never conflate the two toolchains:
 
 ## Spec Kit extensions (`spec-kit-extensions/`)
 
-This directory and its `catalog.json` hold **Copilot-specific Specify CLI
-extensions**, parallel to the preset catalog. Entries must depend on Copilot
-tools or providers; do not import general-purpose extensions or add these packages
-to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
+This directory and its `catalog.json` hold **Specify CLI extensions maintained
+for Copilot**, parallel to the preset catalog. Do not add these packages to the
+Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
 Package IDs, directory names, catalog keys, and ZIP basenames use
 `extension-<name>` (for example, `extension-canvas-design`). Release tags use

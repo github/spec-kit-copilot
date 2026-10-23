@@ -1,7 +1,8 @@
-# Copilot-specific Spec Kit extensions
+# Spec Kit extensions for Copilot
 
-This catalog contains extensions that depend on Copilot-specific tools or
-providers, not general-purpose Spec Kit extensions. These packages are consumed
+This catalog contains extensions maintained for the Copilot experience.
+See [contribution scope and placement](../CONTRIBUTING.md#scope-and-package-placement)
+for maintainer guidance on which packages belong here. These packages are consumed
 by the **Specify CLI** (`specify extension add`), not by the Copilot plugin
 marketplace. Their `catalog.json` and `extension.yml` manifests live here;
 Copilot canvas providers remain under `plugins/`.

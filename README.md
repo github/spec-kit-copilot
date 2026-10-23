@@ -51,8 +51,7 @@ wizard canvas, or any combination.
 
 ## Spec Kit presets
 
-This repo also hosts **Copilot-specific Spec Kit presets** and the upstream-derived
-Copilot Lean/Full SDD baselines under
+This repo also hosts **Spec Kit presets maintained for the Copilot experience** under
 [`spec-kit-presets/`](spec-kit-presets). These are *not* Copilot plugins — they are
 consumed by the **`specify` CLI** (`specify preset add`), and are kept in their own
 isolated subtree (with their own `catalog.json`) so Spec Kit plumbing is never
@@ -66,10 +65,10 @@ confused with Copilot plugin/marketplace plumbing.
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
-boundary, install commands, and versioning. Only Copilot-specific presets and the
-explicitly supported upstream-derived Lean/Full SDD baselines are hosted here.
-Those baselines may retain portable command instructions; unrelated agent-agnostic
-presets do not belong in this Copilot integration hub.
+boundary, install commands, and versioning. Maintainers judge whether a package
+belongs here, in core Spec Kit, or in an external repository based on its purpose
+and maintenance needs, not whether its instructions are portable. See
+[contribution scope and placement](CONTRIBUTING.md#scope-and-package-placement).
 
 ## Core skills plugin
 

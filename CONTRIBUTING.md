@@ -6,12 +6,35 @@ Please note that this project is released with a [Contributor Code of Conduct](C
 
 ## About this repository
 
-This repository is a [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli) **skills plugin**. It does not contain application code — it is a set of Markdown skill files that teach the Copilot agent how and when to drive the Spec Kit [`specify`](https://github.com/github/spec-kit) CLI. Its layout is:
+This repository is the **Copilot integration hub for Spec Kit**. Its core
+[GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
+skills plugin teaches Copilot how and when to drive the Spec Kit
+[`specify`](https://github.com/github/spec-kit) CLI. It also hosts independently
+maintained plugins, presets, extensions, and other integration surfaces. The core
+plugin's layout is:
 
 - `plugin.json` — the plugin manifest (required).
 - `skills/<name>/SKILL.md` — one skill per `specify` command group (YAML frontmatter + Markdown body).
 - `.github/plugin/marketplace.json` — the marketplace manifest used for distribution.
 - `AGENTS.md` — maintainer guidance and the design decisions behind the plugin. **Read this before adding, removing, or regenerating skills.**
+
+## Scope and package placement
+
+Maintainers decide where a contribution belongs based on its purpose, audience,
+ownership, maintenance burden, and duplication of existing functionality:
+
+- **This repository** hosts integrations and packages maintained for the Copilot
+  experience. They may preserve upstream, agent-agnostic instructions where appropriate;
+  depending on a Copilot-specific tool is not a requirement.
+- **Core Spec Kit** is the natural home for shared capabilities and agent-neutral
+  behavior intended for the common product.
+- **External repositories** can host independently maintained or specialized
+  packages that neither project needs to own.
+
+These are considerations, not automatic placement rules. Portability alone neither
+qualifies nor disqualifies a preset, extension, plugin, or other contribution.
+Discuss uncertain placement with the maintainers before implementing it; avoid
+importing unrelated generic packages simply to expand the catalog.
 
 ## Prerequisites
 
