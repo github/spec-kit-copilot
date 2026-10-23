@@ -80,9 +80,9 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** — this repo is their
-canonical, sole home. Guard the boundary so contributors never conflate the two
-toolchains:
+`spec-kit-presets/` holds **Copilot-specific Spec Kit presets** and the upstream-derived
+Copilot Lean/Full SDD baselines — this repo is their canonical, sole home. Guard the
+boundary so contributors never conflate the two toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
   `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
@@ -100,12 +100,15 @@ toolchains:
   Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
   namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
   the plumbing boundary and bloat `specify preset add`.
-- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
-  depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
+- **Promotion criterion: Copilot-specific, with a scoped SDD baseline exception.**
+  A preset belongs here if it depends on Copilot's own agent mechanisms
+  (e.g. `copilot-sub-agents` uses the VS Code
   `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
   requires Copilot's interactive `ask_user` tool with no plain-text fallback).
-  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
-  than to Copilot's tools) do **not** belong here. Do not import them.
+  The explicit exceptions are `copilot-lean-sdd` and `copilot-full-sdd`: upstream-derived
+  SDD baselines maintained for Copilot skills mode, even when their command instructions
+  remain portable. Other agent-agnostic presets (generic themes, or workflows tied
+  to an extension rather than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
