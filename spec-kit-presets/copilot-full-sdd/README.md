@@ -31,9 +31,9 @@ specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/cop
 specify preset resolve speckit.plan
 ```
 
-After publication, register the [preset catalog](../README.md#installing-a-preset)
+After publication, register the [preset catalog](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#installing-a-preset)
 and run `specify preset add copilot-full-sdd`. See the shared
-[release guide](../README.md#versioning--distribution) for distribution.
+[release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution) for distribution.
 Installation generates `.github/skills/speckit-<command>/SKILL.md`.
 Run `/skills reload` after generated skills change in the current Copilot
 session; new sessions discover them automatically.
@@ -52,13 +52,13 @@ prerequisites. They are supplied by `specify init`, not bundled again here.
 | `plan` | `spec.md`, constitution, resolved plan template | `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, interface `contracts/` where applicable; resolve unknowns and evaluate constitution gates before/after design |
 | `tasks` | `spec.md`, `plan.md`, resolved tasks template; available design artifacts | `tasks.md`; user-story phases, dependency graph, file paths, task IDs, parallel markers and independent test criteria; test tasks only when requested |
 | `analyze` | `spec.md`, `plan.md`, complete `tasks.md`, constitution | Read-only consistency/coverage report; constitution violations are CRITICAL; edits require separate approval |
-| `checklist` | Active feature, `spec.md`, resolved checklist template; plan/tasks if present | Append-only `checklists/<domain>.md`; requirements-quality questions, not implementation tests; new items unchecked and reviewer-owned |
+| `checklist` | Active feature, `spec.md`, nonempty `plan.md`, resolved checklist template; `tasks.md` if present | Append-only `checklists/<domain>.md`; requirements-quality questions, not implementation tests; new items unchecked and reviewer-owned |
 | `implement` | `plan.md`, complete `tasks.md`, existing checklists and available design artifacts | Code, validation and task progress; checklist approval gate, phase/dependency ordering, failure reporting and completion checks |
 | `converge` | `spec.md`, `plan.md`, complete `tasks.md`, implementation already attempted; constitution | Only append traceable remediation tasks; no code/spec/plan edits, no existing-task rewriting; leave tasks byte-identical when converged |
 
 `clarify` normally runs after specify and before plan. `analyze` requires tasks;
-`checklist` reads plan/tasks only when present, but its upstream setup script
-requires `plan.md`. Run plan before checklist. Full's custom checklist state
+`checklist` requires a nonempty `plan.md` through its upstream setup script;
+`tasks.md` is optional. Run plan before checklist. Full's custom checklist state
 is an implementation approval gate, not evidence of completed implementation.
 Spec quality checklist markers are maintained by specify/clarify; custom
 checklists remain reviewer-owned.
@@ -70,7 +70,7 @@ is outside the supported nine-command inventory and hook-dispatch exclusion.
 
 ## Composition boundary
 
-Full and [Lean](../copilot-lean-sdd) are **alternative baselines**, not cumulative
+Full and [Lean](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-lean-sdd/README.md) are **alternative baselines**, not cumulative
 layers. Use only one replacement baseline. This preset does not enforce
 exclusivity, activate bundle components, switch baselines, reconcile disabled
 presets, or migrate existing artifacts.
