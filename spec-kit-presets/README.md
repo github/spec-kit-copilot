@@ -42,6 +42,7 @@ specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-cop
 # then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
+# After publication only; until then, use the local-development instructions below.
 # Opt-in, after selecting one compatible Copilot SDD baseline:
 specify preset add copilot-extension-hooks --priority 5
 ```

@@ -30,9 +30,9 @@ specify preset resolve speckit.plan
 ```
 
 Use `--script ps` or `--script py` as appropriate. After publication,
-[register the preset catalog](../README.md#installing-a-preset), then install
+[register the preset catalog](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#installing-a-preset), then install
 the selected baseline and `specify preset add copilot-extension-hooks --priority 5`.
-See the shared [release guide](../README.md#versioning--distribution).
+See the shared [release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution).
 
 **Lower preset numbers have higher precedence.** The hooks layer must precede
 the replacement baseline (for example, hooks `5`, baseline `10`). A higher
