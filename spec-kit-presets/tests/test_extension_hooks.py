@@ -28,6 +28,16 @@ COPILOT = os.environ.get("HOOKS_COPILOT_BIN")
 GIT_HOOK_SCRIPT = ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh"
 
 
+def validate_preset_archive(path):
+    with ZipFile(path) as archive:
+        names = [entry.filename for entry in archive.infolist() if not entry.is_dir()]
+        if set(names) != FILES or len(names) != len(FILES):
+            raise AssertionError("Archive file names and count must match the package")
+        for name in names:
+            if archive.read(name) != (PACKAGE / name).read_bytes():
+                raise AssertionError(f"Archive content differs from package: {name}")
+
+
 def validate_assistant_reporting(events, scenario):
     messages = [
         event["data"] for event in events if event.get("type") == "assistant.message"
@@ -98,15 +108,17 @@ def successful_git_hook_invocations(events):
             tokens = list(lexer)
             while tokens and tokens[0].startswith("SPECIFY_FEATURE_DIRECTORY="):
                 tokens.pop(0)
-            if tokens and tokens[0] in ("bash", "sh"):
-                tokens.pop(0)
-            if not tokens or tokens[0] not in (GIT_HOOK_SCRIPT, "./" + GIT_HOOK_SCRIPT):
-                continue  # Reading or searching for the script is not execution.
             # Deliberately constrain this fixture to a single simple invocation.
             if any(
                 token and all(character in ";&|<>()" for character in token) for token in tokens
             ) or any(symbol in command for symbol in ("\n", "`", "$(")):
                 raise AssertionError("Hook execution must be a single simple command")
+            if tokens and tokens[0] in ("cat", "echo", "grep"):
+                continue  # Simple read-only mentions are not execution.
+            if tokens and tokens[0] in ("bash", "sh"):
+                tokens.pop(0)
+            if not tokens or tokens[0] not in (GIT_HOOK_SCRIPT, "./" + GIT_HOOK_SCRIPT):
+                raise AssertionError("Unrecognized hook attempt: use a direct script invocation")
             args = tokens[1:]
             if "--dry-run" in args or args.count("--json") != 1 or args.count("--short-name") != 1:
                 raise AssertionError("Expected one real JSON branch-creation invocation")
@@ -220,6 +232,15 @@ class TranscriptOracleTests(unittest.TestCase):
             successful_git_hook_invocations(transcript([command], success=False))
         with self.assertRaises(AssertionError):
             successful_git_hook_invocations(transcript([command])[:1])
+        for wrapped in (
+            f"bash -c {shlex.quote(command)}",
+            f"sh -c {shlex.quote(command)}",
+            f"env bash -c {shlex.quote(command)}",
+        ):
+            retry = transcript([command, wrapped])
+            retry[-1]["data"]["success"] = False
+            with self.subTest(retry=wrapped), self.assertRaisesRegex(AssertionError, "Unrecognized hook attempt"):
+                successful_git_hook_invocations(retry)
 
 
 def write_marker_script(project):
@@ -403,18 +424,31 @@ class HookPackageTests(unittest.TestCase):
         ):
             self.assertIn(phrase, " ".join(readme.split()))
 
-    def test_release_archive_layout(self):
-        with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "copilot-extension-hooks.zip"
-            with ZipFile(archive, "w") as output:
-                for relative in sorted(FILES):
-                    output.write(PACKAGE / relative, relative)
-            with ZipFile(archive) as zipped:
-                self.assertEqual(set(zipped.namelist()), FILES)
-                manifest = yaml.safe_load(zipped.read("preset.yml"))
-                self.assertEqual(manifest["preset"]["id"], PACKAGE.name)
-                for template in manifest["provides"]["templates"]:
-                    self.assertIn(template["file"], zipped.namelist())
+    @unittest.skipUnless(os.environ.get("HOOKS_PRESET_ARCHIVE"), "Set HOOKS_PRESET_ARCHIVE for release archive validation")
+    def test_release_archive(self):
+        validate_preset_archive(os.environ["HOOKS_PRESET_ARCHIVE"])
+
+    def test_archive_validation_rejects_missing_extra_changed_and_duplicate_files(self):
+        contents = {name: (PACKAGE / name).read_bytes() for name in FILES}
+        cases = {
+            "missing": [(name, data) for name, data in contents.items() if name != "LICENSE"],
+            "extra": [*contents.items(), ("unexpected.txt", b"unexpected")],
+            "changed": [(name, data + b"changed" if name == "LICENSE" else data) for name, data in contents.items()],
+            "duplicate": [*contents.items(), ("LICENSE", contents["LICENSE"])],
+        }
+        for label, entries in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "invalid.zip"
+                if label == "duplicate":
+                    with self.assertWarns(UserWarning), ZipFile(path, "w") as archive:
+                        for name, data in entries:
+                            archive.writestr(name, data)
+                else:
+                    with ZipFile(path, "w") as archive:
+                        for name, data in entries:
+                            archive.writestr(name, data)
+                with self.assertRaises(AssertionError):
+                    validate_preset_archive(path)
 
 
 @unittest.skipUnless(CLI, "Set HOOKS_SPECIFY_BIN to released Specify 1.2.3")
