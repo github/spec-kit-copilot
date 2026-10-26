@@ -63,6 +63,20 @@ def validate_assistant_reporting(events, scenario):
             raise AssertionError("Assistant must warn that malformed YAML prevented mandatory hook checks")
 
 
+def validate_optional_invocations(events, commands):
+    messages = "\n".join(
+        event["data"].get("content", "") for event in events
+        if event.get("type") == "assistant.message"
+    )
+    invocations = re.findall(r"To execute:\s*`([^`]+)`", messages)
+    for command in commands:
+        expected = "/" + command.replace(".", "-")
+        if expected not in invocations:
+            raise AssertionError(f"Missing host-supported optional invocation: {expected}")
+        if "/" + command in invocations:
+            raise AssertionError(f"Dotted command ID is not a skills-mode invocation: {command}")
+
+
 def successful_git_hook_invocations(events):
     """Accept only one direct script command per successful Bash tool call."""
     invocations = []
@@ -117,6 +131,19 @@ def successful_git_hook_invocations(events):
 
 
 class TranscriptOracleTests(unittest.TestCase):
+    def test_optional_suggestions_use_installed_skill_invocations(self):
+        command = "speckit.git.commit"
+        good = {"type": "assistant.message", "data": {
+            "content": "Command: `speckit.git.commit`\nTo execute: `/speckit-git-commit`",
+        }}
+        validate_optional_invocations([good], [command])
+        for bad in (
+            {"type": "assistant.message", "data": {"content": "To execute: `/speckit.git.commit`"}},
+            {"type": "tool.execution_complete", "data": {"result": {"content": good["data"]["content"]}}},
+        ):
+            with self.subTest(transcript=bad), self.assertRaises(AssertionError):
+                validate_optional_invocations([bad], [command])
+
     def test_failure_reporting_requires_an_uncontradicted_final_assistant_report(self):
         for scenario in ("pre-failure", "post-failure", "denied"):
             command = "speckit.fixture.post-one" if scenario == "post-failure" else "speckit.fixture.pre-one"
@@ -342,6 +369,7 @@ class HookPackageTests(unittest.TestCase):
         self.assertFalse(wrapper.startswith("---"), "Inherit all baseline frontmatter")
         self.assertEqual(wrapper.count("{CORE_TEMPLATE}"), 1)
         self.assertEqual(wrapper.count(START), 1)
+        self.assertNotIn("`/{command}`", wrapper)
         self.assertLess(wrapper.index("## Pre-Execution Checks"), wrapper.index("{CORE_TEMPLATE}"))
         self.assertLess(wrapper.index("{CORE_TEMPLATE}"), wrapper.index("## Post-Execution Checks"))
         for phrase in (
@@ -359,6 +387,9 @@ class HookPackageTests(unittest.TestCase):
             "after producing and reporting `converged` or `tasks_appended`",
             "remaining work already covered by existing open tasks",
             "Blocked or unverified assessments do not reach it",
+            "To execute: `{invocation}`", "Command: `{command}`",
+            "Resolve `{invocation}` from the matching installed skill",
+            "report it unavailable",
             "not Copilot native", "including all its artifact",
         ):
             with self.subTest(phrase=phrase):
@@ -681,6 +712,11 @@ class CopilotBehaviorTests(unittest.TestCase):
                     validate_assistant_reporting(
                         [json.loads(line) for line in result.stdout.splitlines()], scenario,
                     )
+                    if scenario in ("success", "post-failure", "missing-plan"):
+                        validate_optional_invocations(
+                            [json.loads(line) for line in result.stdout.splitlines()],
+                            ["speckit.fixture.optional", "speckit.fixture.optional-default"],
+                        )
 
     def test_lean_convergence_with_existing_open_work_and_blocked_assessment(self):
         for blocked in (False, True):
@@ -913,6 +949,7 @@ class CopilotBehaviorTests(unittest.TestCase):
                     and r.get("arguments", {}).get("skill") == "speckit-git-feature"
                 ]
                 executions = successful_git_hook_invocations(events)
+                validate_optional_invocations(events, ["speckit.git.commit"])
                 self.assertEqual(len(hook_loads), 1)
                 self.assertEqual(len(executions), 1, "Actually execute the installed extension's script exactly once")
                 self.assertEqual(source_hashes, {

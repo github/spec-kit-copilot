@@ -68,17 +68,24 @@ Use these rules independently at each checkpoint:
     HookExecutor as an additional dispatch pass.
 - For each executable hook, output the following based on its `optional` flag
   (an omitted flag defaults to optional, as in extension registration):
+  Resolve `{invocation}` from the matching installed skill and the current
+  host's supported skills-mode invocation, separately from the dotted command
+  id. For example, `speckit.git.commit` identifies installed skill
+  `speckit-git-commit`, invoked in Copilot CLI as `/speckit-git-commit`, not
+  `/speckit.git.commit`. Use the host's skill tool when actually executing it.
+  Do not advertise an unavailable skill as executable: report it unavailable
+  for an optional hook; for a mandatory hook, follow the failure rule below.
   - **Optional hook** (`optional: true`):
 
     ```text
     ## Extension Hooks
 
     **Optional Hook**: {extension}
-    Command: `/{command}`
+    Command: `{command}`
     Description: {description}
 
     Prompt: {prompt}
-    To execute: `/{command}`
+    To execute: `{invocation}`
     ```
 
     Before the baseline, label this **Optional Pre-Hook**. Present it for the
@@ -90,7 +97,7 @@ Use these rules independently at each checkpoint:
     ## Extension Hooks
 
     **Automatic Hook**: {extension}
-    Executing: `/{command}`
+    Executing: `{invocation}`
     EXECUTE_COMMAND: {command}
     ```
 

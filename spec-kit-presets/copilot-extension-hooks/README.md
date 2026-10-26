@@ -71,6 +71,12 @@ expressions are skipped, not interpreted by the agent; this is not
 HookExecutor's condition-evaluating path. The reserved
 `settings.auto_execute_hooks` is not an activation switch.
 
+Hook IDs and invocations are distinct: `speckit.git.commit` identifies the hook,
+while its installed `speckit-git-commit` skill is invoked in Copilot CLI as
+`/speckit-git-commit`. Optional-hook suggestions use the host-supported skill
+invocation; `EXECUTE_COMMAND` retains the configured dotted ID. Unavailable
+optional skills are reported as unavailable, not offered as executable commands.
+
 Invalid YAML is reported with its parser error and the warning that mandatory
 hooks could not be checked, then the workflow continues, as in core.
 An unavailable, denied, or failed mandatory invocation instead stops the
