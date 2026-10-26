@@ -45,7 +45,8 @@ def validate_assistant_reporting(events, scenario):
             raise AssertionError("Final response must identify the mandatory hook and unsuccessful outcome")
         if re.search(
             r"\b(?:workflow|skill(?: run)?|overall run)\s+(?:has\s+|was\s+)?"
-            r"(?:completed(?:\s+successfully)?|succeeded|successful)\b"
+            r"(?:completed(?!\s+(?:unsuccessfully\b|with\s+errors\b))"
+            r"(?:\s+successfully)?|succeeded|successful)\b"
             r"|\bsuccessfully completed (?:the |this |entire )*(?:workflow|skill)\b"
             r"|\beverything (?:succeeded|completed successfully)\b",
             final,
@@ -122,12 +123,25 @@ class TranscriptOracleTests(unittest.TestCase):
             report = f"Stopped: mandatory hook {command} failed; workflow cannot complete."
             good = {"type": "assistant.message", "data": {"phase": "final_answer", "content": report}}
             validate_assistant_reporting([good], scenario)
+            for outcome in ("completed unsuccessfully", "completed with errors"):
+                with self.subTest(scenario=scenario, outcome=outcome):
+                    validate_assistant_reporting([{
+                        "type": "assistant.message",
+                        "data": {"phase": "final_answer", "content": report + f" The workflow {outcome}."},
+                    }], scenario)
             bad_cases = [
                 [{"type": "tool.execution_complete", "data": {"result": {"content": report}}}],
                 [{"type": "assistant.message", "data": {"phase": "commentary", "content": report}}],
                 [{"type": "assistant.message", "data": {"phase": "final_answer", "content": "All done."}}],
                 [{"type": "assistant.message", "data": {
                     "phase": "final_answer", "content": report + " The workflow completed successfully.",
+                }}],
+                [{"type": "assistant.message", "data": {
+                    "phase": "final_answer", "content": report + " The workflow completed.",
+                }}],
+                [{"type": "assistant.message", "data": {
+                    "phase": "final_answer",
+                    "content": report + " The workflow completed with errors. The workflow succeeded.",
                 }}],
             ]
             for bad in bad_cases:
