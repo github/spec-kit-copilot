@@ -25,7 +25,10 @@ Apply these checkpoints exactly once per invocation:
      its summary.
    - For `analyze`, after the analysis report and remediation offer.
    - For `converge`, after producing and reporting `converged` or `tasks_appended`
-     in-session, before listing hooks.
+     in-session, before listing hooks. A completed Lean assessment that reports
+     remaining work already covered by existing open tasks also reaches this
+     checkpoint, even when nothing is appended. This is not convergence and must
+     not be reported as such. Blocked or unverified assessments do not reach it.
 
 Do not run successful-completion post-hooks if the baseline stops on a failed
 prerequisite, gate, or validation. Never use a hook to bypass such a stop.

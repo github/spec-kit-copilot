@@ -76,7 +76,10 @@ hooks could not be checked, then the workflow continues, as in core.
 An unavailable, denied, or failed mandatory invocation instead stops the
 invocation and reports failure. Completion post-hooks do not run after a
 baseline prerequisite/gate/validation stop. The wrapper preserves each command's
-pre/post/report placement and keeps an invocation-local dispatch record to avoid
+checkpoint, including a completed Lean convergence assessment that leaves
+existing open tasks unchanged: its reported remaining work is not convergence,
+but it still reaches `after_converge`. Blocked assessments do not.
+It keeps an invocation-local dispatch record to avoid
 duplicate invocation, including report/checklist re-entry. It is prompt guidance,
 not a runtime executor, persistent lock, sandbox, or deterministic host enforcement.
 
@@ -138,6 +141,10 @@ Rejected forbidden, duplicate, retried, or out-of-order marker calls are recorde
 before failing, so continuing after a tool error cannot hide the attempt.
 The denied-hook case blocks only the hook entry point, not the baseline's Python
 command, and also checks that baseline execution was not attempted.
+Reporting checks inspect final assistant responses for mandatory-hook failures
+and assistant-authored warnings for malformed YAML, not matching tool output.
+Negative transcript cases reject tool-only evidence and contradictory success.
+Separate Lean convergence cases cover existing open work and blocked assessment.
 The marker-hook cases seed registrations and command skills directly; they do
 not exercise extension installation.
 
@@ -147,7 +154,9 @@ installs the unmodified bundled `git` extension with `specify extension add --de
 checks enabled inventory and automatically registered hooks/generated skills,
 then executes `specify` with each baseline. It verifies that the mandatory
 `before_specify` hook actually invokes the extension's branch-creation script
-once and creates a local branch before specification completes. Optional commit
+once using a constrained single-command format with a successful tool result
+and script JSON output, then verifies the resulting local branch. Reading the
+script or combining multiple calls does not count as one invocation. Optional commit
 hooks remain unrequested. All Git operations are confined to throwaway
 repositories without remotes; no existing project or global Git configuration
 is changed.

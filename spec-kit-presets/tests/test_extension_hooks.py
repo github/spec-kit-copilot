@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,160 @@ START = "## Copilot extension lifecycle checkpoints"
 CLI = os.environ.get("HOOKS_SPECIFY_BIN")
 BASELINES = Path(os.environ.get("HOOKS_BASELINES_ROOT", str(PRESETS)))
 COPILOT = os.environ.get("HOOKS_COPILOT_BIN")
+GIT_HOOK_SCRIPT = ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh"
+
+
+def validate_assistant_reporting(events, scenario):
+    messages = [
+        event["data"] for event in events if event.get("type") == "assistant.message"
+        and event.get("data", {}).get("content")
+    ]
+    if scenario in ("pre-failure", "post-failure", "denied"):
+        finals = [message["content"] for message in messages if message.get("phase") == "final_answer"]
+        if not finals:
+            raise AssertionError("Missing final assistant failure report")
+        final = finals[-1].replace("*", "").lower()
+        command = "speckit.fixture.post-one" if scenario == "post-failure" else "speckit.fixture.pre-one"
+        if command not in final or not re.search(
+            r"\b(fail(?:ed|ure)?|denied|stopped|unsuccessful|unable|cannot)\b|could not", final,
+        ):
+            raise AssertionError("Final response must identify the mandatory hook and unsuccessful outcome")
+        if re.search(
+            r"\b(?:workflow|skill(?: run)?|overall run)\s+(?:has\s+|was\s+)?"
+            r"(?:completed(?:\s+successfully)?|succeeded|successful)\b"
+            r"|\bsuccessfully completed (?:the |this |entire )*(?:workflow|skill)\b"
+            r"|\beverything (?:succeeded|completed successfully)\b",
+            final,
+        ):
+            raise AssertionError("Final response contradicts the mandatory hook failure with workflow success")
+    if scenario == "malformed":
+        warnings = [message["content"].lower() for message in messages]
+        if not any(
+            "extensions.yml" in warning and "mandatory" in warning
+            and re.search(r"yaml|pars(?:e|er|ing)", warning)
+            and re.search(r"could not|cannot|unable|not checked|no hooks|unchecked", warning)
+            for warning in warnings
+        ):
+            raise AssertionError("Assistant must warn that malformed YAML prevented mandatory hook checks")
+
+
+def successful_git_hook_invocations(events):
+    """Accept only one direct script command per successful Bash tool call."""
+    invocations = []
+    completions = {
+        event["data"]["toolCallId"]: event["data"]
+        for event in events if event.get("type") == "tool.execution_complete"
+    }
+    for event in events:
+        if event.get("type") != "assistant.message":
+            continue
+        for request in event["data"].get("toolRequests", []):
+            if request.get("name") != "bash":
+                continue
+            command = request.get("arguments", {}).get("command", "")
+            if GIT_HOOK_SCRIPT not in command:
+                continue
+            lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+            while tokens and tokens[0].startswith("SPECIFY_FEATURE_DIRECTORY="):
+                tokens.pop(0)
+            if tokens and tokens[0] in ("bash", "sh"):
+                tokens.pop(0)
+            if not tokens or tokens[0] not in (GIT_HOOK_SCRIPT, "./" + GIT_HOOK_SCRIPT):
+                continue  # Reading or searching for the script is not execution.
+            # Deliberately constrain this fixture to a single simple invocation.
+            if any(
+                token and all(character in ";&|<>()" for character in token) for token in tokens
+            ) or any(symbol in command for symbol in ("\n", "`", "$(")):
+                raise AssertionError("Hook execution must be a single simple command")
+            args = tokens[1:]
+            if "--dry-run" in args or args.count("--json") != 1 or args.count("--short-name") != 1:
+                raise AssertionError("Expected one real JSON branch-creation invocation")
+            remaining = list(args)
+            remaining.remove("--json")
+            short_index = remaining.index("--short-name")
+            del remaining[short_index:short_index + 2]
+            if len(remaining) != 1 or remaining[0].startswith("-"):
+                raise AssertionError("Unexpected hook invocation arguments")
+            completion = completions.get(request.get("toolCallId"))
+            output = (completion or {}).get("result", {}).get("content", "")
+            if not completion or not completion.get("success") or "exit code 0" not in output:
+                raise AssertionError("Missing successful tool result for hook invocation")
+            branch_outputs = []
+            for line in output.splitlines():
+                if line.startswith("{"):
+                    branch_outputs.append(json.loads(line))
+            if not any("BRANCH_NAME" in result and "FEATURE_NUM" in result for result in branch_outputs):
+                raise AssertionError("Missing branch-creation script JSON result")
+            invocations.append(request)
+    return invocations
+
+
+class TranscriptOracleTests(unittest.TestCase):
+    def test_failure_reporting_requires_an_uncontradicted_final_assistant_report(self):
+        for scenario in ("pre-failure", "post-failure", "denied"):
+            command = "speckit.fixture.post-one" if scenario == "post-failure" else "speckit.fixture.pre-one"
+            report = f"Stopped: mandatory hook {command} failed; workflow cannot complete."
+            good = {"type": "assistant.message", "data": {"phase": "final_answer", "content": report}}
+            validate_assistant_reporting([good], scenario)
+            bad_cases = [
+                [{"type": "tool.execution_complete", "data": {"result": {"content": report}}}],
+                [{"type": "assistant.message", "data": {"phase": "commentary", "content": report}}],
+                [{"type": "assistant.message", "data": {"phase": "final_answer", "content": "All done."}}],
+                [{"type": "assistant.message", "data": {
+                    "phase": "final_answer", "content": report + " The workflow completed successfully.",
+                }}],
+            ]
+            for bad in bad_cases:
+                with self.subTest(scenario=scenario, transcript=bad), self.assertRaises(AssertionError):
+                    validate_assistant_reporting(bad, scenario)
+
+    def test_malformed_warning_must_come_from_the_assistant(self):
+        warning = ".specify/extensions.yml has invalid YAML; no hooks, including mandatory hooks, were checked."
+        validate_assistant_reporting([
+            {"type": "assistant.message", "data": {"phase": "final_answer", "content": warning}},
+        ], "malformed")
+        with self.assertRaises(AssertionError):
+            validate_assistant_reporting([
+                {"type": "tool.execution_complete", "data": {"result": {"content": warning}}},
+                {"type": "assistant.message", "data": {"phase": "final_answer", "content": "Completed."}},
+            ], "malformed")
+
+    def test_script_mentions_and_compound_calls_are_not_one_execution(self):
+        command = (
+            f'SPECIFY_FEATURE_DIRECTORY=specs/offline-greeting {GIT_HOOK_SCRIPT} '
+            '--json --short-name offline-greeting "A local greeting; Hello, <name>!"'
+        )
+
+        def transcript(commands, success=True):
+            events = []
+            for index, text in enumerate(commands):
+                call_id = str(index)
+                events.extend([
+                    {"type": "assistant.message", "data": {"toolRequests": [{
+                        "toolCallId": call_id, "name": "bash", "arguments": {"command": text},
+                    }]}},
+                    {"type": "tool.execution_complete", "data": {
+                        "toolCallId": call_id, "success": success, "result": {
+                            "content": '{"BRANCH_NAME":"001-greeting","FEATURE_NUM":"001"}\n'
+                            "<shellId: 2 completed with exit code 0>",
+                        },
+                    }},
+                ])
+            return events
+
+        self.assertEqual(len(successful_git_hook_invocations(transcript([command]))), 1)
+        for mention in (f"cat {GIT_HOOK_SCRIPT}", f"echo {GIT_HOOK_SCRIPT}", f"grep git {GIT_HOOK_SCRIPT}"):
+            self.assertEqual(successful_git_hook_invocations(transcript([mention])), [])
+        for compound in (f"{command}; {command}", f"{command} && {command}", command + " --dry-run"):
+            with self.subTest(command=compound), self.assertRaises(AssertionError):
+                successful_git_hook_invocations(transcript([compound]))
+        self.assertEqual(len(successful_git_hook_invocations(transcript([command, command]))), 2)
+        with self.assertRaises(AssertionError):
+            successful_git_hook_invocations(transcript([command], success=False))
+        with self.assertRaises(AssertionError):
+            successful_git_hook_invocations(transcript([command])[:1])
 
 
 def write_marker_script(project):
@@ -187,6 +343,8 @@ class HookPackageTests(unittest.TestCase):
             "do not invoke it twice", "not a persistent lock",
             "before** the baseline Completion Report",
             "after producing and reporting `converged` or `tasks_appended`",
+            "remaining work already covered by existing open tasks",
+            "Blocked or unverified assessments do not reach it",
             "not Copilot native", "including all its artifact",
         ):
             with self.subTest(phrase=phrase):
@@ -296,11 +454,15 @@ class SpecifyCompositionTests(unittest.TestCase):
                             self.assertIn(PACKAGE.name, resolved)
                     self.run_cli(project, "preset", "disable", PACKAGE.name)
                     self.assertEqual(self.skills(project), composed, "Disable alone leaves stale skills")
-                    self.assertIn(baseline, self.run_cli(project, "preset", "resolve", "speckit.plan"))
+                    resolved = self.run_cli(project, "preset", "resolve", "speckit.plan")
+                    self.assertIn(baseline, resolved)
+                    self.assertNotIn(PACKAGE.name, resolved)
                     self.run_cli(project, "preset", "enable", PACKAGE.name)
                     self.run_cli(project, "preset", "set-priority", PACKAGE.name, "15")
                     self.assertEqual(self.skills(project), composed, "Priority alone leaves stale skills")
-                    self.assertIn(baseline, self.run_cli(project, "preset", "resolve", "speckit.plan"))
+                    resolved = self.run_cli(project, "preset", "resolve", "speckit.plan")
+                    self.assertIn(baseline, resolved)
+                    self.assertNotIn(PACKAGE.name, resolved)
                     self.run_cli(project, "preset", "remove", PACKAGE.name)
                     self.assertEqual(self.skills(project), baseline_skills)
                     self.run_cli(project, "preset", "add", "--dev", str(PACKAGE), "--priority", "15")
@@ -471,10 +633,6 @@ class CopilotBehaviorTests(unittest.TestCase):
                         self.assertEqual(events, expected)
                         self.assertFalse((project / "result.txt").exists())
                         self.assertIn("- [ ] T001", (project / "specs/fixture/tasks.md").read_text())
-                        if scenario == "pre-failure":
-                            self.assertIn("FIXTURE_HOOK_FAILED", result.stdout)
-                        elif scenario == "denied":
-                            self.assertIn("denied", result.stdout.lower())
                     else:
                         if scenario in ("absent", "malformed"):
                             expected = ["body.start", "body.end"]
@@ -485,7 +643,6 @@ class CopilotBehaviorTests(unittest.TestCase):
                             expected = [item + suffix for item in completed for suffix in (".start", ".end")]
                             if scenario == "post-failure":
                                 expected.append("post-one.start")
-                                self.assertIn("FIXTURE_HOOK_FAILED", result.stdout)
                         self.assertEqual(events, expected)
                         self.assertEqual((project / "result.txt").read_bytes(), b"done\n")
                         self.assertIn("- [x] t001", (project / "specs/fixture/tasks.md").read_text().lower())
@@ -507,9 +664,104 @@ class CopilotBehaviorTests(unittest.TestCase):
                                 self.assertNotIn("fixture.py verify", command)
                     if scenario not in ("absent", "malformed"):
                         self.assertIn("EXECUTE_COMMAND: speckit.fixture.pre-one", "\n".join(messages))
-                    if scenario == "malformed":
-                        self.assertIn("mandatory", result.stdout.lower())
-                        self.assertIn("parse", result.stdout.lower())
+                    validate_assistant_reporting(
+                        [json.loads(line) for line in result.stdout.splitlines()], scenario,
+                    )
+
+    def test_lean_convergence_with_existing_open_work_and_blocked_assessment(self):
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                project = self.make_project(root, "copilot-lean-sdd", "success")
+                feature = project / "specs/fixture"
+                tasks = feature / "tasks.md"
+                tasks.write_text(
+                    "# Tasks\n\n## Phase 1: Marker\n\n"
+                    "- [x] T000 [US1] Initial implementation of result.txt was attempted.\n"
+                    "- [ ] T001 [US1] Fix result.txt to contain exactly done and a newline; "
+                    "verify with `python3 fixture.py verify`.\n", encoding="utf-8",
+                )
+                before = tasks.read_bytes()
+                (project / "result.txt").write_bytes(b"pending\n")
+                (feature / "plan.md").write_text(
+                    "# Plan\n\nresult.txt must contain exactly done and a newline. "
+                    "The implementation has been attempted but remains incomplete. "
+                    "The documented local validation is `python3 fixture.py verify`. "
+                    "An assertion failure is remaining implementation work already covered "
+                    "by T001, not a missing validation prerequisite.\n", encoding="utf-8",
+                )
+                digest = hashlib.sha256(before).hexdigest()
+                (project / "convergence-hook.py").write_text(
+                    "import hashlib\nfrom pathlib import Path\n"
+                    f"assert hashlib.sha256(Path('specs/fixture/tasks.md').read_bytes()).hexdigest() == {digest!r}\n"
+                    "with Path('convergence-hook.log').open('a') as output:\n"
+                    "    output.write('after_converge\\n')\n"
+                    "print('AFTER_CONVERGE_COMPLETED')\n", encoding="utf-8",
+                )
+                skill = project / ".github/skills/speckit-fixture-convergence"
+                skill.mkdir()
+                (skill / "SKILL.md").write_text(
+                    "---\nname: speckit-fixture-convergence\ndescription: Record the completed convergence assessment.\n"
+                    "---\nRun `python3 convergence-hook.py` exactly once and wait for its result.\n",
+                    encoding="utf-8",
+                )
+                (project / ".specify/extensions.yml").write_text(yaml.safe_dump({
+                    "hooks": {"after_converge": [{
+                        "extension": "fixture", "command": "speckit.fixture.convergence", "optional": False,
+                    }]},
+                }), encoding="utf-8")
+                if blocked:
+                    (feature / "spec.md").unlink()
+                result = subprocess.run(
+                    [
+                        str(Path(COPILOT).resolve()), "-C", str(project), "-p",
+                        "Run the installed speckit-converge skill for the active feature and report "
+                        "the actual assessment outcome. Follow the selected baseline and lifecycle "
+                        "rules. Use local files only; do not implement remaining work, change fixture "
+                        "scripts, skills, extensions.yml, global configuration, or spawn agents.",
+                        "--trust-folder", "--allow-all-tools", "--disable-builtin-mcps",
+                        "--available-tools=bash,view,rg,glob,skill,apply_patch",
+                        "--deny-tool=shell(gh:*)", "--deny-tool=shell(curl:*)",
+                        "--log-dir", str(root / "host-logs"), "--output-format", "json",
+                    ],
+                    text=True, encoding="utf-8", capture_output=True, timeout=300,
+                )
+                hook_log = project / "convergence-hook.log"
+                evidence = os.environ.get("HOOKS_EVIDENCE_DIR")
+                if evidence:
+                    folder = Path(evidence) / ("lean-converge-blocked" if blocked else "lean-converge-open-work")
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / "host.jsonl").write_text(result.stdout, encoding="utf-8")
+                    (folder / "stderr.txt").write_text(result.stderr, encoding="utf-8")
+                    (folder / "tasks.md").write_bytes(tasks.read_bytes())
+                    (folder / "hook.log").write_text(hook_log.read_text() if hook_log.exists() else "")
+                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+                self.assertEqual(tasks.read_bytes(), before, "Existing open work must not be duplicated or rewritten")
+                events = [json.loads(line) for line in result.stdout.splitlines()]
+                messages = [event["data"] for event in events if event["type"] == "assistant.message"]
+                finals = [m["content"] for m in messages if m.get("phase") == "final_answer"]
+                self.assertTrue(finals)
+                if blocked:
+                    self.assertFalse(hook_log.exists())
+                    self.assertRegex(finals[-1].lower(), r"missing|blocked|unverified|stopped")
+                else:
+                    self.assertEqual(hook_log.read_text(), "after_converge\n")
+                    self.assertRegex(finals[-1], r"T001")
+                    self.assertRegex(finals[-1].lower(), r"remaining|incomplete|not converged|open")
+                    hook_index = next(
+                        index for index, event in enumerate(events) if event["type"] == "assistant.message"
+                        and any(
+                            request.get("name") == "skill"
+                            and request.get("arguments", {}).get("skill") == "speckit-fixture-convergence"
+                            for request in event["data"].get("toolRequests", [])
+                        )
+                    )
+                    before_hook = "\n".join(
+                        event["data"].get("content", "") for event in events[:hook_index]
+                        if event["type"] == "assistant.message"
+                    )
+                    self.assertIn("T001", before_hook)
+                    self.assertRegex(before_hook.lower(), r"remaining|incomplete|not converged|open")
 
     @unittest.skipUnless(os.environ.get("HOOKS_SPECIFY_SOURCE"), "Set HOOKS_SPECIFY_SOURCE for installed Git extension exercises")
     def test_installed_git_extension_registers_and_executes_before_specify(self):
@@ -588,6 +840,9 @@ class CopilotBehaviorTests(unittest.TestCase):
                     "Use the installed extension lifecycle handling normally. Optional hooks have "
                     "not been requested. This disposable repository has no remotes; any local "
                     "feature branch created by the installed mandatory hook is authorized. "
+                    "Execute that hook script as one direct simple shell command per tool call "
+                    "(an environment-variable prefix or bash interpreter is allowed); do not "
+                    "combine it with reads, other commands, substitutions, or dry-run flags. "
                     "Do not change global configuration, install anything, spawn agents, edit "
                     "installed skills/extensions or extensions.yml, push, or use GitHub."
                 )
@@ -643,10 +898,7 @@ class CopilotBehaviorTests(unittest.TestCase):
                     r for r in requests if r.get("name") == "skill"
                     and r.get("arguments", {}).get("skill") == "speckit-git-feature"
                 ]
-                executions = [
-                    r for r in requests if r.get("name") == "bash"
-                    and "create-new-feature-branch.sh" in r.get("arguments", {}).get("command", "")
-                ]
+                executions = successful_git_hook_invocations(events)
                 self.assertEqual(len(hook_loads), 1)
                 self.assertEqual(len(executions), 1, "Actually execute the installed extension's script exactly once")
                 self.assertEqual(source_hashes, {
