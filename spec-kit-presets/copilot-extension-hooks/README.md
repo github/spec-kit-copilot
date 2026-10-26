@@ -134,6 +134,10 @@ disabled/conditional/optional skipping, duplicate suppression, missing baseline
 inputs, denied execution, mandatory pre/post failure, absent-layer behavior, and
 malformed YAML. Each host process has a five-minute timeout. To retain diagnostic
 transcripts, set `HOOKS_EVIDENCE_DIR` to a private directory outside the repository.
+Rejected forbidden, duplicate, retried, or out-of-order marker calls are recorded
+before failing, so continuing after a tool error cannot hide the attempt.
+The denied-hook case blocks only the hook entry point, not the baseline's Python
+command, and also checks that baseline execution was not attempted.
 The marker-hook cases seed registrations and command skills directly; they do
 not exercise extension installation.
 

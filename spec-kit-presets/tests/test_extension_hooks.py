@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -22,6 +23,100 @@ START = "## Copilot extension lifecycle checkpoints"
 CLI = os.environ.get("HOOKS_SPECIFY_BIN")
 BASELINES = Path(os.environ.get("HOOKS_BASELINES_ROOT", str(PRESETS)))
 COPILOT = os.environ.get("HOOKS_COPILOT_BIN")
+
+
+def write_marker_script(project):
+    (project / "fixture.py").write_text(textwrap.dedent("""\
+        import json
+        from pathlib import Path
+        import sys
+        import time
+
+        root = Path(__file__).resolve().parent
+        config = json.loads((root / "fixture.json").read_text())
+        trace = root / "trace.jsonl"
+        step = sys.argv[1]
+        def emit(suffix):
+            with trace.open("a") as output:
+                output.write(json.dumps({"event": step + suffix, "time": time.monotonic_ns()}) + "\\n")
+        def reject(message):
+            emit(".rejected")
+            raise SystemExit(message)
+        if step == "verify":
+            if (root / "result.txt").read_bytes() != b"done\\n":
+                reject("RESULT_VERIFICATION_FAILED")
+            print("RESULT_VERIFIED")
+            raise SystemExit(0)
+        sequence = ["pre-one", "pre-two", "body", "post-one", "post-two"]
+        if not config["hooks"]:
+            sequence = ["body"]
+        if step not in sequence:
+            reject("FORBIDDEN_HOOK_INVOKED: " + step)
+        prior = sequence[:sequence.index(step)]
+        expected = [item + suffix for item in prior for suffix in (".start", ".end")]
+        actual = [json.loads(line)["event"] for line in trace.read_text().splitlines()] if trace.exists() else []
+        if actual != expected:
+            reject("INVALID_EXECUTION_ORDER: " + repr((actual, expected)))
+        if step.startswith("post-"):
+            tasks = (root / "specs/fixture/tasks.md").read_text().lower()
+            if "- [x] t001" not in tasks:
+                reject("Post hook ran before task completion")
+        emit(".start")
+        time.sleep(0.4)
+        if (config["scenario"] == "pre-failure" and step == "pre-one") or (config["scenario"] == "post-failure" and step == "post-one"):
+            raise SystemExit("FIXTURE_HOOK_FAILED: " + step)
+        if step == "body":
+            (root / "result.txt").write_bytes(b"done\\n")
+        emit(".end")
+        print("COMPLETED: " + step)
+        """), encoding="utf-8",
+    )
+    hook_entry = project / "fixture-hook"
+    hook_entry.write_text('#!/bin/sh\nexec python3 fixture.py "$@"\n', encoding="utf-8")
+    hook_entry.chmod(0o755)
+
+
+class MarkerOracleTests(unittest.TestCase):
+    def test_rejected_attempts_cannot_leave_a_passing_trace(self):
+        cases = {
+            "forbidden": ([], "disabled"),
+            "duplicate": (["pre-one.start", "pre-one.end"], "pre-one"),
+            "retry": (["pre-one.start"], "pre-one"),
+            "out-of-order": ([], "pre-two"),
+            "early-post": (
+                [s + suffix for s in ("pre-one", "pre-two", "body") for suffix in (".start", ".end")],
+                "post-one",
+            ),
+            "continued-after-rejection": (["disabled.rejected"], "pre-one"),
+        }
+        for label, (prior, step) in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temp:
+                project = Path(temp)
+                write_marker_script(project)
+                (project / "fixture.json").write_text(json.dumps({"scenario": "success", "hooks": True}))
+                tasks = project / "specs/fixture/tasks.md"
+                tasks.parent.mkdir(parents=True)
+                tasks.write_text("- [ ] T001\n")
+                trace = project / "trace.jsonl"
+                trace.write_text("".join(json.dumps({"event": event}) + "\n" for event in prior))
+                result = subprocess.run(
+                    [sys.executable, "fixture.py", step], cwd=project, capture_output=True, timeout=10,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                events = [json.loads(line)["event"] for line in trace.read_text().splitlines()]
+                self.assertEqual(events, [*prior, step + ".rejected"])
+
+    def test_hook_only_entry_preserves_baseline_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            write_marker_script(project)
+            self.assertIn('exec python3 fixture.py "$@"', (project / "fixture-hook").read_text())
+            (project / "fixture.json").write_text(json.dumps({"scenario": "denied", "hooks": False}))
+            result = subprocess.run(
+                [sys.executable, "fixture.py", "body"], cwd=project, capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((project / "result.txt").read_bytes(), b"done\n")
 
 
 def frontmatter(text):
@@ -280,52 +375,14 @@ class CopilotBehaviorTests(unittest.TestCase):
         (project / "fixture.json").write_text(
             json.dumps({"scenario": scenario, "hooks": expect_hooks}), encoding="utf-8",
         )
-        (project / "fixture.py").write_text(textwrap.dedent("""\
-            import json
-            from pathlib import Path
-            import sys
-            import time
-
-            root = Path(__file__).resolve().parent
-            config = json.loads((root / "fixture.json").read_text())
-            trace = root / "trace.jsonl"
-            step = sys.argv[1]
-            if step == "verify":
-                assert (root / "result.txt").read_bytes() == b"done\\n"
-                print("RESULT_VERIFIED")
-                raise SystemExit(0)
-            sequence = ["pre-one", "pre-two", "body", "post-one", "post-two"]
-            if not config["hooks"]:
-                sequence = ["body"]
-            if step not in sequence:
-                raise SystemExit("FORBIDDEN_HOOK_INVOKED: " + step)
-            prior = sequence[:sequence.index(step)]
-            expected = [item + suffix for item in prior for suffix in (".start", ".end")]
-            actual = [json.loads(line)["event"] for line in trace.read_text().splitlines()] if trace.exists() else []
-            assert actual == expected, (actual, expected)
-            if step.startswith("post-"):
-                tasks = (root / "specs/fixture/tasks.md").read_text().lower()
-                assert "- [x] t001" in tasks, "Post hook ran before task completion"
-            def emit(suffix):
-                with trace.open("a") as output:
-                    output.write(json.dumps({"event": step + suffix, "time": time.monotonic_ns()}) + "\\n")
-            emit(".start")
-            time.sleep(0.4)
-            if (config["scenario"] == "pre-failure" and step == "pre-one") or (config["scenario"] == "post-failure" and step == "post-one"):
-                raise SystemExit("FIXTURE_HOOK_FAILED: " + step)
-            if step == "body":
-                (root / "result.txt").write_bytes(b"done\\n")
-            emit(".end")
-            print("COMPLETED: " + step)
-            """), encoding="utf-8",
-        )
+        write_marker_script(project)
         for step in (*hook_steps, "disabled", "conditional", "optional", "optional-default"):
             name = f"speckit-fixture-{step}"
             folder = project / ".github/skills" / name
             folder.mkdir()
             (folder / "SKILL.md").write_text(
                 f"---\nname: {name}\ndescription: Execute the local {step} marker hook.\n---\n\n"
-                f"Run `python3 fixture.py {step}` from the project root exactly once. "
+                f"Run `./fixture-hook {step}` from the project root exactly once. "
                 "Wait for its exit and report the actual result. Do not edit the script or "
                 "trace, retry a failure, delegate, or run a different step.\n", encoding="utf-8",
             )
@@ -377,7 +434,7 @@ class CopilotBehaviorTests(unittest.TestCase):
                         "Run this project's speckit-implement skill for its active feature and report "
                         "the actual outcome. Use only local files and commands in this disposable "
                         "project. Do not access external services, change global configuration, "
-                        "spawn agents, or change skill files, fixture.py, fixture.json, or extensions.yml."
+                        "spawn agents, or change skill files, fixture.py, fixture-hook, fixture.json, or extensions.yml."
                     )
                     result = subprocess.run(
                         [
@@ -386,7 +443,10 @@ class CopilotBehaviorTests(unittest.TestCase):
                             "--available-tools=bash,view,rg,glob,skill,apply_patch",
                             "--deny-tool=shell(gh:*)", "--deny-tool=shell(curl:*)",
                             "--deny-tool=shell(git push:*)",
-                            *(["--deny-tool=shell(python3:*)"] if scenario == "denied" else []),
+                            *(
+                                ["--deny-tool=shell(./fixture-hook:*)", "--deny-tool=shell(fixture-hook:*)"]
+                                if scenario == "denied" else []
+                            ),
                             "--log-dir", str(root / "host-logs"), "--output-format", "json",
                         ],
                         text=True, encoding="utf-8", capture_output=True, timeout=300,
@@ -434,6 +494,17 @@ class CopilotBehaviorTests(unittest.TestCase):
                         for line in result.stdout.splitlines()
                         if json.loads(line).get("type") == "assistant.message"
                     ]
+                    if scenario == "denied":
+                        requests = [
+                            request for line in result.stdout.splitlines()
+                            if (event := json.loads(line)).get("type") == "assistant.message"
+                            for request in event["data"].get("toolRequests", [])
+                        ]
+                        for request in requests:
+                            if request.get("name") == "bash":
+                                command = request.get("arguments", {}).get("command", "")
+                                self.assertNotIn("fixture.py body", command)
+                                self.assertNotIn("fixture.py verify", command)
                     if scenario not in ("absent", "malformed"):
                         self.assertIn("EXECUTE_COMMAND: speckit.fixture.pre-one", "\n".join(messages))
                     if scenario == "malformed":
