@@ -130,7 +130,8 @@ with PyYAML installed. Set `HOOKS_SPECIFY_BIN` to Specify 1.2.3 and
 `HOOKS_BASELINES_ROOT` to a source tree's `spec-kit-presets` containing both
 canonical baselines to include real init/install/composition/removal checks.
 Set `HOOKS_PRESET_ARCHIVE` to an externally built release ZIP to compare its
-file names, count, and exact file bytes with the package. This archive check is
+file names, count, and file bytes with the package, normalizing CRLF to LF on
+both sides while preserving every other byte. This archive check is
 skipped when no ZIP is supplied; creating a ZIP from the expected inventory is
 not release-workflow validation.
 These checks validate files and generation, not model compliance. Bounded
@@ -167,7 +168,9 @@ then executes `specify` with each baseline. It verifies that the mandatory
 once using a constrained single-command format with a successful tool result
 and script JSON output, then verifies the resulting local branch. Reading the
 script does not count as an invocation; shell-wrapped attempts and combined
-calls are rejected rather than ignored, including failed retries. Optional commit
+calls are rejected rather than ignored, including failed retries. Simple `head`,
+`ls`, and numeric-range `sed -n` print inspections are allowed without counting
+as execution; executable `sed` expressions are not. Optional commit
 hooks remain unrequested. All Git operations are confined to throwaway
 repositories without remotes; no existing project or global Git configuration
 is changed.

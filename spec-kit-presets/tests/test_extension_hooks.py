@@ -9,6 +9,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 
 import yaml
@@ -34,7 +35,7 @@ def validate_preset_archive(path):
         if set(names) != FILES or len(names) != len(FILES):
             raise AssertionError("Archive file names and count must match the package")
         for name in names:
-            if archive.read(name) != (PACKAGE / name).read_bytes():
+            if archive.read(name).replace(b"\r\n", b"\n") != (PACKAGE / name).read_bytes().replace(b"\r\n", b"\n"):
                 raise AssertionError(f"Archive content differs from package: {name}")
 
 
@@ -115,6 +116,20 @@ def successful_git_hook_invocations(events):
                 raise AssertionError("Hook execution must be a single simple command")
             if tokens and tokens[0] in ("cat", "echo", "grep"):
                 continue  # Simple read-only mentions are not execution.
+            if tokens and tokens[-1] in (GIT_HOOK_SCRIPT, "./" + GIT_HOOK_SCRIPT):
+                inspection = tokens[:-1]
+                if (
+                    inspection in (["head"], ["ls"], ["ls", "-l"], ["ls", "-la"])
+                    or (
+                        len(inspection) == 3 and inspection[:2] == ["head", "-n"]
+                        and inspection[2].isdigit()
+                    )
+                    or (
+                        len(inspection) == 3 and inspection[:2] == ["sed", "-n"]
+                        and re.fullmatch(r"\d+(?:,\d+)?p", inspection[2])
+                    )
+                ):
+                    continue
             if tokens and tokens[0] in ("bash", "sh"):
                 tokens.pop(0)
             if not tokens or tokens[0] not in (GIT_HOOK_SCRIPT, "./" + GIT_HOOK_SCRIPT):
@@ -222,8 +237,15 @@ class TranscriptOracleTests(unittest.TestCase):
             return events
 
         self.assertEqual(len(successful_git_hook_invocations(transcript([command]))), 1)
-        for mention in (f"cat {GIT_HOOK_SCRIPT}", f"echo {GIT_HOOK_SCRIPT}", f"grep git {GIT_HOOK_SCRIPT}"):
-            self.assertEqual(successful_git_hook_invocations(transcript([mention])), [])
+        for mention in (
+            f"cat {GIT_HOOK_SCRIPT}", f"echo {GIT_HOOK_SCRIPT}", f"grep git {GIT_HOOK_SCRIPT}",
+            f"head {GIT_HOOK_SCRIPT}", f"head -n 80 {GIT_HOOK_SCRIPT}",
+            f"ls {GIT_HOOK_SCRIPT}", f"ls -l {GIT_HOOK_SCRIPT}",
+            f"sed -n '1,80p' {GIT_HOOK_SCRIPT}",
+        ):
+            with self.subTest(inspection=mention):
+                self.assertEqual(successful_git_hook_invocations(transcript([mention])), [])
+                self.assertEqual(len(successful_git_hook_invocations(transcript([mention, command]))), 1)
         for compound in (f"{command}; {command}", f"{command} && {command}", command + " --dry-run"):
             with self.subTest(command=compound), self.assertRaises(AssertionError):
                 successful_git_hook_invocations(transcript([compound]))
@@ -236,11 +258,15 @@ class TranscriptOracleTests(unittest.TestCase):
             f"bash -c {shlex.quote(command)}",
             f"sh -c {shlex.quote(command)}",
             f"env bash -c {shlex.quote(command)}",
+            f"sed -n '1e bash {GIT_HOOK_SCRIPT}' {GIT_HOOK_SCRIPT}",
         ):
             retry = transcript([command, wrapped])
             retry[-1]["data"]["success"] = False
             with self.subTest(retry=wrapped), self.assertRaisesRegex(AssertionError, "Unrecognized hook attempt"):
                 successful_git_hook_invocations(retry)
+        for inspection in (f"head {GIT_HOOK_SCRIPT}", f"sed -n '1,80p' {GIT_HOOK_SCRIPT}"):
+            with self.subTest(compound_inspection=inspection), self.assertRaises(AssertionError):
+                successful_git_hook_invocations(transcript([f"{inspection}; {command}"]))
 
 
 def write_marker_script(project):
@@ -449,6 +475,36 @@ class HookPackageTests(unittest.TestCase):
                             archive.writestr(name, data)
                 with self.assertRaises(AssertionError):
                     validate_preset_archive(path)
+
+    def test_archive_comparison_normalizes_only_crlf_on_both_sides(self):
+        content = b"first\nsecond \t\nthird\rfourth\n"
+        for checkout_crlf in (False, True):
+            for archive_crlf in (False, True):
+                with self.subTest(checkout_crlf=checkout_crlf, archive_crlf=archive_crlf):
+                    with tempfile.TemporaryDirectory() as temp:
+                        root = Path(temp)
+                        package = root / "package"
+                        package.mkdir()
+                        source = content.replace(b"\n", b"\r\n") if checkout_crlf else content
+                        archived = content.replace(b"\n", b"\r\n") if archive_crlf else content
+                        for name in FILES:
+                            path = package / name
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            path.write_bytes(source)
+                        for mutation in (None, b" ", b"\t", b"changed", b""):
+                            archive_path = root / "fixture.zip"
+                            with ZipFile(archive_path, "w") as archive:
+                                for name in FILES:
+                                    data = archived
+                                    if name == "LICENSE" and mutation is not None:
+                                        data = archived.replace(b"\r", b"") if mutation == b"" else archived + mutation
+                                    archive.writestr(name, data)
+                            with patch(__name__ + ".PACKAGE", package):
+                                if mutation is None:
+                                    validate_preset_archive(archive_path)
+                                else:
+                                    with self.assertRaises(AssertionError):
+                                        validate_preset_archive(archive_path)
 
 
 @unittest.skipUnless(CLI, "Set HOOKS_SPECIFY_BIN to released Specify 1.2.3")
