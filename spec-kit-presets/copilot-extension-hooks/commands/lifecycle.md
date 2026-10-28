@@ -13,7 +13,8 @@ Do not dispatch hooks for another command or for `taskstoissues`.
 
 Apply these checkpoints exactly once per invocation:
 
-1. Run **Pre-Execution Checks** below before starting the baseline Outline.
+1. Run **Pre-Execution Checks** below before starting the baseline workflow,
+   whether it begins with `Outline`, `Goal`, or `Execution Steps`.
 2. Execute the selected baseline unchanged, including all its artifact
    prerequisites, user approval gates, read-only boundaries, and validation.
 3. Run **Post-Execution Checks** below at the established completion checkpoint:

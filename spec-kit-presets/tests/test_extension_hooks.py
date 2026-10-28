@@ -384,15 +384,16 @@ class HookPackageTests(unittest.TestCase):
         for key, value in manifest["preset"].items():
             self.assertEqual(entry[key], value, key)
         self.assertEqual(manifest["preset"]["id"], PACKAGE.name)
-        self.assertEqual(manifest["preset"]["version"], "1.0.0")
+        version = manifest["preset"]["version"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+\Z")
         self.assertEqual(manifest["requires"], {"speckit_version": "==1.2.3"})
         self.assertEqual(entry["requires"], manifest["requires"])
         self.assertEqual(entry["tags"], manifest["tags"])
         self.assertEqual(entry["provides"], {"templates": 0, "commands": 9})
         self.assertEqual(
             entry["download_url"],
-            "https://github.com/github/spec-kit-copilot/releases/download/"
-            "copilot-extension-hooks-v1.0.0/copilot-extension-hooks.zip",
+            f"{manifest['preset']['repository']}/releases/download/"
+            f"{PACKAGE.name}-v{version}/{PACKAGE.name}.zip",
         )
         templates = manifest["provides"]["templates"]
         self.assertEqual(len(templates), 9)
@@ -438,12 +439,15 @@ class HookPackageTests(unittest.TestCase):
             "Resolve `{invocation}` from the matching installed skill",
             "report it unavailable",
             "not Copilot native", "including all its artifact",
+            "before starting the baseline workflow",
+            "whether it begins with `Outline`, `Goal`, or `Execution Steps`",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, wrapper)
         readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
+        manifest = yaml.safe_load((PACKAGE / "preset.yml").read_text(encoding="utf-8"))
         for phrase in (
-            "**1.0.0**", "27d14e20c187c1f2916540ea201ecbdc9f8ed588",
+            f"**{manifest['preset']['version']}**", "27d14e20c187c1f2916540ea201ecbdc9f8ed588",
             "**Initial release pending.**", "do not regenerate existing skills",
             "specify preset remove copilot-extension-hooks",
             "not a runtime executor", "Copilot App behavior is not established",
