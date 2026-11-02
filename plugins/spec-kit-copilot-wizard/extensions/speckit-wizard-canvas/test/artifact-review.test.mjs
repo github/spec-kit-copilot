@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { JSDOM } from "jsdom";
 import { reviewFreshnessTests } from "./review-freshness-fixture.mjs";
 import { artifactSourcePath } from "../ui/composition-artifacts.js";
 
-const require = createRequire(new URL("../ui/markdown-reader/package.json", import.meta.url));
-const { JSDOM } = require("jsdom");
 const revision = `sha256:${"a".repeat(64)}`;
 
 async function serviceFixture(run) {
@@ -490,6 +488,24 @@ test("Wizard clarification bindings are prose-only and reject a stale revision o
     assert.equal(extDoc.artifact.owningCommand, "speckit.assess.intake");
     assert.equal(extDoc.clarifications.length, 1);
     assert.equal(extDoc.clarifications[0].commandName, "speckit.assess.intake");
+}));
+
+test("Wizard accepts multiline clarification answers without relaxing identifiers or limits", () => serviceFixture(async ({ root, service }) => {
+    await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    const opened = await service.open({ stage: "specify" });
+    const document = await service.content(opened.contextId, opened.primaryArtifactId);
+    const binding = document.clarifications[0];
+    const request = { questionId: binding.questionId, question: binding.question, answer: "Only admins.\r\nAuditors\tread-only." };
+    const submit = (answer) => service.validateClarifications(opened.contextId, opened.primaryArtifactId,
+        document.revision, [{ ...request, answer }], "speckit.specify");
+    assert.equal((await submit(request.answer))[0].answer, request.answer);
+    assert.equal((await submit("a".repeat(4000)))[0].answer.length, 4000);
+    for (const answer of [" \r\n\t", "a".repeat(4001), "a\u0000b", "a\u0008b", "a\u000bb", "a\u000cb", "a\u001fb", "a\u007fb"]) {
+        await assert.rejects(submit(answer), { code: "invalid_request" });
+    }
+    await assert.rejects(service.open({ stage: "specify\n" }), { code: "invalid_request" });
+    await assert.rejects(service.validateClarifications(`${opened.contextId}\n`, opened.primaryArtifactId,
+        document.revision, [request], "speckit.specify"), { code: "invalid_request" });
 }));
 
 test("Wizard shared-output clarification bindings prefer the selected stage command", () => serviceFixture(async ({ root, snapshot, service }) => {

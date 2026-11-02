@@ -4,6 +4,7 @@ import { startFixture } from "../serve-fixture.mjs";
 const require = createRequire(new URL("../../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader/package.json", import.meta.url));
 const { test, expect } = require("@playwright/test");
 const markdown = "# Clarification fixture\n\n## Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n\n## Tests\n\n[NEEDS CLARIFICATION: Which tests?]\n\n`[NEEDS CLARIFICATION: Inert example?]`\n";
+const multilineAnswer = "Only admins.\nAuditors\tread-only.";
 
 async function openReader(page, canvas, fixture) {
     const url = new URL(fixture.url);
@@ -25,7 +26,7 @@ test("Wizard retains cross-file clarification drafts and blocks close during a v
     try {
         await openReader(page, "wizard", fixture);
         await page.getByRole("button", { name: "Clarify: Which scope?", exact: true }).click();
-        await page.locator(".wizard-modal-textarea").fill("Only the synthetic feature.");
+        await page.locator(".wizard-modal-textarea").fill(multilineAnswer);
         await page.getByRole("button", { name: "Save answer", exact: true }).click();
         await expect(page.getByRole("button", { name: "Clarify: Which scope?", exact: true })).toHaveText("Answer queued");
         await page.getByRole("combobox", { name: "Artifacts", exact: true }).selectOption({ label: "research.md" });
@@ -34,7 +35,7 @@ test("Wizard retains cross-file clarification drafts and blocks close during a v
         await page.getByRole("button", { name: "Next artifact", exact: true }).click();
         await expect(page.getByRole("button", { name: "Clarify: Which scope?", exact: true })).toHaveText("Answer queued");
         await page.getByRole("button", { name: "Clarify: Which scope?", exact: true }).click();
-        await expect(page.locator(".wizard-modal-textarea")).toHaveValue("Only the synthetic feature.");
+        await expect(page.locator(".wizard-modal-textarea")).toHaveValue(multilineAnswer);
         await page.locator(".wizard-modal-cancel").click();
         await page.getByRole("button", { name: "Apply and Rerun", exact: true }).click();
         await expect.poll(() => Boolean(completeSubmission)).toBe(true);
@@ -42,6 +43,8 @@ test("Wizard retains cross-file clarification drafts and blocks close during a v
         await expect(page.locator("#phase-artifact-viewer")).toBeVisible();
         expect(submitted.commandName).toBe("speckit.specify");
         expect(submitted.review.answers).toHaveLength(1);
+        expect(submitted.review.answers[0].answer).toBe(multilineAnswer);
+        expect(submitted.args).toContain(multilineAnswer);
         expect(submitted.review.expectedRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
         completeSubmission();
         await expect(page.locator("#phase-artifact-viewer")).toBeHidden();
@@ -61,11 +64,12 @@ test("SDD submits exactly one bound clarification immediately without a draft ba
     try {
         await openReader(page, "sdd", fixture);
         await page.getByRole("button", { name: "Clarify: Which scope?", exact: true }).click();
-        await page.locator("#clarifyAnswer").fill("Only the synthetic feature.");
+        await page.locator("#clarifyAnswer").fill(multilineAnswer);
         await page.getByRole("button", { name: "Submit and run clarify", exact: true }).click();
         await expect(page.locator("#clarifyDialog")).toBeHidden();
         expect(submitted).toHaveLength(1);
         expect(submitted[0].question).toBe("Which scope?");
+        expect(submitted[0].answer).toBe(multilineAnswer);
         expect(submitted[0].index).toBe(0);
         expect(submitted[0].expectedRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
         expect(submitted[0].artifactId).toMatch(/^artifact_/);

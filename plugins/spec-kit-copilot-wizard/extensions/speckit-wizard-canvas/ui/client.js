@@ -291,8 +291,8 @@ export function handleServerMessage(msg) {
                 }
             }
             state.compositionRequested = false;
-            if (document.body.classList.contains("artifact-review-open")) break;
             updateCompositionRefreshButton();
+            if (document.body.classList.contains("artifact-review-open")) break;
             renderComposition();
             // The pipeline stepper and active phase card read from
             // composition.inferredPipeline via pipelineItems(); refresh
@@ -382,4 +382,3 @@ export function handleServerMessage(msg) {
             break;
     }
 }
-

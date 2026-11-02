@@ -329,7 +329,8 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
             const document = await readArtifact(workspacePath, artifact.relativePath, { expectedRevision });
             const current = bindingsFor(contextId, artifact, document);
             const accepted = answers.map((answer) => {
-                if (!boundedString(answer?.answer, 4000) || !answer.answer.trim()) throw new ArtifactReadError("invalid_request");
+                if (typeof answer?.answer !== "string" || answer.answer.length > 4000 || !answer.answer.trim() ||
+                    /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(answer.answer)) throw new ArtifactReadError("invalid_request");
                 const binding = current.find((entry) => entry.questionId === answer.questionId && entry.question === answer.question &&
                     (answer.index === undefined || entry.index === answer.index) && (!commandName || entry.commandName === commandName));
                 if (!binding) throw new ArtifactReadError("changed_source");

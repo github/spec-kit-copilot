@@ -9,7 +9,7 @@ import { reviewHttpSecurityTests } from "../../../../spec-kit-copilot-wizard/ext
 
 reviewHttpSecurityTests("sdd");
 
-const require = createRequire(new URL("../../../../spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader/package.json", import.meta.url));
+const require = createRequire(new URL("../../../../spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/package.json", import.meta.url));
 const { JSDOM } = require("jsdom");
 
 async function serviceFixture(run) {
@@ -261,7 +261,7 @@ test("SDD signature validates duplicate contexts once per active scope and skips
     } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test("SDD clarification bindings revalidate exact revision, index, and question without batching", () => serviceFixture(async ({ root, service }) => {
+test("SDD multiline clarification answers revalidate exact revision, index, and question without batching", () => serviceFixture(async ({ root, service }) => {
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Questions\n\n[NEEDS CLARIFICATION: Which scope?]\n\n`[NEEDS CLARIFICATION: Example?]`\n");
     const opened = await service.open({ feature: "001-fixture", stage: "specify" });
     assert.equal(typeof service.clarifications, "function", "T068: revision-bound question descriptors are missing");
@@ -270,9 +270,13 @@ test("SDD clarification bindings revalidate exact revision, index, and question 
     assert.equal(bindings[0].mode, "sdd-immediate");
     assert.equal(bindings[0].question, "Which scope?");
     assert.equal(bindings[0].index, 0);
-    const request = { questionId: bindings[0].questionId, question: bindings[0].question, index: 0, answer: "Only this feature" };
+    const request = { questionId: bindings[0].questionId, question: bindings[0].question, index: 0, answer: "Only admins.\r\nAuditors\tread-only." };
     const accepted = await service.validateClarifications(opened.contextId, opened.primaryArtifactId, bindings[0].revision, [request]);
     assert.equal(accepted[0].answer, request.answer);
+    for (const answer of [" \r\n\t", "a".repeat(4001), "a\u0000b", "a\u000bb", "a\u007fb"]) {
+        await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId,
+            bindings[0].revision, [{ ...request, answer }]), { code: "invalid_request" });
+    }
     await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId, bindings[0].revision, [{ ...request, question: "Changed question" }]), { code: "changed_source" });
     await assert.rejects(service.validateClarifications(opened.contextId, opened.primaryArtifactId, bindings[0].revision, [request, request]), { code: "invalid_request" });
     await fs.writeFile(join(root, "specs/001-fixture/spec.md"), "# Changed\n\n[NEEDS CLARIFICATION: New question?]\n");
@@ -287,7 +291,7 @@ test("SDD supporting documents never inherit primary-spec clarification actions"
     assert.deepEqual(await service.clarifications(opened.contextId, research.id), []);
 }));
 
-test("SDD immediate HTTP submission denies stale questions before the mocked SDK dispatch", async () => {
+test("SDD immediate HTTP submission accepts multiline answers and denies stale questions before dispatch", async () => {
     const { startFixture } = await import("../../../../../scripts/canvas-reader/serve-fixture.mjs");
     const fixture = await startFixture({ canvas: "sdd", markdown: "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n", allowMockDispatch: true });
     const endpoint = (route, parameters = {}) => {
@@ -301,7 +305,7 @@ test("SDD immediate HTTP submission denies stale questions before the mocked SDK
         const { data: current } = await (await fetch(endpoint("/api/review/content", { context: opened.contextId, artifactId: opened.primaryArtifactId }))).json();
         const question = current.clarifications[0];
         const body = { feature: "999-canvas-preview-fixture", contextId: opened.contextId, artifactId: opened.primaryArtifactId,
-            expectedRevision: current.revision, questionId: question.questionId, index: question.index, question: question.question, answer: "Only this fixture" };
+            expectedRevision: current.revision, questionId: question.questionId, index: question.index, question: question.question, answer: "Only admins.\nAuditors\tread-only." };
         const submit = (value) => fetch(endpoint("/api/clarify"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
         for (const invalid of [{ ...body, expectedRevision: `sha256:${"0".repeat(64)}` }, { ...body, question: "Other question" }, { ...body, index: 2 }]) {
             assert.equal((await submit(invalid)).status, 400);

@@ -546,7 +546,10 @@ function baseDeps({ workspacePath, extras = {} } = {}) {
         _sessionCalls: sessionCalls,
         session,
         log: async () => {},
-        getState: async () => ({ workspacePath, currentPhase: "setup", setup: {}, preset: "core", phases: {}, slug: null }),
+        getState: async () => ({
+            workspacePath, currentPhase: "setup", preset: "core", phases: {}, slug: null,
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+        }),
         getInstance: () => ({ instanceId: "test-instance", workspacePath, state: {} }),
         broadcast: () => {},
         registerSse: () => {},
@@ -673,7 +676,7 @@ test("POST /api/phase/submit rejects reviewed clarification rerun when setup is 
     try {
         const deps = baseDeps({
             workspacePath: ws,
-            getState: async () => ({
+            extras: { getState: async () => ({
                 workspacePath: ws,
                 currentPhase: "specify",
                 setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: false },
@@ -681,7 +684,7 @@ test("POST /api/phase/submit rejects reviewed clarification rerun when setup is 
                 phases: {},
                 slug: "001-fixture",
             }),
-            extras: { getInstance: () => ({ instanceId: "inst-review-gated", workspacePath: ws, state: {},
+            getInstance: () => ({ instanceId: "inst-review-gated", workspacePath: ws, state: {},
                 reviewService: { validateClarifications: async () => [{ questionId: "question_scope" }] } }) },
         });
         const h = createHandler(deps);
@@ -694,6 +697,74 @@ test("POST /api/phase/submit rejects reviewed clarification rerun when setup is 
         }), res);
         assert.equal(res.statusCode, 409);
         assert.match(JSON.parse(res.body).error, /setup/i);
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit gates legacy clarification and phase submissions on setup", async () => {
+    const ws = tmpWorkspace();
+    let setupReady = false;
+    try {
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => ({ workspacePath: ws, setup: {
+                pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: setupReady,
+            } }),
+        } });
+        const handler = createHandler(deps);
+        const submissions = [
+            { commandName: "speckit.plan", args: "Clarification - Which scope?\nAnswer: Only this feature." },
+            { phase: "plan", values: { answer: "Only this feature." } },
+        ];
+        for (const body of submissions) {
+            const res = mockRes();
+            await handler(mockReq({ method: "POST", url: "/api/phase/submit?token=secret-token", body: JSON.stringify(body) }), res);
+            assert.equal(res.statusCode, 409, res.body);
+            assert.match(JSON.parse(res.body).error, /setup/i);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 0);
+        setupReady = true;
+        for (const body of submissions) {
+            const res = mockRes();
+            await handler(mockReq({ method: "POST", url: "/api/phase/submit?token=secret-token", body: JSON.stringify(body) }), res);
+            assert.equal(res.statusCode, 202, res.body);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, submissions.length);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rechecks setup after asynchronous clarification validation", async () => {
+    const ws = tmpWorkspace();
+    let setupReady = true;
+    try {
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => ({ workspacePath: ws, setup: {
+                pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: setupReady,
+            } }),
+            getInstance: () => ({ instanceId: "inst-review-setup-changed", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => {
+                    await Promise.resolve();
+                    setupReady = false;
+                    return [{ questionId: "question_scope" }];
+                } } }),
+        } });
+        const handler = createHandler(deps);
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer", review: {
+                contextId: "ctx_fixture", artifactId: "artifact_fixture", expectedRevision: `sha256:${"a".repeat(64)}`,
+                answers: [{ questionId: "question_scope", question: "Which scope?", answer: "Only this feature." }],
+            } }),
+        }), res);
+        assert.equal(res.statusCode, 409, res.body);
+        assert.match(JSON.parse(res.body).error, /setup/i);
+        await new Promise((resolve) => setImmediate(resolve));
         assert.equal(deps._sessionCalls.length, 0);
     } finally {
         rmSync(ws, { recursive: true, force: true });

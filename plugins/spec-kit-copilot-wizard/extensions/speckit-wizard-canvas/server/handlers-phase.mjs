@@ -67,7 +67,8 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
     }
 }
 
-function isSnapshotSetupComplete(snapshot) {
+async function isPhaseSetupComplete(deps) {
+    const snapshot = (await deps.getState?.()) ?? deps.getInstance?.()?.state;
     if (!snapshot) return false;
     const setup = snapshot.setup ?? {};
     const env = snapshot.environment ?? {};
@@ -102,10 +103,9 @@ export async function handlePhaseSubmit(res, body, deps) {
                     ? "Clarification source changed. Refresh before submitting."
                     : "Clarification answers are invalid or exceed the review submission limit.");
             }
-            const snapshot = (await deps.getState?.()) ?? inst?.state;
-            if (!isSnapshotSetupComplete(snapshot)) {
-                return jsonError(res, 409, "Complete setup before applying clarifications and rerunning.");
-            }
+        }
+        if (!await isPhaseSetupComplete(deps)) {
+            return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
         }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
@@ -120,5 +120,8 @@ export async function handlePhaseSubmit(res, body, deps) {
     const kind = body?.kind || phaseSubmitKind(phase);
     if (!kind) return jsonError(res, 400, `no dispatch kind for phase ${phase}`);
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
+    if (!await isPhaseSetupComplete(deps)) {
+        return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
+    }
     return handlePrompt(res, { kind, payload: body?.values ?? {} }, deps);
 }

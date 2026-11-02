@@ -711,6 +711,10 @@ export async function flushClarifications(p) {
 
     const list = getPendingClarifications(commandName).map(({ question, answer }) => ({ question, answer }));
     if (!list.length) return false;
+    if (!isSetupComplete()) {
+        console.error("Complete setup before applying clarifications and rerunning.");
+        return false;
+    }
     const lastArgs = getPhaseLastSubmitted(commandName) || "";
     const suffix = list.map((c) => `Clarification — ${c.question}\nAnswer: ${c.answer}`).join("\n\n");
     const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
@@ -829,11 +833,12 @@ function renderArtifactClarifications(root, p, text) {
     const refreshPillState = (errorMessage = "") => {
         const answered = getPendingClarifications(p.commandName);
         const submitting = isClarificationFlushPending(p.commandName);
+        const setupReady = isSetupComplete();
         body?.querySelectorAll(".clarify-pill").forEach((btn) => {
             const idx = Number(btn.getAttribute("data-clarify-idx"));
             const q = marks[idx]?.question ?? "";
             const match = answered.find((c) => c.question === q);
-            btn.disabled = submitting;
+            btn.disabled = submitting || !setupReady;
             if (match) {
                 btn.textContent = "Answered ✓";
                 btn.classList.add("clarify-pill-answered");
@@ -851,9 +856,9 @@ function renderArtifactClarifications(root, p, text) {
                 banner.hidden = false;
                 banner.innerHTML = `
                     <span>${pending} clarification${pending === 1 ? "" : "s"} queued
-                    ${submitting ? "— applying now" : totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— ready to apply"}.</span>
+                    ${submitting ? "— applying now" : !setupReady ? "— complete setup before applying" : totalMarks > pending ? `— ${totalMarks - pending} remaining` : "— ready to apply"}.</span>
                     ${errorMessage ? `<p class="wizard-modal-error">${escapeHtml(errorMessage)}</p>` : ""}
-                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now" ${submitting ? "disabled" : ""}>${submitting ? "Applying…" : "Apply and Rerun"}</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-clarify-action="apply-now" ${submitting || !setupReady ? "disabled" : ""}>${submitting ? "Applying…" : "Apply and Rerun"}</button>
                 `;
                 banner.querySelector('[data-clarify-action="apply-now"]')?.addEventListener("click", async () => {
                     const btn = banner.querySelector('[data-clarify-action="apply-now"]');

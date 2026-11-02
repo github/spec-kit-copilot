@@ -43,7 +43,8 @@ the authorized scope remains unavailable.
 - Existing artifacts, including normalized extension pipeline entries, can be
   viewed even when setup or execution is gated. This intentionally makes SDD
   feature cards and Wizard artifact navigation available earlier; it does not
-  enable execution or perform setup.
+  enable execution or perform setup. Non-Markdown previews also keep
+  clarification and Apply/Run controls gated, with setup rechecked on submission.
 - Reading, changing documents, following local links, and returning do not
   dispatch a workflow, install dependencies, or write project files. The
   Wizard's existing startup and dependency bootstrap are unchanged.
@@ -56,6 +57,8 @@ output file, the selected stage's command takes precedence over artifact-path
 matches. Changed questions must be refreshed and reconfirmed. Code examples and
 HTML comments do not become actionable clarification markers. Existing callers
 without reader metadata retain their original action contracts.
+Answers accept normal textarea whitespace (line breaks and tabs) while retaining
+the character and aggregate UTF-8 byte limits. Identifier validation remains strict.
 
 ## Read Boundary
 

@@ -50,7 +50,15 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
-### Browser tests
+### Tests
+
+From this extension directory, run `npm ci` followed by `npm test` for the unit,
+HTTP service, UI, and regression suites. The extension declares its own test
+dependencies; installing the nested Markdown reader package is not required for
+this command. Use Node 24.19.0 / npm 11.17.0 for the reader's pinned validation
+toolchain.
+
+For browser tests:
 
 From this extension directory, run `npm ci`, `npx playwright install chromium`,
 then `npm run test:e2e`. The tests start a local Wizard server with fixed
@@ -312,6 +320,6 @@ change and doesn't require any org-wide npm reconfiguration.
 | `env/` | Environment probe + PATH resolution: `probe.mjs`, `probe-cache.mjs`, `resolve-path.mjs` (locates `copilot`/`specify` binaries when the SDK dir isn't on `PATH`), `deps-check.mjs`, `workspace.mjs`. |
 | `state/` | `.speckit-wizard/state.json` read / write / normalize: `store.mjs`, `normalize.mjs`, `execution-reports.mjs`. |
 | `ui/` | Dashboard UI served to the canvas iframe: `index.html`, `app.js`, `client.js`, plus per-page modules (`setup.js`, `catalog.js`, `composition.js`, `composition-artifacts.js`, `phase-card.js`, `phase-contributors.js`, `phase-runtime.js`, `state.js`, `modals.js`). |
-| `test/` | 5 consolidated `node --test` files (`composition`, `catalog`, `env`, `state-and-scanner`, `server-integration`) — zero SDK, zero network, zero real subprocess spawns. |
+| `test/` | Unit, HTTP service, UI, scanner, and regression suites using mocked host sessions and owned synthetic workspaces. Run with `npm test` after installing this package's development dependencies. |
 | `copilot-extension.json` | Manifest for gist share/install. |
-| `package.json`, `package-lock.json` | `js-yaml` runtime dependency. |
+| `package.json`, `package-lock.json` | `js-yaml` runtime dependency; Playwright and jsdom development/test dependencies. |

@@ -126,3 +126,37 @@ test("Wizard applies workflow progress received during review on return", async 
         expect(fixture.workspaceChanged()).toBe(false);
     } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
 });
+
+test("Wizard composition refresh completes while artifact review stays mounted", async ({ page }) => {
+    const fixture = await startFixture({ canvas: "wizard" });
+    try {
+        await page.goto(fixture.url, { waitUntil: "domcontentloaded" });
+        await page.locator('[data-tab="phases"]').click();
+        await page.evaluate(async () => {
+            const [{ state }, { updateCompositionRefreshButton }] = await Promise.all([import("/ui/state.js"), import("/ui/composition.js")]);
+            state.compositionRequested = true;
+            updateCompositionRefreshButton();
+        });
+        const refresh = page.locator("#comp-refresh");
+        await expect(refresh).toBeDisabled();
+        await expect(refresh).toHaveAttribute("aria-busy", "true");
+        await page.locator('#phase-card [data-phase-action="view"]').click();
+        const preview = page.locator("#phase-artifact-viewer");
+        await expect(preview.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
+        const reader = await preview.locator("[data-reader-id]").elementHandle();
+        await page.evaluate(async () => {
+            const [{ state }, { handleServerMessage }] = await Promise.all([import("/ui/state.js"), import("/ui/client.js")]);
+            handleServerMessage({ type: "composition", ...structuredClone(state.snapshot.composition) });
+        });
+        await expect(refresh).toBeEnabled();
+        await expect(refresh).not.toHaveAttribute("aria-busy", "true");
+        expect(await reader.evaluate((element) => element.isConnected)).toBe(true);
+        await expect(preview.getByRole("heading", { name: "Canvas review fixture", exact: true })).toBeVisible();
+        await preview.locator(".artifact-viewer-back").click();
+        await expect(preview).toBeHidden();
+        await expect(refresh).toBeEnabled();
+        expect(fixture.dispatchCount()).toBe(0);
+        expect(fixture.blockedWrites()).toBe(0);
+        expect(fixture.workspaceChanged()).toBe(false);
+    } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
+});

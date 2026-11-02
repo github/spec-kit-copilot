@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import { test } from "node:test";
+import { JSDOM } from "jsdom";
 import { closeArtifactViewer, openArtifactViewer, openCatalogViewer, openCommandViewer, openFolderBrowser, setViewersDeps } from "../ui/modals.js";
+import { clearClarifications, queueClarification } from "../ui/phase-runtime.js";
 import { state } from "../ui/state.js";
 
-const require = createRequire(new URL("../ui/markdown-reader/package.json", import.meta.url));
-const { JSDOM } = require("jsdom");
 const phase = { id: "specify", shortLabel: "Specify", commandName: "speckit.specify", artifactPath: "specs/999-canvas-preview-fixture/spec.md" };
 
 async function withDom(run) {
@@ -52,6 +51,34 @@ test("Wizard previews pass trusted clarification controls to the reader", async 
         await openArtifactViewer(phase);
         assert.equal(document.querySelectorAll("[data-clarification-id]").length, 1);
         assert.match(document.querySelector(".artifact-viewer-body").textContent, /Fixture spec/);
+    });
+});
+
+test("Wizard legacy artifacts stay readable with clarification controls gated by setup", async () => {
+    await withDom(async (document) => {
+        const previousSnapshot = state.snapshot;
+        const legacy = { ...phase, commandName: "speckit.plan", artifactPath: "specs/999-canvas-preview-fixture/plan.txt" };
+        try {
+            state.snapshot = { setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: false } };
+            queueClarification(legacy.commandName, "fixture question", "Saved multiline\nanswer.");
+            setViewersDeps({
+                readerMount: () => assert.fail("Non-Markdown artifacts must keep their existing viewer."),
+                postJson: () => assert.fail("Viewing a legacy artifact must not dispatch."),
+            });
+            await openArtifactViewer(legacy);
+            const root = document.getElementById("phase-artifact-viewer");
+            assert.equal(root.hidden, false);
+            assert.match(root.querySelector(".artifact-viewer-body").textContent, /Fixture spec/);
+            assert.equal(root.querySelector(".clarify-pill").disabled, true);
+            assert.equal(root.querySelector('[data-clarify-action="apply-now"]').disabled, true);
+            assert.match(root.querySelector(".artifact-viewer-clarify-banner").textContent, /setup/i);
+            root.querySelector(".clarify-pill").click();
+            root.querySelector('[data-clarify-action="apply-now"]').click();
+            assert.equal(root.hidden, false);
+        } finally {
+            clearClarifications(legacy.commandName);
+            state.snapshot = previousSnapshot;
+        }
     });
 });
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import * as runtime from "../ui/phase-runtime.js";
 import { clarificationBatchWithinBudget, flushClarifications, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
 import {
@@ -9,6 +9,7 @@ import {
     isPhaseRunning,
     queueClarification,
 } from "../ui/phase-runtime.js";
+import { state } from "../ui/state.js";
 
 function installLocalStorage() {
     const values = new Map();
@@ -21,10 +22,18 @@ function installLocalStorage() {
 }
 
 describe("wizard modals", () => {
+    let previousSnapshot;
     beforeEach(() => {
+        previousSnapshot = state.snapshot;
+        state.snapshot = { setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true } };
         installLocalStorage();
         clearClarifications("speckit.plan");
         clearPhaseRunning("speckit.plan");
+    });
+    afterEach(() => {
+        clearClarifications("speckit.plan");
+        clearPhaseRunning("speckit.plan");
+        state.snapshot = previousSnapshot;
     });
 
     test("community warning preserves Catalogs install copy and supports designer selection", () => {
@@ -167,6 +176,27 @@ describe("wizard modals", () => {
         assert.equal(dispatched, true);
         assert.equal(isPhaseRunning("speckit.plan"), true);
         clearPhaseRunning("speckit.plan");
+    });
+
+    test("legacy clarification flush preserves queued answers when setup is incomplete", async () => {
+        const previousSnapshot = state.snapshot;
+        const previousError = console.error;
+        const errors = [];
+        let dispatches = 0;
+        console.error = (message) => errors.push(message);
+        try {
+            state.snapshot = { setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: false } };
+            setViewersDeps({ postJson: async () => { dispatches++; return { queued: true }; } });
+            queueClarification("speckit.plan", "Which scope?", "Only this feature.");
+            assert.equal(await flushClarifications({ commandName: "speckit.plan" }), false);
+            assert.equal(dispatches, 0);
+            assert.deepEqual(getPendingClarifications("speckit.plan"), [{ question: "Which scope?", answer: "Only this feature." }]);
+            assert.equal(isPhaseRunning("speckit.plan"), false);
+            assert.match(errors.join("\n"), /setup/i);
+        } finally {
+            state.snapshot = previousSnapshot;
+            console.error = previousError;
+        }
     });
 });
 
