@@ -47,7 +47,8 @@ the authorized scope remains unavailable.
   clarification and Apply/Run controls gated, with setup rechecked on submission.
 - Reading, changing documents, following local links, and returning do not
   dispatch a workflow, install dependencies, or write project files. The
-  Wizard's existing startup and dependency bootstrap are unchanged.
+  Wizard startup still bootstraps missing runtime dependencies; development
+  and test dependencies are omitted from that installation and recovery retry.
 
 Clarification controls remain explicit workflow actions. SDD still confirms
 and submits a targeted answer; Wizard retains queued answers and its
