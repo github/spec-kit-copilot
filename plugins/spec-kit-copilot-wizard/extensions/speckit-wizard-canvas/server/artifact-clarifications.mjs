@@ -4906,14 +4906,14 @@ function regexCheck(regex) {
 * @param {State} ok
 *   State switched to when successful.
 * @param {TokenType} type
-*   Type (`' \t'`).
+*   Type of the whole whitespace.
 * @param {number | undefined} [max=Infinity]
 *   Max (exclusive).
 * @returns {State}
 *   Start state.
 */
 function factorySpace(effects, ok, type, max) {
-	const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
+	const limit = max ? max - 1 : Infinity;
 	let size = 0;
 	return start;
 	/** @type {State} */
@@ -4932,6 +4932,54 @@ function factorySpace(effects, ok, type, max) {
 		}
 		effects.exit(type);
 		return ok(code);
+	}
+}
+/**
+* Parse spaces and tabs, with a required minimum and maximum, matching
+* `markdown-rs`’s `space_or_tab_min_max`.
+*
+* Unlike `factorySpace`, this can fail: `nok` is used when fewer than
+* `min` spaces or tabs are found.
+*
+* @param {Effects} effects
+*   Context.
+* @param {State} ok
+*   State switched to when successful.
+* @param {State} nok
+*   State switched to when unsuccessful.
+* @param {TokenType} type
+*   Type of the whole whitespace.
+* @param {number} min
+*   Minimum allowed characters (inclusive).
+* @param {number} max
+*   Maximum allowed characters (inclusive).
+* @returns {State}
+*   Start state.
+*/
+function factorySpaceMinMax(effects, ok, nok, type, min, max) {
+	let size = 0;
+	return start;
+	/** @type {State} */
+	function start(code) {
+		if (max > 0 && markdownSpace(code)) {
+			effects.enter(type);
+			return prefix(code);
+		}
+		return after(code);
+	}
+	/** @type {State} */
+	function prefix(code) {
+		if (markdownSpace(code) && size < max) {
+			effects.consume(code);
+			size++;
+			return prefix;
+		}
+		effects.exit(type);
+		return after(code);
+	}
+	/** @type {State} */
+	function after(code) {
+		return size >= min ? ok(code) : nok(code);
 	}
 }
 //#endregion
@@ -5000,6 +5048,152 @@ function initializeContent(effects) {
 		effects.consume(code);
 		return data;
 	}
+}
+//#endregion
+//#region node_modules/micromark-util-edit-map/index.js
+/**
+* @import {Event} from 'micromark-util-types'
+*/
+/**
+* @typedef {[number, number, Array<Event>]} Change
+* @typedef {[number, number, number]} Jump
+*/
+/**
+* Tracks a bunch of edits.
+*
+* Port of `edit_map.rs` from `markdown-rs`:
+* <https://github.com/wooorm/markdown-rs/blob/1506572f/src/util/edit_map.rs>.
+*
+* Deal with several changes in events, batching them together.
+*
+* Preferably, changes should be kept to a minimum.
+* Sometimes, it’s needed to change the list of events, because parsing can be
+* messy, and it helps to expose a cleaner interface of events to the compiler
+* and other users.
+* It can also help to merge many adjacent similar events.
+* And, in other cases, it’s needed to parse subcontent: pass some events
+* through another tokenizer and inject the result.
+*/
+var EditMap$1 = class {
+	/**
+	* Create a new edit map.
+	*
+	* @returns
+	*   New instance.
+	*/
+	constructor() {
+		/**
+		* Changes by index, so `add` does not need to scan `map` (which is
+		* quadratic for documents with many edits at different places).
+		*
+		* @type {Map<number, Change>}
+		*/
+		this.index = /* @__PURE__ */ new Map();
+		/**
+		* Record of changes.
+		*
+		* @type {Array<Change>}
+		*/
+		this.map = [];
+	}
+	/**
+	* Create an edit: a remove and/or add at a certain place.
+	*
+	* @param {number} index
+	*   Index at which to apply the edit.
+	* @param {number} remove
+	*   Count of items to remove at the index.
+	* @param {Array<Event>} add
+	*   Items to add at the index.
+	* @returns {undefined}
+	*   Nothing.
+	*/
+	add(index, remove, add) {
+		addImplementation$1(this, index, remove, add, false);
+	}
+	/**
+	* Create an edit: but insert `add` before existing additions, instead of
+	* after them.
+	*
+	* @param {number} index
+	*   Index at which to apply the edit.
+	* @param {number} remove
+	*   Count of items to remove at the index.
+	* @param {Array<Event>} add
+	*   Items to add at the index.
+	* @returns {undefined}
+	*   Nothing.
+	*/
+	addBefore(index, remove, add) {
+		addImplementation$1(this, index, remove, add, true);
+	}
+	/**
+	* Done, change the events.
+	*
+	* @param {Array<Event>} events
+	*   List of events to apply the edits to.
+	* @returns {undefined}
+	*   Nothing.
+	*/
+	consume(events) {
+		this.map.sort(function(a, b) {
+			return a[0] - b[0];
+		});
+		if (this.map.length === 0) return;
+		let index = this.map.length;
+		/** @type {Array<Array<Event>>} */
+		const vecs = [];
+		while (index > 0) {
+			index -= 1;
+			vecs.push(events.slice(this.map[index][0] + this.map[index][1]), this.map[index][2]);
+			events.length = this.map[index][0];
+		}
+		vecs.push(events.slice());
+		events.length = 0;
+		let slice = vecs.pop();
+		while (slice) {
+			for (const element of slice) events.push(element);
+			slice = vecs.pop();
+		}
+		this.map.length = 0;
+		this.index.clear();
+	}
+};
+/**
+* Create an edit.
+*
+* @param {EditMap} editMap
+*   Edit map to apply to.
+* @param {number} at
+*   Index at which to apply the edit.
+* @param {number} remove
+*   Count of items to remove at the index.
+* @param {Array<Event>} add
+*   Items to add at the index.
+* @param {boolean} before
+*   Insert `add` before existing additions at `at`, instead of after them.
+* @returns {undefined}
+*   Nothing.
+*/
+function addImplementation$1(editMap, at, remove, add, before) {
+	if (remove === 0 && add.length === 0) return;
+	const existing = editMap.index.get(at);
+	if (existing) {
+		existing[1] += remove;
+		if (before) {
+			add.push(...existing[2]);
+			existing[2] = add;
+		} else existing[2].push(...add);
+		return;
+	}
+	/** @type {Change} */
+	const change = [
+		at,
+		remove,
+		add
+	];
+	editMap.map.push(change);
+	editMap.index.set(at, change);
 }
 //#endregion
 //#region node_modules/micromark/lib/initialize/document.js
@@ -5071,8 +5265,10 @@ function initializeDocument(effects) {
 				self.events[index][1].end = { ...point };
 				index++;
 			}
-			splice(self.events, indexBeforeFlow + 1, 0, self.events.slice(indexBeforeExits));
-			self.events.length = index;
+			const editMap = new EditMap$1();
+			editMap.add(indexBeforeFlow + 1, 0, self.events.slice(indexBeforeExits));
+			editMap.add(indexBeforeExits, index - indexBeforeExits, []);
+			editMap.consume(self.events);
 			return checkNewContainers(code);
 		}
 		return start(code);
@@ -5182,8 +5378,10 @@ function initializeDocument(effects) {
 				self.events[index][1].end = { ...point };
 				index++;
 			}
-			splice(self.events, indexBeforeFlow + 1, 0, self.events.slice(indexBeforeExits));
-			self.events.length = index;
+			const editMap = new EditMap$1();
+			editMap.add(indexBeforeFlow + 1, 0, self.events.slice(indexBeforeExits));
+			editMap.add(indexBeforeExits, index - indexBeforeExits, []);
+			editMap.consume(self.events);
 		}
 	}
 	/**
@@ -5286,7 +5484,7 @@ function resolveAll(constructs, events, context) {
 * } from 'micromark-util-types'
 */
 /** @type {Construct} */
-var attention = {
+var attention$2 = {
 	name: "attention",
 	resolveAll: resolveAllAttention,
 	tokenize: tokenizeAttention
@@ -5298,47 +5496,33 @@ var attention = {
 */
 function resolveAllAttention(events, context) {
 	let index = -1;
-	/** @type {number} */
-	let open;
-	/** @type {Token} */
-	let group;
-	/** @type {Token} */
-	let text;
-	/** @type {Token} */
-	let openingSequence;
-	/** @type {Token} */
-	let closingSequence;
-	/** @type {number} */
-	let use;
 	/** @type {Array<Event>} */
 	let nextEvents;
-	/** @type {number} */
-	let offset;
 	while (++index < events.length) if (events[index][0] === "enter" && events[index][1].type === "attentionSequence" && events[index][1]._close) {
-		open = index;
+		let open = index;
 		while (open--) if (events[open][0] === "exit" && events[open][1].type === "attentionSequence" && events[open][1]._open && context.sliceSerialize(events[open][1]).charCodeAt(0) === context.sliceSerialize(events[index][1]).charCodeAt(0)) {
 			if ((events[open][1]._close || events[index][1]._open) && (events[index][1].end.offset - events[index][1].start.offset) % 3 && !((events[open][1].end.offset - events[open][1].start.offset + events[index][1].end.offset - events[index][1].start.offset) % 3)) continue;
-			use = events[open][1].end.offset - events[open][1].start.offset > 1 && events[index][1].end.offset - events[index][1].start.offset > 1 ? 2 : 1;
+			const use = events[open][1].end.offset - events[open][1].start.offset > 1 && events[index][1].end.offset - events[index][1].start.offset > 1 ? 2 : 1;
 			const start = { ...events[open][1].end };
 			const end = { ...events[index][1].start };
 			movePoint(start, -use);
 			movePoint(end, use);
-			openingSequence = {
+			const openingSequence = {
 				type: use > 1 ? "strongSequence" : "emphasisSequence",
 				start,
 				end: { ...events[open][1].end }
 			};
-			closingSequence = {
+			const closingSequence = {
 				type: use > 1 ? "strongSequence" : "emphasisSequence",
 				start: { ...events[index][1].start },
 				end
 			};
-			text = {
+			const text = {
 				type: use > 1 ? "strongText" : "emphasisText",
 				start: { ...events[open][1].end },
 				end: { ...events[index][1].start }
 			};
-			group = {
+			const group = {
 				type: use > 1 ? "strong" : "emphasis",
 				start: { ...openingSequence.start },
 				end: { ...closingSequence.end }
@@ -5400,6 +5584,8 @@ function resolveAllAttention(events, context) {
 					context
 				]
 			]);
+			/** @type {number} */
+			let offset = 0;
 			if (events[index][1].end.offset - events[index][1].start.offset) {
 				offset = 2;
 				nextEvents = push(nextEvents, [[
@@ -5411,7 +5597,7 @@ function resolveAllAttention(events, context) {
 					events[index][1],
 					context
 				]]);
-			} else offset = 0;
+			}
 			splice(events, open - 1, index - open + 3, nextEvents);
 			index = open + nextEvents.length - offset - 2;
 			break;
@@ -5465,8 +5651,8 @@ function tokenizeAttention(effects, ok) {
 		}
 		const token = effects.exit("attentionSequence");
 		const after = classifyCharacter(code);
-		const open = !after || after === 2 && before || attentionMarkers.includes(code);
-		const close = !before || before === 2 && after || attentionMarkers.includes(previous);
+		const open = !after || after === 2 && before || attentionMarkers.includes(code) && code !== 42 && code !== 95;
+		const close = !before || before === 2 && after || attentionMarkers.includes(previous) && previous !== 42 && previous !== 95;
 		token._open = Boolean(marker === 42 ? open : open && (before || !close));
 		token._close = Boolean(marker === 42 ? close : close && (after || !open));
 		return ok(code);
@@ -6084,6 +6270,54 @@ function tokenizeCharacterReference(effects, ok, nok) {
 	}
 }
 //#endregion
+//#region node_modules/micromark-core-commonmark/lib/partial-non-lazy-continuation.js
+/** @type {Construct} */
+var nonLazyContinuation = {
+	partial: true,
+	tokenize: tokenizeNonLazyContinuation
+};
+/**
+* @this {TokenizeContext}
+*   Context.
+* @type {Tokenizer}
+*/
+function tokenizeNonLazyContinuation(effects, ok, nok) {
+	const self = this;
+	return start;
+	/**
+	* At eol, before continuation.
+	*
+	* ```markdown
+	* > | * ```js
+	*            ^
+	*   | b
+	* ```
+	*
+	* @type {State}
+	*/
+	function start(code) {
+		if (code === null) return nok(code);
+		effects.enter("lineEnding");
+		effects.consume(code);
+		effects.exit("lineEnding");
+		return after;
+	}
+	/**
+	* A continuation.
+	*
+	* ```markdown
+	*   | * ```js
+	* > | b
+	*     ^
+	* ```
+	*
+	* @type {State}
+	*/
+	function after(code) {
+		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
+	}
+}
+//#endregion
 //#region node_modules/micromark-core-commonmark/lib/code-fenced.js
 /**
 * @import {
@@ -6094,11 +6328,6 @@ function tokenizeCharacterReference(effects, ok, nok) {
 *   Tokenizer
 * } from 'micromark-util-types'
 */
-/** @type {Construct} */
-var nonLazyContinuation = {
-	partial: true,
-	tokenize: tokenizeNonLazyContinuation
-};
 /** @type {Construct} */
 var codeFenced = {
 	concrete: true,
@@ -6469,35 +6698,6 @@ function tokenizeCodeFenced(effects, ok, nok) {
 		}
 	}
 }
-/**
-* @this {TokenizeContext}
-*   Context.
-* @type {Tokenizer}
-*/
-function tokenizeNonLazyContinuation(effects, ok, nok) {
-	const self = this;
-	return start;
-	/**
-	*
-	*
-	* @type {State}
-	*/
-	function start(code) {
-		if (code === null) return nok(code);
-		effects.enter("lineEnding");
-		effects.consume(code);
-		effects.exit("lineEnding");
-		return lineStart;
-	}
-	/**
-	*
-	*
-	* @type {State}
-	*/
-	function lineStart(code) {
-		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
-	}
-}
 //#endregion
 //#region node_modules/micromark-core-commonmark/lib/code-indented.js
 /**
@@ -6524,7 +6724,6 @@ var furtherStart = {
 * @type {Tokenizer}
 */
 function tokenizeCodeIndented(effects, ok, nok) {
-	const self = this;
 	return start;
 	/**
 	* Start of code (indented).
@@ -6542,21 +6741,7 @@ function tokenizeCodeIndented(effects, ok, nok) {
 	*/
 	function start(code) {
 		effects.enter("codeIndented");
-		return factorySpace(effects, afterPrefix, "linePrefix", 5)(code);
-	}
-	/**
-	* At start, after 1 or 4 spaces.
-	*
-	* ```markdown
-	* > |     aaa
-	*         ^
-	* ```
-	*
-	* @type {State}
-	*/
-	function afterPrefix(code) {
-		const tail = self.events[self.events.length - 1];
-		return tail && tail[1].type === "linePrefix" && tail[2].sliceSerialize(tail[1], true).length >= 4 ? atBreak(code) : nok(code);
+		return factorySpaceMinMax(effects, atBreak, nok, "linePrefix", 4, 4)(code);
 	}
 	/**
 	* At a break.
@@ -6625,21 +6810,24 @@ function tokenizeFurtherStart(effects, ok, nok) {
 			effects.exit("lineEnding");
 			return furtherStart;
 		}
-		return factorySpace(effects, afterPrefix, "linePrefix", 5)(code);
+		return factorySpaceMinMax(effects, ok, onNotEnoughPrefix, "linePrefix", 4, 4)(code);
 	}
 	/**
-	* At start, after 1 or 4 spaces.
+	* After not enough of a prefix.
+	*
+	* A following line ending is another (potentially blank) line to try,
+	* anything else means this isn’t a continuation.
 	*
 	* ```markdown
 	* > |     aaa
-	*         ^
+	*
+	*   |     bbb
 	* ```
 	*
 	* @type {State}
 	*/
-	function afterPrefix(code) {
-		const tail = self.events[self.events.length - 1];
-		return tail && tail[1].type === "linePrefix" && tail[2].sliceSerialize(tail[1], true).length >= 4 ? ok(code) : markdownLineEnding(code) ? furtherStart(code) : nok(code);
+	function onNotEnoughPrefix(code) {
+		return markdownLineEnding(code) ? furtherStart(code) : nok(code);
 	}
 }
 //#endregion
@@ -8140,20 +8328,16 @@ var headingAtx = {
 function resolveHeadingAtx(events, context) {
 	let contentEnd = events.length - 2;
 	let contentStart = 3;
-	/** @type {Token} */
-	let content;
-	/** @type {Token} */
-	let text;
 	if (events[contentStart][1].type === "whitespace") contentStart += 2;
 	if (contentEnd - 2 > contentStart && events[contentEnd][1].type === "whitespace") contentEnd -= 2;
 	if (events[contentEnd][1].type === "atxHeadingSequence" && (contentStart === contentEnd - 1 || contentEnd - 4 > contentStart && events[contentEnd - 2][1].type === "whitespace")) contentEnd -= contentStart + 1 === contentEnd ? 2 : 4;
 	if (contentEnd > contentStart) {
-		content = {
+		const content = {
 			type: "atxHeadingText",
 			start: events[contentStart][1].start,
 			end: events[contentEnd][1].end
 		};
-		text = {
+		const text = {
 			type: "chunkText",
 			start: events[contentStart][1].start,
 			end: events[contentEnd][1].end,
@@ -8425,10 +8609,6 @@ var htmlFlow = {
 var blankLineBefore = {
 	partial: true,
 	tokenize: tokenizeBlankLineBefore
-};
-var nonLazyContinuationStart = {
-	partial: true,
-	tokenize: tokenizeNonLazyContinuationStart
 };
 /** @type {Resolver} */
 function resolveToHtmlFlow(events) {
@@ -8932,7 +9112,7 @@ function tokenizeHtmlFlow(effects, ok, nok) {
 	* @type {State}
 	*/
 	function continuationStart(code) {
-		return effects.check(nonLazyContinuationStart, continuationStartNonLazy, continuationAfter)(code);
+		return effects.check(nonLazyContinuation, continuationStartNonLazy, continuationAfter)(code);
 	}
 	/**
 	* In continuation, at eol, before non-lazy content.
@@ -9105,49 +9285,6 @@ function tokenizeHtmlFlow(effects, ok, nok) {
 	function continuationAfter(code) {
 		effects.exit("htmlFlow");
 		return ok(code);
-	}
-}
-/**
-* @this {TokenizeContext}
-*   Context.
-* @type {Tokenizer}
-*/
-function tokenizeNonLazyContinuationStart(effects, ok, nok) {
-	const self = this;
-	return start;
-	/**
-	* At eol, before continuation.
-	*
-	* ```markdown
-	* > | * ```js
-	*            ^
-	*   | b
-	* ```
-	*
-	* @type {State}
-	*/
-	function start(code) {
-		if (markdownLineEnding(code)) {
-			effects.enter("lineEnding");
-			effects.consume(code);
-			effects.exit("lineEnding");
-			return after;
-		}
-		return nok(code);
-	}
-	/**
-	* A continuation.
-	*
-	* ```markdown
-	*   | * ```js
-	* > | b
-	*     ^
-	* ```
-	*
-	* @type {State}
-	*/
-	function after(code) {
-		return self.parser.lazy[self.now().line] ? nok(code) : ok(code);
 	}
 }
 /**
@@ -9836,8 +9973,6 @@ function resolveAllLabelEnd(events) {
 function resolveToLabelEnd(events, context) {
 	let index = events.length;
 	let offset = 0;
-	/** @type {Token} */
-	let token;
 	/** @type {number | undefined} */
 	let open;
 	/** @type {number | undefined} */
@@ -9845,7 +9980,7 @@ function resolveToLabelEnd(events, context) {
 	/** @type {Array<Event>} */
 	let media;
 	while (index--) {
-		token = events[index][1];
+		const token = events[index][1];
 		if (open) {
 			if (token.type === "link" || token.type === "labelLink" && token._inactive) break;
 			if (events[index][0] === "enter" && token.type === "labelLink") token._inactive = true;
@@ -9920,14 +10055,14 @@ function resolveToLabelEnd(events, context) {
 */
 function tokenizeLabelEnd(effects, ok, nok) {
 	const self = this;
-	let index = self.events.length;
+	const labelStarts = self._labelStarts;
 	/** @type {Token} */
 	let labelStart;
 	/** @type {boolean} */
 	let defined;
-	while (index--) if ((self.events[index][1].type === "labelImage" || self.events[index][1].type === "labelLink") && !self.events[index][1]._balanced) {
-		labelStart = self.events[index][1];
-		break;
+	if (labelStarts) {
+		while (labelStarts.length > 0 && labelStarts[labelStarts.length - 1]._balanced) labelStarts.pop();
+		labelStart = labelStarts[labelStarts.length - 1];
 	}
 	return start;
 	/**
@@ -10014,6 +10149,7 @@ function tokenizeLabelEnd(effects, ok, nok) {
 	* @type {State}
 	*/
 	function labelEndOk(code) {
+		labelStarts.pop();
 		return ok(code);
 	}
 	/**
@@ -10265,6 +10401,7 @@ function tokenizeReferenceCollapsed(effects, ok, nok) {
 * @import {
 *   Construct,
 *   State,
+*   Token,
 *   TokenizeContext,
 *   Tokenizer
 * } from 'micromark-util-types'
@@ -10282,6 +10419,8 @@ var labelStartImage = {
 */
 function tokenizeLabelStartImage(effects, ok, nok) {
 	const self = this;
+	/** @type {Token} */
+	let labelImage;
 	return start;
 	/**
 	* Start of label (image) start.
@@ -10315,7 +10454,7 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 			effects.enter("labelMarker");
 			effects.consume(code);
 			effects.exit("labelMarker");
-			effects.exit("labelImage");
+			labelImage = effects.exit("labelImage");
 			return after;
 		}
 		return nok(code);
@@ -10348,8 +10487,11 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 	* @type {State}
 	*/
 	function after(code) {
-		/* c8 ignore next 3 */
-		return code === 94 && "_hiddenFootnoteSupport" in self.parser.constructs ? nok(code) : ok(code);
+		/* c8 ignore next 6 */
+		if (code === 94 && "_hiddenFootnoteSupport" in self.parser.constructs) return nok(code);
+		self._labelStarts = self._labelStarts || [];
+		self._labelStarts.push(labelImage);
+		return ok(code);
 	}
 }
 //#endregion
@@ -10358,6 +10500,7 @@ function tokenizeLabelStartImage(effects, ok, nok) {
 * @import {
 *   Construct,
 *   State,
+*   Token,
 *   TokenizeContext,
 *   Tokenizer
 * } from 'micromark-util-types'
@@ -10375,6 +10518,8 @@ var labelStartLink = {
 */
 function tokenizeLabelStartLink(effects, ok, nok) {
 	const self = this;
+	/** @type {Token} */
+	let labelLink;
 	return start;
 	/**
 	* Start of label (link) start.
@@ -10391,13 +10536,16 @@ function tokenizeLabelStartLink(effects, ok, nok) {
 		effects.enter("labelMarker");
 		effects.consume(code);
 		effects.exit("labelMarker");
-		effects.exit("labelLink");
+		labelLink = effects.exit("labelLink");
 		return after;
 	}
 	/** @type {State} */
 	function after(code) {
-		/* c8 ignore next 3 */
-		return code === 94 && "_hiddenFootnoteSupport" in self.parser.constructs ? nok(code) : ok(code);
+		/* c8 ignore next 6 */
+		if (code === 94 && "_hiddenFootnoteSupport" in self.parser.constructs) return nok(code);
+		self._labelStarts = self._labelStarts || [];
+		self._labelStarts.push(labelLink);
+		return ok(code);
 	}
 }
 //#endregion
@@ -10717,6 +10865,7 @@ var setextUnderline = {
 };
 /** @type {Resolver} */
 function resolveToSetextUnderline(events, context) {
+	const editMap = new EditMap$1();
 	let index = events.length;
 	/** @type {number | undefined} */
 	let content;
@@ -10731,7 +10880,7 @@ function resolveToSetextUnderline(events, context) {
 		}
 		if (events[index][1].type === "paragraph") text = index;
 	} else {
-		if (events[index][1].type === "content") events.splice(index, 1);
+		if (events[index][1].type === "content") editMap.add(index, 1, []);
 		if (!definition && events[index][1].type === "definition") definition = index;
 	}
 	const heading = {
@@ -10741,23 +10890,24 @@ function resolveToSetextUnderline(events, context) {
 	};
 	events[text][1].type = "setextHeadingText";
 	if (definition) {
-		events.splice(text, 0, [
+		editMap.add(text, 0, [[
 			"enter",
 			heading,
 			context
-		]);
-		events.splice(definition + 1, 0, [
+		]]);
+		editMap.add(definition + 1, 0, [[
 			"exit",
 			events[content][1],
 			context
-		]);
+		]]);
 		events[content][1].end = { ...events[definition][1].end };
 	} else events[content][1] = heading;
-	events.push([
+	editMap.add(events.length, 0, [[
 		"exit",
 		heading,
 		context
-	]);
+	]]);
+	editMap.consume(events);
 	return events;
 }
 /**
@@ -11014,6 +11164,7 @@ function createResolver(extraResolver) {
 * @type {Resolver}
 */
 function resolveAllLineSuffixes(events, context) {
+	const editMap = new EditMap$1();
 	let eventIndex = 0;
 	while (++eventIndex <= events.length) if ((eventIndex === events.length || events[eventIndex][1].type === "lineEnding") && events[eventIndex - 1][1].type === "data") {
 		const data = events[eventIndex - 1][1];
@@ -11056,21 +11207,19 @@ function resolveAllLineSuffixes(events, context) {
 			};
 			data.end = { ...token.start };
 			if (data.start.offset === data.end.offset) Object.assign(data, token);
-			else {
-				events.splice(eventIndex, 0, [
-					"enter",
-					token,
-					context
-				], [
-					"exit",
-					token,
-					context
-				]);
-				eventIndex += 2;
-			}
+			else editMap.add(eventIndex, 0, [[
+				"enter",
+				token,
+				context
+			], [
+				"exit",
+				token,
+				context
+			]]);
 		}
 		eventIndex++;
 	}
+	editMap.consume(events);
 	return events;
 }
 //#endregion
@@ -11137,16 +11286,16 @@ var text$2 = {
 	[-3]: lineEnding,
 	[33]: labelStartImage,
 	[38]: characterReference,
-	[42]: attention,
+	[42]: attention$2,
 	[60]: [autolink, htmlText],
 	[91]: labelStartLink,
 	[92]: [hardBreakEscape, characterEscape],
 	[93]: labelEnd,
-	[95]: attention,
+	[95]: attention$2,
 	[96]: codeText
 };
 /** @satisfies {Extension['insideSpan']} */
-var insideSpan = { null: [attention, resolver] };
+var insideSpan = { null: [attention$2, resolver] };
 /** @satisfies {Extension['attentionMarkers']} */
 var attentionMarkers = { null: [42, 95] };
 /** @satisfies {Extension['disable']} */
@@ -11308,12 +11457,10 @@ function createTokenizer(parser, initialize, from) {
 	*   Nothing.
 	*/
 	function main() {
-		/** @type {number} */
-		let chunkIndex;
 		while (point._index < chunks.length) {
 			const chunk = chunks[point._index];
 			if (typeof chunk === "string") {
-				chunkIndex = point._index;
+				const chunkIndex = point._index;
 				if (point._bufferIndex < 0) point._bufferIndex = 0;
 				while (point._index === chunkIndex && point._bufferIndex < chunk.length) go(chunk.charCodeAt(point._bufferIndex));
 			} else go(chunk);
@@ -11711,20 +11858,10 @@ function preprocess() {
 	return preprocessor;
 	/** @type {Preprocessor} */
 	function preprocessor(value, encoding, end) {
+		value = buffer + (typeof value === "string" ? value.toString() : new TextDecoder(encoding || void 0).decode(value));
 		/** @type {Array<Chunk>} */
 		const chunks = [];
-		/** @type {RegExpMatchArray | null} */
-		let match;
-		/** @type {number} */
-		let next;
-		/** @type {number} */
-		let startPosition;
-		/** @type {number} */
-		let endPosition;
-		/** @type {Code} */
-		let code;
-		value = buffer + (typeof value === "string" ? value.toString() : new TextDecoder(encoding || void 0).decode(value));
-		startPosition = 0;
+		let startPosition = 0;
 		buffer = "";
 		if (start) {
 			if (value.charCodeAt(0) === 65279) startPosition++;
@@ -11732,9 +11869,9 @@ function preprocess() {
 		}
 		while (startPosition < value.length) {
 			search.lastIndex = startPosition;
-			match = search.exec(value);
-			endPosition = match && match.index !== void 0 ? match.index : value.length;
-			code = value.charCodeAt(endPosition);
+			const match = search.exec(value);
+			const endPosition = match && match.index !== void 0 ? match.index : value.length;
+			const code = value.charCodeAt(endPosition);
 			if (!match) {
 				buffer = value.slice(startPosition);
 				break;
@@ -11756,11 +11893,12 @@ function preprocess() {
 						chunks.push(65533);
 						column++;
 						break;
-					case 9:
-						next = Math.ceil(column / 4) * 4;
+					case 9: {
+						const next = Math.ceil(column / 4) * 4;
 						chunks.push(-2);
 						while (column++ < next) chunks.push(-1);
 						break;
+					}
 					case 10:
 						chunks.push(-4);
 						column = 1;
@@ -11898,6 +12036,8 @@ function fromMarkdown(value, encoding, options) {
 function compiler(options) {
 	/** @type {Config} */
 	const config = {
+		afterExit: [],
+		beforeEnter: [],
 		transforms: [],
 		canContainEols: [
 			"emphasis",
@@ -12017,7 +12157,8 @@ function compiler(options) {
 		/** @type {Root} */
 		let tree = {
 			type: "root",
-			children: []
+			children: [],
+			position: void 0
 		};
 		/** @type {Omit<CompileContext, 'sliceSerialize'>} */
 		const context = {
@@ -12032,13 +12173,30 @@ function compiler(options) {
 		};
 		/** @type {Array<number>} */
 		const listStack = [];
+		/** @type {Array<Event>} */
+		const prepared = [];
 		let index = -1;
-		while (++index < events.length) if (events[index][1].type === "listOrdered" || events[index][1].type === "listUnordered") if (events[index][0] === "enter") listStack.push(index);
-		else index = prepareList(events, listStack.pop(), index);
+		while (++index < events.length) {
+			prepared.push(events[index]);
+			if (events[index][1].type === "listOrdered" || events[index][1].type === "listUnordered") if (events[index][0] === "enter") listStack.push(prepared.length - 1);
+			else prepareList(prepared, listStack.pop());
+		}
+		events = prepared;
 		index = -1;
 		while (++index < events.length) {
 			const handler = config[events[index][0]];
-			if (own.call(handler, events[index][1].type)) handler[events[index][1].type].call(Object.assign({ sliceSerialize: events[index][2].sliceSerialize }, context), events[index][1]);
+			if (events[index][0] === "enter" && config.beforeEnter.length > 0) callListeners(config.beforeEnter, {
+				...context,
+				sliceSerialize: events[index][2].sliceSerialize
+			}, events[index][1]);
+			if (own.call(handler, events[index][1].type)) handler[events[index][1].type].call({
+				...context,
+				sliceSerialize: events[index][2].sliceSerialize
+			}, events[index][1]);
+			if (events[index][0] === "exit" && config.afterExit.length > 0) callListeners(config.afterExit, {
+				...context,
+				sliceSerialize: events[index][2].sliceSerialize
+			}, events[index][1]);
 		}
 		if (context.tokenStack.length > 0) {
 			const tail = context.tokenStack[context.tokenStack.length - 1];
@@ -12061,12 +12219,28 @@ function compiler(options) {
 		return tree;
 	}
 	/**
-	* @param {Array<Event>} events
-	* @param {number} start
-	* @param {number} length
-	* @returns {number}
+	* @param {Array<Handle>} listeners
+	*   Listeners.
+	* @param {CompileContext} context
+	*   Context.
+	* @param {Token} token
+	*   Token.
+	* @returns {undefined}
+	*   Nothing.
 	*/
-	function prepareList(events, start, length) {
+	function callListeners(listeners, context, token) {
+		let index = -1;
+		while (++index < listeners.length) listeners[index].call(context, token);
+	}
+	/**
+	* @param {Array<Event>} events
+	*   Events, ending with the list to prepare.
+	* @param {number} start
+	*   Index of the list enter.
+	* @returns {undefined}
+	*/
+	function prepareList(events, start) {
+		const end = events.length - 1;
 		let index = start - 1;
 		let containerBalance = -1;
 		let listSpread = false;
@@ -12078,7 +12252,14 @@ function compiler(options) {
 		let firstBlankLineIndex;
 		/** @type {boolean | undefined} */
 		let atMarker;
-		while (++index <= length) {
+		/**
+		* `listItem` events to insert before the event at `at`, in walk order.
+		* Merged in after the walk, as inserting while walking would shift the
+		* rest of the list once per item.
+		* @type {Array<{at: number, event: Event}>}
+		*/
+		const insertions = [];
+		while (++index <= end) {
 			const event = events[index];
 			switch (event[1].type) {
 				case "listUnordered":
@@ -12119,13 +12300,14 @@ function compiler(options) {
 					}
 					if (firstBlankLineIndex && (!lineIndex || firstBlankLineIndex < lineIndex)) listItem._spread = true;
 					listItem.end = Object.assign({}, lineIndex ? events[lineIndex][1].start : event[1].end);
-					events.splice(lineIndex || index, 0, [
-						"exit",
-						listItem,
-						event[2]
-					]);
-					index++;
-					length++;
+					insertions.push({
+						at: lineIndex || index,
+						event: [
+							"exit",
+							listItem,
+							event[2]
+						]
+					});
 				}
 				if (event[1].type === "listItemPrefix") {
 					/** @type {Token} */
@@ -12136,20 +12318,27 @@ function compiler(options) {
 						end: void 0
 					};
 					listItem = item;
-					events.splice(index, 0, [
-						"enter",
-						item,
-						event[2]
-					]);
-					index++;
-					length++;
+					insertions.push({
+						at: index,
+						event: [
+							"enter",
+							item,
+							event[2]
+						]
+					});
 					firstBlankLineIndex = void 0;
 					atMarker = true;
 				}
 			}
 		}
+		const listEvents = events.splice(start);
+		let insertion = 0;
+		index = -1;
+		while (++index < listEvents.length) {
+			while (insertion < insertions.length && insertions[insertion].at === start + index) events.push(insertions[insertion++].event);
+			events.push(listEvents[index]);
+		}
 		events[start][1]._spread = listSpread;
-		return length;
 	}
 	/**
 	* Create an opener handle.
@@ -12224,7 +12413,7 @@ function compiler(options) {
 			start: token.start,
 			end: token.end
 		}) + "): it’s not open");
-		else if (open[0].type !== token.type) if (onExitError) onExitError.call(this, token, open[0]);
+		if (open[0].type !== token.type) if (onExitError) onExitError.call(this, token, open[0]);
 		else (open[1] || defaultOnError).call(this, token, open[0]);
 		node.position.end = point(token.end);
 	}
@@ -12590,7 +12779,8 @@ function compiler(options) {
 	function blockQuote() {
 		return {
 			type: "blockquote",
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Code} */
@@ -12599,14 +12789,16 @@ function compiler(options) {
 			type: "code",
 			lang: null,
 			meta: null,
-			value: ""
+			value: "",
+			position: void 0
 		};
 	}
 	/** @returns {InlineCode} */
 	function codeText() {
 		return {
 			type: "inlineCode",
-			value: ""
+			value: "",
+			position: void 0
 		};
 	}
 	/** @returns {Definition} */
@@ -12616,14 +12808,16 @@ function compiler(options) {
 			identifier: "",
 			label: null,
 			title: null,
-			url: ""
+			url: "",
+			position: void 0
 		};
 	}
 	/** @returns {Emphasis} */
 	function emphasis() {
 		return {
 			type: "emphasis",
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Heading} */
@@ -12631,18 +12825,23 @@ function compiler(options) {
 		return {
 			type: "heading",
 			depth: 0,
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Break} */
 	function hardBreak() {
-		return { type: "break" };
+		return {
+			type: "break",
+			position: void 0
+		};
 	}
 	/** @returns {Html} */
 	function html() {
 		return {
 			type: "html",
-			value: ""
+			value: "",
+			position: void 0
 		};
 	}
 	/** @returns {Image} */
@@ -12651,7 +12850,8 @@ function compiler(options) {
 			type: "image",
 			title: null,
 			url: "",
-			alt: null
+			alt: null,
+			position: void 0
 		};
 	}
 	/** @returns {Link} */
@@ -12660,7 +12860,8 @@ function compiler(options) {
 			type: "link",
 			title: null,
 			url: "",
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/**
@@ -12673,7 +12874,8 @@ function compiler(options) {
 			ordered: token.type === "listOrdered",
 			start: null,
 			spread: token._spread,
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/**
@@ -12685,33 +12887,40 @@ function compiler(options) {
 			type: "listItem",
 			spread: token._spread,
 			checked: null,
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Paragraph} */
 	function paragraph() {
 		return {
 			type: "paragraph",
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Strong} */
 	function strong() {
 		return {
 			type: "strong",
-			children: []
+			children: [],
+			position: void 0
 		};
 	}
 	/** @returns {Text} */
 	function text() {
 		return {
 			type: "text",
-			value: ""
+			value: "",
+			position: void 0
 		};
 	}
 	/** @returns {ThematicBreak} */
 	function thematicBreak() {
-		return { type: "thematicBreak" };
+		return {
+			type: "thematicBreak",
+			position: void 0
+		};
 	}
 }
 /**
@@ -12761,6 +12970,12 @@ function extension(combined, extension) {
 			if (right) combined[key].push(...right);
 			break;
 		}
+		case "afterExit":
+		case "beforeEnter": {
+			const right = extension[key];
+			if (right) combined[key].push(right);
+			break;
+		}
 		case "enter":
 		case "exit": {
 			const right = extension[key];
@@ -12778,7 +12993,7 @@ function defaultOnError(left, right) {
 		start: right.start,
 		end: right.end
 	}) + ") is open");
-	else throw new Error("Cannot close document, a token (`" + right.type + "`, " + stringifyPosition({
+	throw new Error("Cannot close document, a token (`" + right.type + "`, " + stringifyPosition({
 		start: right.start,
 		end: right.end
 	}) + ") is still open");
@@ -12964,8 +13179,12 @@ function looksLikeANode(value) {
 //#endregion
 //#region node_modules/unist-util-visit-parents/lib/color.node.js
 /**
+* Color a string.
+*
 * @param {string} d
+*   Value.
 * @returns {string}
+*   Colored value.
 */
 function color(d) {
 	return "\x1B[33m" + d + "\x1B[39m";
@@ -13129,43 +13348,93 @@ function color(d) {
 *   List with one or two values, the first an action, the second an index.
 *
 * @typedef {Action | ActionTuple | Index | null | undefined | void} VisitorResult
-*   Any value that can be returned from a visitor.
+*   Any value that can be returned from an enter visitor.
+*
+*   Like `VisitorResultExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of the node,
+*   and `ActionTuple` can be used to combine an action with an index.
+*
+* @typedef {Index | boolean | null | undefined | void} VisitorResultExit
+*   Any value that can be returned from an exit visitor.
 */
 /**
 * @callback Visitor
-*   Handle a node (matching `test`, if given).
+*   Handle a node (matching `test`, if given) before its children.
 *
-*   Visitors are free to transform `node`.
-*   They can also transform the parent of node (the last of `ancestors`).
-*
-*   Replacing `node` itself, if `SKIP` is not returned, still causes its
-*   descendants to be walked (which is a bug).
-*
-*   When adding or removing previous siblings of `node` (or next siblings, in
-*   case of reverse), the `Visitor` should return a new `Index` to specify the
-*   sibling to traverse after `node` is traversed.
-*   Adding or removing next siblings of `node` (or previous siblings, in case
-*   of reverse) is handled as expected without needing to return a new `Index`.
-*
-*   Removing the children property of an ancestor still results in them being
-*   traversed.
+*   Changes inside `node` are walked next.
+*   Replacing or removing it is easier in `exit`.
+*   When replacing or removing it here,
+*   return `SKIP` (as otherwise its old children are walked),
+*   or `[SKIP, index]` to continue with the node now at `index`.
+*   Changing next siblings (in walk order) is fine;
+*   changing previous siblings needs a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
 * @param {Visited} node
 *   Found node.
 * @param {Array<VisitedParents>} ancestors
 *   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
 * @returns {VisitorResult}
 *   What to do next.
 *
-*   An `Index` is treated as a tuple of `[CONTINUE, Index]`.
-*   An `Action` is treated as a tuple of `[Action]`.
-*
-*   Passing a tuple back only makes sense if the `Action` is `SKIP`.
-*   When the `Action` is `EXIT`, that action can be returned.
-*   When the `Action` is `CONTINUE`, `Index` can be returned.
+*   Like `VisitorExit`,
+*   but `SKIP` can also be returned,
+*   to not walk the children of `node`.
+*   Passing a tuple back (`ActionTuple`) only makes sense as `[SKIP, Index]`.
 * @template {UnistNode} [Visited=UnistNode]
 *   Visited node type.
 * @template {UnistParent} [VisitedParents=UnistParent]
 *   Ancestor type.
+*/
+/**
+* @callback VisitorExit
+*   Handle a node (matching `test`, if given) after its children.
+*
+*   Changes inside `node` are not walked,
+*   which makes this a good place to change `node` based on its children,
+*   or to replace or remove it.
+*   When removing `node` or changing previous siblings (in walk order),
+*   return a new `Index`.
+*   Removing an ancestor or changing its previous siblings is not supported.
+* @param {Visited} node
+*   Found node.
+* @param {Array<VisitedParents>} ancestors
+*   Ancestors of `node`.
+* @param {number | undefined} index
+*   Index of `node` in its parent (the last of `ancestors`),
+*   or `undefined` for the tree itself.
+* @returns {VisitorResultExit}
+*   What to do next.
+*
+*   `CONTINUE` (`true`, nothing) continues as normal,
+*   `EXIT` (`false`) stops traversing,
+*   and `Index` continues at that sibling.
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+*/
+/**
+* @template {UnistNode} [Visited=UnistNode]
+*   Visited node type.
+* @template {UnistParent} [VisitedParents=UnistParent]
+*   Ancestor type.
+* @typedef Visitors
+*   Handle nodes when entering and exiting them.
+*   The `enter` visitor is optional while `exit` is required.
+*
+*   Pass an `enter` visitor directly to only handle nodes when entering them.
+*
+*   `enter` is called before children (if any) are walked and `exit` after that.
+*   `exit` is still called when `enter` returns `SKIP`.
+*   Both `enter` and `exit` are only called for nodes that match an optional `test`.
+* @property {Visitor<Visited, VisitedParents> | null | undefined} [enter]
+*   Handle a node before its children (optional).
+* @property {VisitorExit<Visited, VisitedParents>} exit
+*   Handle a node after its children.
 */
 /**
 * @typedef {Visitor<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitor
@@ -13177,16 +13446,34 @@ function color(d) {
 * @template {Test} [Check=Test]
 *   Test type.
 */
+/**
+* @typedef {Visitors<Matches<InclusiveDescendant<Tree>, Check>, Ancestor<Tree, Matches<InclusiveDescendant<Tree>, Check>>>} BuildVisitors
+*   Build typed `Visitors` from a tree and a test.
+*
+*   It will infer which values are passed as `node` and which as `parents`.
+* @template {UnistNode} [Tree=UnistNode]
+*   Tree type.
+* @template {Test} [Check=Test]
+*   Test type.
+*/
 /** @type {Readonly<ActionTuple>} */
 var empty = [];
+/**
+* Do not traverse this node’s children.
+* Only works when entering a node.
+*/
+var SKIP = "skip";
 /**
 * Visit nodes, with ancestral information.
 *
 * This algorithm performs *depth-first* *tree traversal* in *preorder*
-* (**NLR**) or if `reverse` is given, in *reverse preorder* (**NRL**).
+* (**NLR**) or if `reverse` is given,
+* in *reverse preorder* (**NRL**).
+* An `exit` visitor is called in *postorder* (**LRN**)
+* or if `reverse` is given, in *reverse postorder* (**RLN**).
 *
-* You can choose for which nodes `visitor` is called by passing a `test`.
-* For complex tests, you should test yourself in `visitor`, as it will be
+* You can choose which nodes are visited by passing a `test`.
+* For complex tests, you should test yourself in a visitor, as it will be
 * faster and will have improved type information.
 *
 * Walking the tree is an intensive task.
@@ -13195,29 +13482,72 @@ var empty = [];
 * to check if a node matches, and then perform different operations.
 *
 * You can change the tree.
-* See `Visitor` for more info.
+* Changes inside a node made when entering it are walked,
+* changes made when exiting it are not.
+* See `Visitor` and `VisitorExit` for more info.
 *
 * @overload
 * @param {Tree} tree
+*   Tree to traverse.
 * @param {Check} check
-* @param {BuildVisitor<Tree, Check>} visitor
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitor<Tree, Check>} enter
+*   Handle each node when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
 *
 * @overload
 * @param {Tree} tree
-* @param {BuildVisitor<Tree>} visitor
+*   Tree to traverse.
+* @param {Check} check
+*   `unist-util-is`-compatible test.
+* @param {BuildVisitors<Tree, Check>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
 * @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitor<Tree>} enter
+*   Handle each node when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
+*
+* @overload
+* @param {Tree} tree
+*   Tree to traverse.
+* @param {BuildVisitors<Tree>} visitors
+*   Handle each node when exiting it, and optionally when entering it.
+* @param {boolean | null | undefined} [reverse]
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
+* @returns {undefined}
+*   Nothing.
 *
 * @param {UnistNode} tree
 *   Tree to traverse.
-* @param {Visitor | Test} test
-*   `unist-util-is`-compatible test
-* @param {Visitor | boolean | null | undefined} [visitor]
-*   Handle each node.
+* @param {Visitor | Visitors | Test} testOrEnterOrVisitors
+*   `unist-util-is`-compatible test, `enter`, or `visitors`.
+* @param {Visitor | Visitors | boolean | null | undefined} [enterOrVisitorsOrReverse]
+*   `enter`, `visitors`, or `reverse` after a test.
 * @param {boolean | null | undefined} [reverse]
-*   Traverse in reverse preorder (NRL) instead of the default preorder (NLR).
+*   Walk children from last to first;
+*   for `enter`, reverse preorder (NRL) instead of preorder (NLR);
+*   for `exit`, reverse postorder (RLN) instead of postorder (LRN).
 * @returns {undefined}
 *   Nothing.
 *
@@ -13226,20 +13556,46 @@ var empty = [];
 * @template {Test} Check
 *   `unist-util-is`-compatible test.
 */
-function visitParents(tree, test, visitor, reverse) {
+function visitParents(tree, testOrEnterOrVisitors, enterOrVisitorsOrReverse, reverse) {
+	if (!tree || typeof tree !== "object") throw new Error("Unexpected value `" + tree + "` for `tree`, expected node");
+	let preorder = true;
 	/** @type {Test} */
 	let check;
-	if (typeof test === "function" && typeof visitor !== "function") {
-		reverse = visitor;
-		visitor = test;
-	} else check = test;
+	/** @type {Visitors | Visitor} */
+	let visitors;
+	/** @type {Visitor | null | undefined} */
+	let enter;
+	/** @type {VisitorExit | null | undefined} */
+	let exit;
+	if (typeof enterOrVisitorsOrReverse === "function" || enterOrVisitorsOrReverse && typeof enterOrVisitorsOrReverse === "object") {
+		check = testOrEnterOrVisitors;
+		visitors = enterOrVisitorsOrReverse;
+		if (reverse) preorder = false;
+	} else {
+		visitors = testOrEnterOrVisitors;
+		if (enterOrVisitorsOrReverse) preorder = false;
+	}
+	if (typeof visitors === "function") enter = visitors;
+	else if (visitors && typeof visitors === "object") {
+		if (visitors.enter === null || visitors.enter === void 0) {} else if (typeof visitors.enter === "function") enter = visitors.enter;
+		else throw new Error("Unexpected value `" + visitors.enter + "` for `visitors.enter`, expected optional visitor");
+		if (typeof visitors.exit === "function") exit = visitors.exit;
+		else throw new Error("Unexpected value `" + visitors.exit + "` for `visitors.exit`, expected visitor (pass a visitor directly if you only want an enter visitor)");
+	} else throw new Error("Unexpected value `" + visitors + "` for `enter` or `visitors`, expected visitor or object with visitors");
 	const is = convert(check);
-	const step = reverse ? -1 : 1;
+	const step = preorder ? 1 : -1;
 	factory(tree, void 0, [])();
 	/**
+	* Create a function to visit a node.
+	*
 	* @param {UnistNode} node
+	*   Node to visit.
 	* @param {number | undefined} index
+	*   Index of `node` in its parent.
 	* @param {Array<UnistParent>} parents
+	*   Ancestors of `node`.
+	* @returns {() => Readonly<ActionTuple>}
+	*   Visit `node`.
 	*/
 	function factory(node, index, parents) {
 		const value = node && typeof node === "object" ? node : {};
@@ -13249,30 +13605,30 @@ function visitParents(tree, test, visitor, reverse) {
 		}
 		return visit;
 		function visit() {
+			const matches = !check || is(node, index, parents[parents.length - 1] || void 0);
 			/** @type {Readonly<ActionTuple>} */
 			let result = empty;
-			/** @type {Readonly<ActionTuple>} */
-			let subresult;
-			/** @type {number} */
-			let offset;
-			/** @type {Array<UnistParent>} */
-			let grandparents;
-			if (!test || is(node, index, parents[parents.length - 1] || void 0)) {
-				result = toResult(visitor(node, parents));
+			if (enter && matches) {
+				result = toResult(enter(node, parents, index));
 				if (result[0] === false) return result;
 			}
 			if ("children" in node && node.children) {
 				const nodeAsParent = node;
 				if (nodeAsParent.children && result[0] !== "skip") {
-					offset = (reverse ? nodeAsParent.children.length : -1) + step;
-					grandparents = parents.concat(nodeAsParent);
+					let offset = (preorder ? -1 : nodeAsParent.children.length) + step;
+					const grandparents = [...parents, nodeAsParent];
 					while (offset > -1 && offset < nodeAsParent.children.length) {
 						const child = nodeAsParent.children[offset];
-						subresult = factory(child, offset, grandparents)();
+						const subresult = factory(child, offset, grandparents)();
 						if (subresult[0] === false) return subresult;
 						offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
 					}
 				}
+			}
+			if (exit && matches) {
+				const exitResult = toResult(exit(node, parents, index));
+				if (exitResult[0] === "skip") throw new Error("Unexpected value `" + exitResult[0] + "` from `exit`, expected `CONTINUE`, `EXIT`, index, or nothing");
+				if (exitResult[0] === false || typeof exitResult[1] === "number") return exitResult;
 			}
 			return result;
 		}
@@ -13360,7 +13716,7 @@ function toResult(value) {
 * @param {FindAndReplaceList | FindAndReplaceTuple} list
 *   Patterns to find.
 * @param {Options | null | undefined} [options]
-*   Configuration (when `find` is not `Find`).
+*   Configuration (optional).
 * @returns {undefined}
 *   Nothing.
 */
@@ -13368,37 +13724,33 @@ function findAndReplace(tree, list, options) {
 	const ignored = convert((options || {}).ignore || []);
 	const pairs = toPairs(list);
 	let pairIndex = -1;
-	while (++pairIndex < pairs.length) visitParents(tree, "text", visitor);
-	/** @type {BuildVisitor<Root, 'text'>} */
-	function visitor(node, parents) {
-		let index = -1;
-		/** @type {Parents | undefined} */
-		let grandparent;
-		while (++index < parents.length) {
-			const parent = parents[index];
-			/** @type {Array<Nodes> | undefined} */
-			const siblings = grandparent ? grandparent.children : void 0;
-			if (ignored(parent, siblings ? siblings.indexOf(parent) : void 0, grandparent)) return;
-			grandparent = parent;
-		}
-		if (grandparent) return handler(node, parents);
+	while (++pairIndex < pairs.length) visitParents(tree, visitor);
+	/**
+	* Handle text nodes and skip ignored nodes.
+	*
+	* @type {BuildVisitor<Root>}
+	*/
+	function visitor(node, parents, index) {
+		if (node.type === "text" && typeof index === "number") return handler(node, parents, index);
+		if (ignored(node, index, parents[parents.length - 1])) return SKIP;
 	}
 	/**
 	* Handle a text node which is not in an ignored parent.
 	*
 	* @param {Text} node
-	*   Text node.
+	*   Text node to search in.
 	* @param {Array<Parents>} parents
-	*   Parents.
+	*   Ancestors of `node`.
+	* @param {number} index
+	*   Index of `node` in its parent.
 	* @returns {VisitorResult}
-	*   Result.
+	*   Where to continue visiting.
 	*/
-	function handler(node, parents) {
+	function handler(node, parents, index) {
 		const parent = parents[parents.length - 1];
 		const find = pairs[pairIndex][0];
 		const replace = pairs[pairIndex][1];
 		let start = 0;
-		const index = parent.children.indexOf(node);
 		let change = false;
 		/** @type {Array<PhrasingContent>} */
 		let nodes = [];
@@ -13419,12 +13771,12 @@ function findAndReplace(tree, list, options) {
 			} : void 0;
 			if (value === false) find.lastIndex = position + 1;
 			else {
-				if (start !== position) nodes.push({
+				if (start !== position) add({
 					type: "text",
 					value: node.value.slice(start, position)
 				});
-				if (Array.isArray(value)) nodes.push(...value);
-				else if (value) nodes.push(value);
+				if (Array.isArray(value)) for (const child of value) add(child);
+				else if (value) add(value);
 				start = position + match[0].length;
 				change = true;
 			}
@@ -13432,13 +13784,26 @@ function findAndReplace(tree, list, options) {
 			match = find.exec(node.value);
 		}
 		if (change) {
-			if (start < node.value.length) nodes.push({
+			if (start < node.value.length) add({
 				type: "text",
 				value: node.value.slice(start)
 			});
 			parent.children.splice(index, 1, ...nodes);
 		} else nodes = [node];
 		return index + nodes.length;
+		/**
+		* Add a node.
+		*
+		* @param {PhrasingContent} child
+		*   Node to add.
+		* @returns {undefined}
+		*   Nothing.
+		*/
+		function add(child) {
+			const previous = nodes[nodes.length - 1];
+			if (previous && previous.type === "text" && child.type === "text") previous.value += child.value;
+			else nodes.push(child);
+		}
 	}
 }
 /**
@@ -13450,10 +13815,9 @@ function findAndReplace(tree, list, options) {
 *   Clean pairs.
 */
 function toPairs(tupleOrList) {
+	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
 	/** @type {Pairs} */
 	const result = [];
-	if (!Array.isArray(tupleOrList)) throw new TypeError("Expected find and replace tuple or list of tuples");
-	/** @type {FindAndReplaceList} */
 	const list = !tupleOrList[0] || Array.isArray(tupleOrList[0]) ? tupleOrList : [tupleOrList];
 	let index = -1;
 	while (++index < list.length) {
@@ -13466,9 +13830,9 @@ function toPairs(tupleOrList) {
 * Turn a find into an expression.
 *
 * @param {Find} find
-*   Find.
+*   Pattern to find.
 * @returns {RegExp}
-*   Expression.
+*   Global expression.
 */
 function toExpression(find) {
 	return typeof find === "string" ? new RegExp(escapeStringRegexp(find), "g") : find;
@@ -13477,9 +13841,9 @@ function toExpression(find) {
 * Turn a replace into a function.
 *
 * @param {Replace} replace
-*   Replace.
+*   Thing to replace with.
 * @returns {ReplaceFunction}
-*   Function.
+*   Function that returns that thing.
 */
 function toFunction(replace) {
 	return typeof replace === "function" ? replace : function() {
@@ -13902,15 +14266,18 @@ function mapAll(line, index, blank) {
 //#endregion
 //#region node_modules/mdast-util-gfm-strikethrough/lib/index.js
 /**
-* @typedef {import('mdast').Delete} Delete
-*
-* @typedef {import('mdast-util-from-markdown').CompileContext} CompileContext
-* @typedef {import('mdast-util-from-markdown').Extension} FromMarkdownExtension
-* @typedef {import('mdast-util-from-markdown').Handle} FromMarkdownHandle
-*
-* @typedef {import('mdast-util-to-markdown').ConstructName} ConstructName
-* @typedef {import('mdast-util-to-markdown').Handle} ToMarkdownHandle
-* @typedef {import('mdast-util-to-markdown').Options} ToMarkdownExtension
+* @import {Delete} from 'mdast'
+* @import {
+*   CompileContext,
+*   Extension as FromMarkdownExtension,
+*   Handle as FromMarkdownHandle
+* } from 'mdast-util-from-markdown'
+* @import {
+*   Attention,
+*   ConstructName,
+*   Handle as ToMarkdownHandle,
+*   Options as ToMarkdownExtension
+* } from 'mdast-util-to-markdown'
 */
 /**
 * List of constructs that occur in phrasing (paragraphs, headings), but cannot
@@ -13930,6 +14297,7 @@ var constructsWithoutStrikethrough = [
 	"titleQuote",
 	"titleApostrophe"
 ];
+handleDelete.attention = attentionDelete;
 handleDelete.peek = peekDelete;
 /**
 * Create an extension for `mdast-util-from-markdown` to enable GFM
@@ -13954,25 +14322,30 @@ function gfmStrikethroughFromMarkdown() {
 */
 function gfmStrikethroughToMarkdown() {
 	return {
+		handlers: { delete: handleDelete },
 		unsafe: [{
 			character: "~",
 			inConstruct: "phrasing",
 			notInConstruct: constructsWithoutStrikethrough
-		}],
-		handlers: { delete: handleDelete }
+		}]
 	};
 }
 /**
+* Enter strikethrough.
+*
 * @this {CompileContext}
 * @type {FromMarkdownHandle}
 */
 function enterStrikethrough(token) {
 	this.enter({
 		type: "delete",
-		children: []
+		children: [],
+		position: void 0
 	}, token);
 }
 /**
+* Exit strikethrough.
+*
 * @this {CompileContext}
 * @type {FromMarkdownHandle}
 */
@@ -13980,23 +14353,43 @@ function exitStrikethrough(token) {
 	this.exit(token);
 }
 /**
+* Serialize a delete node.
+*
 * @type {ToMarkdownHandle}
 * @param {Delete} node
+*   Node to serialize.
 */
 function handleDelete(node, _, state, info) {
 	const tracker = state.createTracker(info);
+	const sequence = state.stack.includes("strikethrough") ? "~" : "~~";
 	const exit = state.enter("strikethrough");
-	let value = tracker.move("~~");
+	let value = tracker.move(sequence);
 	value += state.containerPhrasing(node, {
 		...tracker.current(),
 		before: value,
 		after: "~"
 	});
-	value += tracker.move("~~");
+	value += tracker.move(sequence);
 	exit();
 	return value;
 }
-/** @type {ToMarkdownHandle} */
+/**
+* Serialize a delete node as attention.
+*
+* @type {Attention}
+*/
+function attentionDelete() {
+	return {
+		construct: "strikethrough",
+		markers: ["~"],
+		sizes: [2, 1]
+	};
+}
+/**
+* Peek the first character of a delete node.
+*
+* @type {ToMarkdownHandle}
+*/
 function peekDelete() {
 	return "~";
 }
@@ -14189,7 +14582,7 @@ function markdownTable(table, options) {
 		let columnIndex = -1;
 		if (table[rowIndex].length > mostCellsPerRow) mostCellsPerRow = table[rowIndex].length;
 		while (++columnIndex < table[rowIndex].length) {
-			const cell = serialize(table[rowIndex][columnIndex]);
+			const cell = serialize$1(table[rowIndex][columnIndex]);
 			if (settings.alignDelimiters !== false) {
 				const size = stringLength(cell);
 				sizes[columnIndex] = size;
@@ -14275,7 +14668,7 @@ function markdownTable(table, options) {
 * @returns {string}
 *   Result.
 */
-function serialize(value) {
+function serialize$1(value) {
 	return value === null || value === void 0 ? "" : String(value);
 }
 /**
@@ -14289,17 +14682,58 @@ function toAlignment(value) {
 	return code === 67 || code === 99 ? 99 : code === 76 || code === 108 ? 108 : code === 82 || code === 114 ? 114 : 0;
 }
 //#endregion
+//#region node_modules/mdast-util-phrasing/lib/index.js
+/**
+* @typedef {import('mdast').Html} Html
+* @typedef {import('mdast').PhrasingContent} PhrasingContent
+*/
+/**
+* Check if the given value is *phrasing content*.
+*
+* > 👉 **Note**: Excludes `html`, which can be both phrasing or flow.
+*
+* @param node
+*   Thing to check, typically `Node`.
+* @returns
+*   Whether `value` is phrasing content.
+*/
+var phrasing$1 = convert([
+	"break",
+	"delete",
+	"emphasis",
+	"footnote",
+	"footnoteReference",
+	"image",
+	"imageReference",
+	"inlineCode",
+	"inlineMath",
+	"link",
+	"linkReference",
+	"mdxJsxTextElement",
+	"mdxTextExpression",
+	"strong",
+	"text",
+	"textDirective"
+]);
+//#endregion
 //#region node_modules/mdast-util-to-markdown/lib/handle/blockquote.js
 /**
 * @import {Blockquote, Parents} from 'mdast'
 * @import {Info, Map, State} from 'mdast-util-to-markdown'
 */
 /**
+* Serialize a blockquote node.
+*
 * @param {Blockquote} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function blockquote(node, _, state, info) {
 	const exit = state.enter("blockquote");
@@ -14310,7 +14744,11 @@ function blockquote(node, _, state, info) {
 	exit();
 	return value;
 }
-/** @type {Map} */
+/**
+* Indent lines w/ blockquote markers.
+*
+* @type {Map}
+*/
 function map$1(line, _, blank) {
 	return ">" + (blank ? "" : " ") + line;
 }
@@ -14320,18 +14758,29 @@ function map$1(line, _, blank) {
 * @import {ConstructName, Unsafe} from 'mdast-util-to-markdown'
 */
 /**
+* Check if a pattern is in scope based on the current stack of constructs.
+*
 * @param {Array<ConstructName>} stack
+*   Current stack of constructs.
 * @param {Unsafe} pattern
+*   Pattern to check.
 * @returns {boolean}
+*   Whether the pattern is in scope.
 */
 function patternInScope(stack, pattern) {
 	return listInScope(stack, pattern.inConstruct, true) && !listInScope(stack, pattern.notInConstruct, false);
 }
 /**
+* Check if any of the constructs in the list are present in the stack.
+*
 * @param {Array<ConstructName>} stack
+*   Current stack of constructs.
 * @param {Unsafe['inConstruct']} list
+*   List of constructs to check for in the stack.
 * @param {boolean} none
+*   Value to return if the list is empty or not provided.
 * @returns {boolean}
+*   Whether any of the constructs in the list are present in the stack.
 */
 function listInScope(stack, list, none) {
 	if (typeof list === "string") list = [list];
@@ -14347,15 +14796,25 @@ function listInScope(stack, list, none) {
 * @import {Info, State} from 'mdast-util-to-markdown'
 */
 /**
+* Serialize a break node.
+*
 * @param {Break} _
+*   Node to serialize.
 * @param {Parents | undefined} _1
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function hardBreak(_, _1, state, info) {
 	let index = -1;
-	while (++index < state.unsafe.length) if (state.unsafe[index].character === "\n" && patternInScope(state.stack, state.unsafe[index])) return /[ \t]/.test(info.before) ? "" : " ";
+	while (++index < state.unsafe.length) {
+		const pattern = state.unsafe[index];
+		if (pattern.character === "\n" && !pattern.before && !pattern.after && patternInScope(state.stack, pattern)) return /[\t ]/.test(info.before) ? "" : " ";
+	}
 	return "\\\n";
 }
 //#endregion
@@ -14393,12 +14852,17 @@ function longestStreak(value, substring) {
 * @import {Code} from 'mdast'
 */
 /**
+* Checks if a code block can be formatted as an indented code block.
+*
 * @param {Code} node
+*   Node to check.
 * @param {State} state
+*   Info passed around.
 * @returns {boolean}
+*   Whether the code can be formatted as an indented code block.
 */
 function formatCodeAsIndented(node, state) {
-	return Boolean(state.options.fences === false && node.value && !node.lang && /[^ \r\n]/.test(node.value) && !/^[\t ]*(?:[\r\n]|$)|(?:^|[\r\n])[\t ]*$/.test(node.value));
+	return Boolean(state.options.fences === false && node.value && !node.lang && /[^\n\r ]/.test(node.value) && !/^[\t ]*(?:[\n\r]|$)|(?:^|[\n\r])[\t ]*$/.test(node.value));
 }
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/util/check-fence.js
@@ -14406,8 +14870,12 @@ function formatCodeAsIndented(node, state) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred fence option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['fence'], null | undefined>}
+*   Preferred fence marker.
 */
 function checkFence(state) {
 	const marker = state.options.fence || "`";
@@ -14421,16 +14889,22 @@ function checkFence(state) {
 * @import {Code, Parents} from 'mdast'
 */
 /**
+* Serialize a code node.
+*
 * @param {Code} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function code$1(node, _, state, info) {
 	const marker = checkFence(state);
 	const raw = node.value || "";
-	const suffix = marker === "`" ? "GraveAccent" : "Tilde";
 	if (formatCodeAsIndented(node, state)) {
 		const exit = state.enter("codeIndented");
 		const value = state.indentLines(raw, map);
@@ -14440,6 +14914,7 @@ function code$1(node, _, state, info) {
 	const tracker = state.createTracker(info);
 	const sequence = marker.repeat(Math.max(longestStreak(raw, marker) + 1, 3));
 	const exit = state.enter("codeFenced");
+	const suffix = marker === "`" ? "GraveAccent" : "Tilde";
 	let value = tracker.move(sequence);
 	if (node.lang) {
 		const subexit = state.enter(`codeFencedLang${suffix}`);
@@ -14468,7 +14943,11 @@ function code$1(node, _, state, info) {
 	exit();
 	return value;
 }
-/** @type {Map} */
+/**
+* Indent lines w/ code indent.
+*
+* @type {Map}
+*/
 function map(line, _, blank) {
 	return (blank ? "" : "    ") + line;
 }
@@ -14478,8 +14957,12 @@ function map(line, _, blank) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred quote option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['quote'], null | undefined>}
+*   Preferred quote.
 */
 function checkQuote(state) {
 	const marker = state.options.quote || "\"";
@@ -14493,11 +14976,18 @@ function checkQuote(state) {
 * @import {Definition, Parents} from 'mdast'
 */
 /**
+* Serialize a definition node.
+*
 * @param {Definition} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function definition(node, _, state, info) {
 	const quote = checkQuote(state);
@@ -14551,13 +15041,47 @@ function definition(node, _, state, info) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred emphasis option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['emphasis'], null | undefined>}
+*   Preferred emphasis marker.
 */
 function checkEmphasis(state) {
 	const marker = state.options.emphasis || "*";
 	if (marker !== "*" && marker !== "_") throw new Error("Cannot serialize emphasis with `" + marker + "` for `options.emphasis`, expected `*`, or `_`");
 	return marker;
+}
+//#endregion
+//#region node_modules/mdast-util-to-markdown/lib/util/character.js
+/**
+* Get the first character of a value.
+*
+* Is aware of astral characters (such as emoji).
+*
+* @param {string} value
+*   Value.
+* @returns {string}
+*   First character; empty if `value` is empty.
+*/
+function firstCharacter(value) {
+	const code = value.codePointAt(0);
+	return code === void 0 ? "" : String.fromCodePoint(code);
+}
+/**
+* Get the last character of a value.
+*
+* Is aware of astral characters (such as emoji).
+*
+* @param {string} value
+*   Value.
+* @returns {string}
+*   Last character; empty if `value` is empty.
+*/
+function lastCharacter(value) {
+	const code = value.codePointAt(value.length - 2);
+	return code !== void 0 && code > 65535 ? value.slice(-2) : value.slice(-1);
 }
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/util/encode-character-reference.js
@@ -14600,7 +15124,7 @@ function encodeCharacterReference(code) {
 *   Code point on the outer side of the run.
 * @param {number} inside
 *   Code point on the inner side of the run.
-* @param {'*' | '_'} marker
+* @param {string} marker
 *   Marker of the run.
 *   Underscores are handled more strictly (they form less often) than
 *   asterisks.
@@ -14645,50 +15169,622 @@ function encodeInfo(outside, inside, marker) {
 	};
 }
 //#endregion
-//#region node_modules/mdast-util-to-markdown/lib/handle/emphasis.js
+//#region node_modules/mdast-util-to-markdown/lib/util/html-kind.js
 /**
-* @import {Info, State} from 'mdast-util-to-markdown'
-* @import {Emphasis, Parents} from 'mdast'
+* @typedef {1 | 2 | 3 | 4 | 5 | 6 | 7} Kind
+*   Kind of HTML (flow) element.
 */
-emphasis.peek = emphasisPeek;
 /**
-* @param {Emphasis} node
-* @param {Parents | undefined} _
-* @param {State} state
-* @param {Info} info
-* @returns {string}
+* Infer the kind of HTML that `value` is.
+*
+* This works on valid trees as produced by `micromark`.
+* Kinds:
+*
+* 1. raw
+* 2. comment
+* 3. instruction
+* 4. declaration
+* 5. cdata
+* 6. block
+* 7. other
+*
+* See: <https://spec.commonmark.org/0.31.2/#html-blocks>.
+*
+* @param {string} value
+*   HTML.
+* @returns {Kind | undefined}
+*   Kind; `undefined` if unknown.
 */
-function emphasis(node, _, state, info) {
-	const marker = checkEmphasis(state);
-	const exit = state.enter("emphasis");
-	const tracker = state.createTracker(info);
-	const before = tracker.move(marker);
-	let between = tracker.move(state.containerPhrasing(node, {
-		after: marker,
-		before,
-		...tracker.current()
-	}));
-	const betweenHead = between.charCodeAt(0);
-	const open = encodeInfo(info.before.charCodeAt(info.before.length - 1), betweenHead, marker);
-	if (open.inside) between = encodeCharacterReference(betweenHead) + between.slice(1);
-	const betweenTail = between.charCodeAt(between.length - 1);
-	const close = encodeInfo(info.after.charCodeAt(0), betweenTail, marker);
-	if (close.inside) between = between.slice(0, -1) + encodeCharacterReference(betweenTail);
-	const after = tracker.move(marker);
-	exit();
-	state.attentionEncodeSurroundingInfo = {
-		after: close.outside,
-		before: open.outside
-	};
-	return before + between + after;
+function htmlKind(value) {
+	if (value.charCodeAt(0) !== 60) return;
+	const next = value.charCodeAt(1);
+	if (next === 33) {
+		const code = value.charCodeAt(2);
+		if (code === 45) return 2;
+		if (code === 91) return 5;
+		if (asciiAlpha(code)) return 4;
+		return;
+	}
+	if (next === 63) return 3;
+	const closing = next === 47;
+	const start = closing ? 2 : 1;
+	let end = start;
+	let code = value.charCodeAt(end);
+	if (!asciiAlpha(code)) return;
+	while (code === 45 || asciiAlphanumeric(code)) code = value.charCodeAt(++end);
+	const name = value.slice(start, end).toLowerCase();
+	if (!closing && code !== 47 && htmlRawNames.includes(name)) return 1;
+	return htmlBlockNames.includes(name) ? 6 : 7;
+}
+//#endregion
+//#region node_modules/mdast-util-to-markdown/lib/util/container-phrasing.js
+/**
+* @import {Attention, Handle, Info, State, Tracker} from 'mdast-util-to-markdown'
+* @import {PhrasingParents} from '../types.js'
+*/
+/**
+* Markers for builtin attention (emphasis, strong) to whether they are stricter:
+* whether they cannot open and close inside words.
+*
+* Builtin runs pair following CommonMark rules for emphasis and strong:
+* they are split,
+* using one or two markers at a time,
+* with the rule of 3.
+* Other markers pair like GFM strikethrough:
+* whole runs pair with a run of the same size.
+*
+* @type {Map<string, boolean>}
+*/
+var builtins = /* @__PURE__ */ new Map([["*", false], ["_", true]]);
+/**
+* @typedef AttentionResult
+*   Attention, of which the sequence is chosen later.
+* @property {Array<Item>} children
+*   Serialized children.
+* @property {Array<string>} sequences
+*   Sequences that can be used, in order of preference.
+*/
+/**
+* @typedef Improvement
+*   Improvement of attention sequences.
+* @property {Map<AttentionResult, string>} chosen
+*   Chosen sequences for each attention.
+* @property {Array<Token>} tokens
+*   Tokens involved in the improvement.
+* @property {Mistake | undefined} mistake
+*   Mistake that led to this improvement, if any.
+*/
+/**
+* @typedef {AttentionResult | string} Item
+*   Serialized phrasing.
+*/
+/**
+* @typedef Mistake
+*   Sequence that does not form its attention.
+* @property {Array<AttentionResult>} attention
+*   Attention to try other sequences for.
+* @property {number} index
+*   Index of the token.
+*/
+/**
+* @typedef Run
+*   Sequences next to each other with the same marker.
+* @property {boolean} close
+*   Whether it can close.
+* @property {number} end
+*   Index after the last marker not used (to open).
+* @property {Array<Token>} markers
+*   Sequence of each marker.
+* @property {boolean} open
+*   Whether it can open.
+* @property {boolean} split
+*   Whether it can be split (built-in attention).
+* @property {number} start
+*   Index of the first marker not used (to close).
+* @property {Array<Token>} tokens
+*   Sequences.
+*/
+/**
+* @typedef Token
+*   Rendered phrasing.
+* @property {AttentionResult | undefined} attention
+*   Attention, if this is one of its sequences.
+* @property {string} value
+*   Value.
+*/
+/**
+* Get candidates for a mistake:
+* attention to try other sequences for,
+* later first.
+*
+* @param {Array<Token>} tokens
+*   Tokens.
+* @param {Array<Token>} involved
+*   Sequences involved in the mistake.
+* @param {Map<Token, Run>} runOf
+*   Run of each sequence.
+* @returns {Array<AttentionResult>}
+*   Candidates.
+*/
+function candidates(tokens, involved, runOf) {
+	/** @type {Set<AttentionResult | undefined>} */
+	const related = /* @__PURE__ */ new Set();
+	for (const token of tokens) {
+		const siblings = runOf.get(token);
+		if (siblings && token.attention && involved.some((d) => d.attention === token.attention)) for (const sibling of siblings.tokens) related.add(sibling.attention);
+	}
+	/** @type {Array<AttentionResult>} */
+	const ordered = [];
+	for (const token of tokens) if (token.attention && related.delete(token.attention)) ordered.push(token.attention);
+	ordered.reverse();
+	return ordered;
 }
 /**
-* @param {Emphasis} _
-* @param {Parents | undefined} _1
-* @param {State} state
-* @returns {string}
+* Check whether sequences form their attention, like `micromark`.
+*
+* Sequences of `*` and `_` pair like emphasis and strong in CommonMark,
+* others like strikethrough in GFM.
+*
+* @param {Array<Token>} tokens
+*   Tokens.
+* @param {string} before
+*   Characters before.
+* @param {string} after
+*   Characters after.
+* @returns {Mistake | undefined}
+*   First mistake, if any.
 */
-function emphasisPeek(_, _1, state) {
+function check(tokens, before, after) {
+	/** @type {Array<Run>} */
+	const runs = [];
+	/** @type {Map<Token, Array<Token>>} */
+	const wrong = /* @__PURE__ */ new Map();
+	/** @type {Map<Token, Run>} */
+	const runOf = /* @__PURE__ */ new Map();
+	let index = 0;
+	while (index < tokens.length) {
+		if (!tokens[index].attention) {
+			index++;
+			continue;
+		}
+		const marker = tokens[index].value.charAt(0);
+		const strict = builtins.get(marker);
+		let end = index + 1;
+		while (end < tokens.length && tokens[end].attention && tokens[end].value.charAt(0) === marker) end++;
+		const head = index ? tokens[index - 1].value : before;
+		const previous = classifyCharacter(head.charCodeAt(head.length - 1));
+		const next = classifyCharacter((end < tokens.length ? tokens[end].value : after).charCodeAt(0));
+		const open = !next || next === 2 && Boolean(previous);
+		const close = !previous || previous === 2 && Boolean(next);
+		/** @type {Run} */
+		const run = {
+			tokens: tokens.slice(index, end),
+			markers: [],
+			start: 0,
+			end: 0,
+			open: strict ? open && (Boolean(previous) || !close) : open,
+			close: strict ? close && (Boolean(next) || !open) : close,
+			split: strict !== void 0
+		};
+		for (const token of run.tokens) {
+			wrong.set(token, [...run.tokens]);
+			runOf.set(token, run);
+			let size = token.value.length;
+			while (size--) run.markers.push(token);
+		}
+		run.end = run.markers.length;
+		runs.push(run);
+		index = end;
+	}
+	pair(runs, wrong);
+	index = -1;
+	while (++index < tokens.length) {
+		const involved = wrong.get(tokens[index]);
+		if (involved) return {
+			attention: candidates(tokens, involved, runOf),
+			index
+		};
+	}
+}
+/**
+* Encode the first or last character of tokens as a character reference,
+* if it is text.
+*
+* @param {Array<Token>} tokens
+*   Tokens.
+* @param {boolean} start
+*   Whether to encode the first or last character.
+* @returns {undefined}
+*   Nothing.
+*/
+function encode(tokens, start) {
+	const token = tokens[start ? 0 : tokens.length - 1];
+	if (!token || token.attention) return;
+	const character = start ? firstCharacter(token.value) : lastCharacter(token.value);
+	const reference = encodeCharacterReference(character.codePointAt(0));
+	if (start) token.value = reference + token.value.slice(character.length);
+	else {
+		let value = token.value.slice(0, token.value.length - character.length);
+		let escapes = 0;
+		while (value.charCodeAt(value.length - 1 - escapes) === 92) escapes++;
+		if (escapes % 2) value += "\\";
+		token.value = value + reference;
+	}
+}
+/**
+* Try other sequences for the candidates of a mistake and use the first that
+* moves the mistake further.
+*
+* @param {Array<Item>} items
+*   Items.
+* @param {Map<AttentionResult, string>} chosen
+*   Sequences to use instead of preferred sequences.
+* @param {Mistake} mistake
+*   Mistake.
+* @param {string} before
+*   Characters before.
+* @param {string} after
+*   Characters after.
+* @returns {Improvement | undefined}
+*   Result if better.
+*/
+function improve(items, chosen, mistake, before, after) {
+	for (const attention of mistake.attention) {
+		const current = chosen.get(attention) || attention.sequences[0];
+		for (const sequence of attention.sequences) {
+			if (sequence === current) continue;
+			const trial = new Map(chosen);
+			trial.set(attention, sequence);
+			const tokens = render(items, trial, before, after);
+			const next = check(tokens, before, after);
+			if (!next || next.index > mistake.index) return {
+				chosen: trial,
+				mistake: next,
+				tokens
+			};
+		}
+	}
+}
+/**
+* Pair runs like `micromark` and mark sequences that do form their attention
+* as fine.
+*
+* Each pair uses markers from the end of an opener and the start of a closer.
+* It forms the intended attention if those markers are exactly the whole
+* opening and closing sequence of one attention.
+* Otherwise attention is mixed up:
+* either sequences of different attention pair,
+* part of a sequence is used (such as `**` of strong as `*`),
+* or several sequences are used together (such as `*` and `*` as `**`).
+* Then the sequences involved are recorded with each other.
+*
+* @param {Array<Run>} runs
+*   Runs.
+* @param {Map<Token, Array<Token>>} wrong
+*   Sequences that are wrong, with the sequences involved.
+* @returns {undefined}
+*   Nothing, `wrong` is changed.
+*/
+function pair(runs, wrong) {
+	/** @type {Map<string, Array<Run>>} */
+	const openersByMarker = /* @__PURE__ */ new Map();
+	for (const closer of runs) {
+		const marker = closer.tokens[0].value.charAt(0);
+		let openers = openersByMarker.get(marker);
+		if (!openers) {
+			openers = [];
+			openersByMarker.set(marker, openers);
+		}
+		let open = closer.close ? openers.length : 0;
+		while (open-- && closer.start < closer.end) {
+			const opener = openers[open];
+			const openerSize = opener.end - opener.start;
+			const closerSize = closer.end - closer.start;
+			if (closer.split ? (opener.close || closer.open) && closerSize % 3 && !((openerSize + closerSize) % 3) : openerSize !== opener.markers.length || openerSize !== closerSize) continue;
+			const size = closer.split ? openerSize > 1 && closerSize > 1 ? 2 : 1 : closerSize;
+			const opening = opener.markers.slice(opener.end - size, opener.end);
+			const closing = closer.markers.slice(closer.start, closer.start + size);
+			const openToken = opening[0];
+			const closeToken = closing[0];
+			if (openToken === opening[size - 1] && openToken.value.length === size && closeToken === closing[size - 1] && closeToken.value.length === size && openToken.attention === closeToken.attention) {
+				wrong.delete(openToken);
+				wrong.delete(closeToken);
+			} else {
+				const involved = [.../* @__PURE__ */ new Set([...opening, ...closing])];
+				for (const token of involved) {
+					const list = wrong.get(token);
+					if (list) list.push(...involved);
+				}
+			}
+			opener.end -= size;
+			closer.start += size;
+			if (opener.start === opener.end) openers.splice(open, 1);
+			open = openers.length;
+		}
+		if (closer.open && closer.start < closer.end) openers.push(closer);
+	}
+}
+/**
+* Get the sequences that can be used for attention, in order of preference.
+*
+* @param {string} type
+*   Node type.
+* @param {Array<string>} markers
+*   Markers.
+* @param {Array<number>} sizes
+*   Sizes.
+* @returns {Array<string>}
+*   Sequences.
+*/
+function attentionSequences(type, markers, sizes) {
+	if (markers.length === 0) throw new Error("Cannot serialize `" + type + "` as attention without markers, expected one or more markers");
+	if (sizes.length === 0) throw new Error("Cannot serialize `" + type + "` as attention without sizes, expected one or more sizes");
+	for (const size of sizes) if (!Number.isSafeInteger(size) || size < 1) throw new Error("Cannot serialize `" + type + "` as attention with `" + size + "` as size, expected positive integer");
+	/** @type {Array<string>} */
+	const sequences = [];
+	for (const marker of markers) {
+		if (marker.length !== 1) throw new Error("Cannot serialize `" + type + "` as attention with `" + marker + "` as marker, expected a single ascii character");
+		if (!asciiPunctuation(marker.charCodeAt(0))) throw new Error("Cannot serialize `" + type + "` as attention with `" + marker + "` as marker, expected ascii punctuation");
+		for (const size of sizes) sequences.push(marker.repeat(size));
+	}
+	return sequences;
+}
+/**
+* Serialize the children of a parent that contains phrasing children,
+* keeping attention separate,
+* so that its markers can be chosen later.
+*
+* @param {PhrasingParents} parent
+*   Parent of phrasing nodes.
+* @param {State} state
+*   Info passed around about the current state.
+* @param {Info} info
+*   Info on where we are in the document we are generating.
+* @returns {Array<Item>}
+*   Items.
+*/
+function phrasing(parent, state, info) {
+	const indexStack = state.indexStack;
+	const children = parent.children || [];
+	/** @type {Array<Item>} */
+	const results = [];
+	let index = -1;
+	let before = info.before;
+	indexStack.push(-1);
+	let tracker = state.createTracker(info);
+	while (++index < children.length) {
+		const child = children[index];
+		/** @type {string} */
+		let after;
+		indexStack[indexStack.length - 1] = index;
+		if (index + 1 < children.length) {
+			/** @type {Handle} */
+			let handle = state.handle.handlers[children[index + 1].type];
+			if (handle && handle.peek) handle = handle.peek;
+			after = handle ? firstCharacter(handle(children[index + 1], parent, state, {
+				before: "",
+				after: "",
+				...tracker.current()
+			})) : "";
+		} else after = info.after;
+		const previous = results[results.length - 1];
+		if (typeof previous === "string" && (before === "\r" || before === "\n") && child.type === "html" && htmlKind(child.value) !== 7) {
+			results[results.length - 1] = previous.replace(/(\r?\n|\r)$/, " ");
+			before = " ";
+			tracker = state.createTracker(info);
+			tracker.move(serialize(results, info.before, info.after));
+		}
+		/** @type {(Handle & {attention?: Attention | undefined}) | undefined} */
+		const handle = state.handle.handlers[child.type];
+		if (handle && handle.attention) {
+			const item = attentionItem(child, handle.attention, state, tracker);
+			results.push(item);
+			before = lastCharacter(item.sequences[0]);
+		} else {
+			const value = state.handle(child, parent, state, {
+				...tracker.current(),
+				after,
+				before
+			});
+			if (!value) continue;
+			tracker.move(value);
+			results.push(value);
+			before = lastCharacter(value);
+		}
+	}
+	indexStack.pop();
+	return results;
+}
+/**
+* Serialize a node as attention,
+* with its sequence chosen later.
+*
+* @param {PhrasingParents} node
+*   Node.
+* @param {Attention} attention
+*   Attention of the node.
+* @param {State} state
+*   Info passed around about the current state.
+* @param {Tracker} tracker
+*   Tracker.
+* @returns {AttentionResult}
+*   Attention.
+*/
+function attentionItem(node, attention, state, tracker) {
+	const { construct, markers, sizes } = attention(node, state);
+	const sequences = attentionSequences(node.type, markers, sizes);
+	const sequence = sequences[0];
+	const exit = state.enter(construct);
+	tracker.move(sequence);
+	const children = phrasing(node, state, {
+		...tracker.current(),
+		before: sequence,
+		after: sequence
+	});
+	tracker.move(serialize(children, sequence, sequence));
+	tracker.move(sequence);
+	exit();
+	return {
+		children,
+		sequences
+	};
+}
+/**
+* Render items with sequences;
+* encoding characters around attention where needed.
+*
+* @param {Array<Item>} items
+*   Serialized phrasing.
+* @param {Map<AttentionResult, string>} chosen
+*   Sequences to use instead of preferred sequences.
+* @param {string} before
+*   Characters before.
+* @param {string} after
+*   Characters after.
+* @returns {Array<Token>}
+*   Tokens.
+*/
+function render(items, chosen, before, after) {
+	/** @type {Array<Token>} */
+	const tokens = [];
+	/** @type {string | undefined} */
+	let encodeAfter;
+	let previous = lastCharacter(before);
+	let index = -1;
+	while (++index < items.length) {
+		const item = items[index];
+		if (typeof item === "string") {
+			/** @type {Token} */
+			const token = {
+				value: item,
+				attention: void 0
+			};
+			if (encodeAfter && encodeAfter === firstCharacter(item)) encode([token], true);
+			encodeAfter = void 0;
+			tokens.push(token);
+			if (token.value) previous = lastCharacter(token.value);
+			continue;
+		}
+		const sequence = chosen.get(item) || item.sequences[0];
+		const marker = sequence.charAt(0);
+		const next = items[index + 1];
+		const outsideBefore = previous;
+		const outsideAfter = firstCharacter(next === void 0 ? after : typeof next === "string" ? next : chosen.get(next) || next.sequences[0]);
+		const inside = render(item.children, chosen, sequence, sequence);
+		const head = inside.length > 0 ? inside[0].value : "";
+		const open = encodeInfo(outsideBefore.charCodeAt(outsideBefore.length - 1), head.charCodeAt(0), marker);
+		if (open.inside) encode(inside, true);
+		const tail = inside.length > 0 ? lastCharacter(inside[inside.length - 1].value) : "";
+		const close = encodeInfo(outsideAfter.charCodeAt(0), tail.charCodeAt(tail.length - 1), marker);
+		if (close.inside) encode(inside, false);
+		if (open.outside && outsideBefore !== "\n" && outsideBefore !== "\r") encode(tokens, false);
+		if (close.outside) encodeAfter = outsideAfter;
+		tokens.push({
+			value: sequence,
+			attention: item
+		}, ...inside, {
+			value: sequence,
+			attention: item
+		});
+		previous = sequence.charAt(sequence.length - 1);
+	}
+	return tokens;
+}
+/**
+* Serialize phrasing with attention.
+*
+* Whether attention forms depends on everything around it.
+* This checks that it does and tries other sequences if not.
+*
+* @param {Array<Item>} items
+*   Phrasing items.
+* @param {string} before
+*   Characters before.
+* @param {string} after
+*   Characters after.
+* @returns {string}
+*   Serialized markdown.
+*/
+function serialize(items, before, after) {
+	/** @type {Map<AttentionResult, string>} */
+	let chosen = /* @__PURE__ */ new Map();
+	const initial = render(items, chosen, before, after);
+	let tokens = initial;
+	let mistake = check(tokens, before, after);
+	while (mistake) {
+		const next = improve(items, chosen, mistake, before, after);
+		if (!next) {
+			tokens = initial;
+			break;
+		}
+		chosen = next.chosen;
+		tokens = next.tokens;
+		mistake = next.mistake;
+	}
+	let result = "";
+	for (const token of tokens) result += token.value;
+	return result;
+}
+//#endregion
+//#region node_modules/mdast-util-to-markdown/lib/handle/emphasis.js
+/**
+* @import {AttentionInfo, Info, State} from 'mdast-util-to-markdown'
+* @import {Emphasis, Parents} from 'mdast'
+*/
+emphasis.attention = attention$1;
+emphasis.peek = peek$1;
+/**
+* Serialize an emphasis node.
+*
+* Attention is properly handled by `containerPhrasing`.
+*
+* @param {Emphasis} node
+*   Node to serialize.
+* @param {Parents | undefined} _
+*   Parent node.
+* @param {State} state
+*   Info passed around.
+* @param {Info} info
+*   Info on surrounding context.
+* @returns {string}
+*   Serialized markdown.
+*/
+function emphasis(node, _, state, info) {
+	const exit = state.enter("phrasing");
+	const value = serialize([attentionItem(node, attention$1, state, state.createTracker(info))], info.before, info.after);
+	exit();
+	return value;
+}
+/**
+* Serialize an emphasis node as attention.
+*
+* @param {Emphasis} _
+*   Node to serialize.
+* @param {State} state
+*   Info passed around.
+* @returns {AttentionInfo}
+*   Info on how to serialize the node.
+*/
+function attention$1(_, state) {
+	return {
+		construct: "emphasis",
+		markers: checkEmphasis(state) === "*" ? ["*", "_"] : ["_", "*"],
+		sizes: [1]
+	};
+}
+/**
+* Peek at this node.
+*
+* @param {Emphasis} _
+*   Node to serialize.
+* @param {Parents | undefined} _1
+*   Parent node.
+* @param {State} state
+*   Info passed around.
+* @returns {string}
+*   Start of the serialized markdown.
+*/
+function peek$1(_, _1, state) {
 	return state.options.emphasis || "*";
 }
 //#endregion
@@ -14984,9 +16080,14 @@ function visit(tree, testOrVisitor, visitorOrReverse, maybeReverse) {
 * @import {Heading} from 'mdast'
 */
 /**
+* Checks if a heading can be formatted as a setext heading.
+*
 * @param {Heading} node
+*   Node to check.
 * @param {State} state
+*   Info passed around.
 * @returns {boolean}
+*   Whether the heading can be formatted as a setext heading.
 */
 function formatHeadingAsSetext(node, state) {
 	let literalWithBreak = false;
@@ -15005,11 +16106,18 @@ function formatHeadingAsSetext(node, state) {
 * @import {Heading, Parents} from 'mdast'
 */
 /**
+* Serialize a heading node.
+*
 * @param {Heading} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function heading(node, _, state, info) {
 	const rank = Math.max(Math.min(6, node.depth || 1), 1);
@@ -15035,7 +16143,8 @@ function heading(node, _, state, info) {
 		after: "\n",
 		...tracker.current()
 	});
-	if (/^[\t ]/.test(value)) value = encodeCharacterReference(value.charCodeAt(0)) + value.slice(1);
+	const head = value.charCodeAt(0);
+	if (head === 9 || head === 32) value = encodeCharacterReference(head) + value.slice(1);
 	value = value ? sequence + " " + value : sequence;
 	if (state.options.closeAtx) value += " " + sequence;
 	subexit();
@@ -15049,14 +16158,21 @@ function heading(node, _, state, info) {
 */
 html.peek = htmlPeek;
 /**
+* Serialize an HTML node.
+*
 * @param {Html} node
+*   Node to serialize.
 * @returns {string}
+*   Serialized markdown.
 */
 function html(node) {
 	return node.value || "";
 }
 /**
+* Peek at this node.
+*
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function htmlPeek() {
 	return "<";
@@ -15069,11 +16185,18 @@ function htmlPeek() {
 */
 image.peek = imagePeek;
 /**
+* Serialize an image node.
+*
 * @param {Image} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function image(node, _, state, info) {
 	const quote = checkQuote(state);
@@ -15123,7 +16246,10 @@ function image(node, _, state, info) {
 	return value;
 }
 /**
+* Peek at this node.
+*
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function imagePeek() {
 	return "!";
@@ -15136,11 +16262,18 @@ function imagePeek() {
 */
 imageReference.peek = imageReferencePeek;
 /**
+* Serialize an image reference node.
+*
 * @param {ImageReference} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function imageReference(node, _, state, info) {
 	const type = node.referenceType;
@@ -15156,7 +16289,9 @@ function imageReference(node, _, state, info) {
 	value += tracker.move(alt + "][");
 	subexit();
 	const stack = state.stack;
-	state.stack = [];
+	state.stack = stack.filter(function(d) {
+		return d !== "phrasing";
+	});
 	subexit = state.enter("reference");
 	const reference = state.safe(state.associationId(node), {
 		before: value,
@@ -15172,7 +16307,10 @@ function imageReference(node, _, state, info) {
 	return value;
 }
 /**
+* Peek at this node.
+*
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function imageReferencePeek() {
 	return "!";
@@ -15185,23 +16323,29 @@ function imageReferencePeek() {
 */
 inlineCode.peek = inlineCodePeek;
 /**
+* Serialize an inline code node.
+*
 * @param {InlineCode} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @returns {string}
+*   Serialized markdown.
 */
 function inlineCode(node, _, state) {
 	let value = node.value || "";
 	let sequence = "`";
 	let index = -1;
 	while (new RegExp("(^|[^`])" + sequence + "([^`]|$)").test(value)) sequence += "`";
-	if (/[^ \r\n]/.test(value) && (/^[ \r\n]/.test(value) && /[ \r\n]$/.test(value) || /^`|`$/.test(value))) value = " " + value + " ";
+	if (/[^\n\r ]/.test(value) && (/^[\n\r ]/.test(value) && /[\n\r ]$/.test(value) || /^`|`$/.test(value))) value = " " + value + " ";
 	while (++index < state.unsafe.length) {
 		const pattern = state.unsafe[index];
 		const expression = state.compilePattern(pattern);
+		if (!pattern.atBreak) continue;
 		/** @type {RegExpExecArray | null} */
 		let match;
-		if (!pattern.atBreak) continue;
 		while (match = expression.exec(value)) {
 			let position = match.index;
 			if (value.charCodeAt(position) === 10 && value.charCodeAt(position - 1) === 13) position--;
@@ -15211,7 +16355,10 @@ function inlineCode(node, _, state) {
 	return sequence + value + sequence;
 }
 /**
+* Peek at this node.
+*
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function inlineCodePeek() {
 	return "`";
@@ -15223,13 +16370,18 @@ function inlineCodePeek() {
 * @import {Link} from 'mdast'
 */
 /**
+* Checks if a link can be formatted as an autolink.
+*
 * @param {Link} node
+*   Node to check.
 * @param {State} state
+*   Info passed around.
 * @returns {boolean}
+*   Whether the link can be formatted as an autolink.
 */
 function formatLinkAsAutolink(node, state) {
 	const raw = toString(node);
-	return Boolean(!state.options.resourceLink && node.url && !node.title && node.children && node.children.length === 1 && node.children[0].type === "text" && (raw === node.url || "mailto:" + raw === node.url) && /^[a-z][a-z+.-]+:/i.test(node.url) && !/[\0- <>\u007F]/.test(node.url));
+	return Boolean(!state.options.resourceLink && node.url && !node.title && node.children && node.children.length === 1 && node.children[0].type === "text" && (raw === node.url || "mailto:" + raw === node.url) && /^[a-z][+\-.a-z]+:/i.test(node.url) && !/[\0- <>\u007F]/.test(node.url));
 }
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/handle/link.js
@@ -15240,24 +16392,29 @@ function formatLinkAsAutolink(node, state) {
 */
 link.peek = linkPeek;
 /**
+* Serialize a link node.
+*
 * @param {Link} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function link(node, _, state, info) {
 	const quote = checkQuote(state);
 	const suffix = quote === "\"" ? "Quote" : "Apostrophe";
 	const tracker = state.createTracker(info);
-	/** @type {Exit} */
-	let exit;
-	/** @type {Exit} */
-	let subexit;
 	if (formatLinkAsAutolink(node, state)) {
 		const stack = state.stack;
-		state.stack = [];
-		exit = state.enter("autolink");
+		state.stack = stack.filter(function(d) {
+			return d !== "phrasing";
+		});
+		const exit = state.enter("autolink");
 		let value = tracker.move("<");
 		value += tracker.move(state.containerPhrasing(node, {
 			before: value,
@@ -15269,17 +16426,26 @@ function link(node, _, state, info) {
 		state.stack = stack;
 		return value;
 	}
-	exit = state.enter("link");
-	subexit = state.enter("label");
+	const exit = state.enter("link");
+	let subexit = state.enter("label");
 	let value = tracker.move("[");
-	value += tracker.move(state.containerPhrasing(node, {
+	const text = state.containerPhrasing(node, {
 		before: value,
 		after: "](",
 		...tracker.current()
-	}));
-	value += tracker.move("](");
+	});
+	value += tracker.move(text);
 	subexit();
-	if (!node.url && node.title || /[\0- \u007F]/.test(node.url)) {
+	value += tracker.move("](");
+	const enclose = /[\0- \u007F]/.test(node.url);
+	const last = info.before.charAt(info.before.length - 1);
+	let title = node.title || void 0;
+	if (!title && !enclose && (last === "\n" || last === "\r")) {
+		let index = 0;
+		while (index < text.length && text.charCodeAt(index) !== 93) index += text.charCodeAt(index) === 92 ? 2 : 1;
+		if (text.charCodeAt(index + 1) === 58) title = "";
+	}
+	if (!node.url && typeof title === "string" || enclose) {
 		subexit = state.enter("destinationLiteral");
 		value += tracker.move("<");
 		value += tracker.move(state.safe(node.url, {
@@ -15292,15 +16458,15 @@ function link(node, _, state, info) {
 		subexit = state.enter("destinationRaw");
 		value += tracker.move(state.safe(node.url, {
 			before: value,
-			after: node.title ? " " : ")",
+			after: typeof title === "string" ? " " : ")",
 			...tracker.current()
 		}));
 	}
 	subexit();
-	if (node.title) {
+	if (typeof title === "string") {
 		subexit = state.enter(`title${suffix}`);
 		value += tracker.move(" " + quote);
-		value += tracker.move(state.safe(node.title, {
+		value += tracker.move(state.safe(title, {
 			before: value,
 			after: quote,
 			...tracker.current()
@@ -15313,10 +16479,16 @@ function link(node, _, state, info) {
 	return value;
 }
 /**
+* Peek at this node.
+*
 * @param {Link} node
+*   Node to peek at.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function linkPeek(node, _, state) {
 	return formatLinkAsAutolink(node, state) ? "<" : "[";
@@ -15329,11 +16501,18 @@ function linkPeek(node, _, state) {
 */
 linkReference.peek = linkReferencePeek;
 /**
+* Serialize a link reference node.
+*
 * @param {LinkReference} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function linkReference(node, _, state, info) {
 	const type = node.referenceType;
@@ -15349,7 +16528,9 @@ function linkReference(node, _, state, info) {
 	value += tracker.move(text + "][");
 	subexit();
 	const stack = state.stack;
-	state.stack = [];
+	state.stack = stack.filter(function(d) {
+		return d !== "phrasing";
+	});
 	subexit = state.enter("reference");
 	const reference = state.safe(state.associationId(node), {
 		before: value,
@@ -15365,7 +16546,10 @@ function linkReference(node, _, state, info) {
 	return value;
 }
 /**
+* Peek at this node.
+*
 * @returns {string}
+*   Start of the serialized markdown.
 */
 function linkReferencePeek() {
 	return "[";
@@ -15376,8 +16560,12 @@ function linkReferencePeek() {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred list bullet option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['bullet'], null | undefined>}
+*   Preferred list bullet.
 */
 function checkBullet(state) {
 	const marker = state.options.bullet || "*";
@@ -15390,8 +16578,12 @@ function checkBullet(state) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred alternate list bullet option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['bullet'], null | undefined>}
+*   Preferred alternate list bullet.
 */
 function checkBulletOther(state) {
 	const bullet = checkBullet(state);
@@ -15407,8 +16599,12 @@ function checkBulletOther(state) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred ordered list bullet option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['bulletOrdered'], null | undefined>}
+*   Preferred ordered list bullet.
 */
 function checkBulletOrdered(state) {
 	const marker = state.options.bulletOrdered || ".";
@@ -15421,8 +16617,12 @@ function checkBulletOrdered(state) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred rule option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['rule'], null | undefined>}
+*   Preferred rule marker.
 */
 function checkRule(state) {
 	const marker = state.options.rule || "*";
@@ -15436,11 +16636,18 @@ function checkRule(state) {
 * @import {List, Parents} from 'mdast'
 */
 /**
+* Serialize a list node.
+*
 * @param {List} node
+*   Node to serialize.
 * @param {Parents | undefined} parent
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function list(node, parent, state, info) {
 	const exit = state.enter("list");
@@ -15478,8 +16685,12 @@ function list(node, parent, state, info) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred list item indent option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['listItemIndent'], null | undefined>}
+*   Preferred list item indent.
 */
 function checkListItemIndent(state) {
 	const style = state.options.listItemIndent || "one";
@@ -15493,11 +16704,18 @@ function checkListItemIndent(state) {
 * @import {ListItem, Parents} from 'mdast'
 */
 /**
+* Serialize a list item node.
+*
 * @param {ListItem} node
+*   Node to serialize.
 * @param {Parents | undefined} parent
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function listItem(node, parent, state, info) {
 	const listItemIndent = checkListItemIndent(state);
@@ -15512,7 +16730,11 @@ function listItem(node, parent, state, info) {
 	const value = state.indentLines(state.containerFlow(node, tracker.current()), map);
 	exit();
 	return value;
-	/** @type {Map} */
+	/**
+	* Indent lines of the list item.
+	*
+	* @type {Map}
+	*/
 	function map(line, index, blank) {
 		if (index) return (blank ? "" : " ".repeat(size)) + line;
 		return (blank ? bullet : bullet + " ".repeat(size - bullet.length)) + line;
@@ -15525,11 +16747,18 @@ function listItem(node, parent, state, info) {
 * @import {Paragraph, Parents} from 'mdast'
 */
 /**
+* Serialize a paragraph node.
+*
 * @param {Paragraph} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function paragraph(node, _, state, info) {
 	const exit = state.enter("paragraph");
@@ -15540,56 +16769,33 @@ function paragraph(node, _, state, info) {
 	return value;
 }
 //#endregion
-//#region node_modules/mdast-util-phrasing/lib/index.js
-/**
-* @typedef {import('mdast').Html} Html
-* @typedef {import('mdast').PhrasingContent} PhrasingContent
-*/
-/**
-* Check if the given value is *phrasing content*.
-*
-* > 👉 **Note**: Excludes `html`, which can be both phrasing or flow.
-*
-* @param node
-*   Thing to check, typically `Node`.
-* @returns
-*   Whether `value` is phrasing content.
-*/
-var phrasing = convert([
-	"break",
-	"delete",
-	"emphasis",
-	"footnote",
-	"footnoteReference",
-	"image",
-	"imageReference",
-	"inlineCode",
-	"inlineMath",
-	"link",
-	"linkReference",
-	"mdxJsxTextElement",
-	"mdxTextExpression",
-	"strong",
-	"text",
-	"textDirective"
-]);
-//#endregion
 //#region node_modules/mdast-util-to-markdown/lib/handle/root.js
 /**
 * @import {Info, State} from 'mdast-util-to-markdown'
 * @import {Parents, Root} from 'mdast'
 */
 /**
+* Serialize a root node.
+*
 * @param {Root} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function root(node, _, state, info) {
-	return (node.children.some(function(d) {
-		return phrasing(d);
-	}) ? state.containerPhrasing : state.containerFlow).call(state, node, info);
+	if (!node.children.some(function(d) {
+		return phrasing$1(d);
+	})) return state.containerFlow(node, info);
+	const exit = state.enter("phrasing");
+	const value = state.containerPhrasing(node, info);
+	exit();
+	return value;
 }
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/util/check-strong.js
@@ -15597,8 +16803,12 @@ function root(node, _, state, info) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred strong option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['strong'], null | undefined>}
+*   Preferred strong marker.
 */
 function checkStrong(state) {
 	const marker = state.options.strong || "*";
@@ -15608,48 +16818,63 @@ function checkStrong(state) {
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/handle/strong.js
 /**
-* @import {Info, State} from 'mdast-util-to-markdown'
+* @import {AttentionInfo, Info, State} from 'mdast-util-to-markdown'
 * @import {Parents, Strong} from 'mdast'
 */
-strong.peek = strongPeek;
+strong.attention = attention;
+strong.peek = peek;
 /**
+* Serialize a strong node.
+*
+* Attention is properly handled by `containerPhrasing`.
+*
 * @param {Strong} node
+*   Node to serialize.
 * @param {Parents | undefined} _
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
 function strong(node, _, state, info) {
-	const marker = checkStrong(state);
-	const exit = state.enter("strong");
-	const tracker = state.createTracker(info);
-	const before = tracker.move(marker + marker);
-	let between = tracker.move(state.containerPhrasing(node, {
-		after: marker,
-		before,
-		...tracker.current()
-	}));
-	const betweenHead = between.charCodeAt(0);
-	const open = encodeInfo(info.before.charCodeAt(info.before.length - 1), betweenHead, marker);
-	if (open.inside) between = encodeCharacterReference(betweenHead) + between.slice(1);
-	const betweenTail = between.charCodeAt(between.length - 1);
-	const close = encodeInfo(info.after.charCodeAt(0), betweenTail, marker);
-	if (close.inside) between = between.slice(0, -1) + encodeCharacterReference(betweenTail);
-	const after = tracker.move(marker + marker);
+	const exit = state.enter("phrasing");
+	const value = serialize([attentionItem(node, attention, state, state.createTracker(info))], info.before, info.after);
 	exit();
-	state.attentionEncodeSurroundingInfo = {
-		after: close.outside,
-		before: open.outside
-	};
-	return before + between + after;
+	return value;
 }
 /**
+* Serialize a strong node as attention.
+*
 * @param {Strong} _
-* @param {Parents | undefined} _1
+*   Node to serialize.
 * @param {State} state
-* @returns {string}
+*   Info passed around.
+* @returns {AttentionInfo}
+*   Info on how to serialize the node.
 */
-function strongPeek(_, _1, state) {
+function attention(_, state) {
+	return {
+		construct: "strong",
+		markers: checkStrong(state) === "*" ? ["*", "_"] : ["_", "*"],
+		sizes: [2]
+	};
+}
+/**
+* Peek at this node.
+*
+* @param {Strong} _
+*   Node to serialize.
+* @param {Parents | undefined} _1
+*   Parent node.
+* @param {State} state
+*   Info passed around.
+* @returns {string}
+*   Start of the serialized markdown.
+*/
+function peek(_, _1, state) {
 	return state.options.strong || "*";
 }
 //#endregion
@@ -15659,14 +16884,28 @@ function strongPeek(_, _1, state) {
 * @import {Parents, Text} from 'mdast'
 */
 /**
+* Serialize a text node.
+*
 * @param {Text} node
-* @param {Parents | undefined} _
+*   Node to serialize.
+* @param {Parents | undefined} parent
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @param {Info} info
+*   Info on surrounding context.
 * @returns {string}
+*   Serialized markdown.
 */
-function text$1(node, _, state, info) {
-	return state.safe(node.value, info);
+function text$1(node, parent, state, info) {
+	/* c8 ignore next -- parent always passed */
+	const siblings = parent ? parent.children : [];
+	const index = state.indexStack[state.indexStack.length - 1];
+	return state.safe(node.value, {
+		...info,
+		afterNode: siblings[index + 1],
+		beforeNode: siblings[index - 1]
+	});
 }
 //#endregion
 //#region node_modules/mdast-util-to-markdown/lib/util/check-rule-repetition.js
@@ -15674,8 +16913,12 @@ function text$1(node, _, state, info) {
 * @import {Options, State} from 'mdast-util-to-markdown'
 */
 /**
+* Checks the preferred rule repetition option.
+*
 * @param {State} state
+*   Info passed around.
 * @returns {Exclude<Options['ruleRepetition'], null | undefined>}
+*   Preferred rule repetition.
 */
 function checkRuleRepetition(state) {
 	const repetition = state.options.ruleRepetition || 3;
@@ -15689,10 +16932,16 @@ function checkRuleRepetition(state) {
 * @import {Parents, ThematicBreak} from 'mdast'
 */
 /**
+* Serialize a thematic break node.
+*
 * @param {ThematicBreak} _
+*   Node to serialize.
 * @param {Parents | undefined} _1
+*   Parent node.
 * @param {State} state
+*   Info passed around.
 * @returns {string}
+*   Serialized markdown.
 */
 function thematicBreak(_, _1, state) {
 	const value = (checkRule(state) + (state.options.ruleSpaces ? " " : "")).repeat(checkRuleRepetition(state));
@@ -17426,14 +18675,25 @@ var EditMap = class {
 		* @type {Array<Change>}
 		*/
 		this.map = [];
+		/**
+		* Changes by index, so `add` does not scan `map` (quadratic on
+		* table-heavy documents).
+		*
+		* @type {Map<number, Change>}
+		*/
+		this.index = /* @__PURE__ */ new Map();
 	}
 	/**
 	* Create an edit: a remove and/or add at a certain place.
 	*
 	* @param {number} index
+	*   Index at which to apply the edit.
 	* @param {number} remove
+	*   Count of items to remove at the index.
 	* @param {Array<Event>} add
+	*   Items to add at the index.
 	* @returns {undefined}
+	*   Nothing.
 	*/
 	add(index, remove, add) {
 		addImplementation(this, index, remove, add);
@@ -17442,7 +18702,9 @@ var EditMap = class {
 	* Done, change the events.
 	*
 	* @param {Array<Event>} events
+	*   List of events to apply the edits to.
 	* @returns {undefined}
+	*   Nothing.
 	*/
 	consume(events) {
 		this.map.sort(function(a, b) {
@@ -17466,34 +18728,40 @@ var EditMap = class {
 			slice = vecs.pop();
 		}
 		this.map.length = 0;
+		this.index.clear();
 	}
 };
 /**
 * Create an edit.
 *
 * @param {EditMap} editMap
+*   Edit map to apply to.
 * @param {number} at
+*   Index at which to apply the edit.
 * @param {number} remove
+*   Count of items to remove at the index.
 * @param {Array<Event>} add
+*   Items to add at the index.
 * @returns {undefined}
+*   Nothing.
 */
 function addImplementation(editMap, at, remove, add) {
-	let index = 0;
 	/* c8 ignore next 3 -- `resolve` is never called without tables, so without edits. */
 	if (remove === 0 && add.length === 0) return;
-	while (index < editMap.map.length) {
-		if (editMap.map[index][0] === at) {
-			editMap.map[index][1] += remove;
-			editMap.map[index][2].push(...add);
-			return;
-		}
-		index += 1;
+	const existing = editMap.index.get(at);
+	if (existing) {
+		existing[1] += remove;
+		existing[2].push(...add);
+		return;
 	}
-	editMap.map.push([
+	/** @type {Change} */
+	const change = [
 		at,
 		remove,
 		add
-	]);
+	];
+	editMap.map.push(change);
+	editMap.index.set(at, change);
 }
 //#endregion
 //#region node_modules/micromark-extension-gfm-table/lib/infer.js
@@ -17560,6 +18828,8 @@ function gfmTable() {
 	} } };
 }
 /**
+* Tokenizer for GFM tables.
+*
 * @this {TokenizeContext}
 * @type {Tokenizer}
 */
@@ -17589,7 +18859,7 @@ function tokenizeTable(effects, ok, nok) {
 	function start(code) {
 		let index = self.events.length - 1;
 		while (index > -1) {
-			const type = self.events[index][1].type;
+			const { type } = self.events[index][1];
 			if (type === "lineEnding" || type === "linePrefix") index--;
 			else break;
 		}
@@ -18116,12 +19386,19 @@ function resolveTable(events, context) {
 * Generate a cell.
 *
 * @param {EditMap} map
+*   Edit map to apply to.
 * @param {Readonly<TokenizeContext>} context
+*   Tokenize context.
 * @param {Readonly<Range>} range
+*   Range of the cell within events.
 * @param {RowKind} rowKind
+*   Type of row.
 * @param {number | undefined} rowEnd
+*   Index of the end of the row, if known.
 * @param {Token | undefined} previousCell
+*   Previous cell token, if any.
 * @returns {Token | undefined}
+*   Current cell token after flushing, if any.
 */
 function flushCell(map, context, range, rowKind, rowEnd, previousCell) {
 	const groupName = rowKind === 1 ? "tableHeader" : rowKind === 2 ? "tableDelimiter" : "tableData";
@@ -18192,10 +19469,17 @@ function flushCell(map, context, range, rowKind, rowEnd, previousCell) {
 * Generate table end (and table body end).
 *
 * @param {Readonly<EditMap>} map
+*   Edit map to apply to.
 * @param {Readonly<TokenizeContext>} context
+*   Tokenize context.
 * @param {number} index
+*   Index within the events where the table end should be inserted.
 * @param {Token} table
+*   Table token.
 * @param {Token | undefined} tableBody
+*   Table body token, if any.
+* @returns {undefined}
+*   Nothing.
 */
 function flushTableEnd(map, context, index, table, tableBody) {
 	/** @type {Array<Event>} */
@@ -18218,9 +19502,14 @@ function flushTableEnd(map, context, index, table, tableBody) {
 	map.add(index + 1, 0, exits);
 }
 /**
+* Get the point (start or end) for a given event in the list of events.
+*
 * @param {Readonly<Array<Event>>} events
+*   List of events.
 * @param {number} index
+*   Index of the event to get the point for.
 * @returns {Readonly<Point>}
+*   Start point for enter and end point for exit.
 */
 function getPoint(events, index) {
 	const event = events[index];
@@ -18408,15 +19697,25 @@ function remarkGfm(options) {
 //#endregion
 //#region src/clarificationParser.ts
 var EXCLUDED_CONTAINERS = /* @__PURE__ */ new Set([
-	"heading",
 	"link",
-	"linkReference"
+	"linkReference",
+	"inlineCode",
+	"html",
+	"image",
+	"imageReference"
 ]);
-function scanTextClarifications(raw, decoded, baseOffset = 0) {
-	const results = [];
+function mappedTextOffset(raw, decoded, target, blockquote, direction) {
 	let s = 0;
 	let v = 0;
 	while (s < raw.length && v < decoded.length) {
+		const current = direction === "source" ? s : v;
+		if (current === target) return direction === "source" ? v : s;
+		if (current > target) return void 0;
+		if (blockquote && raw[s] === ">" && /^[ \t>]*$/.test(raw.slice(raw.lastIndexOf("\n", s - 1) + 1, s))) {
+			s++;
+			if (raw[s] === " " || raw[s] === "	") s++;
+			continue;
+		}
 		if (raw[s] === "\\" && s + 1 < raw.length && /^[!"#$%&'()*+,-./:;<=>?@[\\\]^_`{|}~]$/.test(raw[s + 1])) {
 			s += 2;
 			v += 1;
@@ -18436,72 +19735,188 @@ function scanTextClarifications(raw, decoded, baseOffset = 0) {
 				continue;
 			}
 		}
-		if (raw[s] === "\r" || raw[s] === "\n" || raw[s] === " " || raw[s] === "	") {
+		if (decoded[v] === "\n" && (raw[s] === "\r" || raw[s] === "\n" || raw[s] === " " || raw[s] === "	")) {
 			const nl = raw.slice(s).match(/^[ \t]*\r?\n[ \t]*/);
-			if (nl && decoded[v] === "\n") {
+			if (nl) {
 				s += nl[0].length;
 				v += 1;
 				continue;
 			}
 		}
-		if (raw[s] === "[") {
-			const marker = raw.slice(s).match(/^\[NEEDS CLARIFICATION:\s*([^\]]+)\]/i);
-			if (marker) {
-				let backslashes = 0;
-				for (let i = marker[1].length - 1; i >= 0 && marker[1][i] === "\\"; i--) backslashes++;
-				const question = marker[1].trim();
-				if (backslashes % 2 === 0 && question && question.length <= 4e3 && decoded.startsWith(marker[0], v)) {
-					results.push({
-						question,
-						rawText: marker[0],
-						startIdx: baseOffset + s,
-						endIdx: baseOffset + s + marker[0].length,
-						valueStart: v,
-						valueEnd: v + marker[0].length
-					});
-					s += marker[0].length;
-					v += marker[0].length;
-					continue;
-				}
-			}
-		}
 		s += 1;
 		v += 1;
 	}
-	return results;
+	return (direction === "source" ? s : v) === target ? direction === "source" ? v : s : void 0;
 }
-function parseClarificationSource(markdown) {
+function sourceTextOffset(raw, decoded, target, blockquote = false) {
+	return mappedTextOffset(raw, decoded, target, blockquote, "source");
+}
+function sourcePointAt(markdown, offset, origin, originOffset) {
+	const prefix = markdown.slice(originOffset, offset);
+	const lines = prefix.split("\n");
+	return {
+		offset,
+		line: origin.line + lines.length - 1,
+		column: lines.length > 1 ? lines[lines.length - 1].length + 1 : origin.column + prefix.length
+	};
+}
+function preserveSourcePositions(markdown) {
+	return function() {
+		const snapshots = /* @__PURE__ */ new WeakMap();
+		function capture(node) {
+			if (!("children" in node)) return;
+			snapshots.set(node, node.children.map((child) => ({
+				node: child,
+				value: child.type === "text" ? child.value : void 0,
+				position: child.position ? {
+					start: { ...child.position.start },
+					end: { ...child.position.end }
+				} : void 0
+			})));
+			for (const child of node.children) capture(child);
+		}
+		function restoreChildren(node, blockquote) {
+			if (!("children" in node)) return;
+			let cursor = 0;
+			for (const original of snapshots.get(node) ?? []) {
+				const current = node.children[cursor];
+				if (current === original.node && (current.type !== "text" || current.value === original.value)) {
+					cursor++;
+					continue;
+				}
+				const start = original.position?.start.offset;
+				const end = original.position?.end.offset;
+				if (original.value === void 0 || !original.position || start === void 0 || end === void 0) return;
+				const pieces = [];
+				let offset = 0;
+				while (offset < original.value.length) {
+					const child = node.children[cursor++];
+					if (!child || child.type !== "text" && child.type !== "link") return;
+					const value = toString(child);
+					if (!value || original.value.slice(offset, offset + value.length) !== value) return;
+					pieces.push({
+						node: child,
+						start: offset,
+						end: offset + value.length
+					});
+					offset += value.length;
+				}
+				if (offset !== original.value.length) return;
+				const raw = markdown.slice(start, end);
+				const positioned = pieces.map((piece) => {
+					const lower = mappedTextOffset(raw, original.value, piece.start, blockquote, "text");
+					const upper = mappedTextOffset(raw, original.value, piece.end, blockquote, "text");
+					return lower === void 0 || upper === void 0 ? null : {
+						node: piece.node,
+						position: {
+							start: sourcePointAt(markdown, start + lower, original.position.start, start),
+							end: sourcePointAt(markdown, start + upper, original.position.start, start)
+						}
+					};
+				});
+				if (positioned.some((piece) => piece === null)) return;
+				for (const piece of positioned) {
+					if (!piece) continue;
+					piece.node.position = piece.position;
+					if (piece.node.type === "link" && piece.node.children.length === 1 && piece.node.children[0]?.type === "text") piece.node.children[0].position = piece.position;
+				}
+			}
+		}
+		function restore(node, blockquote = false) {
+			if (node.type === "blockquote") blockquote = true;
+			restoreChildren(node, blockquote);
+			if ("children" in node) for (const child of node.children) restore(child, blockquote);
+		}
+		const data = this.data();
+		data.fromMarkdownExtensions = [
+			{ transforms: [(tree) => {
+				capture(tree);
+			}] },
+			...data.fromMarkdownExtensions ?? [],
+			{ transforms: [(tree) => {
+				restore(tree);
+			}] }
+		];
+	};
+}
+function sourceClarifications(markdown, tree) {
 	if (!/\[NEEDS CLARIFICATION:/i.test(markdown)) return [];
-	const processor = unified().use(remarkParse).use(remarkGfm);
-	const tree = processor.runSync(processor.parse(markdown));
 	const questions = [];
 	let section = "";
-	function walk(node, ancestors) {
+	function excludedSpans(node, spans) {
+		if (EXCLUDED_CONTAINERS.has(node.type)) {
+			const start = node.position?.start.offset;
+			const end = node.position?.end.offset;
+			if (start !== void 0 && end !== void 0) spans.push({
+				start,
+				end,
+				type: node.type
+			});
+			return;
+		}
+		if ("children" in node) for (const child of node.children) excludedSpans(child, spans);
+	}
+	function walk(node) {
 		if (node.type === "heading") {
 			section = toString(node);
 			return;
 		}
-		if (node.type === "text") {
-			if (!ancestors.length || ancestors.some((ancestor) => EXCLUDED_CONTAINERS.has(ancestor.type))) return;
+		if (node.type === "paragraph" || node.type === "tableCell") {
 			const start = node.position?.start.offset;
 			const end = node.position?.end.offset;
 			if (start === void 0 || end === void 0) return;
-			for (const match of scanTextClarifications(markdown.slice(start, end), node.value, start)) questions.push({
-				index: questions.length,
-				question: match.question,
-				section,
-				startIdx: match.startIdx,
-				endIdx: match.endIdx
-			});
+			const excluded = [];
+			excludedSpans(node, excluded);
+			const prefixes = /\[NEEDS CLARIFICATION:/gi;
+			let nextStart = start;
+			for (const match of markdown.slice(start, end).matchAll(prefixes)) {
+				const startIdx = start + match.index;
+				if (startIdx < nextStart) continue;
+				let openingEscapes = 0;
+				for (let index = startIdx - 1; index >= 0 && markdown[index] === "\\"; index--) openingEscapes++;
+				if (openingEscapes % 2 || excluded.some((span) => startIdx >= span.start && startIdx < span.end)) continue;
+				const bodyStart = startIdx + match[0].length;
+				const contentStart = end - markdown.slice(bodyStart, end).trimStart().length;
+				let close = markdown.indexOf("]", contentStart);
+				while (close >= 0 && close < end) {
+					if (markdown.slice(contentStart, close).trimEnd().length > 4e3) {
+						close = -1;
+						break;
+					}
+					const span = excluded.find((entry) => close >= entry.start && close < entry.end);
+					let escapes = 0;
+					for (let index = close - 1; index >= bodyStart && markdown[index] === "\\"; index--) escapes++;
+					if (!span && escapes % 2 === 0) break;
+					close = markdown.indexOf("]", span ? span.end : close + 1);
+				}
+				if (close < 0 || close >= end) continue;
+				const endIdx = close + 1;
+				const question = markdown.slice(bodyStart, close).trim();
+				if (!question || question.length > 4e3 || excluded.some((span) => [
+					"html",
+					"image",
+					"imageReference"
+				].includes(span.type) && span.start < endIdx && span.end > startIdx)) continue;
+				questions.push({
+					index: questions.length,
+					question,
+					section,
+					startIdx,
+					endIdx
+				});
+				nextStart = endIdx;
+			}
 			return;
 		}
-		if ("children" in node && Array.isArray(node.children)) {
-			const nextAncestors = [...ancestors, node];
-			for (const child of node.children) walk(child, nextAncestors);
-		}
+		if ("children" in node) for (const child of node.children) walk(child);
 	}
-	walk(tree, []);
+	walk(tree);
 	return questions;
 }
+function parseClarificationSource(markdown) {
+	if (!/\[NEEDS CLARIFICATION:/i.test(markdown)) return [];
+	const processor = unified().use(remarkParse).use(remarkGfm).use(preserveSourcePositions(markdown));
+	return sourceClarifications(markdown, processor.runSync(processor.parse(markdown)));
+}
 //#endregion
-export { parseClarificationSource, scanTextClarifications };
+export { parseClarificationSource, preserveSourcePositions, sourceClarifications, sourcePointAt, sourceTextOffset };

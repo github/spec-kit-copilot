@@ -3,13 +3,13 @@ import type { ComponentPropsWithoutRef, CSSProperties, RefObject } from "react";
 import Markdown from "react-markdown";
 import type { Components, ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Emphasis, Nodes, Parent, Root, Text } from "mdast";
+import type { Emphasis, Nodes, PhrasingContent, Root } from "mdast";
 import type { Plugin } from "unified";
 import { ChevronLeft, ChevronRight, Files, RefreshCw } from "lucide-react";
 import { createMarkdownOutline, namespaceMarkdownTargets } from "./markdownOutline.ts";
 import { MarkdownTableOfContents } from "./MarkdownTableOfContents/MarkdownTableOfContents.tsx";
 import { scrollToMarkdownHeading, useActiveMarkdownHeading } from "./useActiveMarkdownHeading.ts";
-import { scanTextClarifications } from "../clarificationParser.ts";
+import { preserveSourcePositions, sourceClarifications, sourcePointAt, sourceTextOffset } from "../clarificationParser.ts";
 import type { ClarificationDescriptor, ReaderOptions } from "../types.ts";
 
 const STATE_MESSAGES = {
@@ -26,43 +26,68 @@ const STATE_MESSAGES = {
 };
 
 const ReaderContext = createContext<{ options: ReaderOptions; root: RefObject<HTMLElement | null> } | null>(null);
-const EXCLUDED_CLARIFICATION_CONTAINERS = new Set(["heading", "link", "linkReference"]);
+type ClarificationBinding = Pick<ClarificationDescriptor, "id" | "question" | "sourceStart" | "sourceEnd">;
 
-function clarificationTransform(bindings: readonly ClarificationDescriptor[], sourceMarkdown: string): Plugin<[], Root> {
+function clarificationTransform(bindings: readonly ClarificationBinding[], sourceMarkdown: string): Plugin<[], Root> {
     return () => (tree) => {
-        function walk(parent: Parent, ancestors: Parent[]) {
-            if (EXCLUDED_CLARIFICATION_CONTAINERS.has(parent.type) ||
-                ancestors.some((ancestor) => EXCLUDED_CLARIFICATION_CONTAINERS.has(ancestor.type))) return;
-            const nextAncestors = [...ancestors, parent];
-            for (let index = 0; index < parent.children.length; index++) {
-                const node = parent.children[index] as Nodes | undefined;
-                if (!node) continue;
-                if (node.type === "text") {
-                    const start = node.position?.start.offset;
-                    const end = node.position?.end.offset;
-                    const raw = start !== undefined && end !== undefined ? sourceMarkdown.slice(start, end) : node.value;
-                    const replacements: Array<Text | Emphasis> = [];
-                    let offset = 0;
-                    for (const match of scanTextClarifications(raw, node.value, start ?? 0)) {
-                        const binding = bindings.find((entry) => entry.question === match.question &&
-                            (entry.sourceStart === undefined || entry.sourceStart === match.startIdx));
-                        if (!binding) continue;
-                        if (match.valueStart > offset) replacements.push({ type: "text", value: node.value.slice(offset, match.valueStart) });
-                        replacements.push({ type: "emphasis", children: [{ type: "text", value: match.rawText }], data: {
-                            hName: "span", hProperties: { "data-clarification-id": binding.id },
-                        } });
-                        offset = match.valueEnd;
-                    }
-                    if (!replacements.length) continue;
-                    if (offset < node.value.length) replacements.push({ type: "text", value: node.value.slice(offset) });
-                    parent.children.splice(index, 1, ...(replacements as Parent["children"]));
-                    index += replacements.length - 1;
-                } else if ("children" in node && Array.isArray(node.children)) {
-                    walk(node as Parent, nextAncestors);
-                }
+        if (!bindings.length) return;
+        const questions = sourceClarifications(sourceMarkdown, tree);
+        // An unmappable overlap is null; an out-of-range node is undefined.
+        function sliceNode(node: PhrasingContent, from: number, to: number, blockquote: boolean): PhrasingContent | null | undefined {
+            const start = node.position?.start.offset;
+            const end = node.position?.end.offset;
+            if (!node.position || start === undefined || end === undefined) return null;
+            if (end <= from || start >= to) return undefined;
+            if (start >= from && end <= to) return node;
+            const lower = Math.max(start, from);
+            const upper = Math.min(end, to);
+            const position = { start: sourcePointAt(sourceMarkdown, lower, node.position.start, start),
+                end: sourcePointAt(sourceMarkdown, upper, node.position.start, start) };
+            if (node.type === "text") {
+                const raw = sourceMarkdown.slice(start, end);
+                const valueStart = sourceTextOffset(raw, node.value, lower - start, blockquote);
+                const valueEnd = sourceTextOffset(raw, node.value, upper - start, blockquote);
+                if (valueStart === undefined || valueEnd === undefined) return null;
+                const value = node.value.slice(valueStart, valueEnd);
+                return value ? { ...node, value, position } : undefined;
             }
+            if (node.type === "emphasis" || node.type === "strong" || node.type === "delete") {
+                const children = sliceChildren(node.children, from, to, blockquote);
+                return children === null ? null : children.length ? { ...node, children, position } : undefined;
+            }
+            return null;
         }
-        walk(tree, []);
+        function sliceChildren(children: PhrasingContent[], from: number, to: number, blockquote: boolean): PhrasingContent[] | null {
+            const parts = children.map((child) => sliceNode(child, from, to, blockquote));
+            if (parts.some((part) => part === null)) return null;
+            return parts.filter((part): part is PhrasingContent => part !== null && part !== undefined);
+        }
+        function walk(node: Nodes, blockquote = false) {
+            if (node.type === "blockquote") blockquote = true;
+            if (node.type === "paragraph" || node.type === "tableCell") {
+                const start = node.position?.start.offset;
+                const end = node.position?.end.offset;
+                if (!node.position || start === undefined || end === undefined) return;
+                for (const question of questions.filter((entry) => entry.startIdx >= start && entry.endIdx <= end).reverse()) {
+                    const binding = bindings.find((entry) => entry.question === question.question &&
+                        (entry.sourceStart === undefined || entry.sourceStart === question.startIdx) &&
+                        (entry.sourceEnd === undefined || entry.sourceEnd === question.endIdx));
+                    if (!binding) continue;
+                    const before = sliceChildren(node.children, start, question.startIdx, blockquote);
+                    const inside = sliceChildren(node.children, question.startIdx, question.endIdx, blockquote);
+                    const after = sliceChildren(node.children, question.endIdx, end, blockquote);
+                    if (before === null || inside === null || after === null || !inside.length) continue;
+                    const marker: Emphasis = { type: "emphasis", children: inside, data: {
+                        hName: "span", hProperties: { "data-clarification-id": binding.id },
+                    }, position: { start: sourcePointAt(sourceMarkdown, question.startIdx, node.position.start, start),
+                        end: sourcePointAt(sourceMarkdown, question.endIdx, node.position.start, start) } };
+                    node.children = [...before, marker, ...after];
+                }
+                return;
+            }
+            if ("children" in node) for (const child of node.children) walk(child, blockquote);
+        }
+        walk(tree);
     };
 }
 
@@ -137,12 +162,13 @@ export function MarkdownReader({ options }: { options: ReaderOptions }) {
     const bindingKey = JSON.stringify((options.clarifications ?? []).filter((binding) =>
         binding.artifactId === document?.artifact.id && binding.revision === document?.revision &&
         /^[A-Za-z0-9_-]{1,256}$/.test(binding.id) && binding.question.length <= 4000 && /^speckit[.-][a-z0-9.-]+$/i.test(binding.commandName)
-    ).map(({ id, question, sourceStart }) => ({ id, question, sourceStart })));
+    ).map(({ id, question, sourceStart, sourceEnd }) => ({ id, question, sourceStart, sourceEnd })));
     const parsed = useMemo(() => {
         const outline = createMarkdownOutline(options.readerId);
-        const bindings = JSON.parse(bindingKey) as ClarificationDescriptor[];
+        const bindings = JSON.parse(bindingKey) as ClarificationBinding[];
         const body = Markdown({
-            children: content, skipHtml: true, remarkPlugins: [remarkGfm, outline.plugin, clarificationTransform(bindings, content)],
+            children: content, skipHtml: true, remarkPlugins: [remarkGfm,
+                ...(bindings.length ? [preserveSourcePositions(content)] : []), outline.plugin, clarificationTransform(bindings, content)],
             rehypePlugins: [[namespaceMarkdownTargets, options.readerId]], components: markdownComponents,
         });
         return { body, headings: outline.headings };

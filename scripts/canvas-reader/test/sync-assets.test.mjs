@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +13,36 @@ import { startFixture } from "../serve-fixture.mjs";
 function sha256(content) {
     return createHash("sha256").update(content).digest("hex");
 }
+
+test("domain synchronization reports specific safe validation errors and system codes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "speckit-domain-diagnostics-"));
+    const script = join(root, "scripts", "canvas-reader", "sync-domain.mjs");
+    const parserRoot = join(root, READER_PACKAGE, "build", "parser");
+    try {
+        await mkdir(join(root, "scripts", "canvas-reader"), { recursive: true });
+        await mkdir(parserRoot, { recursive: true });
+        await writeFile(script, await readFile(new URL("../sync-domain.mjs", import.meta.url)));
+        await writeFile(join(root, "scripts", "canvas-reader", "sync-assets.mjs"),
+            `export const REPOSITORY_ROOT = ${JSON.stringify(root)};\nexport async function sourceFingerprint() { return "current"; }\nexport function inspectScriptStrings() {}\n`);
+        const metadata = join(parserRoot, "build-metadata.json");
+        await writeFile(metadata, JSON.stringify({ sourceHash: "stale" }));
+        const stale = spawnSync(process.execPath, [script, "--verify"], { encoding: "utf8" });
+        assert.equal(stale.status, 1);
+        assert.match(stale.stderr, /Parser build is stale/);
+        assert.ok(!stale.stderr.includes(root));
+        await writeFile(metadata, `SYNTHETIC_PRIVATE_METADATA ${root}`);
+        const invalid = spawnSync(process.execPath, [script, "--verify"], { encoding: "utf8" });
+        assert.equal(invalid.status, 1);
+        assert.match(invalid.stderr, /Parser build metadata is invalid/);
+        assert.ok(!invalid.stderr.includes(root));
+        assert.ok(!invalid.stderr.includes("SYNTHETIC_PRIVATE_METADATA"));
+        await rm(metadata);
+        const missing = spawnSync(process.execPath, [script, "--verify"], { encoding: "utf8" });
+        assert.equal(missing.status, 1);
+        assert.match(missing.stderr, /ENOENT/);
+        assert.ok(!missing.stderr.includes(root));
+    } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 async function fixture(run) {
     const repositoryRoot = await mkdtemp(join(tmpdir(), "speckit-reader-assets-"));

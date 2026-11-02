@@ -9,9 +9,41 @@ import { mock, test } from "node:test";
 import { createOwnedWorkspace } from "../fixtures/workspace.mjs";
 import { stageAppFixture } from "../stage-app-fixture.mjs";
 import { startFixture } from "../serve-fixture.mjs";
+import { READER_PACKAGE, REPOSITORY_ROOT } from "../sync-assets.mjs";
 
 const require = createRequire(new URL("../../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/markdown-reader/package.json", import.meta.url));
 const { JSDOM } = require("jsdom");
+
+test("both dependency lockfiles use only public HTTPS tarballs and SHA-512 integrity", () => {
+    const packages = [
+        "plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas",
+        READER_PACKAGE,
+    ];
+    for (const directory of packages) {
+        const lock = JSON.parse(filesystem.readFileSync(join(REPOSITORY_ROOT, directory, "package-lock.json"), "utf8"));
+        assert.ok(Object.keys(lock.packages).length > 1);
+        for (const [path, entry] of Object.entries(lock.packages)) {
+            if (!path) continue;
+            const url = new URL(entry.resolved);
+            assert.equal(url.origin, "https://registry.npmjs.org", path);
+            assert.equal(url.username, "", path);
+            assert.equal(url.password, "", path);
+            assert.match(entry.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/, path);
+            assert.equal(Buffer.from(entry.integrity.slice(7), "base64").length, 64, path);
+        }
+    }
+});
+
+test("reader validation actions are immutable and retain read-only fork permissions", () => {
+    const workflow = filesystem.readFileSync(join(REPOSITORY_ROOT, ".github", "workflows", "canvas-reader-validation.yml"), "utf8");
+    const usesLines = workflow.split("\n").filter((line) => /^\s+uses:/.test(line));
+    assert.equal(usesLines.length, 3);
+    for (const line of usesLines) assert.match(line, /actions\/[a-z-]+@[a-f0-9]{40}\s+#\s+v7/);
+    assert.match(workflow, /pull_request:/);
+    assert.doesNotMatch(workflow, /pull_request_target:/);
+    assert.match(workflow, /permissions:\s*\n\s+contents:\s+read/);
+    assert.match(workflow, /node-version:\s+24\.19\.0/);
+});
 
 async function withPayload(canvas, run) {
     const owner = await createOwnedWorkspace();

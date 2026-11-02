@@ -11,7 +11,13 @@ const require = createRequire(new URL(`../../${WIZARD}/ui/markdown-reader/packag
 
 export async function syncDomain({ verify = false } = {}) {
     const parserRoot = join(REPOSITORY_ROOT, WIZARD, "ui/markdown-reader/build/parser");
-    const metadata = JSON.parse(await readFile(join(parserRoot, "build-metadata.json"), "utf8"));
+    let metadata;
+    try {
+        metadata = JSON.parse(await readFile(join(parserRoot, "build-metadata.json"), "utf8"));
+    } catch (error) {
+        if (error instanceof SyntaxError) throw new Error("Parser build metadata is invalid.");
+        throw error;
+    }
     if (metadata.sourceHash !== await sourceFingerprint()) throw new Error("Parser build is stale.");
     const parser = await readFile(join(parserRoot, "artifact-clarifications.mjs"));
     if (parser.length > 10 * 1024 * 1024 || /sourceMappingURL/.test(parser.toString("utf8"))) throw new Error("Invalid parser output.");
@@ -64,8 +70,8 @@ export async function syncDomain({ verify = false } = {}) {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-    syncDomain({ verify: process.argv.includes("--verify") }).then((result) => console.log(JSON.stringify(result))).catch(() => {
-        console.error("Domain package validation failed; rebuild the reader and parser.");
+    syncDomain({ verify: process.argv.includes("--verify") }).then((result) => console.log(JSON.stringify(result))).catch((error) => {
+        console.error(error.code ? `Domain package validation failed (${error.code}).` : error.message);
         process.exitCode = 1;
     });
 }

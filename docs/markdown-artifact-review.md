@@ -59,6 +59,9 @@ HTML comments do not become actionable clarification markers. Existing callers
 without reader metadata retain their original action contracts.
 Answers accept normal textarea whitespace (line breaks and tabs) while retaining
 the character and aggregate UTF-8 byte limits. Identifier validation remains strict.
+Questions may contain inline code, emphasis, URLs, and email addresses. Their raw
+source spans determine bindings; markers inside code examples, links, images,
+headings, comments, or escaped/entity-encoded prefixes remain inert.
 
 ## Read Boundary
 
@@ -121,6 +124,13 @@ npm --prefix $reader run test:tools
 npm --prefix $reader run test:browser
 npm --prefix $reader audit --audit-level=low --ignore-scripts
 ```
+
+Both package lockfiles must use public `registry.npmjs.org` HTTPS tarball URLs
+and SHA-512 integrity for every dependency. Regenerate against that registry,
+not a user- or organization-configured mirror, and retain the package-contract
+checks. The reader temporarily overrides `minimatch` to 11.0.1 to address
+GHSA-g3hv-75wg-m249 until its lint dependencies accept the patched major; do not
+replace this with an audit exemption or an ESLint downgrade.
 
 After dependency or lockfile updates, rebuild and verify both packaged payloads
 with this toolchain. The source fingerprint includes the lockfile, so tooling-only

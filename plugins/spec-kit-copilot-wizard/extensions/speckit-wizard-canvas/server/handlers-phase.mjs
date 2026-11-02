@@ -80,6 +80,24 @@ async function isPhaseSetupComplete(deps) {
         Boolean(setup.skillsReloaded);
 }
 
+async function validateReviewedClarifications(res, body, service) {
+    if (!service) {
+        jsonError(res, 409, "Review context is no longer available.");
+        return false;
+    }
+    const review = body.review;
+    try {
+        await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
+        return true;
+    } catch (error) {
+        const changed = error?.code === "changed_source";
+        jsonError(res, changed ? 409 : 400, changed
+            ? "Clarification source changed. Refresh before submitting."
+            : "Clarification answers are invalid or exceed the review submission limit.");
+        return false;
+    }
+}
+
 export async function handlePhaseSubmit(res, body, deps) {
     // New (v2) dispatch path: when the client sends `commandName` (e.g.
     // "speckit.constitution") we dispatch a literal Copilot Chat slash
@@ -90,23 +108,12 @@ export async function handlePhaseSubmit(res, body, deps) {
     // reports a terminal phase status, and opens a witness window so the
     // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
-        if (body.review) {
-            const review = body.review;
-            const inst = deps.getInstance?.();
-            const service = inst?.reviewService;
-            if (!service) return jsonError(res, 409, "Review context is no longer available.");
-            try {
-                await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
-            } catch (error) {
-                const changed = error?.code === "changed_source";
-                return jsonError(res, changed ? 409 : 400, changed
-                    ? "Clarification source changed. Refresh before submitting."
-                    : "Clarification answers are invalid or exceed the review submission limit.");
-            }
-        }
+        const service = body.review ? deps.getInstance?.()?.reviewService : null;
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
         if (!await isPhaseSetupComplete(deps)) {
             return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
         }
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
             args: typeof body.args === "string" ? body.args : "",

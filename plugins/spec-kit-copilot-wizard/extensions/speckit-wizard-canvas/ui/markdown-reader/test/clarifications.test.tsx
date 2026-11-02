@@ -74,3 +74,35 @@ test("trusted clarification button calls only the host callback with its descrip
         dom.window.close();
     }
 });
+
+test("reader binds formatted questions without dropping their inline markup", () => {
+    const source = [
+        "# Formatted questions",
+        "[NEEDS CLARIFICATION: Should `retry` default to true?]",
+        "[NEEDS CLARIFICATION: Is *required* mandatory?]",
+        "[NEEDS CLARIFICATION: Use https://example.invalid/docs?]",
+        "[NEEDS CLARIFICATION: Contact owner@example.invalid?]",
+        "**[NEEDS CLARIFICATION: Should *wrapped* markers work?]**",
+        "> Context before the question.\n> [NEEDS CLARIFICATION: Can `quoted` questions be answered?]",
+        "[NEEDS CLARIFICATION: Should `items[0]` remain available?]",
+    ].join("\n\n");
+    const options = readerOptions(source);
+    const parsed = parseClarificationSource(source);
+    options.clarifications = parsed.map((question) => ({
+        id: `binding_formatted_${question.index}`, questionId: `question_formatted_${question.index}`,
+        question: question.question, sourceStart: question.startIdx, sourceEnd: question.endIdx,
+        artifactId: options.document!.artifact.id, revision: options.document!.revision,
+        commandName: "speckit.specify", mode: "wizard-batched",
+    }));
+    options.onClarification = () => {};
+    const dom = new JSDOM(renderToStaticMarkup(createElement(MarkdownReader, { options })));
+    try {
+        assert.equal(parsed.length, 7);
+        const controls = dom.window.document.querySelectorAll(".md-reader__article [data-clarification-id]");
+        assert.equal(controls.length, parsed.length);
+        assert.equal(dom.window.document.querySelector(".md-reader__clarification mark code")?.textContent, "retry");
+        assert.equal(dom.window.document.querySelector(".md-reader__clarification mark em")?.textContent, "required");
+        assert.ok(dom.window.document.querySelector(".md-reader__clarification mark a"));
+        assert.match(dom.window.document.querySelector("blockquote")?.textContent ?? "", /Can quoted questions be answered/);
+    } finally { dom.window.close(); }
+});

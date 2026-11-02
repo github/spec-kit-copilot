@@ -1,3 +1,11 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { extractClarifications, scanFeatures, taskProgress } from "../sdd.mjs";
+
 test("clarification controls ignore inline code, indented code, tilde fences, and comments", () => {
     const markdown = [
         "# Specification", "[NEEDS CLARIFICATION: Real question?]",
@@ -10,13 +18,16 @@ test("clarification controls ignore inline code, indented code, tilde fences, an
     assert.deepEqual(extractClarifications(markdown).map((item) => item.question), ["Real question?"]);
 });
 
-import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import test from "node:test";
-
-import { extractClarifications, scanFeatures, taskProgress } from "../sdd.mjs";
+test("SDD retains formatted and autolink clarification questions", () => {
+    const questions = [
+        "Should `retry` default to true?",
+        "Is *required* mandatory?",
+        "Use https://example.invalid/docs?",
+        "Contact owner@example.invalid?",
+    ];
+    const markdown = questions.map((question) => `[NEEDS CLARIFICATION: ${question}]`).join("\n\n");
+    assert.deepEqual(extractClarifications(markdown).map((item) => item.question), questions);
+});
 
 function write(path, content, mtimeSeconds) {
     writeFileSync(path, content);

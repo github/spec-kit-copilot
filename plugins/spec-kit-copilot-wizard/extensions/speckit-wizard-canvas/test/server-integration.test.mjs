@@ -771,6 +771,49 @@ test("POST /api/phase/submit rechecks setup after asynchronous clarification val
     }
 });
 
+test("POST /api/phase/submit revalidates the artifact after the awaited state scan", async () => {
+    const { createWizardReviewService } = await import("../server/artifact-review.mjs");
+    const ws = tmpWorkspace();
+    const artifactPath = "specs/001-review-race/spec.md";
+    mkdirSync(join(ws, "specs", "001-review-race"), { recursive: true });
+    writeFileSync(join(ws, artifactPath), "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    const snapshot = {
+        workspacePath: ws, slug: "001-review-race", currentPhase: "specify",
+        phases: { specify: { artifactPath } }, commands: [], composition: { artifacts: [] },
+        setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+    };
+    const service = createWizardReviewService({ workspacePath: ws, instanceId: "inst-review-race", getState: async () => snapshot });
+    try {
+        const opened = await service.open({ stage: "specify" });
+        const document = await service.content(opened.contextId, opened.primaryArtifactId);
+        const question = document.clarifications[0];
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => {
+                await Promise.resolve();
+                writeFileSync(join(ws, artifactPath), "# Changed scope\n\n[NEEDS CLARIFICATION: New question?]\n");
+                return snapshot;
+            },
+            getInstance: () => ({ instanceId: "inst-review-race", workspacePath: ws, state: snapshot, reviewService: service }),
+        } });
+        const handler = createHandler(deps);
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer", review: {
+                contextId: opened.contextId, artifactId: opened.primaryArtifactId, expectedRevision: document.revision,
+                answers: [{ questionId: question.questionId, question: question.question, answer: "Only this feature." }],
+            } }),
+        }), res);
+        assert.equal(res.statusCode, 409, res.body);
+        assert.match(JSON.parse(res.body).error, /source changed/i);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        service.dispose();
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
 test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus call", async () => {
     // Extension commands aren't tracked by the wizard's canonical stepper;
     // wrapping them with a tracking preamble would ask the agent to write

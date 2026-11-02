@@ -5,6 +5,7 @@ const require = createRequire(new URL("../../../plugins/spec-kit-copilot-wizard/
 const { test, expect } = require("@playwright/test");
 const markdown = "# Clarification fixture\n\n## Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n\n## Tests\n\n[NEEDS CLARIFICATION: Which tests?]\n\n`[NEEDS CLARIFICATION: Inert example?]`\n";
 const multilineAnswer = "Only admins.\nAuditors\tread-only.";
+const formattedQuestion = "Should `retry` default to true?";
 
 async function openReader(page, canvas, fixture) {
     const url = new URL(fixture.url);
@@ -12,6 +13,36 @@ async function openReader(page, canvas, fixture) {
     if (canvas === "wizard") await page.locator('[data-tab="phases"]').click();
     await (canvas === "wizard" ? page.locator('#phase-card [data-phase-action="view"]') : page.getByTitle("View spec.md", { exact: true })).click();
     await expect(page.locator(".md-reader__article [data-clarification-id]")).toHaveCount(2);
+}
+
+for (const canvas of ["wizard", "sdd"]) {
+    test(`${canvas} submits the exact trusted binding for an inline-formatted question`, async ({ page }) => {
+        const markdown = `# Formatted questions\n\n[NEEDS CLARIFICATION: ${formattedQuestion}]\n\n[NEEDS CLARIFICATION: Use https://example.invalid/docs?]\n`;
+        const fixture = await startFixture({ canvas, markdown });
+        const submitted = [];
+        const route = canvas === "wizard" ? "**/api/phase/submit?*" : "**/api/clarify?*";
+        await page.route(route, async (request) => {
+            submitted.push(request.request().postDataJSON());
+            await request.fulfill({ status: canvas === "wizard" ? 202 : 200, contentType: "application/json",
+                body: JSON.stringify(canvas === "wizard" ? { queued: true } : { ok: true }) });
+        });
+        try {
+            await openReader(page, canvas, fixture);
+            await expect(page.locator(".md-reader__clarification mark code")).toHaveText("retry");
+            await expect(page.locator(".md-reader__clarification mark a")).toHaveText("https://example.invalid/docs");
+            await page.getByRole("button", { name: `Clarify: ${formattedQuestion}`, exact: true }).click();
+            await page.locator(canvas === "wizard" ? ".wizard-modal-textarea" : "#clarifyAnswer").fill(multilineAnswer);
+            await page.getByRole("button", { name: canvas === "wizard" ? "Save answer" : "Submit and run clarify", exact: true }).click();
+            if (canvas === "wizard") await page.getByRole("button", { name: "Apply and Rerun", exact: true }).click();
+            await expect.poll(() => submitted.length).toBe(1);
+            const answer = canvas === "wizard" ? submitted[0].review.answers[0] : submitted[0];
+            expect(answer.question).toBe(formattedQuestion);
+            expect(answer.answer).toBe(multilineAnswer);
+            expect(fixture.dispatchCount()).toBe(0);
+            expect(fixture.blockedWrites()).toBe(0);
+            expect(fixture.workspaceChanged()).toBe(false);
+        } finally { await page.close(); expect((await fixture.stop()).cleaned).toBe(true); }
+    });
 }
 
 test("Wizard retains cross-file clarification drafts and blocks close during a validated submission", async ({ page }) => {

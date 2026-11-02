@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "sourceHash": "sha256:0cc037c6bb1c45afafa2a4daf1940a0e8f72b885a52059cd1c02d00e7c712145",
-  "buildHash": "sha256:45f0bb7787a0a74a8cc04e0f637cd00556ee0a63d627499a13329993fbbb0882",
+  "sourceHash": "sha256:f340f8a510a8bb347b4fe644200e772ea7db1077fb7fadec0feae6ce9948b75f",
+  "buildHash": "sha256:2fc3d68b779569ac6611cc851379d305fbd626b69c1a776035ee9a0aa7c9382e",
   "files": [
     {
       "path": "markdown-reader.js",
-      "bytes": 495701,
-      "sha256": "c3acacb4579fff9a7b0ed178cdff70f0de1f5249a329507fe7da3451c7227ed4"
+      "bytes": 510799,
+      "sha256": "4e641b40352434591a73c05924cf2cc23f94cde0ff46d6970dd619a161192d02"
     },
     {
       "path": "markdown-reader.css",
@@ -15,8 +15,8 @@
     },
     {
       "path": "THIRD_PARTY_NOTICES.txt",
-      "bytes": 86383,
-      "sha256": "2939337eb66613e0414361d5ee5436ff544bae6d5a51f103f0851da837cbcc80"
+      "bytes": 86367,
+      "sha256": "538ed8bfac4bfb12c6be68b226bef42ea5ad730c3230bd8c7ca8a9be6a5c4441"
     }
   ],
   "dependencies": [
@@ -82,7 +82,7 @@
     },
     {
       "name": "hast-util-to-jsx-runtime",
-      "version": "2.3.6",
+      "version": "2.3.7",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -100,7 +100,7 @@
     },
     {
       "name": "inline-style-parser",
-      "version": "0.2.7",
+      "version": "0.2.9",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -130,13 +130,13 @@
     },
     {
       "name": "mdast-util-find-and-replace",
-      "version": "3.0.2",
+      "version": "3.0.4",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
     {
       "name": "mdast-util-from-markdown",
-      "version": "2.0.3",
+      "version": "2.1.0",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -154,7 +154,7 @@
     },
     {
       "name": "mdast-util-gfm-strikethrough",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -190,7 +190,7 @@
     },
     {
       "name": "mdast-util-to-markdown",
-      "version": "2.1.2",
+      "version": "2.2.1",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -202,7 +202,7 @@
     },
     {
       "name": "micromark-core-commonmark",
-      "version": "2.0.3",
+      "version": "2.0.4",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -226,7 +226,7 @@
     },
     {
       "name": "micromark-extension-gfm-table",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -256,7 +256,7 @@
     },
     {
       "name": "micromark-factory-space",
-      "version": "2.0.1",
+      "version": "2.1.0",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -309,6 +309,12 @@
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
     {
+      "name": "micromark-util-edit-map",
+      "version": "1.0.0",
+      "license": "MIT",
+      "noticeSource": "THIRD_PARTY_NOTICES.txt"
+    },
+    {
       "name": "micromark-util-html-tag-name",
       "version": "2.0.1",
       "license": "MIT",
@@ -340,7 +346,7 @@
     },
     {
       "name": "micromark",
-      "version": "4.0.2",
+      "version": "4.0.3",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -399,14 +405,8 @@
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
     {
-      "name": "style-to-js",
-      "version": "1.1.21",
-      "license": "MIT",
-      "noticeSource": "THIRD_PARTY_NOTICES.txt"
-    },
-    {
       "name": "style-to-object",
-      "version": "1.0.14",
+      "version": "2.0.2",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },
@@ -448,7 +448,7 @@
     },
     {
       "name": "unist-util-visit-parents",
-      "version": "6.0.2",
+      "version": "6.1.0",
       "license": "MIT",
       "noticeSource": "THIRD_PARTY_NOTICES.txt"
     },

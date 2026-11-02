@@ -58,6 +58,10 @@ dependencies; installing the nested Markdown reader package is not required for
 this command. Use Node 24.19.0 / npm 11.17.0 for the reader's pinned validation
 toolchain.
 
+Regenerate dependency lockfiles against `https://registry.npmjs.org/`, preserving
+public HTTPS tarball URLs and SHA-512 integrity. The Markdown reader package's
+contract tests enforce this for both package lockfiles.
+
 For browser tests:
 
 From this extension directory, run `npm ci`, `npx playwright install chromium`,
