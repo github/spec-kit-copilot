@@ -88,7 +88,7 @@ export async function checkDeps() {
 }
 
 /**
- * Run `npm install <packages>` inside the extension directory to install any
+ * Run `npm install --omit=dev <packages>` inside the extension directory to install any
  * missing runtime deps. Resolves with { ok, stdout, stderr, code, classified? }.
  * Never throws — callers inspect `ok` and surface a friendly message if false.
  *
@@ -111,9 +111,8 @@ export function installDeps(packages, opts = {}) {
         // Drop --silent when streaming progress so the UI sees fetch/reify
         // lines. --loglevel=info gives useful progress without dumping the
         // full trace.
-        const args = onProgress
-            ? ["install", "--no-audit", "--no-fund", "--loglevel=info", ...packages]
-            : ["install", "--no-audit", "--no-fund", "--silent", ...packages];
+        const args = ["install", "--omit=dev", "--no-audit", "--no-fund",
+            onProgress ? "--loglevel=info" : "--silent", ...packages];
         let child;
         try {
             child = spawn(npmCmd, args, {

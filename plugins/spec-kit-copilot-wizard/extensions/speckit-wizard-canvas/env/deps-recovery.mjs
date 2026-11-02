@@ -76,7 +76,7 @@ export function buildNpmDiagnosticPrompt({ extDir, errorCode, stderr = "", works
         "   d. None of the above / they don't know — recommend they check with IT.",
         "4. Based on the answer, propose the minimal `~/.npmrc` change (registry=, cafile=, https-proxy=, or a strict-ssl override as a last resort). Show the exact diff before applying.",
         "5. Apply the change with the user's confirmation.",
-        `6. Retry the install with: \`cd "${extDir}" && npm install --no-audit --no-fund\``,
+        `6. Retry the install with: \`cd "${extDir}" && npm install --omit=dev --no-audit --no-fund\``,
         "7. If it succeeds, invoke the wizard's `refreshEnvironment` canvas action (canvasId `speckit-wizard`) so the diagnostic banner clears. If it fails again, capture the new stderr, re-classify, and continue the loop.",
         "",
         "Constraints:",

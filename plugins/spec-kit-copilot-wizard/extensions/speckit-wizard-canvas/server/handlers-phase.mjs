@@ -67,6 +67,37 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
     }
 }
 
+async function isPhaseSetupComplete(deps) {
+    const snapshot = (await deps.getState?.()) ?? deps.getInstance?.()?.state;
+    if (!snapshot) return false;
+    const setup = snapshot.setup ?? {};
+    const env = snapshot.environment ?? {};
+    const pluginOk = Boolean(env.pluginInstalled || setup.pluginInstalled);
+    const cliOk = Boolean(env.cliInstalled || setup.cliInstalled);
+    return pluginOk &&
+        cliOk &&
+        Boolean(snapshot.projectInitialized || setup.projectInitialized) &&
+        Boolean(setup.skillsReloaded);
+}
+
+async function validateReviewedClarifications(res, body, service) {
+    if (!service) {
+        jsonError(res, 409, "Review context is no longer available.");
+        return false;
+    }
+    const review = body.review;
+    try {
+        await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
+        return true;
+    } catch (error) {
+        const changed = error?.code === "changed_source";
+        jsonError(res, changed ? 409 : 400, changed
+            ? "Clarification source changed. Refresh before submitting."
+            : "Clarification answers are invalid or exceed the review submission limit.");
+        return false;
+    }
+}
+
 export async function handlePhaseSubmit(res, body, deps) {
     // New (v2) dispatch path: when the client sends `commandName` (e.g.
     // "speckit.constitution") we dispatch a literal Copilot Chat slash
@@ -77,6 +108,12 @@ export async function handlePhaseSubmit(res, body, deps) {
     // reports a terminal phase status, and opens a witness window so the
     // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
+        const service = body.review ? deps.getInstance?.()?.reviewService : null;
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
+        if (!await isPhaseSetupComplete(deps)) {
+            return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
+        }
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
             args: typeof body.args === "string" ? body.args : "",
@@ -90,5 +127,8 @@ export async function handlePhaseSubmit(res, body, deps) {
     const kind = body?.kind || phaseSubmitKind(phase);
     if (!kind) return jsonError(res, 400, `no dispatch kind for phase ${phase}`);
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
+    if (!await isPhaseSetupComplete(deps)) {
+        return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
+    }
     return handlePrompt(res, { kind, payload: body?.values ?? {} }, deps);
 }

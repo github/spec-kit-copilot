@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { reviewHttpSecurityTests } from "./review-http-security-fixture.mjs";
 import {
     existsSync,
     mkdirSync,
@@ -36,6 +37,8 @@ afterEach(() => {
     __resetRunTrackerForTests();
     setSession(null);
 });
+
+reviewHttpSecurityTests("wizard");
 
 describe("server", () => {
 // Tests for server.mjs — createHandler with mock req/res + injected deps.
@@ -109,7 +112,7 @@ function baseDeps(overrides = {}) {
         getState: async () => ({
             workspacePath: "/proj",
             currentPhase: "setup",
-            setup: { cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
             preset: "core",
             phases: {},
             slug: null,
@@ -543,7 +546,10 @@ function baseDeps({ workspacePath, extras = {} } = {}) {
         _sessionCalls: sessionCalls,
         session,
         log: async () => {},
-        getState: async () => ({ workspacePath, currentPhase: "setup", setup: {}, preset: "core", phases: {}, slug: null }),
+        getState: async () => ({
+            workspacePath, currentPhase: "setup", preset: "core", phases: {}, slug: null,
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+        }),
         getInstance: () => ({ instanceId: "test-instance", workspacePath, state: {} }),
         broadcast: () => {},
         registerSse: () => {},
@@ -636,6 +642,174 @@ test("POST /api/phase/submit acknowledges before session.send completion and cle
         await new Promise((r) => setImmediate(r));
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
     } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rejects invalid clarification batches before dispatch", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const invalid = Object.assign(new Error("batch too large"), { code: "invalid_request" });
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: { getInstance: () => ({ instanceId: "inst-review", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => { throw invalid; } } }) },
+        });
+        const h = createHandler(deps);
+        const res = mockRes();
+        await h(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer",
+                review: { contextId: "ctx_fixture", artifactId: "artifact_fixture",
+                    expectedRevision: `sha256:${"a".repeat(64)}`, answers: [] } }),
+        }), res);
+        assert.equal(res.statusCode, 400);
+        assert.match(JSON.parse(res.body).error, /invalid|limit/i);
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rejects reviewed clarification rerun when setup is incomplete", async () => {
+    const ws = tmpWorkspace();
+    try {
+        const deps = baseDeps({
+            workspacePath: ws,
+            extras: { getState: async () => ({
+                workspacePath: ws,
+                currentPhase: "specify",
+                setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: false },
+                preset: "core",
+                phases: {},
+                slug: "001-fixture",
+            }),
+            getInstance: () => ({ instanceId: "inst-review-gated", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => [{ questionId: "question_scope" }] } }) },
+        });
+        const h = createHandler(deps);
+        const res = mockRes();
+        await h(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer",
+                review: { contextId: "ctx_fixture", artifactId: "artifact_fixture",
+                    expectedRevision: `sha256:${"a".repeat(64)}`, answers: [{ questionId: "question_scope", question: "Which scope?", answer: "Scoped" }] } }),
+        }), res);
+        assert.equal(res.statusCode, 409);
+        assert.match(JSON.parse(res.body).error, /setup/i);
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit gates legacy clarification and phase submissions on setup", async () => {
+    const ws = tmpWorkspace();
+    let setupReady = false;
+    try {
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => ({ workspacePath: ws, setup: {
+                pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: setupReady,
+            } }),
+        } });
+        const handler = createHandler(deps);
+        const submissions = [
+            { commandName: "speckit.plan", args: "Clarification - Which scope?\nAnswer: Only this feature." },
+            { phase: "plan", values: { answer: "Only this feature." } },
+        ];
+        for (const body of submissions) {
+            const res = mockRes();
+            await handler(mockReq({ method: "POST", url: "/api/phase/submit?token=secret-token", body: JSON.stringify(body) }), res);
+            assert.equal(res.statusCode, 409, res.body);
+            assert.match(JSON.parse(res.body).error, /setup/i);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 0);
+        setupReady = true;
+        for (const body of submissions) {
+            const res = mockRes();
+            await handler(mockReq({ method: "POST", url: "/api/phase/submit?token=secret-token", body: JSON.stringify(body) }), res);
+            assert.equal(res.statusCode, 202, res.body);
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, submissions.length);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit rechecks setup after asynchronous clarification validation", async () => {
+    const ws = tmpWorkspace();
+    let setupReady = true;
+    try {
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => ({ workspacePath: ws, setup: {
+                pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: setupReady,
+            } }),
+            getInstance: () => ({ instanceId: "inst-review-setup-changed", workspacePath: ws, state: {},
+                reviewService: { validateClarifications: async () => {
+                    await Promise.resolve();
+                    setupReady = false;
+                    return [{ questionId: "question_scope" }];
+                } } }),
+        } });
+        const handler = createHandler(deps);
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer", review: {
+                contextId: "ctx_fixture", artifactId: "artifact_fixture", expectedRevision: `sha256:${"a".repeat(64)}`,
+                answers: [{ questionId: "question_scope", question: "Which scope?", answer: "Only this feature." }],
+            } }),
+        }), res);
+        assert.equal(res.statusCode, 409, res.body);
+        assert.match(JSON.parse(res.body).error, /setup/i);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
+});
+
+test("POST /api/phase/submit revalidates the artifact after the awaited state scan", async () => {
+    const { createWizardReviewService } = await import("../server/artifact-review.mjs");
+    const ws = tmpWorkspace();
+    const artifactPath = "specs/001-review-race/spec.md";
+    mkdirSync(join(ws, "specs", "001-review-race"), { recursive: true });
+    writeFileSync(join(ws, artifactPath), "# Scope\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    const snapshot = {
+        workspacePath: ws, slug: "001-review-race", currentPhase: "specify",
+        phases: { specify: { artifactPath } }, commands: [], composition: { artifacts: [] },
+        setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+    };
+    const service = createWizardReviewService({ workspacePath: ws, instanceId: "inst-review-race", getState: async () => snapshot });
+    try {
+        const opened = await service.open({ stage: "specify" });
+        const document = await service.content(opened.contextId, opened.primaryArtifactId);
+        const question = document.clarifications[0];
+        const deps = baseDeps({ workspacePath: ws, extras: {
+            getState: async () => {
+                await Promise.resolve();
+                writeFileSync(join(ws, artifactPath), "# Changed scope\n\n[NEEDS CLARIFICATION: New question?]\n");
+                return snapshot;
+            },
+            getInstance: () => ({ instanceId: "inst-review-race", workspacePath: ws, state: snapshot, reviewService: service }),
+        } });
+        const handler = createHandler(deps);
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST", url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.specify", args: "answer", review: {
+                contextId: opened.contextId, artifactId: opened.primaryArtifactId, expectedRevision: document.revision,
+                answers: [{ questionId: question.questionId, question: question.question, answer: "Only this feature." }],
+            } }),
+        }), res);
+        assert.equal(res.statusCode, 409, res.body);
+        assert.match(JSON.parse(res.body).error, /source changed/i);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 0);
+    } finally {
+        service.dispose();
         rmSync(ws, { recursive: true, force: true });
     }
 });
