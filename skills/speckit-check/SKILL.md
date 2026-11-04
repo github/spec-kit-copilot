@@ -1,6 +1,6 @@
 ---
 name: speckit-check
-description: 'Check the local environment for Spec Kit by running `specify check` (and `specify version`). USE FOR: verifying required tools are installed, diagnosing a broken spec-kit setup, reporting CLI version/feature capabilities. DO NOT USE FOR: installing or upgrading the CLI itself (use the speckit-self skill).'
+description: 'Check the local environment for Spec Kit by running `specify check` (and `specify version`). USE FOR: verifying required tools are installed, diagnosing a broken spec-kit setup, reporting CLI version/feature capabilities. DO NOT USE FOR: installing or upgrading the CLI itself (use speckit-cli-setup to install or speckit-self to upgrade).'
 argument-hint: 'none (optionally "version" for version/feature details)'
 ---
 
