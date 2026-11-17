@@ -15,7 +15,7 @@ export function previewModel() {
         implement: { outputs: [], view: null },
     };
     const badgeTypes = [
-        ["value-match", "Value match", "Matches text anywhere in one selected output, ignoring capitalization.",
+        ["value-match", "Value match", "Searches one output for the first matching entry, ignoring capitalization.",
             "Value matched", "amber"],
         ["artifact-current", "Artifact current", "Shows whether a selected output is current.",
             "Artifact current", "green"],
@@ -33,9 +33,9 @@ export function previewModel() {
         ({ id, rule: id, title, description, defaultText, defaultColor, enabled: true }));
     const artifact = [{ id: "artifact", type: "artifact" }];
     const badgeRules = [
-        { id: "value-match", description: "Match text anywhere in one selected output, ignoring capitalization.",
+        { id: "value-match", description: "Search one output for the first matching entry, ignoring capitalization.",
             inputs: [{ id: "artifact", type: "artifact", label: "Output to search" },
-                { id: "value", type: "text", label: "Text to match" }], textPlaceholders: [] },
+                { id: "choices", type: "badge-selection", label: "Match order" }], textPlaceholders: [] },
         { id: "checklist-progress", description: "The checklist must be current and contain at least one checkbox. The badge shows the number of checked boxes out of the total. A missing or stale checklist shows no progress badge.",
             inputs: [{ id: "artifact", type: "artifact", label: "Checklist file" },
                 { id: "prerequisites", type: "ordered-artifacts", scope: "metadata",

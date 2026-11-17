@@ -22,6 +22,12 @@ per internal element. Document single-host, nonvisual, or fixed-shell
 exceptions. Reviewers must flag missing registrations or unjustified missing
 host-specific pairs.
 
+For badge-format changes, update the Designer's generated badge-import contract
+(`contracts/badge-import.mjs` and `ui/badge-import-contract.js`), compatibility
+validation, directly related documentation, and generator-to-Designer round-trip
+tests together. Keep import append-only and atomic; it must not normalize missing
+required fields or bypass the existing Save validator.
+
 Do not change Wizard, Designer, or generated-canvas contracts without explicit
 user approval: schemas/validation, persisted state/handoffs, canvas actions,
 HTTP/SSE payloads, artifact/phase reporting, or defining fixtures. Bug fixes,

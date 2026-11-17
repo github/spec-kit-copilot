@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Ordered Value match entries shared by Designer and generated hosts. Each placement text is present exactly when the badge selects that placement.",
+  "type": "array",
+  "minItems": 1,
+  "maxItems": 100,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "value", "color"],
+    "properties": {
+      "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
+      "value": {"description": "Literal Text to find in the output.", "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f]+$"},
+      "text": {"description": "Workflow list text; required only with the Workflow list placement.", "$ref": "#/$defs/plainText"},
+      "phaseText": {"description": "Phase card text; required only with a Phase placement.", "$ref": "#/$defs/plainText"},
+      "summaryText": {"description": "Workflow summary text, rendered as 'text: N'; required only with the Workflow summary placement.", "$ref": "#/$defs/plainText"},
+      "color": {"type": "string", "pattern": "^(theme|red|green|amber|blue|purple|pink|orange|#[0-9a-fA-F]{6})$"}
+    }
+  },
+  "$defs": {
+    "plainText": {
+      "type": "string", "minLength": 1, "maxLength": 120,
+      "pattern": "^(?=.*\\S)[^{}<>\\u0000-\\u001f\\u007f]+$"
+    }
+  }
+}

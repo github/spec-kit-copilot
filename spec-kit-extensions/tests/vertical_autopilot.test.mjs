@@ -1108,6 +1108,40 @@ test("Unconfirmed deletion requires ended-turn evidence from the owning session"
     }
 });
 
+test("Unconfirmed deletion accepts only explicitly originating replay evidence", async (t) => {
+    const replay = (origin, endTools = false) => [
+        { type: "user.message", data: { messageId: "message-1", interactionId: "run" } },
+        { type: "assistant.turn_start", data: { interactionId: "replay", turnId: "turn" } },
+        { type: "assistant.message", data: { interactionId: "replay", turnId: "turn", originatingMessageId: origin,
+            ...(endTools ? { toolRequests: [{ name: "edit" }] } : { content: "Done" }) } },
+        ...(endTools ? [] : [{ type: "assistant.turn_end", data: { turnId: "turn" } }]),
+    ];
+    for (const [name, events, allowed] of [
+        ["ended explicit replay", replay("message-1"), true],
+        ["active explicit replay", replay("message-1", true), false],
+        ["unrelated replay", replay("other-message"), false],
+        ["replay owned by another message", [...replay("message-1"),
+            { type: "user.message", data: { messageId: "other-message", interactionId: "replay" } }], false],
+    ]) {
+        await t.test(name, async (child) => {
+            const fixture = await setup(child);
+            await mkdir(join(fixture.project, "specs", "demo"), { recursive: true });
+            await fixture.runtime.save({ revision: (await fixture.runtime.snapshot()).revision, selected: "specs/demo" });
+            await fixture.runtime.run({ itemId: "specs/demo", phase: "specify", args: "" }, "panel");
+            const runtime = await fixture.restart();
+            const snapshot = await runtime.snapshot();
+            fixture.setEvents(events);
+            const deletion = () => runtime.deleteWorkflow({ itemId: "specs/demo", confirmation: "demo",
+                revision: snapshot.revision });
+            if (allowed) assert.deepEqual(await deletion(), { deleted: "specs/demo" });
+            else {
+                await assert.rejects(deletion(), /unfinished phase/);
+                assert.ok((await stat(join(fixture.project, "specs", "demo"))).isDirectory());
+            }
+        });
+    }
+});
+
 test("persisted Stop evidence does not override active work after checkpoint replacement", async (t) => {
     const { runtime, project, session, setEvents } = await setup(t);
     await mkdir(join(project, "specs", "demo"), { recursive: true });

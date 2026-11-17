@@ -1,6 +1,6 @@
 const idPattern = /^[a-z][a-z0-9-]{0,79}$/;
 const controlPattern = /^[a-z][a-z0-9.-]{0,79}$/;
-const inputTypes = new Set(["artifact", "artifact-set", "ordered-artifacts", "phase", "text"]);
+const inputTypes = new Set(["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"]);
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const keys = (value, names) => Object.keys(value).filter((key) => key !== "$schema")
     .sort().join() === [...names].sort().join();

@@ -17,34 +17,90 @@ test("stock adapter owns setup, constitution, values, phase and contributed mark
     const root = { innerHTML: "" };
     renderStockPage(root, { id: "workflow", canvas: {
         displayName: "Demo", workflowListName: "<unsafe>", description: "Description",
-    }, mainPageAsset: null, readOnlyFields: [{ id: "test.note", label: "Note", value: "<script>" }],
+    }, mainPageAsset: null, readOnlyFields: [
+        { id: "test.note", label: "Note", value: "<script>" },
+        { id: "test.code", label: "Code", value: "A", section: { id: "billing", title: "Billing" } },
+    ],
     textPlacements: [], hasValues: true,
-    generatedControls: [], hasConstitution: true, hasBadges: true,
+    generatedControls: [{ id: "test.control", label: "Control", adapter: "test-adapter",
+        control: "test", properties: { choice: ["a"] }, value: { choice: "a" } }],
+    hasConstitution: true, hasBadges: true,
     badgeDestinations: ["workflow.list", "phase.card"],
-    fieldSlots: ["workflow.actions"] });
+    fieldSlots: ["workflow.actions", "workflow.extra"] });
     for (const id of ["setup-surface", "instance-collection", "constitution-card",
         "canvas-values", "workflow-pipeline", "delete-workflow-dialog", "constitution-dialog"]) {
         assert.match(root.innerHTML, new RegExp(`id="${id}"`));
     }
     assert.match(root.innerHTML, /data-workflow-slot="workflow.actions"/);
+    assert.match(root.innerHTML, /data-workflow-slot="workflow.extra"/);
     assert.match(root.innerHTML, /data-badge-slot="workflow.list"/);
     assert.match(root.innerHTML, /id="constitution-badges"/);
     assert.doesNotMatch(root.innerHTML, /id="constitution-output-badges"/);
     assert.doesNotMatch(root.innerHTML, /data-badge-slot="workflow.summary"/);
     assert.match(root.innerHTML, /&lt;unsafe&gt;|&lt;script&gt;/);
     assert.doesNotMatch(root.innerHTML, /<script>/);
-    assert.ok(root.innerHTML.indexOf('id="instance-collection"')
-        < root.innerHTML.indexOf('class="workflow-workspace"'));
-    assert.ok(root.innerHTML.indexOf('class="workflow-workspace"')
-        < root.innerHTML.indexOf('class="project-foundation"'));
-    assert.ok(root.innerHTML.indexOf('<h2>Project foundation</h2>')
-        < root.innerHTML.indexOf('id="constitution-card"'));
-    assert.ok(root.innerHTML.indexOf('id="constitution-card"')
-        < root.innerHTML.indexOf('id="selected-workflow-heading"'));
-    assert.match(root.innerHTML, /class="workflow-workspace">\s*<div class="project-foundation">\s*<h2>Project foundation<\/h2>/);
-    assert.ok(root.innerHTML.indexOf('id="selected-workflow-heading"')
-        < root.innerHTML.indexOf('id="workflow-pipeline"'));
-    assert.match(root.innerHTML, /id="selected-workflow-heading"[^>]* hidden/);
+    const html = root.innerHTML;
+    const order = ['id="setup-surface"', 'class="workflow-intro"', 'id="workflow-heading"',
+        'class="project-foundation workflow-section"', 'id="constitution-card"',
+        '<h2>Configured fields</h2>', '<h2>Billing</h2>', 'id="canvas-values"',
+        '<h2>Control</h2>', '<h2>Additional fields and actions</h2>',
+        'data-workflow-slot="workflow.actions"', 'data-workflow-slot="workflow.extra"',
+        'id="instance-collection"', 'class="workflow-detail workflow-section"', 'id="workflow-detail-heading"',
+        'class="workflow-workspace"', 'id="selected-workflow-heading"', 'id="workflow-pipeline"']
+        .map((marker) => html.indexOf(marker));
+    assert.ok(order.every((index, position) => index >= 0 && (!position || index > order[position - 1])), String(order));
+    assert.match(html, /<details class="project-foundation workflow-section" open><summary class="section-head"><h2>Project foundation<\/h2><\/summary>/);
+    assert.match(html, /<section class="phase-card" aria-label="Billing"><details class="workflow-section" open>/);
+    assert.match(html, /<section class="phase-card" aria-label="Control"><details class="workflow-section" open>/);
+    assert.match(html, /<details class="workflow-detail workflow-section" open><summary class="section-head"><h2 id="workflow-detail-heading">Detail<\/h2><\/summary><div class="workflow-workspace"><h3 id="selected-workflow-heading" hidden><\/h3><div id="workflow-pipeline" hidden><\/div><\/div><\/details>/);
+    assert.match(html, /id="workflow-action-error"[^>]*><\/p><\/section>\s*<details class="workflow-detail workflow-section"/);
+    assert.match(html, /id="workflow-list-toggle"[^>]*aria-expanded="true" aria-controls="workflow-list-content">List<\/button>/);
+    assert.match(html, /id="new-workflow" type="button" aria-label="New Workflow">\+ New<\/button>/);
+    assert.match(html, /placeholder="workflow-1"/);
+    assert.doesNotMatch(html, /class="workflow-summary"/);
+    assert.match(html, /<div class="workflow-intro">\s*<div><h2 id="workflow-heading">/);
+});
+
+test("stock Workflow markup uses an independent item name and escapes it", () => {
+    const root = { innerHTML: "" };
+    const definition = { canvas: { displayName: "Demo", workflowListName: "Bugs",
+        workflowItemName: 'Issue "<urgent>"', description: "Tracked bugs" },
+    readOnlyFields: [], textPlacements: [], generatedControls: [], hasConstitution: false,
+    hasValues: false, hasBadges: false, badgeDestinations: [], fieldSlots: [] };
+    renderStockPage(root, definition);
+    assert.match(root.innerHTML, /id="workflow-heading">Bugs /);
+    assert.match(root.innerHTML, /aria-label="New Issue &quot;&lt;urgent&gt;&quot;"/);
+    assert.match(root.innerHTML, /id="workflow-name-label">Issue &quot;&lt;urgent&gt;&quot; name/);
+    assert.match(root.innerHTML, /placeholder="Issue &quot;&lt;urgent&gt;&quot; 1"/);
+    assert.match(root.innerHTML, /placeholder="issue-urgent-1"/);
+    assert.match(root.innerHTML, />Delete Issue &quot;&lt;urgent&gt;&quot;<\/button>/);
+    assert.match(root.innerHTML, /placeholder="Search by name or directory"/);
+    assert.match(root.innerHTML, /id="workflow-empty">No items yet\./);
+    renderStockPage(root, { ...definition, canvas: { ...definition.canvas, workflowItemName: "!!!" } });
+    assert.match(root.innerHTML, /placeholder="workflow-1"/);
+    for (const invalid of ["", " Bug", "Bug\nReport", "x".repeat(81), null]) {
+        assert.throws(() => renderStockPage(root, {
+            ...definition, canvas: { ...definition.canvas, workflowItemName: invalid },
+        }), /Invalid workflow item name/);
+    }
+});
+
+test("stock workflow intro combines its fixed title and optional summary badges before List", () => {
+    const root = { innerHTML: "" };
+    renderStockPage(root, { canvas: { displayName: "Demo", workflowListName: "Bugs", description: "Tracked bugs" },
+        mainPageAsset: { file: "logo.png" },
+        readOnlyFields: [], textPlacements: [], generatedControls: [], hasConstitution: false,
+        hasBadges: true, badgeDestinations: ["workflow.summary"], fieldSlots: [] });
+    const html = root.innerHTML;
+    assert.match(html, /<div class="workflow-summary"><div id="workflow-badge-summary" data-badge-slot="workflow.summary" class="canvas-badges" hidden><\/div><\/div><\/div>/);
+    assert.ok(html.indexOf('data-stock-image="workflow.intro"') < html.indexOf('id="workflow-heading"'));
+    assert.ok(html.indexOf('id="workflow-heading"') < html.indexOf('class="workflow-summary"'));
+    assert.ok(html.indexOf('class="workflow-summary"') < html.indexOf('id="instance-collection"'));
+    assert.match(html, /<h2 id="workflow-heading">Bugs <span class="muted" id="workflow-count">\(0\)<\/span><\/h2>/);
+    assert.match(html, /class="collection-description muted">Tracked bugs<\/p>/);
+    const intro = html.slice(html.indexOf('<div class="workflow-intro">'), html.indexOf('<section id="instance-collection"'));
+    assert.doesNotMatch(intro, /<details|<summary|<button|workflow-summary-heading|>Summary</);
+    assert.doesNotMatch(html, /Additional fields and actions/);
 });
 
 test("project foundation is omitted when Constitution is not configured", () => {
@@ -243,9 +299,11 @@ test("workflow identity survives rebuilding a selected row after evidence change
         model: model(badges), phaseState: {}, inputPending: false, slugTouched: false,
         slugError: "", pendingLabel: () => null,
     });
+    const detailHead = () => root.querySelector("#selected-workflow-heading").children
+        .map((child) => [child.tagName, child.textContent, child.hidden]);
     update({});
     assert.equal(root.querySelector("#selected-workflow-heading").hidden, false);
-    assert.equal(root.querySelector("#selected-workflow-heading").textContent, "Selected workflow: Draft");
+    assert.deepEqual(detailHead(), [["strong", "Draft", false], ["code", "draft", false]]);
     assert.equal(identity.parentElement, rows.children[0]);
     assert.equal(root.querySelector("#workflow-slug").closest(".field").hidden, false);
     update({ draft: [{ text: "Ready", color: "amber", showIn: ["workflow-list"] }] });
@@ -256,15 +314,18 @@ test("workflow identity survives rebuilding a selected row after evidence change
         items: [{ id: "saved", label: "Saved", slug: "saved", pending: false }],
     }, phaseState: {}, inputPending: false, pendingLabel: () => null });
     assert.equal(identity.hidden, true);
-    assert.equal(root.querySelector("#selected-workflow-heading").textContent, "Selected workflow: Saved");
+    assert.deepEqual(detailHead(), [["strong", "Saved", false], ["code", "saved", false]]);
     page.update({ model: { ...model({}), selected: "missing" },
         phaseState: {}, inputPending: false, pendingLabel: () => null });
     assert.equal(root.querySelector("#selected-workflow-heading").hidden, true);
-    assert.equal(root.querySelector("#selected-workflow-heading").textContent, "");
+    assert.deepEqual(detailHead(), []);
     update({});
     assert.equal(identity.hidden, false);
     assert.equal(identity.parentElement, rows.children[0]);
-    assert.equal(root.querySelector("#selected-workflow-heading").textContent, "Selected workflow: Draft");
+    assert.deepEqual(detailHead(), [["strong", "Draft", false], ["code", "draft", false]]);
+    page.update({ model: { ...model({}), items: [{ id: "draft", label: "Draft", slug: "", pending: true }] },
+        phaseState: {}, inputPending: false, pendingLabel: () => null });
+    assert.deepEqual(detailHead()[1], ["code", "", true]);
     page.update({ model: { ...model({}), phases: [] },
         phaseState: {}, inputPending: false, pendingLabel: () => null });
     assert.equal(root.querySelector("#selected-workflow-heading").hidden, true);
@@ -323,7 +384,7 @@ test("Workflow page contract validates pending recovery before a replacement ada
 test("Workflow page contract validates project badges before a replacement adapter receives them", () => {
     const received = [];
     const replacement = { update(state) { received.push(state.model.badges.project); } };
-    const badge = { id: "constitution", text: "Ready", phaseText: "Project ready",
+    const badge = { id: "constitution", category: "Progress", text: "Ready", phaseText: "Project ready",
         color: "purple", showIn: [], targets: [{ phase: "speckit.constitution", output: null },
             { phase: "speckit.constitution", output: ".specify/memory/constitution.md" }] };
     const legacy = { id: "legacy", text: "Ready", color: "theme",
@@ -336,9 +397,44 @@ test("Workflow page contract validates project badges before a replacement adapt
     for (const invalid of ["invalid", [null], [{ ...badge, text: null }],
         [{ ...badge, color: null }], [{ ...badge, targets: [{ phase: "speckit.constitution" }] }],
         [{ ...badge, targets: [{ phase: 42, output: null }] }],
-        [{ ...badge, targets: "invalid" }], [{ ...legacy, phase: undefined }]]) {
+        [{ ...badge, targets: "invalid" }], [{ ...legacy, phase: undefined }],
+        ...[null, 7, false, {}, []].map((category) => [{ ...badge, category }])]) {
         assert.throws(() => replacement.update(validateWorkflowPageState(state(invalid))),
             /invalid project badge results/);
     }
     assert.equal(received.length, 2);
+});
+
+test("Workflow page contract validates list and summary categories before adapter updates", () => {
+    const received = [];
+    const replacement = { update(state) { received.push(state.model.badges); } };
+    const state = (badges) => ({ phaseState: { slugEditable: false },
+        model: { userProvidesSlug: false, badges } });
+    const item = { id: "ready", category: "Progress", text: "Ready", color: "green",
+        showIn: ["workflow-list"] };
+    const summary = { id: "ready", category: "Progress", text: "Ready: 1", color: "green", count: 1 };
+    const { category: _itemCategory, ...legacyItem } = item;
+    const { category: _summaryCategory, ...legacySummary } = summary;
+    const valid = { items: { first: [item, legacyItem], second: [] },
+        summary: [summary, legacySummary] };
+    for (const badges of [valid, { items: {}, summary: [] }, {}]) {
+        replacement.update(validateWorkflowPageState(state(badges)));
+    }
+    assert.deepEqual(received, [valid, { items: {}, summary: [] }, {}]);
+    for (const category of [null, 7, false, {}, []]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(
+            state({ items: { first: [{ ...item, category }] } }))), /invalid workflow badge results/);
+        assert.throws(() => replacement.update(validateWorkflowPageState(
+            state({ summary: [{ ...summary, category }] }))), /invalid summary badge results/);
+    }
+    for (const items of [null, [], "invalid", { first: null }, { first: {} },
+        { first: [null] }, { first: [[]] }, { first: [7] }]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(state({ items }))),
+            /invalid workflow badge results/);
+    }
+    for (const summary of [null, {}, "invalid", [null], [[]], [7]]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(state({ summary }))),
+            /invalid summary badge results/);
+    }
+    assert.equal(received.length, 3);
 });

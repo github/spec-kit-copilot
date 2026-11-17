@@ -35,14 +35,25 @@ finished app does not depend on this extension at runtime.
 Generated runtime diagnostics use the SDK-supported `warning` log level. If
 logging throws or rejects, the runtime reports the diagnostic and logging failure
 to the console without aborting badge evaluation.
-The stock Workflow page preserves its list and controls. Below the list, one
-shared theme-aware secondary-background block with a thin neutral outline holds
-both the Project foundation section and the phase workspace. The foundation
-heading separates the project-wide Constitution and its existing actions from
-the selected workflow heading above phase navigation. The shared block's outer
-edges align with the workflow list, with equal interior gutters around the
-Constitution and phase cards. These are stock-adapter presentation, not new
-customization slots or host capabilities.
+The stock Workflow page shows its configured logo, workflow name, count, and
+description with any summary badges directly beneath it, without a separate
+Summary heading. This combined intro is always visible and cannot be collapsed,
+even when no summary badges are available. Project foundation, contributed
+fields and controls, List, and Detail follow it. Project foundation appears only
+when Constitution is configured.
+Each following section can be collapsed independently and starts expanded. Expansion
+choices survive live updates but reset when the canvas reloads. **+ New**
+remains available when List is collapsed and opens it before creating a
+workflow. Detail contains the selected workflow and phase workspace, and
+follows List without intervening contributions.
+
+Named read-only field sections use their configured titles; fields without a
+section use **Configured fields**. Canvas values and their named subsections,
+and generated controls, are also collapsible. Contributed Workflow slots are
+grouped under **Additional fields and actions** when present, without changing
+their mounting or actions. This is stock-adapter presentation, not a new
+customization contract: replacement Workflow adapters retain their own layout.
+Existing generated apps are not automatically updated.
 `scripts/contracts/generation-request.mjs` checks the frozen request's IDs
 and SHA-256 integrity before materialization. The generated app packages
 `generated-scaffold/contracts/` with agent action/response, host adapter,
@@ -69,7 +80,8 @@ configuration metadata. Existing generated apps are not automatically updated.
 | --- | --- | --- |
 | `designer-essentials` | Essentials | Required Canvas ID and Title |
 | `designer-essentials-description` | Essentials slot | Optional Description |
-| `designer-essentials-workflow-heading` | Essentials slot | Optional Workflow header |
+| `designer-essentials-workflow-heading` | Essentials slot | Optional Header text |
+| `designer-essentials-workflow-item-name` | Essentials slot | Optional singular Workflow item name |
 | `designer-essentials-custom-slug` | Essentials slot | Default-off Allow custom artifact directory slug option |
 | `designer-essentials-header-logo` | Appearance slot | Optional small header logo (existing template name retained) |
 | `designer-essentials-main-page-logo` | Appearance slot | Optional larger main-page logo (existing template name retained) |
@@ -111,9 +123,20 @@ partial composition opens with inline diagnostics, but Generate requires
 valid identity fields and the selected generated Workflow assets. Identity
 length, requiredness, and identifier rules are checked at Generate;
 the generator independently guards the generated extension path. Description and
-Workflow header use the packaged stock-text adapter for their visible
-generated presentation. Authors may set `"required": true` on a text field
-in a page or a field contribution to reject empty or whitespace-only values.
+Header text use the packaged stock-text adapter for their visible generated
+presentation. Header text retains the `canvas.workflowListName` field ID and
+defaults to `Workflows`. Workflow item name uses `canvas.workflowItemName`,
+accepts up to 80 characters, and defaults to `Workflow`; it is independent of
+the header and is not pluralized. Its setting uses the existing Designer
+stock-text adapter. It is a nonvisual configuration input rather than a separate
+generated control: the stock Workflow page adapter renders its labels, and the
+host uses it for default item names. The optional artifact directory slug hint
+also uses the item name in lowercase hyphenated form (for example, `Bug` gives
+`bug-1`); names with no letters or numbers usable in a slug fall back to `workflow-1`.
+This is only a placeholder and does not assign or rename directories. Newly generated canvases receive these
+settings; existing generated canvases are not updated automatically. Authors
+may set `"required": true` on a text field in a page or a field contribution to
+reject empty or whitespace-only values.
 The shared Designer adapter shows the field's syntax guidance; Generate verifies
 the constraint independently. Omitted `required` preserves optional text.
 Essentials field help comes from each JSON definition's `description`; stock text
@@ -187,15 +210,25 @@ Generated phase and pending-workflow status notices keep in-progress and error s
 but do not show a built-in Completed badge; add a completion badge explicitly in
 Designer to show one.
 
-The Workflow header names the collection with the description just below it.
-The generated canvas keeps New workflow in the header and shows a bordered,
+The workflow intro shows the configurable name, count, description and optional
+logo and any summary badges in one non-collapsible area, without a separate
+Summary heading, followed by **Project foundation**, configured sections,
+**List**, and **Detail**. Project foundation appears only when Constitution is configured, and Detail only when
+the selected workflow has phases. The compact **+ New** button (accessible name
+`New` plus the configured singular item name) sits beside the List heading. The selected row shows an accent
+bar and tinted background. Detail is a bordered panel showing the selected name,
+and its slug when it differs, without a draft-status note, followed by the
+numbered phase stepper with the active step highlighted and the selected phase card. Category badges render as
+compact pills with the category as a small label inside a dashed outline that
+stays legible in light and dark themes and distinguishes the group from its badges.
+The generated canvas shows a bordered,
 searchable workflow list immediately. When there are workflow phases but no
 workflows, opening the canvas automatically creates and selects a **Not started**
-**Workflow 1** row. Existing workflows remain untouched; the empty list shows
-"No workflows yet" when no workflow phases are available. New adds another
-selected **Not started** row (Workflow 2, and so on) at the top of the list.
+row named from the item name and a number (for example, **Workflow 1** by default).
+Existing workflows remain untouched. New adds another selected **Not started**
+row at the top of the list. Search and empty-state copy use neutral item wording.
 Newly created workflow directories remain above older rows after Specify reports them.
-Its editable Workflow name comes
+Its editable item name comes
 before the optional Artifact directory slug, shown only when enabled in Essentials.
 The name labels the list row; a supplied slug previews artifact output paths.
 Without one, Specify chooses the artifact directory. No directory is created until
@@ -371,11 +404,12 @@ The Badges tab offers **Value match**, **Artifact current**,
 **+ Add badge** to open a separate type picker. The focused editor shows
 badge color first, then phase checkboxes with outputs nested under
 each selected phase. Selecting a phase starts with its View output; the rule
-determines whether one output or several can be selected. Placement offers Workflow list, Workflow summary, and Phase. Each checked
-placement has its own editable badge text: Workflow-list text (`text`) and
-phase-card text (`phaseText`) accept the rule's per-workflow placeholders;
-summary text (`summaryText`) accepts `{workflows}` for the aggregate count
-instead of per-workflow placeholders. Badge outlines use the same color as their
+determines whether one output or several can be selected. Placement offers
+Workflow summary, Workflow list, and Phase, each with its own text field.
+Workflow-list and phase-card text can use only placeholders declared by the
+badge's rule. Summary text is a plain label; the generated canvas adds the
+matching-workflow count automatically, for example `Needs review: 3`.
+Badge outlines use the same color as their
 text in the Designer preview and generated canvas. Phase shows the badge on each selected
 evidence phase's card for stock controls; a registered input control can
 select a different target phase. Checklist badges can use evidence from one
@@ -471,21 +505,32 @@ the Constitution card (rather than the workflow phase control), so both the
 stock and adapted page render these project-level placements.
 Project card and output placements require every rule input to use Constitution
 evidence; use a workflow placement for inputs from Specify or later phases.
-Summary badges use their configured summary text, interpolating `{workflows}`
-with the aggregate count, including zero before any workflows exist. Older
-instances without `summaryText` retain the type title plus count; those without
-`phaseText` retain their previous phase-card text. Rules contribute one per
-matching workflow unless they explicitly supply a numeric summary total.
+Every badge needs a **Category**, such as `Severity`. The editor suggests
+categories already used by other badges. The Configured badges list shows each
+badge's category, and the generated workflow list and summary group badges of
+the same category (ignoring capitalization) in a labeled dashed bracket. Phase
+cards show badges without category labels.
+Each selected placement has its own text field: **Workflow list text**,
+**Phase card text** and **Workflow summary text**. A field appears only while
+its placement is selected, and there is no fallback between them. Workflow and
+phase text interpolate the rule's declared tokens. Summary text cannot use
+tokens; the summary always displays `text: N`, where `N` is the aggregate
+count, including zero before any workflows exist. Each matching workflow
+contributes one to its summary count.
 Renaming a type/default does not overwrite previously saved custom badge text.
-**Value match** searches for a required literal string anywhere in one selected
-confirmed Markdown output, ignoring capitalization. It does not require a field
-label, interpret regex syntax, exclude fenced blocks, or count occurrences.
-Enter the whole string (for example, `Verdict: needs-clarification`) if context
-matters. Previously saved **Needs clarification** badges are not converted:
-the removed type cannot be used in a new Designer configuration. Saved settings
-are bound to their original page-model revision, so reopening with changed
-templates can require recreating those settings. Already generated apps retain
-their frozen rule.
+**Value match** searches one confirmed Markdown output for an ordered list of
+literal strings, ignoring capitalization. For each workflow, the first match
+selects the matching value's color and its placement text. Each match has its
+own Workflow list, Phase card and Workflow summary text for the badge's selected
+placements; new badges start with Workflow summary selected, and each Summary
+item counts only workflows where that value won, displaying `text: N`.
+Add up to 100 entries and set priority with each
+match's numbered **Order** dropdown. Rows stay where they are while editing;
+changing an order shifts the other entries' priorities and saves entries in
+priority order. Use **+ Add match** and **Remove match** to manage entries.
+Matching searches the whole file, including examples and fenced blocks; it does
+not interpret regular expressions or count occurrences. Include surrounding
+text (for example, `Verdict: needs-clarification`) when context matters.
 
 The complete Designer badge list lives in
 `designer-host/badges-settings/badge-types.json`. It is one replace-only
@@ -524,8 +569,11 @@ Designer input controls are separate from generated evaluators. Each registered
 `designer.badge-input-control` JSON definition (`id`, `adapter`, supported
 `inputTypes`, and optional `capabilities`). Its registered, self-contained
 `designer.badge-input-adapter` exports `controlId`, `contractVersion = 1`, and
-`mount({root, rule, inputs, phases, outputs, onChange})`. It renders inside the
-provided root. The identity and version must be direct literal `export const`
+`mount({root, rule, inputs, phases, outputs, onChange})`. Rules declaring a
+`badge-selection` input also receive `selectionRoot` and shared `placements`,
+and the handle must implement `updatePlacements(placements)`. The Designer-only
+Value match editor renders this composite control; generated canvases reuse
+the standard badge renderers. The identity and version must be direct literal `export const`
 declarations so Designer can check them without executing preset code in Node;
 the browser also checks the loaded adapter before mounting it. It reports the
 **complete** structured `inputs` object through
@@ -897,12 +945,16 @@ project placements when a replacement adapter lacks this capability; adapters
 that do not render project badges should omit it.
 The generated host validates this optional Workflow-page state before calling
 the adapter's `update`: `badges.project` is an array of rendered badges with
-string `id`, `text`, and `color`, optional string `phaseText`, and a `showIn`
+string `id`, `text`, and `color`, optional strings `phaseText` and `category`, and a `showIn`
 array. Each badge has either `targets` (nonempty array of `{ phase, output }`,
 with string `phase` and `output` either a string path or `null` for a card)
 or a legacy `phase` string with `phase-card` in `showIn`. Malformed project
 badge results cause an incompatible Workflow-page state error rather than
 being passed to a replacement adapter.
+For Workflow list and summary results, optional `badges.items` maps item IDs to
+arrays of badge objects, and optional `badges.summary` is an array of badge
+objects. The host rejects malformed collections or non-string `category` values
+before adapter updates; categories may be absent in older results.
 The `generated-phase-control` definition places itself in
 `workflow.phases`, has `schemaVersion: 1`, `id: "workflow-phases"`, an `adapter` name (stock:
 `generated-phase-adapter`), and optional `viewLabels` keyed by selected phase ID,

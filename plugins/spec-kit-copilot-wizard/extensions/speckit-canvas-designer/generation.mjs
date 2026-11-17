@@ -12,6 +12,8 @@ import { serializeGenerationRequest } from "./contracts/generation-request.mjs";
 import { normalizeObservedVersions } from "./contracts/specify-inventory.mjs";
 import { validateDesignerAdapterExports } from "./contracts/external-control-adapter.mjs";
 import { findDuplicateBadge } from "./ui/badge-duplicates.js";
+import { badgePlacements, validBadgeCategory, validBadgeSelections, validPlacementTexts }
+    from "./ui/badge-selection-contract.js";
 
 const required = ["canvas.id", "canvas.displayName"];
 const reserved = new Set(["speckit-canvas-designer", "speckit-wizard", "speckit-canvas-generator"]);
@@ -72,7 +74,7 @@ export function validateEssentials(model, values) {
     for (const id of required) {
         result[id] = values[id].trim();
     }
-    for (const id of ["canvas.description", "canvas.workflowListName"]) {
+    for (const id of ["canvas.description", "canvas.workflowListName", "canvas.workflowItemName"]) {
         if (Object.hasOwn(result, id)) result[id] = result[id].trim();
     }
     if (!result["canvas.id"] || !result["canvas.displayName"]
@@ -457,11 +459,6 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
         const source = (artifact) => artifact && phaseIds.includes(artifact.phase)
             && typeof artifact.output === "string"
             && outputs?.[artifact.phase]?.outputs?.includes(artifact.output);
-        const textValid = (text, placeholders) => typeof text === "string"
-            && text.trim() && text.length <= 120
-            && !/[{}]/.test(text.replace(/\{[a-z][a-z0-9-]{0,39}\}/g, ""))
-            && [...text.matchAll(/\{([a-z][a-z0-9-]{0,39})\}/g)]
-                .every((match) => placeholders.includes(match[1]));
         const ids = new Set();
         const checked = [];
         for (const instance of instances) {
@@ -477,6 +474,8 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
                     if (inputType === "phase") return !phaseIds.includes(value);
                     if (inputType === "text") return typeof value !== "string" || !value.trim()
                         || value.length > 256 || /[\x00-\x1f\x7f]/.test(value);
+                    if (inputType === "badge-selection") return !Array.isArray(instance.showIn)
+                        || !validBadgeSelections(value, badgePlacements(instance));
                     if (inputType === "ordered-artifacts") return !Array.isArray(value)
                         || value.length > 100 || value.length < (rule.inputs.find((input) =>
                             input.id === id)?.minItems ?? 0)
@@ -489,13 +488,12 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
                             || item.outputs.some((output) =>
                                 !source({ phase: item.phase, output })));
                 })
-                || !textValid(instance.text, rule.textPlaceholders)
-                || (instance.phaseText !== undefined
-                    && (!(instance.targets?.length || instance.showIn?.includes("phase-card"))
-                        || !textValid(instance.phaseText, rule.textPlaceholders)))
-                || (instance.summaryText !== undefined
-                    && (!instance.showIn?.includes("workflow-summary")
-                        || !textValid(instance.summaryText, ["workflows"])))
+                || !validBadgeCategory(instance.category)
+                || (rule.inputs.some((input) => input.type === "badge-selection")
+                    ? ["text", "phaseText", "summaryText"].some((key) => Object.hasOwn(instance, key))
+                    : !validPlacementTexts(instance, badgePlacements(instance),
+                        (rule.textPlaceholders ?? []).map((token) =>
+                            typeof token === "string" ? token : token.id)))
                 || typeof instance.color !== "string"
                 || !/^(?:theme|red|green|amber|blue|purple|pink|orange|#[0-9a-fA-F]{6})$/.test(instance.color)
                 || !Array.isArray(instance.showIn)
@@ -522,7 +520,7 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
                 || instance.showIn.includes("phase-card") && instance.phase === projectPhaseId)
                 && rule.inputs.some(({ id, type: inputType }) => {
                     const value = instance.inputs[id];
-                    return inputType !== "text" && (inputType === "phase"
+                    return !["text", "badge-selection"].includes(inputType) && (inputType === "phase"
                         ? value !== projectPhaseId
                         : Array.isArray(value) ? value.some((entry) => entry.phase !== projectPhaseId)
                             : value.phase !== projectPhaseId);
@@ -530,7 +528,7 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
                 throw new Error(`Badge ${instance.id} has a project placement with workflow rule inputs; choose project evidence or a workflow placement`);
             }
             ids.add(instance.id);
-            const duplicate = findDuplicateBadge(instance, checked);
+            const duplicate = findDuplicateBadge(instance, checked, rule);
             if (duplicate) {
                 throw new Error(`Badge ${instance.id} duplicates phase/output target of ${duplicate.id}; edit the existing badge before Generate`);
             }
@@ -555,7 +553,7 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
             }
         }
         frozenBadges = {
-            instances,
+            instances: structuredClone(instances),
             settings: await (async () => {
                 const entry = model.templates?.find((item) =>
                     item.kind === "designer.badges-settings-definition" && item.name === "badges-settings");
@@ -671,7 +669,8 @@ export async function freezeGeneration({ model, values, outputs = model.outputs,
         sourceFingerprint: handoff.sourceFingerprint, settingsRevision: model.settingsRevision,
         canvas: { id: essentials["canvas.id"], displayName: essentials["canvas.displayName"],
             description: essentials["canvas.description"] || "Spec Kit workflow canvas.",
-            workflowListName: essentials["canvas.workflowListName"] || "Workflows" },
+            workflowListName: essentials["canvas.workflowListName"] || "Workflows",
+            workflowItemName: essentials["canvas.workflowItemName"] || "Workflow" },
         workflow: { selectedPhases: handoff.workflow.selectedPhases,
             ...(handoff.workflow.phaseDescriptions !== undefined
                 ? { phaseDescriptions: handoff.workflow.phaseDescriptions } : {}),

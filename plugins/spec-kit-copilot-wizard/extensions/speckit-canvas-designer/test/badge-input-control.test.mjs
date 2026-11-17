@@ -92,6 +92,25 @@ test("badge adapter mount requires declaration opt-in on both sides before expos
     /Incompatible Designer badge input declaration handle/);
 });
 
+test("selection adapters require a compatible placement context and update handle", () => {
+    const root = { replaceChildren() {} };
+    const selectionRoot = { replaceChildren() {} };
+    const context = { root, selectionRoot, rule: { inputs: [{ id: "choices", type: "badge-selection" }] },
+        placements: { summary: true, workflow: false, phase: false } };
+    const selectionAdapter = { controlId: "fixture.input", contractVersion: 1,
+        mount({ placements }) {
+            assert.deepEqual(placements, context.placements);
+            return { isReady: () => true, updatePlacements() {} };
+        } };
+    const match = { control: "fixture.input", adapter: "fixture-adapter" };
+    assert.equal(typeof mountBadgeInputAdapter(selectionAdapter, match, context).updatePlacements, "function");
+    assert.throws(() => mountBadgeInputAdapter(selectionAdapter, match, {
+        ...context, placements: { summary: true, workflow: false, phase: "yes" },
+    }), /Invalid Designer badge selection context/);
+    assert.throws(() => mountBadgeInputAdapter({ ...selectionAdapter, mount: () => ({}) }, match, context),
+        /Incompatible Designer badge selection handle/);
+});
+
 test("Designer badge controls fail explicitly on missing, duplicate, and incompatible links", () => {
     assert.throws(() => resolveBadgeInputControls([binding, adapter], [type], [rule]),
         /missing Designer badge input control fixture.input/);
@@ -127,7 +146,7 @@ test("unused rules need no editor, but enabled and saved badges retain dependenc
     ], [unused]), /missing Designer badge input binding for unused/);
     assert.throws(() => resolveBadgeInputControls([binding], [disabled], [rule]),
         /missing Designer badge input control fixture.input/);
-    const saved = { id: "saved", type: "disabled", inputs: { phase: "specify" },
+    const saved = { id: "saved", type: "disabled", category: "Status", inputs: { phase: "specify" },
         text: "Ready", color: "green", showIn: ["workflow-list"], targets: [] };
     assert.throws(() => validateBadges([saved], {
         badgeTypes: [disabled.document], badgeRules: [unused.document],

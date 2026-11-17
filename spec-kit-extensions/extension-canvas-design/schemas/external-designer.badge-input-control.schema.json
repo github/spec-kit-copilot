@@ -11,9 +11,9 @@
     "inputTypes": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 5,
+      "maxItems": 6,
       "uniqueItems": true,
-      "items": {"enum": ["artifact", "artifact-set", "ordered-artifacts", "phase", "text"]}
+      "items": {"enum": ["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"]}
     },
     "capabilities": {
       "type": "array",

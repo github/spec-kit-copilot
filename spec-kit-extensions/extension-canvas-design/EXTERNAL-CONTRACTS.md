@@ -45,6 +45,7 @@ host's checks for another's.
 | Designer tabs/settings / Designer | `external-designer.tab-definition.schema.json`, `external-designer.setting-definition.schema.json` | `D/contracts/external-design-contributions.mjs`, `external-definitions.mjs`; `D/external-designer-contract.json` records supported tab schema versions | `D/pages.mjs`; Wizard setup, launch and local-source checks | `DT/contracts.test.mjs`, `provider.test.mjs`; Wizard `test/designer-setup.test.mjs`, `designer-local-sources.test.mjs`; `E2E/preset-designer.spec.mjs`, `designer-pages.spec.mjs` |
 | Shared typed controls / both | `external-shared.control-definition.schema.json` | `D/external-control-contract.mjs`, `D/contracts/external-control-adapter.mjs`, `D/ui/external-control-adapter-contract.js`; `R/external-control-contract.mjs`, `R/contracts/external-generated-controls.mjs` | `D/pages.mjs`, `generation.mjs`, `ui/app.js`; `scripts/generate.mjs`; `R/ui/app.js`, `ui/page-assets.mjs` | `DT/external-controls.test.mjs`, `provider.test.mjs`; `RT/control_contract.test.mjs`, `external_contracts.test.mjs`, image/text/slot tests; `E2E/preset-generated.spec.mjs` |
 | Badge types/settings / Designer | `external-designer.badges-settings-definition.schema.json` | `D/contracts/external-badge-definitions.mjs`, `external-badges.mjs` | `D/pages.mjs`, `settings.mjs`, `generation.mjs`, `ui/badges-control.js` | `DT/badges.test.mjs`, `badges-control.test.mjs`, `provider.test.mjs`; `E2E/designer-pages.spec.mjs` |
+| Generated badge import / Designer fixed shell only | Existing generated `canvas-config.json` envelope; no generated-format change | `D/contracts/badge-import.mjs`; `D/ui/badge-import-contract.js` | `D/server.mjs`, `ui/app.js`, `ui/badges-control.js`; append-only draft validation, never evaluator execution | `DT/badge-import.test.mjs`, `badges-control.test.mjs`, actual generator/import/Save/regeneration in `provider.test.mjs`; `E2E/designer-pages.spec.mjs` |
 | Badge input editors / Designer | `external-designer.badge-input-control.schema.json`, `external-designer.badge-input-binding.schema.json` | `D/contracts/external-badge-input-control.mjs`, `external-executable-modules.mjs`; `D/ui/external-control-adapter-contract.js` | `D/pages.mjs`, `ui/app.js`, `ui/badges-control.js` | `DT/badge-input-control.test.mjs`, `badges-control.test.mjs`, `external-controls.test.mjs`, `provider.test.mjs`; Badge Input fixture journey |
 | Badge rules/evaluators / both definitions, generated execution | `external-generated.badge-rule-definition.schema.json` | `D/contracts/external-badge-definitions.mjs`, `external-executable-modules.mjs`; `R/contracts/external-badge-evaluator.mjs` | `D/pages.mjs`; `R/badge-runtime.mjs` | `RT/badge_adapters.test.mjs`, `generated_badges.test.mjs`, `ordered_badge_generation.test.mjs`, `external_contracts.test.mjs`; `DT/provider.test.mjs`; Badge Input fixture journey |
 | Workflow page / generated | `external-generated.workflow-page-definition.schema.json` | `D/contracts/external-definitions.mjs`, `external-executable-modules.mjs`; `R/contracts/external-host-adapter.mjs` | `D/pages.mjs`; `R/ui/app.js` | `RT/workflow_page_adapter.test.mjs`, `external_contracts.test.mjs`, `canvas_generation.test.mjs`; `E2E/generated-slug.spec.mjs` |
@@ -79,6 +80,17 @@ the same boundaries as before.
 
 ### Designer controls and badge editors
 
+**Badge import** is a fixed Designer Badges shell operation, not a customizable
+badge-input control. This single-host exception intentionally has no contribution
+definition/adapter template pair or generated-host renderer. The host checks a
+complete generated configuration's badge definitions against the resolved model
+and evaluator hashes, then validates the entire combined draft using the existing
+Save validator. The UI appends every instance or none; it never imports types,
+rules or code, persists settings, supplies missing required fields, or migrates
+legacy formats. See the [Designer import contract and limits](../../plugins/spec-kit-copilot-wizard/extensions/speckit-canvas-designer/README.md#importing-badges).
+Future badge-format changes must update the import contract, validation,
+documentation and real generator round-trip tests together.
+
 Designer controls export `controlId`, `valueContract`, `mount`, and `validate`.
 The declared value agrees with the definition; Node-side typed-control checks
 and browser scalar/image/object checks retain their existing distinctions.
@@ -103,7 +115,48 @@ draft evidence. Old-render callbacks remain ignored. The captured `isReady`
 method is called with the control as its receiver and must return literal
 `true` before saving. Existing unavailable-control diagnostics, optional
 `validationError`, optional `dispose`, and disposal/readiness failure handling
-remain in the editor; no new method is required.
+remain in the editor.
+
+A rule can declare at most one `badge-selection` input. Its value is an ordered
+array of 1–100 entries `{ id, value, color }` plus placement text, with
+unique stable IDs. `value` is the literal **Text to find**. Each entry carries
+`text` (Workflow list), `phaseText` (Phase card) and `summaryText`
+(Workflow summary) exactly when the badge selects that placement; text for an
+unselected placement must be absent. Search values are nonblank literal strings
+of at most 256 characters; placement texts are nonblank, at most 120
+characters, and contain no placeholders.
+The shape is documented by
+`schemas/external-badge-selection.schema.json`; runtime validation additionally
+requires unique entry IDs and the placement rule. Colors use the standard badge palette
+or a six-digit hex value. Inputs and entry fields are validated at save, freeze,
+generation and generated-runtime boundaries. The host gives a selection
+editor a separate `selectionRoot` and `placements` object with boolean
+`summary`, `workflow`, and `phase` keys. Its handle must implement
+`updatePlacements(placements)` and emit entries whose placement text matches
+the new placements. It owns the entry rendering and interaction;
+the host owns the shared placements and rejects invalid changes or handles.
+
+Duplicate checks compare ordered selection entries by value, color, and
+placement text, not entry ID; IDs remain required and are preserved in saved
+and generated data. Previously saved overlapping duplicates that differ only by
+entry IDs must be corrected before they can be reopened or generated.
+
+Every badge instance has a required `category`: a nonblank user-entered name
+of at most 80 characters without control characters or angle brackets.
+Rendered workflow-list and summary badges carry `category`; hosts group
+badges whose categories match case-insensitively into one labeled bracket,
+ordered by first appearance. Phase cards do not show category labels.
+Before a Workflow page adapter update, the host checks that optional
+`badges.items` maps item IDs to arrays of badge objects and `badges.summary` is
+an array of badge objects. Their `category` is either a string or absent for
+legacy results; incompatible collections and category values are rejected.
+Instances of rules without a `badge-selection` input carry `text`,
+`phaseText` and `summaryText` exactly for their selected Workflow list,
+Phase and Workflow summary placements; selection-rule instances carry no
+instance text. Workflow and phase text may use the rule's declared
+placeholders. Summary text allows no placeholders and renders as `text: N`
+using the aggregate count, including zero. There is no fallback between
+placement texts.
 
 Badge controls with the `declare-markdown-output` capability must export the
 literal `declaresMarkdownOutput = true` and return a handle with
@@ -120,6 +173,16 @@ Workflow adapters export `pageId = "workflow"`, `contractVersion = 1`, and
 be asynchronous. Their handle must provide `update(state)` and `dispose()`.
 State validation includes the existing `phaseState.slugEditable`,
 `model.userProvidesSlug` agreement, and project badge result rules.
+
+`definition.canvas.workflowItemName` is the singular presentation name used
+for item labels. The generated host sends a trimmed, nonblank string of at most
+80 characters without control characters; an absent field in a legacy
+configuration or adapter exchange means `Workflow`. Invalid supplied values
+are rejected, not replaced. Designer accepts an optional blank value and freezes
+it as `Workflow`. `canvas.workflowListName` remains the independent header
+value; neither field changes workflow IDs, directories, or actions. The
+stock page adapter is self-contained and implements the same checks as the
+source-owned host contract.
 
 Workflow actions remain `selectWorkflow`, `createWorkflow`, `deleteWorkflow`,
 `selectPhase`, `run`, `view`, `saveDraft`, `runConstitution`, `viewConstitution`,
@@ -166,10 +229,18 @@ Undeclared artifact/directory evidence returns the existing unknown-state
 diagnostic; an undeclared run returns `null`.
 
 Results require boolean `match`; optional `values` is an object, optional
-`summaryCount` is a safe integer from 0 through 1,000,000, and optional
+`summaryCount` is a safe integer from 0 through 1,000,000 (accepted for legacy
+evaluators; summaries count matching workflows rather than summing this value), and optional
 `diagnostics` is an array of strings. The serialized result retains its 8192
 character limit. Execution limits, hashing, caching, placement, and error
 reporting remain in `badge-runtime.mjs`, not in evaluator modules.
+
+An evaluator for a `badge-selection` input returns `selection` containing a
+declared entry ID exactly when `match` is true; otherwise it must omit it.
+Selection results cannot declare a summary count other than the match count.
+The host rejects incompatible results with a diagnostic, renders the selected
+entry and increments only its per-workflow Summary item. Non-selection rules
+must not return a selection.
 
 ### Values and computed providers
 
@@ -212,6 +283,8 @@ Nonvisual settings such as custom-slug and show-setup use a Designer checkbox
 without a generated visual adapter; the host consumes the frozen boolean.
 Stock rendering can be reused rather than creating per-field/per-element
 adapters. Computed providers and badge evaluators are nonvisual.
+Value match's registered composite editor is Designer-only; generated
+canvases use the existing badge renderers rather than an entry editor.
 Generated-only pages and Designer-only tabs do not implicitly add a page to
 the other host. Visual custom controls rendered in both hosts retain their
 paired definition/adapter registrations.

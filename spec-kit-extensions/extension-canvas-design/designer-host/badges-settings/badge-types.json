@@ -5,7 +5,7 @@
     {
       "id": "value-match",
       "title": "Value match",
-      "description": "Show when one selected output contains your text, ignoring capitalization.",
+      "description": "Search an output for ordered text matches and show the first matching badge.",
       "rule": "value-match",
       "defaultText": "Value matched",
       "defaultColor": "amber",

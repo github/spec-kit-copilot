@@ -23,6 +23,8 @@ export function validateBadgeEvaluatorResult(result) {
             || Array.isArray(result.values)))
         || (result.summaryCount !== undefined && (!Number.isSafeInteger(result.summaryCount)
             || result.summaryCount < 0 || result.summaryCount > 1_000_000))
+        || (result.selection !== undefined && (typeof result.selection !== "string"
+            || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(result.selection)))
         || (result.diagnostics !== undefined && (!Array.isArray(result.diagnostics)
             || result.diagnostics.some((text) => typeof text !== "string"))))
         throw new Error("Invalid badge evaluator result");

@@ -551,7 +551,7 @@ test("setup routes require canvas token, origin and the current plan", async (t)
         body: JSON.stringify(body) });
     assert.equal((await fetch(`${base}/api/setup/start`)).status, 401);
     const html = await (await fetch(`${base}/?token=test-token`)).text();
-    assert.match(html, /<main id="workflow-surface" class="app-body workflow-surface">/);
+    assert.match(html, /<main id="workflow-surface" class="app-body workflow-surface" data-workflow-item-name="Workflow">/);
     assert.match(html, /<main id="workflow-surface"[^>]*>[\s\S]*?<section id="setup-surface"[^>]*hidden>/);
     assert.match(html, /Set up this project[\s\S]*?Set up Spec Kit and install the selected presets, extensions, and bundles\.[\s\S]*?id="setup-actions"/);
     assert.doesNotMatch(html, /id="setup-(?:cli|project|packages)"/);

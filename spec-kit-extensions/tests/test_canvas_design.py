@@ -38,6 +38,7 @@ FILES = {
     "schemas/external-designer.badge-input-control.schema.json",
     "schemas/external-designer.badge-input-binding.schema.json",
     "schemas/external-generated.badge-rule-definition.schema.json",
+    "schemas/external-badge-selection.schema.json",
     "schemas/external-generated.added-page-definition.schema.json",
     "schemas/external-generated.workflow-page-definition.schema.json",
     "schemas/external-generated.phase-control-definition.schema.json",
@@ -50,7 +51,7 @@ FILES = {
     "schemas/external-generated.value-definition.schema.json",
     *(f"designer-host/tabs/{name}.json" for name in PAGE_NAMES),
     *(f"designer-host/essentials-settings/{name}.json" for name in (
-        "description", "workflow-heading", "custom-slug", "show-setup", "header-logo", "main-page-logo",
+        "description", "workflow-heading", "workflow-item-name", "custom-slug", "show-setup", "header-logo", "main-page-logo",
     )),
     *(f"designer-host/appearance-settings/{mode}-{color}.json"
       for mode in ("light", "dark")
@@ -59,7 +60,7 @@ FILES = {
     "designer-host/badge-input-controls/stock/control.json",
     "designer-host/badge-input-controls/stock/designer.mjs",
     *(f"designer-host/badge-input-controls/{name}/{filename}" for name in (
-        "checklist", "ordered-stale", "phase-artifact",
+        "checklist", "ordered-stale", "phase-artifact", "value-match",
     ) for filename in ("control.json", "designer.mjs")),
     *(f"designer-host/badge-input-controls/stock/bindings/{name}.json" for name in (
         "value-match", "artifact-current", "artifact-stale", "markdown-file-count",
@@ -96,7 +97,8 @@ FILES = {
         "phase-response.mjs",
         "contracts/agent-actions.mjs", "contracts/external-host-adapter.mjs",
         "contracts/external-generated-controls.mjs", "contracts/external-dialog-button.mjs",
-        "contracts/external-badge-evaluator.mjs", "contracts/external-value-provider.mjs",
+        "contracts/external-badge-evaluator.mjs", "contracts/badge-selection.mjs",
+        "contracts/external-value-provider.mjs",
         "contracts/packaged-contributions.mjs", "contracts/workflow-state.mjs",
         "badge-runtime.mjs",
         "ui/app.js", "ui/markdown.mjs", "ui/runtime.css", "ui/workflow-theme.css",
@@ -106,6 +108,21 @@ FILES = {
 
 
 class CanvasDesignPackageTests(unittest.TestCase):
+    def test_badge_selection_text_schema_accepts_per_placement_plain_text(self):
+        schema = json.loads((PACKAGE / "schemas/external-badge-selection.schema.json").read_text("utf-8"))
+        validator = Draft202012Validator(schema)
+        entry = {"id": "review", "value": "needs review", "text": "Review", "color": "amber"}
+        validator.validate([entry])
+        validator.validate([{**entry, "phaseText": "Phase review", "summaryText": "Review"}])
+        # The runtime appends the workflow count to summary text, so tokens are never accepted.
+        for invalid in [{"text": "{count}"}, {"summaryText": "{status}"},
+                        {"summaryText": "Review: {workflows}"},
+                        {"phaseText": ""}, {"text": " "}, {"value": "\n"},
+                        {"unknown": True}]:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    validator.validate([{**entry, **invalid}])
+
     @classmethod
     def setUpClass(cls):
         cls.manifest = yaml.safe_load((PACKAGE / "extension.yml").read_text("utf-8"))
@@ -158,7 +175,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
             [(f"designer-{page}", f"designer-host/tabs/{filename}.json")
              for page, filename in zip(PAGE_IDS, PAGE_NAMES)]
             + [(f"designer-essentials-{filename}", f"designer-host/essentials-settings/{filename}.json")
-               for filename in ("description", "workflow-heading", "custom-slug",
+               for filename in ("description", "workflow-heading", "workflow-item-name", "custom-slug",
                                 "show-setup", "header-logo", "main-page-logo")]
             + [(f"designer-appearance-{mode}-{color}",
                 f"designer-host/appearance-settings/{mode}-{color}.json")
@@ -188,7 +205,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                ("designer-badge-input-stock-adapter",
                 "designer-host/badge-input-controls/stock/designer.mjs")]
             + [(name, f"designer-host/badge-input-controls/{control}/{filename}")
-               for control in ("checklist", "phase-artifact", "ordered-stale")
+               for control in ("value-match", "checklist", "phase-artifact", "ordered-stale")
                for name, filename in (
                    (f"designer-badge-input-{control}", "control.json"),
                    (f"designer-badge-input-{control}-adapter", "designer.mjs"),
@@ -283,12 +300,12 @@ class CanvasDesignPackageTests(unittest.TestCase):
             ],
         )
         stock = [json.loads((PACKAGE / f"designer-host/essentials-settings/{name}.json").read_text("utf-8"))
-                 for name in ("description", "workflow-heading")]
-        self.assertEqual([item["order"] for item in stock], [10, 20])
-        self.assertEqual([item["slot"] for item in stock], ["essentials.options"] * 2)
+                 for name in ("description", "workflow-heading", "workflow-item-name")]
+        self.assertEqual([item["order"] for item in stock], [10, 20, 25])
+        self.assertEqual([item["slot"] for item in stock], ["essentials.options"] * 3)
         self.assertEqual([item["field"]["id"] for item in stock],
-                         ["canvas.description", "canvas.workflowListName"])
-        for name in ("description", "workflow-heading"):
+                         ["canvas.description", "canvas.workflowListName", "canvas.workflowItemName"])
+        for name in ("description", "workflow-heading", "workflow-item-name"):
             self.assertIn(f"`designer-essentials-{name}` — `designer.setting-definition`, `replace`",
                           self.command)
         self.assertTrue(all(page["fields"] == [] for page in self.pages[1:]))

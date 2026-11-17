@@ -1,1 +1,1 @@
-export { phaseResponse, phaseTurnState, RESPONSE_LIMIT } from "./contracts/agent-actions.mjs";
+export { phaseInteractions, phaseResponse, phaseTurnState, RESPONSE_LIMIT } from "./contracts/agent-actions.mjs";

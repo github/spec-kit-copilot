@@ -24,13 +24,70 @@ await cp(new URL("../extension-canvas-design/generated-host/badges/adapters/phas
 const presetEvaluator = new URL("../../tests/fixtures/test-presets/copilot-badge-input-test/generated/evaluator.mjs",
     import.meta.url);
 await cp(presetEvaluator, join(generated, "badges", "badge-rule-test-phase-adapter.mjs"));
-const { evaluateBadges, validateBadges, verifyBadgeModules } =
+const { evaluateBadges, validateBadges, verifyBadgeModules, summaryBadgeText } =
     await import(pathToFileURL(join(generated, "badge-runtime.mjs")).href);
 const { validateWorkflowPageState } =
     await import(pathToFileURL(join(generated, "contracts", "external-host-adapter.mjs")).href);
 const { createRuntime } = await import(pathToFileURL(join(generated, "runtime.mjs")).href);
 const { countMarkdownDirectory } = await import(pathToFileURL(join(generated, "files.mjs")).href);
 const { readBoundedWithMetadata } = await import(pathToFileURL(join(generated, "files.mjs")).href);
+const { badgePlacements, badgeTextFields } =
+    await import(pathToFileURL(join(generated, "contracts", "badge-selection.mjs")).href);
+
+// Fixtures carry text for every placement; keep only the keys required by this badge's
+// placements, moving Value match text onto its choices.
+function placed(badge) {
+    const placements = badgePlacements(badge);
+    const keep = (value) => Object.fromEntries(Object.entries(value).filter(([key]) =>
+        !Object.entries(badgeTextFields).some(([place, field]) => field === key && !placements[place])));
+    const choices = badge.inputs?.choices;
+    if (!Array.isArray(choices)) return keep(badge);
+    const { text: _text, phaseText: _phaseText, summaryText: _summaryText, ...rest } = badge;
+    return { ...rest, inputs: { ...badge.inputs, choices: choices.map(keep) } };
+}
+
+test("summary labels always append the workflow count", () => {
+    assert.equal(summaryBadgeText("Needs review", 2), "Needs review: 2");
+    assert.equal(summaryBadgeText("Critical", 3), "Critical: 3");
+    assert.equal(summaryBadgeText("Needs review", 0), "Needs review: 0");
+});
+
+test("shared Value interpolates per workflow but summaries count workflows, not token totals", async () => {
+    const source = `export const contractVersion = 1;
+        export function evaluate({ workflowId }) {
+            return { match: workflowId !== "gamma", summaryCount: 37,
+                values: { count: workflowId === "alpha" ? 2 : 7, status: "ready" } };
+        }`;
+    const adapter = "shared-value-test";
+    await writeFile(join(generated, "badges", `${adapter}.mjs`), source);
+    const config = {
+        instances: [{ id: "shared", type: "shared", category: "Quality", inputs: { phase: "review" },
+            text: "Checks ({count}) - {status}", phaseText: "Phase checks ({count})",
+            summaryText: "Checks", color: "blue",
+            showIn: ["workflow-list", "workflow-summary"], phase: null,
+            targets: [{ phase: "review", output: null }] }],
+        types: [{ id: "shared", rule: "shared", title: "Checks", description: "Checks",
+            defaultText: "Checks", defaultColor: "blue", enabled: true }],
+        rules: [{ id: "shared", label: "Checks", description: "Checks", adapter,
+            hash: createHash("sha256").update(source).digest("hex"),
+            inputs: [{ id: "phase", type: "phase" }], textPlaceholders: ["count", "status"] }],
+    };
+    const phases = [{ id: "review", outputs: [] }];
+    validateBadges(config, phases);
+    const evaluate = (workflows) => evaluateBadges(config, { cwd: generated, phases,
+        workflows, outputPath: async () => null, runFor: () => null });
+    assert.equal((await evaluate([])).summary[0].text, "Checks: 0");
+    const result = await evaluate(["alpha", "beta", "gamma"]);
+    assert.equal(result.items.alpha[0].text, "Checks (2) - ready");
+    assert.equal(result.items.beta[0].text, "Checks (7) - ready");
+    assert.equal(result.items.alpha[0].phaseText, "Phase checks (2)");
+    assert.equal(result.items.beta[0].phaseText, "Phase checks (7)");
+    assert.equal(result.items.alpha[0].category, "Quality");
+    assert.deepEqual(result.items.gamma, []);
+    assert.deepEqual(result.summary, [{ id: "shared", category: "Quality", color: "blue", count: 2,
+        text: "Checks: 2" }]);
+    assert.deepEqual(result.diagnostics, []);
+});
 
 test("badge text and freshness metadata come from the same validated artifact", async (t) => {
     const cwd = await mkdtemp(join(process.cwd(), ".badge-artifact-version-"));
@@ -56,10 +113,11 @@ const rule = { id: "checklist-progress", label: "Progress", description: "Progre
     adapter: "badge-rule-content-adapter", hash };
 const type = { id: "progress", title: "Progress", description: "Progress",
     rule: rule.id, defaultText: "{completed}/{total} complete", defaultColor: "blue", enabled: true };
-const instance = { id: "work", type: type.id, inputs: { artifact: {
+const instance = { id: "work", type: type.id, category: "Checklist", inputs: { artifact: {
     phase: "tasks", output: "specs/<slug>/tasks.md",
 }, prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }],
-targetphase: "tasks" }, text: "{completed}/{total} complete", color: "blue",
+targetphase: "tasks" }, text: "{completed}/{total} complete",
+phaseText: "{completed}/{total} complete", summaryText: "Checklist progress", color: "blue",
     showIn: ["workflow-list", "workflow-summary", "phase-card"], phase: "tasks" };
 const badges = { instances: [instance], types: [type], rules: [rule] };
 async function writeSpec(cwd, workflow = "specs/alpha") {
@@ -69,10 +127,41 @@ async function writeSpec(cwd, workflow = "specs/alpha") {
         new Date(1_600_000_000_000), new Date(1_600_000_000_000));
 }
 const projectRule = { ...rule, id: "value-match",
-    inputs: [{ id: "artifact", type: "artifact" }, { id: "value", type: "text" }],
+    inputs: [{ id: "artifact", type: "artifact" }, { id: "choices", type: "badge-selection" }],
     textPlaceholders: [] };
 const projectType = { ...type, id: "value-match", rule: projectRule.id };
-const projectInputs = (artifact) => ({ artifact, value: "adopted" });
+const projectInputs = (artifact) => ({ artifact, choices: [{ id: "adopted", value: "adopted",
+    text: "Progress", phaseText: "Project ready", summaryText: "Progress", color: "blue" }] });
+
+test("generated runtime requires a category and token-free per-placement text", () => {
+    const phases = [{ id: "specify", outputs: ["specs/<slug>/spec.md"] },
+        { id: "tasks", outputs: ["specs/<slug>/tasks.md"] }];
+    assert.doesNotThrow(() => validateBadges(badges, phases));
+    const { category: _category, ...uncategorized } = instance;
+    for (const badge of [uncategorized, ...["", " ", "x".repeat(81), "<b>", "Tab\t"]
+        .map((category) => ({ ...instance, category }))]) {
+        assert.throws(() => validateBadges({ ...badges, instances: [badge] }, phases),
+            /Invalid generated badge instance/);
+    }
+    for (const summaryText of ["Progress ({workflows})", "{count}", "{completed} done"]) {
+        assert.throws(() => validateBadges({ ...badges, instances: [{ ...instance, summaryText }] },
+            phases), /Invalid generated badge text/);
+    }
+    const { phaseText: _phaseText, ...withoutPhase } = instance;
+    assert.throws(() => validateBadges({ ...badges, instances: [withoutPhase] }, phases),
+        /Invalid generated badge text/);
+    assert.throws(() => validateBadges({ ...badges, instances: [{ ...instance,
+        showIn: ["workflow-list"], phase: null }] }, phases), /Invalid generated badge text/);
+    const valueMatch = placed({ ...instance, type: projectType.id, showIn: ["workflow-list"],
+        phase: null, inputs: projectInputs(instance.inputs.artifact) });
+    const both = { instances: [valueMatch], types: [projectType], rules: [projectRule] };
+    assert.doesNotThrow(() => validateBadges(both, phases));
+    assert.throws(() => validateBadges({ ...both, instances: [{ ...valueMatch, text: "Progress" }] },
+        phases), /Invalid generated badge text/);
+    assert.throws(() => validateBadges({ ...both, instances: [{ ...valueMatch, inputs: {
+        ...valueMatch.inputs, choices: valueMatch.inputs.choices.map((choice) =>
+            ({ ...choice, summaryText: "Progress" })) } }] }, phases), /Invalid generated badge input/);
+});
 
 test("generated rules require the adapter key rather than the former module key", () => {
     const { adapter, ...withoutAdapter } = rule;
@@ -90,7 +179,10 @@ test("generated runtime validates Constitution card and declared output placemen
         outputs: [".specify/memory/constitution.md"] };
     const phases = [{ id: "specify", outputs: ["specs/<slug>/spec.md"] },
         { id: "tasks", outputs: ["specs/<slug>/tasks.md"] }, constitution];
-    const global = { ...instance, type: projectType.id, inputs: projectInputs({
+    const global = placed({ ...instance, type: projectType.id, inputs: projectInputs({
+        phase: constitution.id, output: constitution.outputs[0],
+    }), showIn: ["workflow-list"], phase: null });
+    const globalBase = { ...instance, type: projectType.id, inputs: projectInputs({
         phase: constitution.id, output: constitution.outputs[0],
     }), showIn: ["workflow-list"], phase: null };
     const both = { instances: [global], types: [type, projectType], rules: [rule, projectRule] };
@@ -100,27 +192,27 @@ test("generated runtime validates Constitution card and declared output placemen
     }] }, phases), /Project badge placement requires project-level rule inputs/);
     assert.doesNotThrow(() => validateBadges({ ...both, instances: [instance] }, phases));
     for (const output of [null, constitution.outputs[0]]) {
-        assert.doesNotThrow(() => validateBadges({ ...both, instances: [{
-            ...global, targets: [{ phase: constitution.id, output }],
-        }] }, phases));
-        assert.throws(() => validateBadges({ ...both, instances: [{
+        assert.doesNotThrow(() => validateBadges({ ...both, instances: [placed({
+            ...globalBase, targets: [{ phase: constitution.id, output }],
+        })] }, phases));
+        assert.throws(() => validateBadges({ ...both, instances: [placed({
             ...instance, showIn: ["workflow-list"], phase: null,
             targets: [{ phase: constitution.id, output }],
-        }] }, phases), /Project badge placement requires project-level rule inputs/);
+        })] }, phases), /Project badge placement requires project-level rule inputs/);
     }
-    assert.throws(() => validateBadges({ ...both, instances: [{
-        ...global, targets: [{ phase: constitution.id, output: "undeclared.md" }],
-    }] }, phases), /Invalid generated badge instance/);
-    assert.throws(() => validateBadges({ ...both, instances: [{
+    assert.throws(() => validateBadges({ ...both, instances: [placed({
+        ...globalBase, targets: [{ phase: constitution.id, output: "undeclared.md" }],
+    })] }, phases), /Invalid generated badge instance/);
+    assert.throws(() => validateBadges({ ...both, instances: [placed({
         ...instance, showIn: [], phase: null, targets: [
             { phase: constitution.id, output: null }, { phase: "tasks", output: null },
         ],
-    }] }, phases), /Project badge placement requires project-level rule inputs/);
+    })] }, phases), /Project badge placement requires project-level rule inputs/);
     const phaseRule = { ...rule, id: "phase-run-complete",
         inputs: [{ id: "phase", type: "phase" }] };
     const phaseType = { ...type, id: "phase-run-complete", rule: phaseRule.id };
-    const phaseBadge = { ...global, type: phaseType.id, inputs: { phase: "tasks" },
-        targets: [{ phase: constitution.id, output: null }] };
+    const phaseBadge = placed({ ...instance, type: phaseType.id, inputs: { phase: "tasks" },
+        showIn: ["workflow-list"], phase: null, targets: [{ phase: constitution.id, output: null }] });
     const phaseConfig = { instances: [phaseBadge], types: [phaseType], rules: [phaseRule] };
     assert.throws(() => validateBadges(phaseConfig, phases),
         /Project badge placement requires project-level rule inputs/);
@@ -136,10 +228,10 @@ test("project Constitution badges evaluate without workflows and do not count as
     await writeFile(join(cwd, ".specify", "memory", "constitution.md"), "- [x] adopted\n");
     const phase = { id: "speckit.constitution", project: true,
         outputs: [".specify/memory/constitution.md"] };
-    const projectBadge = { ...instance, type: projectType.id, inputs: projectInputs({
+    const projectBadge = placed({ ...instance, type: projectType.id, inputs: projectInputs({
         phase: phase.id, output: phase.outputs[0],
     }), targets: [{ phase: phase.id, output: null }],
-    showIn: ["workflow-list", "workflow-summary"], phase: null, phaseText: "Project ready" };
+    showIn: ["workflow-list", "workflow-summary"], phase: null });
     const config = { instances: [projectBadge], types: [projectType], rules: [projectRule] };
     const evaluate = (workflows) => evaluateBadges(config, { cwd, workflows,
         phases: [phase], outputPath: async ({ output }) => output,
@@ -147,7 +239,7 @@ test("project Constitution badges evaluate without workflows and do not count as
     const empty = await evaluate([]);
     assert.equal(validateWorkflowPageState({ model: { userProvidesSlug: false, badges: empty },
         phaseState: { slugEditable: false } }).model.badges.project.length, 1);
-    assert.deepEqual(empty.project.map(({ phaseText }) => phaseText), ["Project ready"],
+    assert.deepEqual(empty.project.map(({ text }) => text), ["Progress"],
         JSON.stringify(empty.diagnostics));
     assert.deepEqual(empty.items, {});
     assert.equal(empty.summary[0].count, 0);
@@ -171,14 +263,16 @@ test("project-only badges do not consume workflow evaluation, while mixed placem
     }
     const projectPhase = { id: "speckit.constitution", project: true,
         outputs: [".specify/memory/constitution.md", ".specify/memory/other.md"] };
-    const projectOnly = { ...instance, id: "project-only", type: projectType.id,
+    const projectBase = { ...instance, id: "project-only", type: projectType.id,
         inputs: projectInputs({ phase: projectPhase.id, output: projectPhase.outputs[0] }),
         showIn: [], phase: null, targets: [{ phase: projectPhase.id, output: null }] };
-    const workflowOnly = { ...instance, id: "workflow-only", showIn: ["workflow-list"], phase: null };
-    const mixed = { ...projectOnly, id: "mixed", showIn: ["workflow-summary"],
-        inputs: projectInputs({ phase: projectPhase.id, output: projectPhase.outputs[1] }) };
-    const mixedTarget = { ...workflowOnly, id: "mixed-target", showIn: [],
-        targets: [{ phase: projectPhase.id, output: null }, { phase: "tasks", output: null }] };
+    const projectOnly = placed(projectBase);
+    const workflowBase = { ...instance, id: "workflow-only", showIn: ["workflow-list"], phase: null };
+    const workflowOnly = placed(workflowBase);
+    const mixed = placed({ ...projectBase, id: "mixed", showIn: ["workflow-summary"],
+        inputs: projectInputs({ phase: projectPhase.id, output: projectPhase.outputs[1] }) });
+    const mixedTarget = placed({ ...workflowBase, id: "mixed-target", showIn: [],
+        targets: [{ phase: projectPhase.id, output: null }, { phase: "tasks", output: null }] });
     const configured = { instances: [projectOnly, workflowOnly, mixed],
         types: [type, projectType], rules: [rule, projectRule] };
     const phases = [{ id: "specify", outputs: ["specs/<slug>/spec.md"] },
@@ -218,14 +312,15 @@ test("custom phase-run evaluator matches project Constitution without a workflow
         inputs: [{ id: "phase", type: "phase" }], textPlaceholders: [],
         adapter: "badge-rule-test-phase-adapter",
         hash: createHash("sha256").update(await readFile(presetEvaluator)).digest("hex") }],
-    instances: [{ id: "confirmed", type: "test-phase", inputs: { phase: phase.id },
-        text: "Phase confirmed", color: "purple", showIn: ["phase-card"], phase: phase.id }] };
+    instances: [{ id: "confirmed", type: "test-phase", category: "Runs", inputs: { phase: phase.id },
+        phaseText: "Phase confirmed", color: "purple", showIn: ["phase-card"], phase: phase.id }] };
     validateBadges(preset, [phase]);
     await verifyBadgeModules(preset);
     const evaluate = (status) => evaluateBadges(preset, { cwd, workflows: [],
         phases: [phase], outputPath: async () => { throw new Error("No output input"); },
         runFor: () => status && { status } });
-    assert.deepEqual((await evaluate("Completed")).project.map(({ text }) => text), ["Phase confirmed"]);
+    assert.deepEqual((await evaluate("Completed")).project.map(({ phaseText }) => phaseText),
+        ["Phase confirmed"]);
     assert.deepEqual((await evaluate("Failed")).project, []);
 });
 const fileRule = { ...rule, id: "markdown-file-count",
@@ -233,9 +328,9 @@ const fileRule = { ...rule, id: "markdown-file-count",
     textPlaceholders: ["count"] };
 const fileType = { ...type, id: "markdown-file-count", title: "Markdown files",
     rule: fileRule.id, defaultText: "Files ({count})" };
-const fileInstance = { id: "files", type: fileType.id,
+const fileInstance = { id: "files", type: fileType.id, category: "Files",
     inputs: { artifact: { phase: "review", output: "work/<slug>/review/<name>.md" } },
-    text: "Files ({count})", color: "blue",
+    text: "Files ({count})", summaryText: "Files", color: "blue",
     showIn: ["workflow-list", "workflow-summary"], phase: null };
 const fileBadges = { instances: [fileInstance], types: [fileType], rules: [fileRule] };
 const completeRule = { ...rule, id: "checklist-complete",
@@ -250,7 +345,7 @@ const completeInstance = { ...instance, id: "completed", type: completeType.id,
     inputs: { artifact: { phase: "tasks", output: "specs/<slug>/tasks.md" },
         prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" },
             { phase: "plan", output: "specs/<slug>/plan.md" }], targetphase: "tasks" },
-    text: "Checklist complete" };
+    text: "Checklist complete", phaseText: "Checklist complete", summaryText: "Checklists complete" };
 const completeBadges = { instances: [completeInstance], types: [completeType],
     rules: [completeRule] };
 const phaseArtifactAdapter = new URL(
@@ -268,7 +363,7 @@ const phaseArtifactType = { ...type, id: "phase-artifact-complete",
 const phaseArtifactInstance = { ...instance, id: "phase-artifact",
     type: phaseArtifactType.id, text: "List ready", phase: null,
     showIn: ["workflow-list", "workflow-summary"],
-    phaseText: "Card ready", summaryText: "{workflows} workflows ready",
+    phaseText: "Card ready", summaryText: "Workflows ready",
     targets: [{ phase: "tasks", output: null }],
     inputs: { target: { phase: "tasks", output: "specs/<slug>/tasks.md" },
         prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" },
@@ -308,7 +403,7 @@ test("replacement shows the latest matching phase per location without changing 
     });
     const badge = (id, target, prerequisites, placement = ["workflow-list", "workflow-summary"]) =>
         ({ ...phaseArtifactInstance, id, inputs: { target, prerequisites },
-            text: `${id} ready`, summaryText: `${id} ({workflows})`,
+            text: `${id} ready`, summaryText: id,
             showIn: placement.filter((place) => place !== "phase-card"),
             targets: placement.includes("phase-card") ? [{ phase: target.phase, output: null }] : [] });
     const specify = badge("specify", artifact("specify", "spec"), [],
@@ -355,7 +450,8 @@ test("replacement shows the latest matching phase per location without changing 
     assert.deepEqual(counts(result), [["specify", 2], ["plan", 1], ["tasks", 0]]);
     const { summaryText: _planSummary, ...ordinaryPlan } = plan;
     result = await evaluate({ ...config, instances: [
-        specify, plan, ordinary, { ...ordinaryPlan, id: "ordinary-plan", type: "ordinary" },
+        specify, plan, ordinary, { ...ordinaryPlan, id: "ordinary-plan", type: "ordinary",
+            showIn: ["workflow-list"] },
     ] });
     assert.deepEqual(row(result, "specs/alpha"), ["plan", "ordinary", "ordinary-plan"]);
     result = await evaluate({ ...config, instances: [tasks, plan, ordinary, specify] });
@@ -378,7 +474,7 @@ test("replacement shows the latest matching phase per location without changing 
     const { phaseText: _phaseText, ...listOnlySpecify } = specify;
     const independent = { ...config, instances: [
         { ...listOnlySpecify, targets: [] },
-        { ...plan, showIn: ["workflow-summary"], targets: plan.targets },
+        placed({ ...plan, showIn: ["workflow-summary"], targets: plan.targets }),
     ] };
     result = await evaluate(independent);
     assert.deepEqual(row(result, "specs/alpha"), ["specify"]);
@@ -419,10 +515,10 @@ test("ordered phase badge uses metadata only, compares neighbors and counts matc
         outputPath: async ({ output }, workflow) => output.replace("specs/<slug>", workflow),
         runFor: () => { throw new Error("Metadata rule must not consult phase runs"); } });
     const result = await evaluate();
-    assert.deepEqual(result.summary, [{ id: "phase-artifact", color: "blue", count: 2,
-        text: "2 workflows ready" }]);
+    assert.deepEqual(result.summary, [{ id: "phase-artifact", category: "Checklist", color: "blue",
+        count: 2, text: "Workflows ready: 2" }]);
     assert.deepEqual(result.items["specs/alpha"][0], {
-        id: "phase-artifact", text: "List ready", phaseText: "Card ready", color: "blue",
+        id: "phase-artifact", category: "Checklist", text: "List ready", phaseText: "Card ready", color: "blue",
         showIn: phaseArtifactInstance.showIn, targets: [{ phase: "tasks", output: null }],
     });
     for (const file of ["spec.md", "plan.md", "tasks.md"]) {
@@ -489,10 +585,11 @@ test("badge evaluator counts checkboxes outside fences and ignores empty checkli
     assert.equal((await checklist({ ruleId: "checklist-complete",
         inputs, evidence: evidence("No work") })).match, false);
     assert.deepEqual(await valueMatch({ ruleId: "value-match", inputs: {
-        artifact: { phase: "tasks", output: "tasks.md" }, value: "VERDICT: NEEDS-CLARIFICATION",
+        artifact: { phase: "tasks", output: "tasks.md" },
+        choices: [{ id: "review", value: "VERDICT: NEEDS-CLARIFICATION" }],
     }, evidence: { readArtifact: async () => ({
         state: "ok", text: "Verdict: needs-clarification",
-    }) } }), { match: true });
+    }) } }), { match: true, selection: "review" });
 });
 
 test("resolved badge instances evaluate per workflow using confined artifact reads", async (t) => {
@@ -515,12 +612,12 @@ test("resolved badge instances evaluate per workflow using confined artifact rea
             `${workflow}/${phase === "specify" ? "spec" : "tasks"}.md`,
         runFor: () => null });
     assert.deepEqual(result.items["specs/alpha"], [{
-        id: "work", text: "1/2 complete", color: "blue",
+        id: "work", category: "Checklist", text: "1/2 complete", phaseText: "1/2 complete", color: "blue",
         showIn: ["workflow-list", "workflow-summary", "phase-card"], phase: "tasks",
     }]);
     assert.deepEqual(result.items["specs/beta"], []);
-    assert.deepEqual(result.summary, [{ id: "work", color: "blue", count: 1,
-        text: "Progress (1)" }]);
+    assert.deepEqual(result.summary, [{ id: "work", category: "Checklist", color: "blue", count: 1,
+        text: "Checklist progress: 1" }]);
     const differentlyLabeled = { ...badges, instances: [instance, {
         ...instance, id: "other", text: "Checklist: {completed} of {total}",
     }] };
@@ -687,28 +784,28 @@ test("directory-scoped output counts regular Markdown files across workflows and
             assert.equal(directory, true);
             return `${workflow}/review`;
         }, runFor: () => null });
-    assert.deepEqual((await evaluate([])).summary, [{ id: "files", color: "blue",
-        count: 0, text: "Markdown files (0)" }]);
+    assert.deepEqual((await evaluate([])).summary, [{ id: "files", category: "Files", color: "blue",
+        count: 0, text: "Files: 0" }]);
     const result = await evaluate(["work/alpha", "work/beta", "work/gamma"]);
-    assert.deepEqual(result.summary, [{ id: "files", color: "blue",
-        count: 2, text: "Markdown files (2)" }]);
+    assert.deepEqual(result.summary, [{ id: "files", category: "Files", color: "blue",
+        count: 2, text: "Files: 2" }]);
     assert.equal(result.items["work/alpha"][0].text, "Files (2)");
     assert.equal(result.items["work/beta"][0].text, "Files (1)");
     assert.deepEqual(result.items["work/gamma"], []);
     const scoped = { ...fileBadges, instances: [{ ...fileInstance,
         text: "{count} checklists", phaseText: "Phase: {count} checklists",
-        summaryText: "Workflows with checklists ({workflows})",
+        summaryText: "Workflows with checklists",
         targets: [{ phase: "review", output: null }] }] };
     validateBadges(scoped, phases);
     const scopedResult = await evaluateBadges(scoped, { cwd,
         workflows: ["work/alpha", "work/beta", "work/gamma"], phases,
         outputPath: async (_, workflow) => `${workflow}/review`,
         runFor: () => null });
-    assert.deepEqual(scopedResult.summary, [{ id: "files", color: "blue",
-        count: 2, text: "Workflows with checklists (2)" }]);
+    assert.deepEqual(scopedResult.summary, [{ id: "files", category: "Files", color: "blue",
+        count: 2, text: "Workflows with checklists: 2" }]);
     assert.equal(scopedResult.items["work/alpha"][0].text, "2 checklists");
     assert.equal(scopedResult.items["work/alpha"][0].phaseText, "Phase: 2 checklists");
-    assert.equal(scopedResult.items["work/beta"][0].phaseText, "Phase: 1 checklists");
+    assert.equal(scopedResult.items["work/beta"][0].text, "1 checklists");
     assert.deepEqual(scopedResult.items["work/gamma"], []);
     try {
         await symlink(join(second, "c.md"), join(first, "linked.md"), "file");
@@ -732,8 +829,8 @@ test("directory badge reads a template output folder before any named file exist
         const [snapshot, concurrent] = await Promise.all([runtime.snapshot(), runtime.snapshot()]);
         assert.notStrictEqual(snapshot.badges, concurrent.badges);
         assert.notStrictEqual(snapshot.badges.items, concurrent.badges.items);
-        assert.deepEqual(snapshot.badges.summary, [{ id: "files", color: "blue",
-            count: 0, text: "Markdown files (0)" }]);
+        assert.deepEqual(snapshot.badges.summary, [{ id: "files", category: "Files", color: "blue",
+            count: 0, text: "Files: 0" }]);
         assert.deepEqual(snapshot.badges.items["work/alpha"], []);
         assert.deepEqual(snapshot.badges.diagnostics, []);
         await writeFile(join(cwd, "work", "alpha", "review", "first.md"), "first");
@@ -800,10 +897,10 @@ test("generated badge runtime preserves distinct phase/output targets", async (t
     await mkdir(join(cwd, "specs", "alpha"), { recursive: true });
     await writeSpec(cwd);
     await writeFile(join(cwd, "specs", "alpha", "tasks.md"), "- [x] done\n");
-    const targeted = { ...instance, showIn: [], phase: null,
+    const targeted = placed({ ...instance, showIn: [], phase: null,
         targets: [{ phase: "specify", output: "specs/<slug>/spec.md" },
             { phase: "plan", output: "specs/<slug>/plan.md" },
-            { phase: "plan", output: null }] };
+            { phase: "plan", output: null }] });
     const phases = [{ id: "specify", outputs: ["specs/<slug>/spec.md"] },
         { id: "plan", outputs: ["specs/<slug>/plan.md"] },
         { id: "tasks", outputs: ["specs/<slug>/tasks.md"] }];
@@ -970,11 +1067,12 @@ test("artifact staleness uses ordered upstream metadata without phase-run status
     const hash = createHash("sha256").update(await readFile(new URL(
         "../extension-canvas-design/generated-host/badges/adapters/ordered-stale.mjs",
         import.meta.url))).digest("hex");
-    const config = { instances: [{ ...instance, id: "stale", type: "stale",
+    const config = { instances: [placed({ ...instance, id: "stale", type: "stale",
         inputs: { artifact: { phase: "tasks", output: "specs/<slug>/tasks.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" },
                 { phase: "plan", output: "specs/<slug>/plan.md" }] },
-        text: "Stale", color: "amber", showIn: ["workflow-list", "workflow-summary"] }],
+        text: "Stale", summaryText: "Stale", color: "amber",
+        showIn: ["workflow-list", "workflow-summary"] })],
     types: [{ ...type, id: "stale", rule: "artifact-stale" }],
     rules: [{ ...rule, id: "artifact-stale", adapter, hash,
         inputs: [{ id: "artifact", type: "artifact", scope: "metadata" },
@@ -1023,8 +1121,9 @@ test("badge config rejects undeclared outputs and normalizes completed run statu
     const hash = createHash("sha256").update(await readFile(new URL(
         "../extension-canvas-design/generated-host/badges/adapters/run.mjs",
         import.meta.url))).digest("hex");
-    const config = { instances: [{ id: "done", type: "done", inputs: { phase: "tasks" },
-        text: "Done", color: "green", showIn: ["workflow-summary", "phase-card"], phase: "tasks" }],
+    const config = { instances: [{ id: "done", type: "done", category: "Runs", inputs: { phase: "tasks" },
+        phaseText: "Done", summaryText: "Done", color: "green",
+        showIn: ["workflow-summary", "phase-card"], phase: "tasks" }],
     types: [{ ...type, id: "done", rule: "phase-run-complete" }],
     rules: [{ ...rule, id: "phase-run-complete", inputs: [{ id: "phase", type: "phase" }],
         textPlaceholders: [], adapter, hash }] };
@@ -1039,9 +1138,9 @@ test("badge config rejects undeclared outputs and normalizes completed run statu
     for (const status of ["Completed", "complete", "success"]) {
         const result = await evaluateBadges(config, { cwd, workflows: ["specs/alpha"], phases,
             outputPath: async () => null, runFor: () => ({ status }) });
-        assert.equal(result.items["specs/alpha"][0].text, "Done", status);
-        assert.deepEqual(result.summary, [{ id: "done", color: "green", count: 1,
-            text: "Progress (1)" }]);
+        assert.equal(result.items["specs/alpha"][0].phaseText, "Done", status);
+        assert.deepEqual(result.summary, [{ id: "done", category: "Runs", color: "green", count: 1,
+            text: "Done: 1" }]);
     }
     const missing = await evaluateBadges(config, { cwd, workflows: ["specs/alpha"], phases,
         outputPath: async () => null, runFor: () => null });
@@ -1055,26 +1154,32 @@ test("Value match searches a single declared output and counts one match per wor
     await mkdir(join(cwd, "specs", "alpha"), { recursive: true });
     await writeFile(join(cwd, "specs", "alpha", "spec.md"), "Verdict: needs-clarification");
     const output = "specs/<slug>/spec.md";
-    const config = { instances: [{ id: "verdict", type: "value-match",
+    const config = { instances: [{ id: "verdict", type: "value-match", category: "Verdict",
         inputs: { artifact: { phase: "specify", output },
-            value: "VERDICT: NEEDS-CLARIFICATION" }, text: "Review needed",
+            choices: [{ id: "review", value: "VERDICT: NEEDS-CLARIFICATION",
+                text: "Review needed", summaryText: "Review", color: "amber" }] },
         color: "amber", showIn: ["workflow-list", "workflow-summary"], phase: null }],
     types: [{ ...type, id: "value-match", rule: "value-match" }],
     rules: [{ ...rule, id: "value-match",
         inputs: [{ id: "artifact", type: "artifact" },
-            { id: "value", type: "text" }], textPlaceholders: [] }] };
+            { id: "choices", type: "badge-selection" }], textPlaceholders: [] }] };
     const phases = [{ id: "specify", outputs: [output] }];
     validateBadges(config, phases);
     assert.throws(() => validateBadges({ ...config, instances: [{
-        ...config.instances[0], inputs: { ...config.instances[0].inputs, value: " " },
+        ...config.instances[0], inputs: { ...config.instances[0].inputs,
+            choices: [{ ...config.instances[0].inputs.choices[0], value: " " }] },
     }] }, phases), /Invalid generated badge input/);
     assert.throws(() => validateBadges({ ...config, instances: [{
-        ...config.instances[0], inputs: { ...config.instances[0].inputs, value: "x".repeat(257) },
+        ...config.instances[0], inputs: { ...config.instances[0].inputs,
+            choices: [{ ...config.instances[0].inputs.choices[0], value: "x".repeat(257) }] },
     }] }, phases), /Invalid generated badge input/);
     const result = await evaluateBadges(config, { cwd, phases, workflows: ["specs/alpha"],
         outputPath: async () => "specs/alpha/spec.md", runFor: () => null });
     assert.equal(result.items["specs/alpha"][0].text, "Review needed");
+    assert.equal(result.items["specs/alpha"][0].category, "Verdict");
     assert.equal(result.summary[0].count, 1);
+    assert.equal(result.summary[0].text, "Review: 1");
+    assert.equal(result.summary[0].category, "Verdict");
 });
 
 test("missing artifacts do not match; oversized reads emit unknown diagnostics", async (t) => {

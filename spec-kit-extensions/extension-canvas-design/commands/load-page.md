@@ -140,6 +140,7 @@ unregistered files are not loaded.
 
 - `designer-essentials-description` — `designer.setting-definition`, `replace`
 - `designer-essentials-workflow-heading` — `designer.setting-definition`, `replace`
+- `designer-essentials-workflow-item-name` — `designer.setting-definition`, `replace`
 - `designer-essentials-custom-slug` — `designer.setting-definition`, `replace`
 - `designer-essentials-show-setup` — `designer.setting-definition`, `replace`
 - `designer-essentials-header-logo` — `designer.setting-definition`, `replace`
@@ -179,6 +180,8 @@ unregistered files are not loaded.
 - `badge-rule-phase-artifact-complete-adapter` — `generated.badge-rule-adapter`, `replace`
 - `designer-badge-input-stock` — `designer.badge-input-control`, `replace`
 - `designer-badge-input-stock-adapter` — `designer.badge-input-adapter`, `replace`
+- `designer-badge-input-value-match` — `designer.badge-input-control`, `replace`
+- `designer-badge-input-value-match-adapter` — `designer.badge-input-adapter`, `replace`
 - `designer-badge-input-checklist` — `designer.badge-input-control`, `replace`
 - `designer-badge-input-checklist-adapter` — `designer.badge-input-adapter`, `replace`
 - `designer-badge-input-phase-artifact` — `designer.badge-input-control`, `replace`

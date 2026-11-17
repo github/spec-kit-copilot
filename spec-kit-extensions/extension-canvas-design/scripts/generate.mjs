@@ -7,8 +7,11 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { validControlContract, validControlValue } from "../generated-scaffold/external-control-contract.mjs";
 import { validateRuntimeSetup } from "../generated-scaffold/setup.mjs";
+import { validWorkflowItemName } from "../generated-scaffold/contracts/external-host-adapter.mjs";
 import { isWindowsDeviceName } from "../generated-scaffold/files.mjs";
 import { phaseContract } from "../generated-scaffold/contract.mjs";
+import { badgePlacements, validBadgeCategory, validBadgeSelections,
+    validPlacementTexts } from "../generated-scaffold/contracts/badge-selection.mjs";
 import { validateDialogAdapterSource, validateButtonAdapterSource } from
     "../generated-scaffold/contracts/external-dialog-button.mjs";
 import { REQUEST_LIMIT, validateGenerationRequestIntegrity } from "./contracts/generation-request.mjs";
@@ -20,6 +23,7 @@ const featureFiles = ["server.mjs", "runtime.mjs", "setup.mjs", "contract.mjs", 
     "contracts/external-host-adapter.mjs", "contracts/packaged-contributions.mjs",
     "contracts/external-generated-controls.mjs", "contracts/external-dialog-button.mjs",
     "contracts/external-badge-evaluator.mjs", "contracts/external-value-provider.mjs",
+    "contracts/badge-selection.mjs",
     "badge-runtime.mjs",
     "ui/app.js", "ui/markdown.mjs", "ui/page-assets.mjs", "ui/runtime.css", "ui/workflow-theme.css"];
 const idPattern = /^[a-z0-9][a-z0-9-]{0,99}$/;
@@ -28,7 +32,7 @@ const RESERVED_GENERATED_PAGE_ID = "workflow";
 const requestPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const fieldPattern = /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/;
 const essentialFields = new Set(["canvas.id", "canvas.displayName", "canvas.description",
-    "canvas.workflowListName", "workflowSlug.userProvided", "setup.show"]);
+    "canvas.workflowListName", "canvas.workflowItemName", "workflowSlug.userProvided", "setup.show"]);
 
 export async function renameDirectoryWithoutReplacement(source, destination) {
     if (process.platform === "win32") {
@@ -251,7 +255,7 @@ export function frozenBadges(badges, workflow) {
                 || Object.keys(input).some((key) =>
                     !["id", "type", "scope", "before", "minItems", "label"].includes(key))
                 || !name.test(input.id)
-                || !["artifact", "artifact-set", "ordered-artifacts", "phase", "text"].includes(input.type)
+                || !["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"].includes(input.type)
                 || (input.label !== undefined
                     && (typeof input.label !== "string" || !input.label.trim() || input.label.length > 80))
                 || (input.scope !== undefined
@@ -264,6 +268,7 @@ export function frozenBadges(badges, workflow) {
                 || input.before !== undefined && (input.type !== "ordered-artifacts"
                     || !parsed.inputs.some((target) => target.id === input.before
                         && target.type === "artifact" && target.scope !== "directory")))
+            || parsed.inputs.filter((input) => input.type === "badge-selection").length > 1
             || !Array.isArray(parsed.textPlaceholders)
             || new Set(parsed.textPlaceholders).size !== parsed.textPlaceholders.length
             || parsed.textPlaceholders.some((placeholder) => !name.test(placeholder))) {
@@ -303,6 +308,8 @@ export function frozenBadges(badges, workflow) {
             if (input.type === "phase") return workflow.selectedPhases.includes(value);
             if (input.type === "text") return typeof value === "string" && !!value.trim()
                 && value.length <= 256 && !/[\x00-\x1f\x7f]/.test(value);
+            if (input.type === "badge-selection") return Array.isArray(instance.showIn)
+                && validBadgeSelections(value, badgePlacements(instance));
             if (input.type === "ordered-artifacts") {
                 const target = instance.inputs[input.before];
                 const chain = [...(Array.isArray(value) ? value : []), target];
@@ -323,15 +330,29 @@ export function frozenBadges(badges, workflow) {
         });
     const ids = new Set();
     const checked = [];
-    const canonical = (value) => Array.isArray(value)
-        ? value.map(canonical).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    const canonical = (value, ordered, key = "") => Array.isArray(value)
+        ? ordered.has(key) ? value.map((item) => canonical(item, ordered))
+            : value.map((item) => canonical(item, ordered)).sort((a, b) =>
+                JSON.stringify(a).localeCompare(JSON.stringify(b)))
         : value !== null && typeof value === "object"
-            ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+            ? Object.fromEntries(Object.keys(value).sort().map((key) =>
+                [key, canonical(value[key], ordered, key)]))
             : value;
+    const canonicalInputs = (inputs, ordered) => canonical(Object.fromEntries(
+        Object.entries(inputs).map(([key, value]) => [
+            key, ordered.has(key) ? value.map(({ id: _id, ...entry }) => entry) : value,
+        ])), ordered);
     const targets = (instance) => instance.targets?.length ? instance.targets
         : instance.showIn?.includes("phase-card") && instance.phase
             ? [{ phase: instance.phase, output: null }]
             : [{ phase: null, output: null }];
+    // Badges collide when they show the same text in a placement they share; badges without
+    // top-level text (Value match) are distinguished by their entries in inputs.
+    const sharesText = (a, b) => {
+        const shown = ["text", "phaseText", "summaryText"]
+            .filter((key) => Object.hasOwn(a, key) || Object.hasOwn(b, key));
+        return !shown.length || shown.some((key) => a[key] === b[key]);
+    };
     for (const instance of instances) {
         const type = typeMap.get(instance?.type);
         const rule = ruleMap.get(type?.rule);
@@ -344,13 +365,11 @@ export function frozenBadges(badges, workflow) {
                         || instance.targets[0].phase !== instance.inputs[rule.placementPhaseInput]?.phase
                     : instance.showIn?.includes("phase-card")
                         && instance.phase !== instance.inputs[rule.placementPhaseInput]?.phase))
-            || !textPlaceholdersValid(instance.text, rule.textPlaceholders)
-            || (instance.phaseText !== undefined
-                && (!(instance.targets?.length || instance.showIn?.includes("phase-card"))
-                    || !textPlaceholdersValid(instance.phaseText, rule.textPlaceholders)))
-            || (instance.summaryText !== undefined
-                && (!instance.showIn?.includes("workflow-summary")
-                    || !textPlaceholdersValid(instance.summaryText, ["workflows"])))
+            || !validBadgeCategory(instance.category)
+            || (rule.inputs.some((input) => input.type === "badge-selection")
+                ? ["text", "phaseText", "summaryText"].some((key) => Object.hasOwn(instance, key))
+                : !validPlacementTexts(instance, badgePlacements(instance),
+                    rule.textPlaceholders.map((token) => typeof token === "string" ? token : token.id)))
             || typeof instance.color !== "string"
             || !/^(?:theme|red|green|amber|blue|purple|pink|orange|#[0-9a-fA-F]{6})$/.test(instance.color)
             || !Array.isArray(instance.showIn) || instance.showIn.length > 3
@@ -377,7 +396,7 @@ export function frozenBadges(badges, workflow) {
             || instance.showIn.includes("phase-card") && instance.phase === projectPhase)
             && rule.inputs.some(({ id, type: inputType }) => {
                 const value = instance.inputs[id];
-                return inputType !== "text" && (inputType === "phase" ? value !== projectPhase
+                return !["text", "badge-selection"].includes(inputType) && (inputType === "phase" ? value !== projectPhase
                     : Array.isArray(value) ? value.some((entry) => entry.phase !== projectPhase)
                         : value.phase !== projectPhase);
             })) {
@@ -386,11 +405,12 @@ export function frozenBadges(badges, workflow) {
         ids.add(instance.id);
         const destinations = new Set(targets(instance).map(({ phase, output }) =>
             JSON.stringify([phase, output])));
+        const ordered = new Set(rule.inputs.filter(({ type }) => type === "badge-selection")
+            .map(({ id }) => id));
         const duplicate = checked.find((other) => other.type === instance.type
-            && other.text === instance.text
-            && other.phaseText === instance.phaseText
-            && other.summaryText === instance.summaryText
-            && isDeepStrictEqual(canonical(other.inputs), canonical(instance.inputs))
+            && sharesText(other, instance)
+            && isDeepStrictEqual(canonicalInputs(other.inputs, ordered),
+                canonicalInputs(instance.inputs, ordered))
             && targets(other).some(({ phase, output }) =>
                 destinations.has(JSON.stringify([phase, output]))));
         if (duplicate) {
@@ -398,7 +418,7 @@ export function frozenBadges(badges, workflow) {
         }
         checked.push(instance);
     }
-    return { instances, types: resolvedTypes, rules: resolvedRules,
+    return { instances: checked, types: resolvedTypes, rules: resolvedRules,
         adapters: adapters.map(({ name: adapter, hash }) => ({ adapter, hash })) };
 }
 
@@ -846,12 +866,18 @@ function configuration(request) {
             && fieldConstraints["canvas.description"]?.type !== "string")
         || (Object.hasOwn(values, "canvas.workflowListName")
             && fieldConstraints["canvas.workflowListName"]?.type !== "string")
+        || (Object.hasOwn(values, "canvas.workflowItemName")
+            && (fieldConstraints["canvas.workflowItemName"]?.type !== "string"
+                || !Object.hasOwn(canvas, "workflowItemName")))
+        || !validWorkflowItemName(canvas.workflowItemName)
         || (Object.hasOwn(values, "workflowSlug.userProvided")
             && fieldConstraints["workflowSlug.userProvided"]?.type !== "boolean")
         || (Object.hasOwn(values, "setup.show")
             && fieldConstraints["setup.show"]?.type !== "boolean")
         || canvas.description !== (values["canvas.description"] || "Spec Kit workflow canvas.")
         || canvas.workflowListName !== (values["canvas.workflowListName"] || "Workflows")
+        || (canvas.workflowItemName !== undefined
+            && canvas.workflowItemName !== (values["canvas.workflowItemName"] || "Workflow"))
         || (values["workflowSlug.userProvided"] !== undefined
             && typeof values["workflowSlug.userProvided"] !== "boolean")
         || (values["setup.show"] !== undefined && typeof values["setup.show"] !== "boolean")

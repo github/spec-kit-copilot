@@ -222,18 +222,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .badge-section h3 { margin: .5rem 0 0; font-size: 15px; }
 .badge-section h4 { margin: .25rem 0 0; font-size: 14px; }
 .badge-editor > h3 { margin-top: 1.25rem; }
-.badge-section button, .badge-toolbar button, .badge-list button { padding: .4rem .75rem;
+.badge-section button, .badge-toolbar button, .badge-list button, .badge-import button { min-height: 40px; padding: .4rem .75rem;
     font: inherit; color: var(--text-color-default);
     background: var(--background-color-elevated); border: 1px solid var(--border-color-strong);
     border-radius: var(--radius-sm); cursor: pointer; }
 .badge-section > button { justify-self: start; min-height: 40px; }
 .badge-editor .badge-actions { margin-top: .5rem; }
 .badge-editor .badge-actions button:first-child { background: var(--accent-color);
-    border-color: var(--accent-color); color: var(--accent-contrast); }
+    border-color: var(--accent-color); color: var(--accent-contrast); font-weight: 600; }
 .badge-toolbar > .badge-add { min-height: 40px; background: var(--accent-color);
     color: var(--accent-contrast);
     border-color: var(--accent-color); font-weight: 600; }
-.badge-section button:disabled, .badge-toolbar button:disabled { opacity: .55; cursor: not-allowed; }
+.badge-section button:disabled, .badge-toolbar button:disabled, .badge-import button:disabled { opacity: .55; cursor: not-allowed; }
+.badge-import { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+.badge-import .settings-note { flex-basis: 100%; margin: 0; }
+.badge-import-status[role="alert"] { color: var(--danger-color); overflow-wrap: anywhere; }
 .badge-list { margin: .5rem 0 1.5rem; }
 .badge-list > .settings-note { padding: .25rem 0; }
 .badge-row { display: flex; justify-content: space-between; align-items: center;
@@ -243,12 +246,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .badge-input-controls { display: grid; gap: .85rem; }
 .badge-input-controls > h3 { margin-top: .75rem; }
 .badge-input-controls > h4 { margin-top: .5rem; }
+.badge-selection-control { display: grid; gap: .6rem; }
+.badge-selection-control > button { justify-self: start; }
+.badge-selection-entry { border: 1px solid var(--border-color-default);
+    border-radius: var(--radius-sm); padding: .75rem; }
+.badge-selection-entry > summary { cursor: pointer; font-weight: 600; }
+.badge-selection-entry > .badge-field { margin-top: .75rem; }
+.badge-selection-entry > button { margin: .75rem .4rem 0 0; }
 .badge-preview-field { display: grid; gap: .3rem; font-size: 14px; font-weight: 600; }
 .badge-preview-field .badge-preview { justify-self: start; }
-.badge-field { display: grid; gap: .3rem; min-width: min(240px, 100%); max-width: 420px; font-weight: 600; }
-.badge-field small { font-weight: 400; }
-.badge-field input, .badge-field select { min-height: 40px; width: 100%; padding: .5rem;
-    font: inherit; color: var(--text-color-default); background: var(--background-color-elevated);
+.badge-field { display: grid; gap: .3rem; min-width: min(240px, 100%); max-width: 420px; font-size: 14px; font-weight: 600; }
+.badge-field small { color: var(--text-color-muted); font-size: 13px; font-weight: 400; }
+.badge-field input, .badge-field select, .badge-field textarea { min-height: 40px; width: 100%; padding: .6rem .75rem;
+    font: inherit; font-size: 14px; font-weight: 400; color: var(--text-color-default); background: var(--background-color-elevated);
     border: 1px solid var(--border-color-strong); border-radius: var(--radius-sm); }
 .badge-field input[type="color"] { width: 80px; padding: .2rem; }
 .badge-field[hidden] { display: none; }
@@ -275,6 +285,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .badge-phase-placement { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; }
 .badge-legacy-placement:not(:empty) { display: grid; gap: .5rem; justify-items: start;
     border-top: 1px solid var(--border-color-default); margin-top: .5rem; padding-top: .5rem; }
+.badge-text-fields { display: grid; gap: .5rem; }
+.badge-text-fields [hidden] { display: none; }
 .badge-section .settings-field-error { overflow-wrap: anywhere; }
 .settings-note { color: var(--text-color-muted); font-size: 13px; max-width: 68ch; }
 .availability-note { margin-top: 2rem; }

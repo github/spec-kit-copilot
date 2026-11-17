@@ -91,6 +91,7 @@ The **Canvas Design Specify Extension** places its other stock options into an o
 | --- | --- | --- | --- |
 | `canvas.description` | Text | Collection description | Existing default description. |
 | `canvas.workflowListName` | Text | Collection heading | “Workflows.” |
+| `canvas.workflowItemName` | Text | Singular item labels and default names | “Workflow.” |
 | `workflowSlug.userProvided` | Checkbox, default off | Allow an optional artifact directory slug for new workflows | Specify chooses the directory. |
 | **Upcoming:** `canvas.logo` | Image upload/preview | Header image | Existing brand mark. |
 | **Upcoming:** `setup.confirm` | Checkbox | Project-setup trigger | Automatic mode when portable setup exists. |
@@ -221,7 +222,7 @@ times in workflow order; it does not depend on phase-run status.
 | Scenario | Required result |
 | --- | --- |
 | **Minimal Essentials** | Generate succeeds with valid Canvas ID and name alone; invalid/missing core identity blocks it clearly. |
-| **Optional stock controls** | Description and Workflow header are supplied by base contributions; removing one applies its declared fallback. |
+| **Optional stock controls** | Description, Header text, and Workflow item name are supplied by base contributions; removing one applies its declared fallback. |
 | **Cost code on Essentials** | A `canvas-design`-tagged preset adds it to an Essentials slot without replacing the entire page; its value reaches a generated read-only control. |
 | **Cost code on Billing tab** | The preset explicitly registers a Designer Billing page. Its saved value produces the same generated result as on Essentials; an unregistered file adds no tab. |
 | **Designer-only/generated-only pages** | Either can be declared independently. A Designer Billing tab does not implicitly create a Generated Workflow Canvas app Billing page. |
@@ -321,7 +322,8 @@ Designer Canvas → Essentials page
   Canvas name                   required core field
   [essentials.options]          declared slot
     Description                 base-extension contribution
-    Workflow header             base-extension contribution
+    Header text                 base-extension contribution
+    Workflow item name          base-extension contribution
     Cost code                   preset contribution
 ```
 

@@ -58,7 +58,7 @@ async function model(revision = "first") {
         const document = JSON.parse(await readFile(new URL(`${name}.json`, templateRoot), "utf8"));
         pages.push({ ...document, page: document.id });
     }
-    for (const name of ["description", "workflow-heading"]) {
+    for (const name of ["description", "workflow-heading", "workflow-item-name"]) {
         const { field } = JSON.parse(await readFile(new URL(`${name}.json`, settingsRoot), "utf8"));
         pages[0].fields.push(field);
     }
@@ -77,9 +77,11 @@ async function model(revision = "first") {
                 required: true },
             "canvas.description": { type: "string", maxLength: 240 },
             "canvas.workflowListName": { type: "string", maxLength: 80 },
+            "canvas.workflowItemName": { type: "string", maxLength: 80,
+                pattern: "^[^\\x00-\\x1f\\x7f]*$" },
         },
         values: { "canvas.id": "", "canvas.displayName": "", "canvas.description": "",
-            "canvas.workflowListName": "" },
+            "canvas.workflowListName": "", "canvas.workflowItemName": "" },
     };
 }
 
@@ -202,6 +204,18 @@ async function badgeState() {
     return state;
 }
 
+function badgeImportConfig(state, badges) {
+    return { schemaVersion: 1,
+        canvas: { id: "source", displayName: "Source", description: "", workflowListName: "Workflows" },
+        userProvidesSlug: false, showSetup: false, phases: Object.keys(state.outputs),
+        phaseArtifacts: state.outputs, phaseOutputs: {}, workflowPage: state.workflowPage,
+        installed: { presets: [], extensions: [], bundles: [] },
+        badges: { instances: badges,
+            types: state.badgeTypes.map((type) => ({ ...type, schemaVersion: 1, hash: "a".repeat(64) })),
+            rules: state.badgeRules.map((rule) => ({ ...rule, hash: state.templates.find((entry) =>
+                entry.kind === "generated.badge-rule-adapter" && entry.name === rule.adapter).hash })) } };
+}
+
 test("Badges editor persists a configured badge through the Designer save boundary", async ({ page }) => {
     const state = await badgeState();
     const shell = await startPreparedShell(state);
@@ -215,7 +229,20 @@ test("Badges editor persists a configured badge through the Designer save bounda
         await page.getByRole("button", { name: "+ Add badge" }).click();
         await page.getByRole("button", { name: "Phase run complete" }).click();
         await page.getByRole("button", { name: "Create badge" }).click();
-        await expect(page.locator(".badge-row")).toContainText("Complete");
+        await expect(page.getByRole("alert")).toHaveText("Enter a badge category.");
+        await page.getByRole("combobox", { name: /^Category/ }).fill("Readiness");
+        await page.getByRole("checkbox", { name: "Workflow list" }).check();
+        await page.getByRole("checkbox", { name: "Phase", exact: true }).check();
+        await page.getByRole("textbox", { name: /^Workflow list text/ }).fill("List ready");
+        await page.getByRole("textbox", { name: /^Phase card text/ }).fill("Phase ready");
+        const summary = page.getByRole("textbox", { name: /^Workflow summary text/ });
+        await summary.fill("Ready {count}");
+        await page.getByRole("button", { name: "Create badge" }).click();
+        await expect(page.getByRole("alert")).toContainText("Workflow summary text cannot use {count}");
+        await summary.fill("Ready");
+        await page.getByRole("button", { name: "Create badge" }).click();
+        await expect(page.locator(".badge-row")).toContainText("List ready");
+        await expect(page.locator(".badge-row")).toContainText("Category: Readiness");
         await page.locator("#save-settings").click();
         await expect(page.locator("#action-message")).toContainText("Settings saved.");
         const url = new URL(shell.url);
@@ -226,12 +253,19 @@ test("Badges editor persists a configured badge through the Designer save bounda
         expect(saved.persisted).toBe(true);
         expect(saved.badges).toHaveLength(1);
         expect(saved.badges[0]).toMatchObject({
-            type: "phase-run-complete", inputs: { phase: "specify" },
-            text: "Complete", showIn: ["workflow-list"],
+            type: "phase-run-complete", category: "Readiness", inputs: { phase: "specify" },
+            text: "List ready", phaseText: "Phase ready", summaryText: "Ready",
+            showIn: ["workflow-summary", "workflow-list"],
+            targets: [{ phase: "specify", output: null }],
         });
         await page.reload();
         await page.getByRole("tab", { name: "Badges" }).click();
-        await expect(page.locator(".badge-row")).toContainText("Complete");
+        await expect(page.locator(".badge-row")).toContainText("List ready");
+        await expect(page.locator(".badge-row")).toContainText("Category: Readiness");
+        await page.getByRole("button", { name: "Edit List ready" }).click();
+        await expect(page.getByRole("textbox", { name: /^Workflow list text/ })).toHaveValue("List ready");
+        await expect(page.getByRole("textbox", { name: /^Phase card text/ })).toHaveValue("Phase ready");
+        await expect(page.getByRole("textbox", { name: /^Workflow summary text/ })).toHaveValue("Ready");
         await page.getByRole("tab", { name: "Generate" }).click();
         for (const id of ["#generate-canvas", "#open-generated-canvas"]) {
             const style = await page.locator(id).evaluate((button) => {
@@ -241,6 +275,115 @@ test("Badges editor persists a configured badge through the Designer save bounda
             expect(style).toEqual(badgeButtonStyle);
         }
     } finally {
+        await shell.close();
+    }
+});
+
+test("removing the first badge after Save preserves the other badge", async ({ page }) => {
+    const state = await badgeState();
+    state.badges = ["First", "Second"].map((text) => ({
+        id: text.toLowerCase(), type: "phase-run-complete", category: "Progress",
+        inputs: { phase: "specify" }, text, color: "green",
+        showIn: ["workflow-list"], phase: null,
+    }));
+    const shell = await startPreparedShell(state);
+    try {
+        await page.goto(shell.url);
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(2);
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toHaveText("Settings saved.");
+        await page.getByRole("button", { name: "Remove First" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await expect(page.locator(".badge-row")).toContainText("Second");
+        await expect(page.locator("#save-settings")).toBeEnabled();
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toHaveText("Settings saved.");
+        const url = new URL(shell.url);
+        const response = await page.request.get(new URL(
+            `/api/state?token=${url.searchParams.get("token")}`, url).href);
+        expect((await response.json()).badges.map(({ id }) => id)).toEqual(["second"]);
+        await page.reload();
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await expect(page.locator(".badge-row")).toContainText("Second");
+    } finally {
+        await shell.close();
+    }
+});
+
+test("Designer imports a local generated config into the badge draft without saving or partially accepting invalid badges", async ({ page }) => {
+    const state = await badgeState();
+    const shell = await startPreparedShell(state);
+    const badge = { id: "imported-run", type: "phase-run-complete", category: "Readiness",
+        inputs: { phase: "specify" }, text: "Imported ready", color: "green",
+        showIn: ["workflow-list"] };
+    const config = badgeImportConfig(state, [badge]);
+    const file = (config) => ({ name: "canvas-config.json", mimeType: "application/json",
+        buffer: Buffer.from(typeof config === "string" ? config : JSON.stringify(config)) });
+    const base = new URL(shell.url);
+    const current = async () => (await page.request.get(
+        new URL(`/api/state${base.search}`, base).href)).json();
+    try {
+        await page.goto(shell.url);
+        await page.getByRole("tab", { name: "Badges" }).click();
+        const initialState = await current();
+        await page.locator(".badge-import-file").setInputFiles(file("{broken"));
+        await expect(page.locator(".badge-import-status")).toContainText("not valid JSON");
+        const invalid = structuredClone(config);
+        invalid.badges.instances.push({ ...badge, id: "second", category: "" });
+        await page.locator(".badge-import-file").setInputFiles(file(invalid));
+        await expect(page.locator(".badge-import-status")).toContainText("badge 2 (second): invalid category");
+        await expect(page.locator(".badge-row")).toHaveCount(0);
+        expect(await current()).toEqual(initialState);
+        const chooser = page.waitForEvent("filechooser");
+        await page.getByRole("button", { name: "Import badges", exact: true }).click();
+        await (await chooser).setFiles(file(config));
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await expect(page.locator(".badge-row")).toContainText("Category: Readiness");
+        await expect(page.locator(".badge-import-status")).toHaveText("Imported 1 badge. Use Save to keep them.");
+        expect((await current()).badges).toEqual([]);
+        await page.locator(".badge-import-file").setInputFiles(file(config));
+        await expect(page.locator(".badge-import-status")).toContainText("invalid or duplicate id");
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toContainText("Settings saved.");
+        expect((await current()).badges).toEqual([badge]);
+        await page.reload();
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await expect(page.locator(".badge-row")).toContainText("Imported ready");
+    } finally { await shell.close(); }
+});
+
+test("Designer ignores a valid import response overtaken by Save", async ({ page }) => {
+    const state = await badgeState();
+    const shell = await startPreparedShell(state);
+    const config = badgeImportConfig(state, [{ id: "late", type: "phase-run-complete",
+        category: "Progress", inputs: { phase: "specify" }, text: "Late badge",
+        color: "green", showIn: ["workflow-list"] }]);
+    let release;
+    let intercepted;
+    const waiting = new Promise((resolve) => { intercepted = resolve; });
+    try {
+        await page.route("**/api/validate-badge-import?*", async (route) => {
+            const response = await route.fetch();
+            await new Promise((resolve) => { release = resolve; intercepted(); });
+            await route.fulfill({ response });
+        });
+        await page.goto(shell.url);
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await page.locator(".badge-import-file").setInputFiles({
+            name: "canvas-config.json", mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify(config)),
+        });
+        await waiting;
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toContainText("Settings saved.");
+        release();
+        await expect(page.locator(".badge-import-status")).toContainText("Designer settings changed");
+        await expect(page.locator(".badge-row")).toHaveCount(0);
+    } finally {
+        release?.();
         await shell.close();
     }
 });
@@ -262,6 +405,7 @@ test("badge editor saves watched evidence without creating a View target", async
         await page.getByRole("tab", { name: "Badges" }).click();
         await page.getByRole("button", { name: "+ Add badge" }).click();
         await page.getByRole("button", { name: "Watched file" }).click();
+        await page.getByRole("combobox", { name: /^Category/ }).fill("Evidence");
         await page.locator(".badge-input-controls").getByRole("checkbox", { name: "Plan" }).check();
         await page.getByText("Use a Markdown file not listed").click();
         await page.getByRole("textbox", { name: "Markdown file path" })
@@ -310,10 +454,12 @@ test("sample preview initializes visible badge input defaults before creating ba
         await page.getByRole("button", { name: "+ Add badge" }).click();
         await page.getByRole("button", { name: "Phase run complete" }).click();
         await expect(page.locator(".badge-input-controls select")).toHaveValue("constitution");
+        await page.getByRole("combobox", { name: /^Category/ }).fill("Progress");
         await page.getByRole("button", { name: "Create badge" }).click();
         await expect(page.locator(".badge-row")).toContainText("Phase run complete");
         await page.getByRole("button", { name: "+ Add badge" }).click();
         await page.getByRole("button", { name: "Artifact current" }).click();
+        await page.getByRole("combobox", { name: /^Category/ }).fill("Evidence");
         await page.getByRole("button", { name: "Create badge" }).click();
         await expect(page.locator(".badge-row")).toHaveCount(2);
     } finally {
@@ -775,7 +921,18 @@ test("Wizard-selected Billing preset persists through Designer and renders in th
         await journey.serveGenerated("billing-canvas", { token: "billing-token" });
         await expect(page.getByRole("heading", { name: "Billing" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Configured fields" })).toHaveCount(0);
-        await expect(page.locator('[data-field-id="billing.costCode"]')).toHaveText("CC-481");
+        const billing = page.getByRole("region", { name: "Billing" }).locator("details");
+        const costCode = billing.locator('[data-field-id="billing.costCode"]');
+        await expect(billing).toHaveAttribute("open", "");
+        await expect(costCode).toHaveText("CC-481");
+        expect(await billing.evaluate((section) => Boolean(
+            section.compareDocumentPosition(document.querySelector("#instance-collection"))
+            & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+        await billing.locator(":scope > summary").click();
+        await expect(costCode).toBeHidden();
+        await billing.locator(":scope > summary").click();
+        await expect(costCode).toHaveText("CC-481");
+        await expect(costCode).toBeVisible();
         await expect(page.getByRole("textbox", { name: "Cost code" })).toHaveCount(0);
     } finally {
         await freshShell?.close();
@@ -850,7 +1007,8 @@ test("risk preset selects a cell by keyboard and packages its read-only adapter"
             || adapterRelative.startsWith(`..${sep}`)).toBe(false);
         templates.push(...scalarRegistrations(resolve));
         templates.push(...workflowRegistrations(resolve));
-        templates.push(...["designer-essentials-description", "designer-essentials-workflow-heading"]
+        templates.push(...["designer-essentials-description", "designer-essentials-workflow-heading",
+            "designer-essentials-workflow-item-name"]
             .map((name) => ({ ...resolve(name), kind: "designer.setting-definition", strategy: "replace" })));
         const folder = handoffDirectory(workspace, handoff.handoffId);
         await mkdir(folder, { recursive: true });
@@ -870,7 +1028,8 @@ test("risk preset selects a cell by keyboard and packages its read-only adapter"
         await page.getByRole("textbox", { name: "Canvas ID (required)" }).fill("risk-canvas");
         await page.getByRole("textbox", { name: "Title (required)" }).fill("Risk Canvas");
         await page.getByRole("textbox", { name: "Description" }).fill("Risk workflow description");
-        await page.getByRole("textbox", { name: "Workflow header" }).fill("Risk workflows");
+        await page.getByRole("textbox", { name: "Header text" }).fill("Risk workflows");
+        await page.getByRole("textbox", { name: "Workflow item name" }).fill("Risk");
         await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect(page.locator("#action-message")).toHaveText("Settings saved.");
         expect((await load()).values["risk.rating"]).toEqual({
@@ -912,6 +1071,8 @@ test("risk preset selects a cell by keyboard and packages its read-only adapter"
         const { readConfig, createWorkflowRoutes } = await import(
             pathToFileURL(join(portable, "server.mjs")).href);
         const config = readConfig();
+        expect(config.canvas.workflowListName).toBe("Risk workflows");
+        expect(config.canvas.workflowItemName).toBe("Risk");
         expect(config.generatedControls[0].value).toEqual({
             impact: "medium", likelihood: "medium",
         });
@@ -923,6 +1084,7 @@ test("risk preset selects a cell by keyboard and packages its read-only adapter"
         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
         await page.goto(`http://127.0.0.1:${server.address().port}/?token=risk-token`);
         await expect(page.locator("#workflow-heading")).toContainText("Risk workflows");
+        await expect(page.locator("#new-workflow")).toHaveAttribute("aria-label", "New Risk");
         await expect(page.locator(".collection-description")).toHaveText("Risk workflow description");
         await expect(page.locator(".brand-mark")).toContainText(String.fromCodePoint(9671));
         await expect(page.getByRole("table", { name: /impact medium, likelihood medium/ })).toBeVisible();
@@ -1009,7 +1171,7 @@ async function openWithError(page, name) {
             reason: "Invalid JSON: <b>unexpected</b>" } };
     if (index === 0) {
         for (const field of ["canvas.id", "canvas.displayName", "canvas.description",
-            "canvas.workflowListName"]) {
+            "canvas.workflowListName", "canvas.workflowItemName"]) {
             delete state.constraints[field];
             delete state.values[field];
         }
@@ -1019,13 +1181,13 @@ async function openWithError(page, name) {
     return shell;
 }
 
-test("Essentials keeps the Workflow header without a slug toggle", async ({ page }) => {
+test("Essentials exposes independent header and item names without a slug toggle", async ({ page }) => {
     const shell = await openDesigner(page);
     try {
         await expect(page.getByRole("tab")).toHaveText(["Essentials", "Badges", "Appearance", "Generate"]);
         const id = page.getByRole("textbox", { name: "Canvas ID (required)" });
         const title = page.getByRole("textbox", { name: "Title (required)" });
-        await expect(page.getByRole("textbox")).toHaveCount(4);
+        await expect(page.getByRole("textbox")).toHaveCount(5);
         await expect(page.getByRole("checkbox")).toHaveCount(0);
         await expect(id).toHaveAttribute("pattern",
             "^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$)[a-z0-9][a-z0-9-]*$");
@@ -1035,7 +1197,14 @@ test("Essentials keeps the Workflow header without a slug toggle", async ({ page
             .toHaveText("Use 1–100 characters: lowercase letters (a–z), numbers (0–9), and hyphens (-). Start with a letter or number. Reserved IDs, including Windows device names like con and com1, cannot be used.");
         await expect(title).toHaveAttribute("maxlength", "120");
         await expect(page.getByRole("textbox", { name: "Description" })).toHaveAttribute("maxlength", "240");
-        await expect(page.getByRole("textbox", { name: "Workflow header" })).toHaveAttribute("maxlength", "80");
+        const header = page.getByRole("textbox", { name: "Header text" });
+        const item = page.getByRole("textbox", { name: "Workflow item name" });
+        await expect(header).toHaveAttribute("maxlength", "80");
+        await expect(item).toHaveAttribute("maxlength", "80");
+        await expect(page.locator(`[id="${await header.getAttribute("id")}-hint"]`))
+            .toHaveText("The main header displayed below the canvas title. Leave blank to use ‘Workflows.’");
+        await expect(page.locator(`[id="${await item.getAttribute("id")}-hint"]`))
+            .toHaveText("The name for one workflow item, used in buttons, labels, and default names. Use the singular form. Leave blank to use ‘Workflow.’");
         await id.fill("example-canvas");
         for (const name of ["Appearance", "Generate"]) {
             await page.getByRole("tab", { name }).click();

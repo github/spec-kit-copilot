@@ -4,6 +4,26 @@ export const phaseControlInterface = Object.freeze({
     capabilities: Object.freeze(["workflow.rows.v1", "workflow.managed-run.v1"]),
 });
 
+export function validWorkflowItemName(value) {
+    return value === undefined || typeof value === "string" && value.length > 0
+        && value.length <= 80 && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value);
+}
+
+export function workflowItemName(value) {
+    if (!validWorkflowItemName(value)) throw new Error("Invalid workflow item name");
+    return value ?? "Workflow";
+}
+
+export function validateWorkflowPageDefinition(definition) {
+    if (!definition || typeof definition !== "object" || Array.isArray(definition)
+        || (definition.canvas !== undefined && (!definition.canvas
+            || typeof definition.canvas !== "object" || Array.isArray(definition.canvas)
+            || !validWorkflowItemName(definition.canvas.workflowItemName)))) {
+        throw new Error("Incompatible Workflow page definition: invalid item name");
+    }
+    return definition;
+}
+
 export function validatePhaseState(state) {
     // false leaves a pending <slug> path unresolved; true allows a user-entered preview.
     if (!state || typeof state.slugEditable !== "boolean") {
@@ -41,12 +61,27 @@ export function validateWorkflowPageState(state) {
             }
         }
     }
+    const invalidBadgeCategory = (badge) => !badge || typeof badge !== "object"
+        || Array.isArray(badge)
+        || (badge.category !== undefined && typeof badge.category !== "string");
+    const workflowBadges = state.model?.badges?.items;
+    if (workflowBadges !== undefined && (!workflowBadges || typeof workflowBadges !== "object"
+        || Array.isArray(workflowBadges) || Object.values(workflowBadges).some((badges) =>
+            !Array.isArray(badges) || badges.some(invalidBadgeCategory)))) {
+        throw new Error("Incompatible Workflow page state: invalid workflow badge results");
+    }
+    const summaryBadges = state.model?.badges?.summary;
+    if (summaryBadges !== undefined && (!Array.isArray(summaryBadges)
+        || summaryBadges.some(invalidBadgeCategory))) {
+        throw new Error("Incompatible Workflow page state: invalid summary badge results");
+    }
     const projectBadges = state.model?.badges?.project;
     if (projectBadges !== undefined && (!Array.isArray(projectBadges)
         || projectBadges.some((badge) => !badge || typeof badge !== "object"
             || Array.isArray(badge) || typeof badge.id !== "string" || !badge.id
             || typeof badge.text !== "string" || typeof badge.color !== "string"
             || (badge.phaseText !== undefined && typeof badge.phaseText !== "string")
+            || (badge.category !== undefined && typeof badge.category !== "string")
             || !Array.isArray(badge.showIn) || badge.showIn.some((place) =>
                 !["workflow-list", "workflow-summary", "phase-card"].includes(place))
             || (badge.targets === undefined

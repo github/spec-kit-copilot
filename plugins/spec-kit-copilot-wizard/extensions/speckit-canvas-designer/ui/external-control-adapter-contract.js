@@ -1,3 +1,7 @@
+const selectionContract = new URL("./badge-selection-contract.js", import.meta.url);
+selectionContract.search = new URL(import.meta.url).search;
+const { validBadgeSelections } = await import(selectionContract.href);
+
 export function validateAdapterModule(adapter, controlId, expected, image, object) {
     if (typeof adapter.mount !== "function") throw new Error("Missing mount export");
     if (typeof adapter.validate !== "function") throw new Error("Missing validate export");
@@ -35,6 +39,12 @@ export function validateBadgeInputAdapter(adapter, binding) {
     }
 }
 
+export function validBadgePlacementState(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+        && Object.keys(value).sort().join() === "phase,summary,workflow"
+        && Object.values(value).every((item) => typeof item === "boolean");
+}
+
 export function mountBadgeInputAdapter(adapter, binding, context) {
     if (binding.capabilities !== undefined
         && (!Array.isArray(binding.capabilities) || binding.capabilities.length !== 1
@@ -43,6 +53,11 @@ export function mountBadgeInputAdapter(adapter, binding, context) {
     }
     const canDeclare = binding.capabilities?.includes("declare-markdown-output") === true;
     validateBadgeInputAdapter(adapter, binding);
+    const selection = context.rule?.inputs?.some(({ type }) => type === "badge-selection");
+    if (selection && (typeof context.selectionRoot?.replaceChildren !== "function"
+        || !validBadgePlacementState(context.placements))) {
+        throw new Error("Invalid Designer badge selection context.");
+    }
     if (adapter.declaresMarkdownOutput !== (canDeclare ? true : undefined)) {
         throw new Error(`Incompatible Designer badge input adapter ${binding.adapter}`);
     }
@@ -56,6 +71,11 @@ export function mountBadgeInputAdapter(adapter, binding, context) {
         return declareFile(phase, path);
     } : undefined;
     const handle = adapter.mount(canDeclare ? { ...options, onDeclareFile } : options);
+    if (selection && typeof handle?.updatePlacements !== "function") {
+        context.root.replaceChildren();
+        context.selectionRoot.replaceChildren();
+        throw new Error(`Incompatible Designer badge selection handle ${binding.adapter}`);
+    }
     if (handle?.handlesOutputDeclaration !== (canDeclare ? true : undefined)) {
         context.root.replaceChildren();
         throw new Error(`Incompatible Designer badge input declaration handle ${binding.adapter}`);
@@ -105,7 +125,7 @@ export function jsonSafe(value) {
     return true;
 }
 
-export function validBadgeInputDraft(inputs, rule, phases, outputs) {
+export function validBadgeInputDraft(inputs, rule, phases, outputs, placements) {
     const phase = (value) => value === "" || phases.includes(value);
     const artifact = (value) => value && typeof value === "object"
         && !Array.isArray(value) && Object.keys(value).sort().join() === "output,phase"
@@ -118,6 +138,7 @@ export function validBadgeInputDraft(inputs, rule, phases, outputs) {
         if (type === "phase") return typeof value === "string" && phase(value);
         if (type === "text") return typeof value === "string" && value.length <= 256
             && !/[\x00-\x1f\x7f]/.test(value);
+        if (type === "badge-selection") return validBadgeSelections(value, placements, true);
         if (type === "artifact") return artifact(value);
         if (type === "ordered-artifacts") return Array.isArray(value) && value.length <= 100
             && value.every((entry) => artifact(entry) && entry.phase !== ""
@@ -131,4 +152,9 @@ export function validBadgeInputDraft(inputs, rule, phases, outputs) {
                     && outputs[entry.phase]?.outputs?.includes(path)));
         return false;
     });
+}
+
+export function validBadgeInputComplete(inputs, rule, placements) {
+    return (rule.inputs ?? []).every(({ id, type }) =>
+        type !== "badge-selection" || validBadgeSelections(inputs[id], placements));
 }

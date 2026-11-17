@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { createContext, runInContext } from "node:vm";
 import { UserError } from "../extension-canvas-design/generated-scaffold/files.mjs";
-import { validateWorkflowAdapter, validateWorkflowMount, validatePhaseAdapter,
-    validatePhaseMount } from "../extension-canvas-design/generated-scaffold/contracts/external-host-adapter.mjs";
+import { validateWorkflowAdapter, validateWorkflowMount, validateWorkflowPageDefinition,
+    validatePhaseAdapter, validatePhaseMount, workflowItemName } from
+    "../extension-canvas-design/generated-scaffold/contracts/external-host-adapter.mjs";
 import { validateDialogAdapter, validateDialogInstance, validateDialogDecision,
     validateButtonAdapter, validateButtonInstance } from
     "../extension-canvas-design/generated-scaffold/contracts/external-dialog-button.mjs";
@@ -37,6 +38,26 @@ test("Workflow and phase checks retain distinct version, capability and handle r
     }
     const handle = { update() {}, dispose() {} };
     assert.equal(validatePhaseMount(handle), handle);
+});
+
+test("Workflow page item names accept legacy defaults and reject incompatible host payloads", () => {
+    for (const canvas of [undefined, {}, { workflowItemName: "Bug" },
+        { workflowItemName: "x".repeat(80) }]) {
+        const definition = { id: "workflow", ...(canvas === undefined ? {} : { canvas }) };
+        assert.equal(validateWorkflowPageDefinition(definition), definition);
+    }
+    assert.equal(workflowItemName(undefined), "Workflow");
+    assert.equal(workflowItemName("Bug"), "Bug");
+    for (const value of [null, 1, "", " ", " Bug", "Bug ", "Bug\nReport", "x".repeat(81)]) {
+        assert.throws(() => validateWorkflowPageDefinition({
+            id: "workflow", canvas: { workflowItemName: value },
+        }), /Incompatible Workflow page definition/);
+        assert.throws(() => workflowItemName(value), /Invalid workflow item name/);
+    }
+    for (const canvas of [null, "Bug", []]) {
+        assert.throws(() => validateWorkflowPageDefinition({ id: "workflow", canvas }),
+            /Incompatible Workflow page definition/);
+    }
 });
 
 test("dialog and button boundaries accept asynchronous mounts but preserve decision and disposal checks", () => {

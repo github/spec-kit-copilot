@@ -1,5 +1,7 @@
 import { validateBadgeEvaluator, badgeEvidence, validateBadgeEvaluatorResult } from
     "./contracts/external-badge-evaluator.mjs";
+import { badgePlacements, validBadgeCategory, validBadgeSelections, validPlacementTexts }
+    from "./contracts/badge-selection.mjs";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -12,7 +14,7 @@ const instanceId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 const hashPattern = /^[a-f0-9]{64}$/;
 const colors = (color) => /^(?:theme|red|green|amber|blue|purple|pink|orange|#[0-9a-fA-F]{6})$/.test(color);
 const placements = new Set(["workflow-list", "workflow-summary", "phase-card"]);
-const inputTypes = new Set(["artifact", "artifact-set", "ordered-artifacts", "phase", "text"]);
+const inputTypes = new Set(["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"]);
 
 if (!isMainThread && workerData?.badgeEvaluation) {
     try {
@@ -60,7 +62,9 @@ export function validateBadges(config, phases = []) {
             || rule.textPlaceholders.some((placeholder) => !identifier.test(
                 typeof placeholder === "string" ? placeholder : placeholder?.id))
             || !Array.isArray(rule.inputs) || rule.inputs.length > 10
-            || !unique(rule.inputs) || rule.inputs.some(({ id, type }) =>
+            || !unique(rule.inputs)
+            || rule.inputs.filter((input) => input.type === "badge-selection").length > 1
+            || rule.inputs.some(({ id, type }) =>
                 !identifier.test(id) || !inputTypes.has(type))
             || (rule.placementPhaseInput !== undefined
                 && !rule.inputs.some((input) => input.id === rule.placementPhaseInput
@@ -96,13 +100,7 @@ export function validateBadges(config, phases = []) {
             || !instance.inputs || typeof instance.inputs !== "object"
             || Array.isArray(instance.inputs)
             || Object.keys(instance.inputs).sort().join() !== rule.inputs.map(({ id }) => id).sort().join()
-            || (instance.text !== undefined && (typeof instance.text !== "string" || instance.text.length > 160))
-            || (instance.phaseText !== undefined && (typeof instance.phaseText !== "string"
-                || !instance.phaseText.trim() || instance.phaseText.length > 120
-                || !(instance.targets?.length || instance.showIn?.includes("phase-card"))))
-            || (instance.summaryText !== undefined && (typeof instance.summaryText !== "string"
-                || !instance.summaryText.trim() || instance.summaryText.length > 120
-                || !instance.showIn?.includes("workflow-summary")))
+            || !validBadgeCategory(instance.category)
             || (instance.color !== undefined && !colors(instance.color))
             || !Array.isArray(instance.showIn)
             || instance.showIn.some((place) => !placements.has(place))
@@ -121,11 +119,18 @@ export function validateBadges(config, phases = []) {
                                 input.type === "artifact" || input.type === "artifact-set")
                                 || !declared(target))))))
             throw new Error("Invalid generated badge instance");
+        if (rule.inputs.some((input) => input.type === "badge-selection")
+            ? ["text", "phaseText", "summaryText"].some((key) => Object.hasOwn(instance, key))
+            : !validPlacementTexts(instance, badgePlacements(instance), rule.textPlaceholders.map(
+                (token) => typeof token === "string" ? token : token.id))) {
+            throw new Error("Invalid generated badge text");
+        }
         for (const input of rule.inputs) {
             const value = instance.inputs[input.id];
             if (input.type === "phase" ? typeof value !== "string" || !phaseIds.includes(value)
                 : input.type === "text" ? typeof value !== "string" || !value.trim()
                     || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)
+                : input.type === "badge-selection" ? !validBadgeSelections(value, badgePlacements(instance))
                 : input.type === "artifact" ? !validArtifact(value) || !declared(value)
                 : input.type === "ordered-artifacts"
                     ? !Array.isArray(value) || value.length > 100
@@ -168,7 +173,7 @@ export function validateBadges(config, phases = []) {
             || instance.showIn.includes("phase-card") && instance.phase === projectPhase)
             && rule.inputs.some(({ id, type: inputType }) => {
                 const value = instance.inputs[id];
-                return inputType !== "text" && (inputType === "phase" ? value !== projectPhase
+                return !["text", "badge-selection"].includes(inputType) && (inputType === "phase" ? value !== projectPhase
                     : Array.isArray(value) ? value.some((entry) => entry.phase !== projectPhase)
                         : value.phase !== projectPhase);
             })) {
@@ -219,6 +224,10 @@ function text(template, values) {
     return template.replace(/\{([A-Za-z][A-Za-z0-9_.-]*)\}/g, (placeholder, name) =>
         Object.hasOwn(values, name) && ["number", "string"].includes(typeof values[name])
             ? String(values[name]).slice(0, 80) : placeholder).slice(0, 160);
+}
+
+export function summaryBadgeText(text, count) {
+    return `${text}: ${count}`;
 }
 
 function selectVisibleBadges(rendered, instances, types, rules, phases) {
@@ -274,9 +283,20 @@ export async function evaluateBadges(badges, { cwd, workflows, phases, outputPat
     for (const instance of badges.instances.filter((badge) => badge.showIn.includes("workflow-summary")
         && badges.types.find((type) => type.id === badge.type)?.enabled)) {
         const type = badges.types.find((entry) => entry.id === instance.type);
-        const item = { id: instance.id, title: type.title, count: 0,
-            ...(instance.summaryText ? { template: instance.summaryText } : {}),
-            color: instance.color ?? type.defaultColor };
+        const rule = badges.rules.find((entry) => entry.id === type.rule);
+        const selectionInput = rule.inputs.find((input) => input.type === "badge-selection");
+        if (selectionInput) {
+            for (const choice of instance.inputs[selectionInput.id]) {
+                const key = JSON.stringify([instance.id, choice.id]);
+                const item = { id: `selection-${createHash("sha256").update(key).digest("hex").slice(0, 32)}`,
+                    category: instance.category, count: 0, label: choice.summaryText, color: choice.color };
+                result.summary.push(item);
+                summaryById.set(key, item);
+            }
+            continue;
+        }
+        const item = { id: instance.id, category: instance.category, count: 0,
+            label: instance.summaryText, color: instance.color ?? type.defaultColor };
         result.summary.push(item);
         summaryById.set(instance.id, item);
     }
@@ -368,7 +388,7 @@ export async function evaluateBadges(badges, { cwd, workflows, phases, outputPat
                 for (const input of rule.inputs) {
                     const value = instance.inputs[input.id];
                     if (input.type === "phase") getRun(value);
-                    else if (input.type === "text") continue;
+                    else if (input.type === "text" || input.type === "badge-selection") continue;
                     else {
                         const descriptors = input.type === "artifact" ? [value]
                             : input.type === "ordered-artifacts" ? value : value.flatMap(
@@ -392,13 +412,26 @@ export async function evaluateBadges(badges, { cwd, workflows, phases, outputPat
                 const key = JSON.stringify([rule.id, instance.inputs, evidence]);
                 if (!cache.has(key)) cache.set(key, await runRule(rule, instance.inputs, evidence, workflow));
                 const evaluated = cache.get(key);
-                const summary = summaryById.get(instance.id);
-                if (summary && !project) summary.count += evaluated.summaryCount ?? Number(evaluated.match);
-                if (evaluated.match) rendered.push({ id: instance.id, text: text(instance.text ?? type.defaultText,
-                    evaluated.values ?? {}),
-                    ...(instance.phaseText
-                        ? { phaseText: text(instance.phaseText, evaluated.values ?? {}) } : {}),
-                    color: instance.color ?? type.defaultColor,
+                const selectionInput = rule.inputs.find((input) => input.type === "badge-selection");
+                const selected = selectionInput && evaluated.match
+                    ? instance.inputs[selectionInput.id].find((choice) => choice.id === evaluated.selection)
+                    : null;
+                if (selectionInput && (evaluated.match && !selected
+                    || !evaluated.match && evaluated.selection !== undefined
+                    || evaluated.summaryCount !== undefined && evaluated.summaryCount !== Number(evaluated.match))) {
+                    throw new Error("Badge evaluator returned an incompatible selection");
+                }
+                if (!selectionInput && evaluated.selection !== undefined) {
+                    throw new Error("Badge evaluator returned an undeclared selection");
+                }
+                const summary = summaryById.get(selectionInput
+                    ? JSON.stringify([instance.id, selected?.id]) : instance.id);
+                if (summary && !project) summary.count += Number(evaluated.match);
+                const texts = selectionInput ? selected : instance;
+                if (evaluated.match) rendered.push({ id: instance.id, category: instance.category,
+                    text: texts.text ? text(texts.text, evaluated.values ?? {}) : "",
+                    ...(texts.phaseText ? { phaseText: text(texts.phaseText, evaluated.values ?? {}) } : {}),
+                    color: selected?.color ?? instance.color ?? type.defaultColor,
                     showIn: instance.showIn, ...(instance.phase ? { phase: instance.phase } : {}),
                     ...(instance.targets ? { targets: instance.targets } : {}) });
                 for (const message of evaluated.diagnostics ?? []) {
@@ -416,8 +449,7 @@ export async function evaluateBadges(badges, { cwd, workflows, phases, outputPat
         if (project) result.project = visible;
         else result.items[workflow] = visible;
     }
-    result.summary = result.summary.map(({ title, template, count, ...item }) =>
-        ({ ...item, count, text: template ? text(template, { workflows: count })
-            : `${title} (${count})` }));
+    result.summary = result.summary.map(({ label, count, ...item }) =>
+        ({ ...item, count, text: summaryBadgeText(label, count) }));
     return result;
 }

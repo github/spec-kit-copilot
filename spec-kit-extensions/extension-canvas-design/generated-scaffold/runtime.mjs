@@ -10,9 +10,10 @@ import { createContext, runInContext } from "node:vm";
 import { UserError, confined, readBounded, readBoundedBytes, directories, atomicJson, safePath, slugPattern,
     deleteConfinedDirectory } from "./files.mjs";
 import { phaseContract, valueContract, validateValue } from "./contract.mjs";
-import { phaseResponse, phaseTurnState } from "./phase-response.mjs";
+import { phaseInteractions, phaseResponse, phaseTurnState } from "./phase-response.mjs";
 import { createSetup } from "./setup.mjs";
 import { freshState, validateWorkflowState, validatePendingRemoval, pendingId, newItem } from "./contracts/workflow-state.mjs";
+import { workflowItemName } from "./contracts/external-host-adapter.mjs";
 import { evaluateBadges, verifyBadgeModules } from "./badge-runtime.mjs";
 
 function staleRevision(message) {
@@ -98,6 +99,7 @@ async function evaluateProvider(module, hash, workflow, deadline) {
 }
 
 export async function createRuntime({ config, cwd, workspace, session, notify = () => {} }) {
+    const itemName = workflowItemName(config.canvas?.workflowItemName);
     if (config.badges?.instances?.length) await verifyBadgeModules(config.badges);
     const phases = phaseContract(config);
     const valueFields = valueContract(config);
@@ -159,7 +161,8 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
     function canDeleteAttempt(run, events) {
         const terminal = ["Completed", "Failed"].includes(run.status);
         if (run.sessionId !== session.sessionId) return terminal;
-        let interaction, currentInteraction, turn, activity;
+        const owned = run.messageId ? phaseInteractions(events, run.messageId) : new Set();
+        let interaction, currentInteraction, turn, turnInteraction, activity;
         let toolsSeen = false, hasTools = false, completed = false;
         for (const event of events) {
             const data = event.data ?? {};
@@ -175,8 +178,9 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
             }
             if (event.type === "assistant.turn_start") {
                 currentInteraction = data.interactionId;
-                if (interaction && currentInteraction === interaction) {
+                if (interaction && owned.has(currentInteraction)) {
                     turn = typeof data.turnId === "string" ? data.turnId : undefined;
+                    turnInteraction = currentInteraction;
                     activity = turn ? "active" : "unknown";
                     hasTools = false;
                     completed = false;
@@ -184,22 +188,22 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
             }
             if (!interaction || !turn) continue;
             if (data.turnId === turn && (event.type === "tool.execution_start"
-                || event.type === "assistant.message" && data.interactionId === interaction
+                || event.type === "assistant.message" && data.interactionId === turnInteraction
                     && data.toolRequests?.length)) {
                 toolsSeen = true;
                 hasTools = true;
                 completed = false;
                 activity = "active";
             }
-            if (event.type === "assistant.message" && data.interactionId === interaction
+            if (event.type === "assistant.message" && data.interactionId === turnInteraction
                 && data.turnId === turn && !hasTools
                 && !["analysis", "commentary", "thinking"].includes(data.phase)
                 && typeof data.content === "string" && data.content.trim()) completed = true;
             if (event.type === "session.task_complete" && typeof data.success === "boolean"
-                && (!data.interactionId || data.interactionId === interaction)
+                && (!data.interactionId || data.interactionId === turnInteraction)
                 && (!data.turnId || data.turnId === turn)
-                && (data.interactionId === interaction || data.turnId === turn
-                    || currentInteraction === interaction)) {
+                && (data.interactionId === turnInteraction || data.turnId === turn
+                    || currentInteraction === turnInteraction)) {
                 completed = true;
                 if (activity !== "active") activity = "ended";
             }
@@ -594,7 +598,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
             if (findings.length) recovery = findings.join(" ");
             if (id === item && run && recovery) statuses[run.phase].error = recovery;
             return { id, slug: config.userProvidesSlug ? slug : "",
-                label: name.trim() || "Unstarted workflow", pending: true,
+                label: name.trim() || `Unstarted ${itemName}`, pending: true,
                 status: pendingRunStatus(run),
                 hasWorkflowRunHistory: Boolean(run), workflowRecoveryMessage: recovery };
         }));
@@ -643,7 +647,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
         if (input.slug !== undefined && (typeof input.slug !== "string" || input.slug.length > 100)) throw new UserError("Artifact folder name (slug) is too long.");
         if (input.slug !== undefined && !config.userProvidesSlug) throw new UserError("Custom workflow slugs are disabled for this canvas.");
         if (input.name !== undefined && (typeof input.name !== "string" || input.name.length > 120
-            || /[\x00-\x1f\x7f]/.test(input.name))) throw new UserError("Workflow name must be text of at most 120 characters.");
+            || /[\x00-\x1f\x7f]/.test(input.name))) throw new UserError(`${itemName} name must be text of at most 120 characters.`);
         if (input.name !== undefined && !newItem(input.selected ?? state.selected)) {
             throw new UserError("Only a new workflow can be given a display name.");
         }
@@ -688,7 +692,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
                 || drafts.some((entry) => entry.slug === slug));
             next.workflowSerial = number;
             id = `__new__:${number}`;
-            drafts.push({ id, name: `Workflow ${number}`, slug: "" });
+            drafts.push({ id, name: `${itemName} ${number}`, slug: "" });
             next.selected = id;
             next.phase = workflowSteps[0]?.id ?? next.phase;
         }, true);
@@ -1030,7 +1034,7 @@ Steps:\n${instructions}` });
         if (input.slug !== undefined && input.slug !== "" && !validSlug(input.slug)) throw new UserError("Use an artifact folder name (slug) with lowercase letters, numbers, and single hyphens, not a reserved filename.");
         if (input.slug !== undefined && !config.userProvidesSlug) throw new UserError("Custom workflow slugs are disabled for this canvas.");
         if (input.name !== undefined && (typeof input.name !== "string" || input.name.length > 120
-            || /[\x00-\x1f\x7f]/.test(input.name))) throw new UserError("Workflow name must be text of at most 120 characters.");
+            || /[\x00-\x1f\x7f]/.test(input.name))) throw new UserError(`${itemName} name must be text of at most 120 characters.`);
         if (input.name !== undefined && (step.project || !newItem(input.itemId ?? "__new__"))) {
             throw new UserError("Only a new workflow can be given a display name.");
         }
