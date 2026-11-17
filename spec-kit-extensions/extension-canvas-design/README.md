@@ -405,10 +405,10 @@ The Badges tab offers **Value match**, **Artifact current**,
 badge color first, then phase checkboxes with outputs nested under
 each selected phase. Selecting a phase starts with its View output; the rule
 determines whether one output or several can be selected. Placement offers
-Workflow summary, Workflow list, and Phase. A single **Value** field (`text`)
-supplies all placements. Workflow and phase badges accept the rule's
-per-workflow placeholders; summaries remove those tokens and append the
-matching-workflow count, for example `Needs review: 3`.
+Workflow summary, Workflow list, and Phase, each with its own text field.
+Workflow-list and phase-card text can use only placeholders declared by the
+badge's rule. Summary text is a plain label; the generated canvas adds the
+matching-workflow count automatically, for example `Needs review: 3`.
 Badge outlines use the same color as their
 text in the Designer preview and generated canvas. Phase shows the badge on each selected
 evidence phase's card for stock controls; a registered input control can
