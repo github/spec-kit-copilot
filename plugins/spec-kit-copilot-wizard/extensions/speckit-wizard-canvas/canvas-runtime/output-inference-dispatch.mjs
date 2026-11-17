@@ -67,8 +67,12 @@ export async function ensurePipelineOutputInference(inst, {
 
 // Resolves once the given inference run is no longer updating. The run's own
 // timeout marks it incomplete, so this wait is bounded.
-export async function waitForOutputInference(inst, inference, { intervalMs = 250 } = {}) {
-    while (inference && inst.outputInference === inference && inference.status === "updating") {
+export async function waitForOutputInference(inst, inference, { intervalMs = 250, requests } = {}) {
+    const scoped = requests && new Map(requests.map((request) =>
+        [commandId(request.commandId), request.fingerprint]));
+    while (inference && inst.outputInference === inference && inference.status === "updating"
+        && (!scoped || [...inference.pending].some(([id, request]) =>
+            scoped.get(id) === request.fingerprint))) {
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
 }

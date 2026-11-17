@@ -78,6 +78,15 @@ export function findOutputInferenceWorker(inst, runId) {
     return worker ? { inference, worker } : null;
 }
 
+export function releaseSupersededOutputWorker(inst, inference, workerId) {
+    if (!isCurrentInference(inst, inference) || !inference.workers.has(workerId)) return;
+    inference.workers.delete(workerId);
+    releaseBackgroundInference(inst, workerId);
+    finishIfIdle(inst, inference);
+    notify(inst, "superseded output inference");
+    if (inference.status === "updating") void inference.schedule?.();
+}
+
 export function unassignedOutputRequests(inference) {
     const assigned = new Set();
     for (const worker of inference.workers.values()) {

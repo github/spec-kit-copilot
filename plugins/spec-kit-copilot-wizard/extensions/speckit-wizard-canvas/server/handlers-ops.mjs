@@ -9,6 +9,7 @@ import {
     failOutputInference,
     findOutputInferenceWorker,
     finishOutputInference,
+    releaseSupersededOutputWorker,
 } from "../canvas-runtime/output-inference.mjs";
 import { commitOwnedFile } from "../canvas-runtime/owned-commit.mjs";
 
@@ -139,7 +140,10 @@ export async function handleArtifactTargets(res, body, { getInstance, runId,
         return jsonError(res, error.status, error.message);
     }
     const rejectOutput = (status, message) => {
-        failOutputInference(inst, inference, runId, message);
+        const superseded = [...worker.requests].some(([id, request]) =>
+            inference.pending.get(id)?.fingerprint !== request.fingerprint);
+        if (superseded) releaseSupersededOutputWorker(inst, inference, runId);
+        else failOutputInference(inst, inference, runId, message);
         return jsonError(res, status, message);
     };
 
@@ -183,8 +187,17 @@ export async function handleArtifactTargets(res, body, { getInstance, runId,
     if (!Object.keys(cleaned).length) return rejectOutput(400, "no valid entries");
 
     try {
-        await serializeArtifactCacheWrite(inst, async () => {
+        const requireCurrentAssignment = () => {
             requireCurrentReply();
+            for (const key of Object.keys(cleaned)) {
+                const id = commandId(key);
+                if (inference.pending.get(id)?.fingerprint !== worker.requests.get(id)?.fingerprint) {
+                    throw new ReplyRunError(409, `Artifact evidence fingerprint mismatch for ${key}; assignment was superseded`);
+                }
+            }
+        };
+        await serializeArtifactCacheWrite(inst, async () => {
+            requireCurrentAssignment();
             const existing = await readCache(inst.workspacePath);
             const entries = {};
             for (const [key, entry] of Object.entries(cleaned)) {
@@ -206,14 +219,19 @@ export async function handleArtifactTargets(res, body, { getInstance, runId,
                 throw new Error("Artifact-target cache exceeds its size limit");
             }
             await writeCache(inst.workspacePath, payload, undefined, (temp, target) =>
-                commitOwnedFile(temp, target, requireCurrentReply, () => {
+                commitOwnedFile(temp, target, requireCurrentAssignment, () => {
                     finishOutputInference(inst, inference, runId,
                         Object.entries(entries).filter(([, entry]) => entry.outputEvidence)
                             .map(([key]) => commandId(key)));
                 }));
         });
     } catch (err) {
-        if (err instanceof ReplyRunError) return jsonError(res, err.status, err.message);
+        if (err instanceof ReplyRunError) {
+            if (findOutputInferenceWorker(inst, runId)?.worker === worker) {
+                releaseSupersededOutputWorker(inst, inference, runId);
+            }
+            return jsonError(res, err.status, err.message);
+        }
         failOutputInference(inst, inference, runId, err?.message ?? String(err));
         const status = err?.message === "Artifact-target cache exceeds its size limit" ? 400 : 500;
         return jsonError(res, status, `Artifact cache was not overwritten: ${err?.message ?? err}`);

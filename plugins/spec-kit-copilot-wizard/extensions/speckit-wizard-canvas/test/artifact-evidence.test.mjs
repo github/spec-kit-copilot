@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appendFile, link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { artifactPath, collectArtifactEvidence, commandId, effectiveSource, readEvidenceCache, writeEvidenceCache, validateCandidates,
     validatePrimaryIndex } from "../artifact-evidence.mjs";
@@ -48,6 +48,12 @@ test("confirmed unchanged built-ins have immediate outputs without inference, in
             await write(`.github/skills/speckit-${id}/SKILL.md`,
                 `---\nname: speckit-${id}\nmetadata:\n  source: templates/commands/${id}.md\n---\nBuilt-in command.`);
         }
+        const files = {};
+        for (const id of Object.keys(CORE_OUTPUTS)) {
+            const path = `.github/skills/speckit-${id}/SKILL.md`;
+            files[path] = createHash("sha256").update(await readFile(join(root, path))).digest("hex");
+        }
+        await write(".specify/integrations/copilot.manifest.json", JSON.stringify({ integration: "copilot", files }));
         const snap = { composition: { artifacts: Object.keys(CORE_OUTPUTS).map(coreArtifact) },
             phases: { plan: { status: "empty" } }, warnings: [], specsDir: "features/current" };
         const result = await collectArtifactEvidence(root, snap);
@@ -64,6 +70,29 @@ test("confirmed unchanged built-ins have immediate outputs without inference, in
         await attachOutputEvidence({ workspacePath: root }, { reportedPhasePaths: {} }, snap, result);
         assert.equal(snap.phases.plan.artifactPath, "features/current/plan.md");
         assert.equal(snap.artifactInferenceRequests.length, 0);
+    });
+});
+
+test("modified core skill or helper cannot use canonical output shortcut", async () => {
+    await fixture(async ({ root, write }) => {
+        const skill = ".github/skills/speckit-plan/SKILL.md";
+        const helper = ".specify/scripts/powershell/setup-plan.ps1";
+        const common = ".specify/scripts/powershell/common.ps1";
+        await write(common, "common helper");
+        const hash = async (path) => createHash("sha256").update(await readFile(join(root, path))).digest("hex");
+        await write(".specify/integrations/copilot.manifest.json",
+            JSON.stringify({ integration: "copilot", files: { [skill]: await hash(skill) } }));
+        await write(".specify/integrations/speckit.manifest.json",
+            JSON.stringify({ integration: "speckit", files: {
+                [helper]: await hash(helper), [common]: await hash(common),
+            } }));
+        const snap = { pipeline: [{ id: "plan" }], composition: { artifacts: [coreArtifact("plan")] } };
+        assert.equal((await collectArtifactEvidence(root, snap)).requests.length, 0);
+        await write(helper, "FEATURE_DIR is reports/changed");
+        assert.equal((await collectArtifactEvidence(root, snap)).requests[0].commandId, "speckit.plan");
+        await write(helper, "FEATURE_DIR is specs/current");
+        await write(skill, "---\nname: speckit-plan\nmetadata:\n  source: templates/commands/plan.md\n---\nWrite reports/changed.md.");
+        assert.equal((await collectArtifactEvidence(root, snap)).requests[0].commandId, "speckit.plan");
     });
 });
 
@@ -186,6 +215,66 @@ test("a valid worker reply survives composition refresh and merges its cache ent
         assert.notEqual(inst.refreshStatus, refresh);
         assert.equal(inst.refreshStatus.status, "refreshing");
         clearTimeout(inst.refreshStatus.timer);
+    });
+});
+
+test("a superseded worker cannot overwrite newer fingerprint evidence", async () => {
+    await fixture(async ({ root }) => {
+        const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };
+        const oldFingerprint = "a".repeat(64), newFingerprint = "b".repeat(64);
+        const { worker: oldWorker, inference } = startWorker(inst,
+            [{ commandId: "speckit.plan", fingerprint: oldFingerprint }]);
+        let resume, entered;
+        const paused = new Promise((resolve) => { entered = resolve; });
+        const wait = new Promise((resolve) => { resume = resolve; });
+        const evidence = (fingerprint, path) => ({ fingerprint, primaryIndex: 0,
+            candidates: [{ kind: "file", path, source: "inference", effect: "creates", evidence: "Writes output" }] });
+        const oldResponse = response();
+        const old = handleArtifactTargets(oldResponse, { entries: {
+            "commands/speckit.plan": { outputEvidence: evidence(oldFingerprint, "old.md") },
+        } }, { getInstance: () => inst, runId: oldWorker.id, readSource: async () => {
+            entered(); await wait; return { fingerprint: oldFingerprint };
+        } });
+        await paused;
+        const { worker: newWorker } = startWorker(inst,
+            [{ commandId: "speckit.plan", fingerprint: newFingerprint }]);
+        const newResponse = response();
+        await handleArtifactTargets(newResponse, { entries: {
+            "commands/speckit.plan": { outputEvidence: evidence(newFingerprint, "new.md") },
+        } }, { getInstance: () => inst, runId: newWorker.id,
+            readSource: async () => ({ fingerprint: newFingerprint }) });
+        assert.equal(newResponse.status, 200);
+        resume();
+        await old;
+        assert.equal(oldResponse.status, 409);
+        assert.equal((await readEvidenceCache(root)).entries["commands/speckit.plan"]
+            .outputEvidence.candidates[0].path, "new.md");
+        clearTimeout(inference.timer);
+    });
+});
+
+test("superseding one command keeps the worker's other requests available", async () => {
+    await fixture(async ({ root }) => {
+        const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };
+        const old = "a".repeat(64), newer = "b".repeat(64), other = "c".repeat(64);
+        const { worker, inference } = startWorker(inst, [
+            { commandId: "speckit.plan", fingerprint: old },
+            { commandId: "speckit.tasks", fingerprint: other },
+        ]);
+        beginInferenceGroup(inst, [{ commandId: "speckit.plan", fingerprint: newer }]);
+        let scheduled = 0;
+        inference.schedule = () => { scheduled++; };
+        const res = response();
+        await handleArtifactTargets(res, { entries: {
+            "commands/speckit.plan": { outputEvidence: { fingerprint: old, primaryIndex: null,
+                candidates: [{ kind: "unknown", source: "inference", effect: "unknown", evidence: "Unknown" }] } },
+        } }, { getInstance: () => inst, runId: worker.id, readSource: async () => ({ fingerprint: newer }) });
+        assert.equal(res.status, 409);
+        assert.equal(inference.pending.get("tasks").fingerprint, other);
+        assert.equal(inference.failures.has("tasks"), false);
+        assert.equal(scheduled, 1);
+        assert.deepEqual(unassignedOutputRequests(inference).map((item) => item.fingerprint).sort(), [newer, other]);
+        clearTimeout(inference.timer);
     });
 });
 
@@ -315,6 +404,21 @@ test("a failed command source read marks output collection incomplete without ch
         assert.equal(snap.refreshStatus, "refreshing");
         assert.equal(inst.refreshStatus.status, refresh.status);
         clearTimeout(refresh.timer);
+    });
+});
+
+test("unreadable commands outside the selected pipeline do not block preparation", async () => {
+    await fixture(async ({ root, write }) => {
+        await write(".github/skills/speckit-specify/SKILL.md", "Writes specs/<slug>/spec.md");
+        const result = await collectArtifactEvidence(root,
+            { pipeline: [{ id: "specify" }], commands: [{ id: "plan" }] }, async (path, flags) => {
+                if (path.endsWith("speckit-plan\\SKILL.md") || path.endsWith("speckit-plan/SKILL.md")) {
+                    throw new Error("source read failed");
+                }
+                return open(path, flags);
+            });
+        assert.equal(result.incomplete, false);
+        assert.ok(result.warnings.some((warning) => warning.includes("plan: source read failed")));
     });
 });
 

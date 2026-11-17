@@ -7,10 +7,13 @@ import { runSkillsReload } from "../server/handlers-ops.mjs";
 import { persistAndBroadcast, runFastComposition } from "./composition-apply.mjs";
 import { isCurrentRefresh } from "./refresh-status.mjs";
 import { snapshot } from "./snapshot.mjs";
+import { listInstalledPresets } from "../catalog/presets.mjs";
+import { listInstalledExtensions } from "../catalog/extensions.mjs";
+import { runSpecify } from "../server/specify-command.mjs";
 
 const mutations = new Set();
 
-export function reconcileCatalogInventories(inst, inventories, installed) {
+export function reconcileCatalogInventories(inst, inventories, installed, orders = {}) {
     for (const [group, field] of Object.entries(CATALOG_FIELDS)) {
         const remaining = new Set(inventories[group].map((item) => item.id));
         inst[field] = (inst[field] ?? []).map((item) => {
@@ -19,12 +22,15 @@ export function reconcileCatalogInventories(inst, inventories, installed) {
             const id = selected ? installed.id : item.installedId ?? item.id;
             const actual = inventories[group].find((entry) => entry.id === id);
             if (actual) remaining.delete(actual.id);
-            return { ...item, active: !!actual, ...(actual ? { installedId: actual.id } : {}) };
+            const cliOrder = actual ? orders[group]?.indexOf(actual.id) ?? -1 : -1;
+            return { ...item, active: !!actual, ...(actual ? { installedId: actual.id } : {}),
+                ...(group !== "bundle" ? { cliOrder: cliOrder < 0 ? null : cliOrder } : {}) };
         });
         for (const actual of inventories[group].filter((item) => remaining.has(item.id))) {
             inst[field].push({ id: actual.id, installedId: actual.id, name: actual.name ?? actual.id,
                 description: actual.description ?? "", version: actual.version, active: true,
-                source: actual.source?.catalog ?? "local" });
+                source: actual.source?.catalog ?? "local",
+                ...(group !== "bundle" ? { cliOrder: orders[group]?.indexOf(actual.id) ?? null } : {}) });
         }
         inst.broadcast({ type: `${group}-catalog`, items: [...inst[field]],
             ...(group === "preset" ? { activePresetId: inst.state?.preset ?? null } : {}) });
@@ -99,7 +105,27 @@ export async function runCatalogOperation(inst, kind, payload, {
             Object.assign(timings, error.timings);
         }
         if (after) {
-            reconcileCatalogInventories(inst, after, operation ?? failure?.operation);
+            stage = "inventory";
+            const installed = operation ?? failure?.operation;
+            let orders = {};
+            try {
+                const run = (args, cwd) => (runner.command ?? runSpecify)(cwd, args);
+                const [presets, extensions] = await Promise.all([
+                    listInstalledPresets(project, run), listInstalledExtensions(project, run),
+                ]);
+                orders = { preset: presets.orderedIds, extension: extensions.orderedIds };
+                for (const group of ["preset", "extension"]) {
+                    if (after[group].some(({ id }) => !orders[group].includes(id))) {
+                        throw new Error(`Cannot determine installed ${group} ordering from Specify`);
+                    }
+                }
+            } catch (error) {
+                orders = {};
+                failure = new CatalogOperationError(
+                    `${failure ? `${failure.message}; ` : ""}Package ordering unavailable: ${error.message}`,
+                    { status: 502, stage: "inventory", changed, cause: error });
+            }
+            reconcileCatalogInventories(inst, after, installed, orders);
             // Seed from actual inventories, not a catalog's first-observation cache.
             for (const group of ["preset", "extension"]) {
                 inst[group === "preset" ? "_lastInstalledPresetIds" : "_lastInstalledExtensionIds"]

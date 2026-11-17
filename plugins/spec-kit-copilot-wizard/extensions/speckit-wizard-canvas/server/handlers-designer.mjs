@@ -454,7 +454,7 @@ export async function handleDesignerLaunch(res, body, {
             session,
         });
         if (preparation.queued) {
-            await waitForOutputInference(inst, preparation.inference);
+            await waitForOutputInference(inst, preparation.inference, { requests: preparation.requests });
             snapshot = await getState();
             if (snapshot?.catalog?.designerFingerprint !== body.catalogFingerprint
                 || JSON.stringify(designerPhaseIds(snapshot)) !== JSON.stringify(phases)) {

@@ -4,6 +4,8 @@ import { displayOutputPath, primaryCandidate, resolveOutputPath } from "../pipel
 import { securePathWithin } from "../project-scanner/fs-helpers.mjs";
 import { fsDeps } from "./instances.mjs";
 import { outputInferenceProgress, outputInferenceStatus } from "./output-inference.mjs";
+import { commandId } from "../artifact-evidence.mjs";
+import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
 
 async function existing(cwd, path, kind) {
     if (!path || !artifactPath(path, kind)) return null;
@@ -97,7 +99,9 @@ export async function attachOutputEvidence(inst, scan, snap, outputs) {
     snap.refreshId = inst.refreshStatus?.id ?? null;
     snap.compositionRefreshing = (inst.compositionRefreshCount ?? 0) > 0;
     snap.outputInferenceStatus = outputInferenceStatus(inst, outputs.evidence);
-    snap.outputInferenceProgress = outputInferenceProgress(inst, outputs.requests);
+    const pipeline = new Set(effectivePipelinePhases(snap).map(({ id }) => commandId(id)));
+    snap.outputInferenceProgress = outputInferenceProgress(inst,
+        outputs.requests.filter((request) => pipeline.has(commandId(request.commandId))));
     snap.outputAvailability = {};
     for (const [id, record] of Object.entries(outputs.evidence)) {
         const primary = primaryCandidate(record);

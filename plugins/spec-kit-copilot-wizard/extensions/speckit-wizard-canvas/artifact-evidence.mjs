@@ -277,13 +277,38 @@ export async function writeEvidenceCache(cwd, payload, renameFile = rename, comm
     }
 }
 
+async function coreManifest(cwd, name) {
+    try {
+        const directory = join(await realpath(cwd), ".specify", "integrations");
+        const actual = await realpath(directory);
+        if (resolve(actual) !== resolve(directory)) throw new Error("Linked integration manifest directory");
+        const text = await readBounded(join(directory, `${name}.manifest.json`), {
+            invalid: "Invalid integration manifest", oversized: "Oversized integration manifest",
+        });
+        const manifest = JSON.parse(text);
+        if (manifest.integration !== name || !manifest.files || typeof manifest.files !== "object"
+            || Array.isArray(manifest.files)) throw new Error("Invalid integration manifest");
+        return manifest.files;
+    } catch (error) {
+        if (error.code === "ENOENT") return null;
+        throw error;
+    }
+}
+
 export async function collectArtifactEvidence(cwd, snapshot, openFile = open) {
     const evidence = {}, requests = [], warnings = [];
     let incomplete = false;
     let cache;
     try { cache = await readEvidenceCache(cwd); }
     catch (error) { warnings.push(error.message); cache = { entries: {} }; }
-    const ids = new Set(effectivePipelinePhases(snapshot).map(({ id }) => commandId(id)));
+    let coreSkills, coreScripts;
+    try {
+        [coreSkills, coreScripts] = await Promise.all([
+            coreManifest(cwd, "copilot"), coreManifest(cwd, "speckit"),
+        ]);
+    } catch (error) { warnings.push(`Core provenance: ${error.message}`); }
+    const pipelineIds = new Set(effectivePipelinePhases(snapshot).map(({ id }) => commandId(id)));
+    const ids = new Set(pipelineIds);
     for (const id of PHASE_ORDER) {
         if (id !== "setup") ids.add(id);
     }
@@ -317,8 +342,9 @@ export async function collectArtifactEvidence(cwd, snapshot, openFile = open) {
             const core = source && Object.hasOwn(CORE_OUTPUTS, id)
                 && chain.length === 1 && chain[0].layer === "core"
                 && (!parsed?.source || ["core", "builtin", `templates/commands/${id}.md`].includes(parsed.source))
+                && coreSkills?.[source.skillPath] === source.sources[0].sha256
                 && source.sources.slice(1).every((helper) => {
-                    if (!helper.sha256) return false;
+                    if (!helper.sha256 || coreScripts?.[helper.path] !== helper.sha256) return false;
                     const name = helper.path.split("/").at(-1).replace(/\.(?:ps1|sh|py)$/, "");
                     const script = snapshot.composition?.artifacts?.find((item) =>
                         item.kind === "script" && item.id.replace(/^scripts\//, "") === name);
@@ -377,7 +403,7 @@ export async function collectArtifactEvidence(cwd, snapshot, openFile = open) {
         } catch (error) {
             warnings.push(`${id}: ${error.message}`);
             evidence[id] = { candidates };
-            incomplete = true;
+            if (pipelineIds.has(id)) incomplete = true;
         }
     }
     return { evidence, requests, warnings, incomplete };

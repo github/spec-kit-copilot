@@ -34,7 +34,13 @@ async function fixture(t, { source = "default", downloadUrl, bundleYml, allowed 
         assert.equal(project, root);
         calls.push({ args, options });
         const [group, verb] = args;
-        if (verb === "list") return JSON.stringify(inv[group]);
+        if (verb === "list") {
+            if (args.includes("--json")) return JSON.stringify(inv[group]);
+            if (group === "preset") return inv[group].map((entry) =>
+                `  ${entry.name} (${entry.id}) v${entry.version} — enabled — priority ${entry.priority}`).join("\n");
+            if (group === "extension") return inv[group].map((entry) =>
+                `  ✓ ${entry.name} (v${entry.version})\n     ${entry.id}`).join("\n");
+        }
         if (["add", "install"].includes(verb)) {
             inv[group].push(group === "bundle" ? { bundle_id: "sample", version: "1.0.0" }
                 : { ...item("sample", source), priority: args.includes("--priority")
@@ -69,6 +75,47 @@ test("catalog contract shares canonical kinds and rejects incompatible requests/
     assert.equal(validateCatalogRequest("extension.install", { name: "sample" }).group, "extension");
     assert.throws(() => validateCatalogResult({ ok: true, id: "sample", kind: "extension.remove",
         outcome: "changed", skillsReloaded: true, timings: { total: 1 } }, { kind: "preset.install" }));
+});
+
+test("reconciliation refreshes CLI precedence for existing and newly installed packages", async (t) => {
+    const f = await fixture(t);
+    f.inv.preset = [item("older")];
+    f.inv.extension = [item("old-extension")];
+    f.inst.cachedPresetItems.push({ id: "older", active: true, cliOrder: 0 });
+    f.inst.cachedExtensionItems.push({ id: "old-extension", active: true, cliOrder: 0 });
+    const command = async (project, args, ...rest) => {
+        if (args[1] === "list" && !args.includes("--json")) {
+            if (args[0] === "preset") return "  Sample (sample) v1.0.0\n  Older (older) v1.0.0";
+            if (args[0] === "extension") return "  ✓ New (v1.0.0)\n     new-extension\n  ✓ Old (v1.0.0)\n     old-extension";
+        }
+        if (args[1] === "add") f.inv.extension.unshift(item("new-extension"));
+        return f.command(project, args, ...rest);
+    };
+    await runCatalogOperation(f.inst, "preset.install", { name: "sample" }, {
+        command, reload: async () => ({ ok: true }), finish: async () => ({}),
+    });
+    assert.deepEqual(f.inst.cachedPresetItems.map(({ id, cliOrder }) => [id, cliOrder]),
+        [["sample", 0], ["older", 1]]);
+    assert.equal(f.inst.cachedExtensionItems.find(({ id }) => id === "new-extension").cliOrder, 0);
+    assert.equal(f.inst.cachedExtensionItems.find(({ id }) => id === "old-extension").cliOrder, 1);
+});
+
+test("unreadable CLI precedence reports failure without retaining stale order", async (t) => {
+    const f = await fixture(t);
+    f.inst.cachedPresetItems[0].cliOrder = 0;
+    let reloaded = 0, composed = 0;
+    await assert.rejects(runCatalogOperation(f.inst, "preset.install", { name: "sample" }, {
+        command: async (project, args, ...rest) => {
+            if (args[1] === "list" && !args.includes("--json")) throw new Error("list failed");
+            return f.command(project, args, ...rest);
+        },
+        reload: async () => { reloaded++; return { ok: true }; },
+        finish: async () => { composed++; },
+    }), (error) => error.stage === "inventory" && error.changed && /ordering unavailable/.test(error.message));
+    assert.equal(f.inst.cachedPresetItems[0].active, true);
+    assert.equal(f.inst.cachedPresetItems[0].cliOrder, null);
+    assert.equal(reloaded, 1);
+    assert.equal(composed, 1);
 });
 
 for (const group of ["preset", "extension", "bundle"]) {

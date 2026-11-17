@@ -22,8 +22,8 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 //
 // Parsing is delegated to preset-order.mjs so that this helper and the
 // preset loader share ONE parser — no duplicated regex.
-export async function listInstalledPresets(workspacePath) {
-    const stdout = await specifyRun(["preset", "list"], workspacePath);
+export async function listInstalledPresets(workspacePath, run = specifyRun) {
+    const stdout = await run(["preset", "list"], workspacePath);
     if (stdout == null) {
         return { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
     }

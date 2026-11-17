@@ -182,7 +182,8 @@ preset, or extension leaves its cache available if it is later restored.
 Before dispatch, the host reads requested effective `SKILL.md` files
 concurrently and includes them in one prompt, up to 512 KiB total. The agent
 uses those supplied contents and only reads referenced path helpers when needed.
-Unchanged built-in commands use canonical Markdown outputs without inference.
+Built-in commands use canonical Markdown outputs without inference only when
+their skill and helper hashes match the Specify integration manifests.
 Preset/extension command contributions (including wrap/prepend/append), or
 installed skill metadata identifying a non-core provider, retain inference.
 Without confirmed core provenance, the host also retains inference. Explicit

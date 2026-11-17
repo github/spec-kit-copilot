@@ -17,8 +17,8 @@ import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./
 // `  <name> (<id>) v<version>`. If the format differs, the parser will simply
 // return an empty set and every extension will render as not-installed —
 // still functional, just missing the "added" badge.
-export async function listInstalledExtensions(workspacePath) {
-    const stdout = await specifyRun(["extension", "list"], workspacePath);
+export async function listInstalledExtensions(workspacePath, run = specifyRun) {
+    const stdout = await run(["extension", "list"], workspacePath);
     const ids = new Set();
     const names = new Set();
     const byName = new Map();

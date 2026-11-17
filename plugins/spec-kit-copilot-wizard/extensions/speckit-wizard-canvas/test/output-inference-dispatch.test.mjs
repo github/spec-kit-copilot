@@ -7,6 +7,7 @@ import {
     outputInferenceProgress,
 } from "../canvas-runtime/output-inference.mjs";
 import { ensurePipelineOutputInference, waitForOutputInference } from "../canvas-runtime/output-inference-dispatch.mjs";
+import { attachOutputEvidence } from "../canvas-runtime/output-availability.mjs";
 
 const request = (id) => ({ commandId: `speckit.${id}`, fingerprint: id.repeat(64) });
 
@@ -88,6 +89,22 @@ test("progress ignores failed work outside the current pipeline request set", (t
     });
 });
 
+test("snapshot progress follows the selected pipeline, including failed work", async (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const outside = request("outside");
+    const inference = beginOutputInference(inst, [outside]);
+    const { worker } = createOutputInferenceWorker(inst, inference, [outside]);
+    failOutputInference(inst, inference, worker.id, "worker failed");
+    const outputs = { evidence: {}, requests: [outside], warnings: [], incomplete: false };
+    const snap = { pipeline: [{ id: "plan" }], phases: {}, warnings: [] };
+    await attachOutputEvidence(inst, {}, snap, outputs);
+    assert.equal(snap.outputInferenceProgress, null);
+    snap.pipeline = [{ id: "speckit.outside" }];
+    await attachOutputEvidence(inst, {}, snap, outputs);
+    assert.equal(snap.outputInferenceProgress.status, "incomplete");
+});
+
 test("waitForOutputInference resolves once the run stops updating", async () => {
     const inst = fixture();
     const inference = beginOutputInference(inst, [request("plan")]);
@@ -98,5 +115,18 @@ test("waitForOutputInference resolves once the run stops updating", async () => 
     failOutputInference(inst, inference, undefined, "timed out");
     await wait;
     assert.equal(inference.status, "incomplete");
+    clearTimeout(inference.timer);
+});
+
+test("pipeline wait completes without waiting for unrelated work", async () => {
+    const inst = fixture();
+    const selected = request("plan"), unrelated = request("other");
+    const inference = beginOutputInference(inst, [selected, unrelated]);
+    const { worker } = createOutputInferenceWorker(inst, inference, [selected]);
+    const wait = waitForOutputInference(inst, inference, { intervalMs: 5, requests: [selected] });
+    failOutputInference(inst, inference, worker.id, "failed");
+    await wait;
+    assert.equal(inference.status, "updating");
+    assert.equal(inference.pending.has("speckit.other"), true);
     clearTimeout(inference.timer);
 });
