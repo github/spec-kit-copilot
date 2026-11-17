@@ -234,7 +234,7 @@ generate.addEventListener("click", async () => {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ modelRevision: saved.revision,
                 settingsRevision: saved.settingsRevision, values, outputs,
-                badges,
+                badges: saved.badges,
                 ...(replaceExisting ? { replaceExisting: true, replaceRequestId: priorRequestId } : {}),
                 ...(providers.length ? { approvedProviders: providers } : {}) }),
         });
@@ -377,6 +377,7 @@ saveButton.addEventListener("click", async () => {
     updateSave();
     try {
         model = await persistSettings({ values: draft, outputs: draftOutputs, badges: draftBadges });
+        draftBadges.splice(0, draftBadges.length, ...structuredClone(model.badges));
         setMessage(messageBox, "Settings saved.");
     } catch (error) {
         showError(`Could not save settings: ${error.message}`);
@@ -530,19 +531,43 @@ function renderPage(pageId, invalidFieldId) {
         badgeView = mountBadges({ root, page, phases: model.phases, outputs: draftOutputs,
             badgeTypes: model.badgeTypes ?? [], badgeRules: model.badgeRules ?? [],
             draftBadges, onChange: updateSave,
+            onValidateImport: model.preview ? undefined : async ({ config, badges, outputs, signal }) => {
+                const importModel = model;
+                const contract = await import(
+                    `/ui/badge-import-contract.js?token=${encodeURIComponent(token)}`);
+                const assertCurrent = () => {
+                    if (model !== importModel || model.revision !== renderRevision || saving || generating) {
+                        throw new Error("Designer settings changed or are being saved. Select the file again after saving or generation finishes.");
+                    }
+                };
+                assertCurrent();
+                const input = contract.validateBadgeImportRequest({ schemaVersion: 1,
+                    modelRevision: renderRevision, config, badges, outputs });
+                const response = await fetch(`/api/validate-badge-import?token=${encodeURIComponent(token)}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(input),
+                    signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(contract.validateBadgeImportError(result).error);
+                assertCurrent();
+                return contract.validateBadgeImportResponse(result, [...badges, ...config.badges.instances]);
+            },
             onDeclareFile(phase, path) {
                 const next = declareMarkdownOutput(draftOutputs, model.phases, phase, path);
                 updateSave();
                 return next;
             },
-            controlMount({ root: mount, rule, inputs, phases, outputs, onChange, onDeclareFile }) {
+            controlMount({ root: mount, rule, inputs, phases, outputs, onChange, onDeclareFile,
+                selectionRoot, placements }) {
                 const binding = model.badgeInputControls?.find((item) => item.rule === rule.id);
                 if (!binding) throw new Error(`Missing Designer badge input control for ${rule.id}`);
                 const adapter = badgeInputAdapters.get(binding.adapter);
                 if (adapter instanceof Error) throw adapter;
                 if (!adapter) throw new Error(`Missing Designer badge input adapter ${binding.adapter}`);
                 return adapterContract.mountBadgeInputAdapter(adapter, binding,
-                    { root: mount, rule, inputs, phases, outputs, onChange, onDeclareFile });
+                    { root: mount, rule, inputs, phases, outputs, onChange, onDeclareFile,
+                        selectionRoot, placements });
             } });
         root.setAttribute("aria-busy", "false");
         return true;
@@ -678,6 +703,7 @@ function applyState(next) {
         model = next;
         pageViews.clear();
         mounted.clear();
+        badgeView?.dispose?.();
         badgeView = undefined;
         root.replaceChildren();
         document.getElementById("preview-banner").hidden = !model.preview;

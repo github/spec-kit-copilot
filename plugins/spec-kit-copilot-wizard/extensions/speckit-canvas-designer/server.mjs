@@ -6,9 +6,13 @@ import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { readHandoff } from "./handoff.mjs";
 import { validateBadges } from "./contracts/external-badges.mjs";
+import { validateBadgeImport } from "./contracts/badge-import.mjs";
+import { BADGE_IMPORT_REQUEST_LIMIT, validateBadgeImportRequest, validateBadgeImportResponse }
+    from "./ui/badge-import-contract.js";
 import { GENERATION_EXISTS, GENERATION_PENDING, generationAvailability,
     validateGenerateSubmission } from "./contracts/generation-request.mjs";
 import { readFrozenAsset } from "./pages.mjs";
+import { validateConfirmedOutputs } from "./handoff.mjs";
 import { SAVE_REQUEST_LIMIT, SETTINGS_LIMIT, initialOutputs,
     loadDesignerSettings, saveDesignerSettings } from "./settings.mjs";
 import { freezeGeneration, generationBlockers, readCurrentInstalledVersions } from "./generation.mjs";
@@ -46,8 +50,10 @@ const ASSETS = {
     "/ui/identity-control.js": ["identity-control.js", "text/javascript"],
     "/ui/output-evidence.js": ["output-evidence.js", "text/javascript"],
     "/ui/external-control-adapter-contract.js": ["external-control-adapter-contract.js", "text/javascript"],
+    "/ui/badge-selection-contract.js": ["badge-selection-contract.js", "text/javascript"],
     "/ui/badges-control.js": ["badges-control.js", "text/javascript"],
     "/ui/badge-duplicates.js": ["badge-duplicates.js", "text/javascript"],
+    "/ui/badge-import-contract.js": ["badge-import-contract.js", "text/javascript"],
 };
 const GENERATE_SKILL = "speckit-extension-canvas-design-generate";
 const OPEN_SKILL = "speckit-extension-canvas-design-open-generated";
@@ -162,9 +168,50 @@ export async function startShell(handoff = null, model = null,
         res.setHeader("Content-Security-Policy",
             "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'");
         if (preview && req.method === "POST"
-            && ["/api/save", "/api/generate", "/api/reveal-output", "/api/open-generated"].includes(url.pathname)) {
+            && ["/api/save", "/api/generate", "/api/reveal-output", "/api/open-generated",
+                "/api/validate-badge-import"].includes(url.pathname)) {
             res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" })
                 .end(JSON.stringify({ error: "Preview cannot save settings or generate a canvas" }));
+            return;
+        }
+        if (handoff && project && req.method === "POST" && url.pathname === "/api/validate-badge-import") {
+            const send = (status, body) => res.writeHead(status,
+                { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(body));
+            if (!req.headers["content-type"]?.startsWith("application/json")) {
+                send(415, { error: "Expected application/json" });
+                return;
+            }
+            try {
+                const chunks = [];
+                let size = 0;
+                for await (const chunk of req) {
+                    size += chunk.length;
+                    if (size > BADGE_IMPORT_REQUEST_LIMIT) {
+                        send(413, { error: "Designer badge import request is too large" });
+                        return;
+                    }
+                    chunks.push(chunk);
+                }
+                const input = validateBadgeImportRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+                if (input.modelRevision !== model.revision) {
+                    send(409, { error: "Designer pages changed; reopen before importing badges" });
+                    return;
+                }
+                const outputs = validateConfirmedOutputs(input.outputs,
+                    handoff.workflow.selectedPhases, initialOutputs(handoff));
+                const badges = validateBadgeImport(input.config, input.badges,
+                    { ...model, phases: handoff.workflow.selectedPhases, outputs });
+                const specify = await realpath(join(project, ".specify"));
+                for (const name of new Set(input.config.badges.rules.map((rule) => rule.adapter))) {
+                    await readFrozenAsset(model.templates.find((item) =>
+                        item.kind === "generated.badge-rule-adapter" && item.name === name), specify);
+                }
+                send(200, validateBadgeImportResponse({ schemaVersion: 1, badges },
+                    [...input.badges, ...input.config.badges.instances]));
+            } catch (error) {
+                send(422, { error: error instanceof SyntaxError
+                    ? "Invalid badge import JSON" : error.message });
+            }
             return;
         }
         if (handoff && workspace && req.method === "POST" && url.pathname === "/api/save") {

@@ -56,7 +56,7 @@ async function fixture(t) {
     }
     const fields = [
         ["canvas.description", "Description", "workflow.description"],
-        ["canvas.workflowListName", "Workflow header", "workflow.heading"],
+        ["canvas.workflowListName", "Header text", "workflow.heading"],
         ["billing.code", "Cost code", "details.content"],
     ];
     const model = {

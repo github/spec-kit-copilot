@@ -8,6 +8,8 @@ export const RULES = {
     "canvas.displayName": { type: "string", minLength: 1, maxLength: 120, required: true },
     "canvas.description": { type: "string", maxLength: 240 },
     "canvas.workflowListName": { type: "string", maxLength: 80 },
+    "canvas.workflowItemName": { type: "string", maxLength: 80,
+        pattern: "^[^\\x00-\\x1f\\x7f]*$" },
     "canvas.accentLight": OPTIONAL_COLOR,
     "canvas.backgroundLight": OPTIONAL_COLOR,
     "canvas.surfaceLight": OPTIONAL_COLOR,

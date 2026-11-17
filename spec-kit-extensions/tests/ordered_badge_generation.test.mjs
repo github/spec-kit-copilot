@@ -25,9 +25,9 @@ const type = { id: "phase-artifact-complete", title: "Phase artifact complete",
 const workflow = { selectedPhases: ["specify", "plan"], phaseArtifacts: {
     specify: { outputs: [earlier.output] }, plan: { outputs: [target.output] },
 } };
-const instance = { id: "plan-complete", type: type.id, inputs: {
+const instance = { id: "plan-complete", type: type.id, category: "Progress", inputs: {
     target, prerequisites: [earlier],
-}, text: "Ready", phaseText: "Phase ready", summaryText: "Ready ({workflows})",
+}, text: "Ready", phaseText: "Phase ready", summaryText: "Ready",
 color: "green", showIn: ["workflow-list", "workflow-summary", "phase-card"],
 phase: "plan" };
 const inventory = (badge = instance, definition = rule) => ({
@@ -156,12 +156,13 @@ test("generator permits Constitution card placement while honoring rule target c
         phaseArtifacts: { ...workflow.phaseArtifacts, [constitution.phase]: {
             outputs: [constitution.output],
         } } };
-    const global = { id: "constitution-evidence", type: type.id,
+    const global = { id: "constitution-evidence", type: type.id, category: "Constitution",
         inputs: { target: constitution, prerequisites: [] }, text: "Ready", color: "green",
         showIn: ["workflow-list"], phase: null };
     assert.equal(frozenBadges(inventory(global), phases).instances[0].inputs.target.phase,
         constitution.phase);
-    assert.equal(frozenBadges(inventory({ ...global, showIn: ["phase-card"],
+    const { text: _listText, ...cardOnly } = global;
+    assert.equal(frozenBadges(inventory({ ...cardOnly, showIn: ["phase-card"],
         phase: constitution.phase, phaseText: "Ready" }), phases).instances[0].phase,
         constitution.phase);
     assert.equal(frozenBadges(inventory({ ...global, targets: [{
@@ -172,5 +173,25 @@ test("generator permits Constitution card placement while honoring rule target c
     }], phaseText: "Ready" }), phases), /Invalid configured badge/);
     assert.throws(() => frozenBadges(inventory({ ...global, targets: [{
         phase: constitution.phase, output: "undeclared.md",
-    }] }), phases), /Invalid configured badge/);
+    }], phaseText: "Ready" }), phases), /Invalid configured badge/);
+});
+
+test("generator requires a badge category and compares text only in shared placements", () => {
+    const { category: _category, ...uncategorized } = instance;
+    for (const badge of [uncategorized, ...["", "   ", "x".repeat(81), "Bad <b>", "Line\nbreak", 7]
+        .map((category) => ({ ...instance, category }))]) {
+        assert.throws(() => frozenBadges(inventory(badge), workflow), /Invalid configured badge/);
+    }
+    assert.equal(frozenBadges(inventory({ ...instance, category: "x".repeat(80) }), workflow)
+        .instances[0].category, "x".repeat(80));
+    const { text: _text, phaseText: _phaseText, ...rest } = instance;
+    const summaryOnly = { ...rest, id: "summary-a", showIn: ["workflow-summary"], phase: null };
+    const pair = (other) => ({ ...inventory(summaryOnly), instances: [summaryOnly, other] });
+    assert.deepEqual(frozenBadges(pair({ ...summaryOnly, id: "summary-b", summaryText: "Plan ready" }),
+        workflow).instances.map(({ id }) => id), ["summary-a", "summary-b"]);
+    assert.throws(() => frozenBadges(pair({ ...summaryOnly, id: "summary-b", category: "Other" }),
+        workflow), /Duplicate frozen badge target: summary-b overlaps summary-a/);
+    assert.throws(() => frozenBadges(pair({ ...summaryOnly, id: "summary-b",
+        showIn: ["workflow-list", "workflow-summary"], text: "Listed" }), workflow),
+    /Duplicate frozen badge target: summary-b overlaps summary-a/);
 });

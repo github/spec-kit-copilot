@@ -20,15 +20,27 @@ const model = {
             { id: "completion", type: "phase" }], textPlaceholders: [] },
     ],
 };
-const artifact = { id: "badge-1", type: "artifact",
+const artifact = { id: "badge-1", type: "artifact", category: "Readiness",
     inputs: { item: { phase: "specify", output: "specs/<slug>/spec.md" } },
-    text: "Ready {status}", color: "green",
+    text: "Ready {status}", phaseText: "Phase ready {status}", color: "green",
     showIn: ["workflow-list", "phase-card"], phase: "plan" };
-const distinct = { id: "badge-2", type: "distinct",
+const distinct = { id: "badge-2", type: "distinct", category: "Clarity",
     inputs: { items: [{ phase: "specify",
         outputs: ["specs/<slug>/spec.md", "specs/<slug>/notes.md"] }],
         completion: "plan" },
-    text: "Clarified", color: "#abcdef", showIn: [], phase: null };
+    color: "#abcdef", showIn: [], phase: null };
+// Keeps fixture variants valid when only their placements change: text exists exactly for
+// selected placements, as the contract requires.
+function fit(badge) {
+    const result = { ...badge };
+    const phase = Boolean(result.targets?.length || result.showIn.includes("phase-card"));
+    for (const [selected, key, value] of [[result.showIn.includes("workflow-list"), "text", "Ready"],
+        [phase, "phaseText", "Phase ready"], [result.showIn.includes("workflow-summary"), "summaryText", "Ready"]]) {
+        if (!selected) delete result[key];
+        else result[key] ??= value;
+    }
+    return result;
+}
 
 test("badge validation accepts zero, configured, and Off instances", () => {
     assert.deepEqual(validateBadges([], model), []);
@@ -37,6 +49,15 @@ test("badge validation accepts zero, configured, and Off instances", () => {
     assert.deepEqual(validateBadges([withoutDestination], model), [withoutDestination]);
     assert.deepEqual(validateBadges([{ ...distinct, inputs: { ...distinct.inputs,
         items: [{ phase: "specify", outputs: ["specs/<slug>/spec.md"] }] } }], model).length, 1);
+});
+
+test("badge category is required, bounded, and plain text", () => {
+    const { category: _category, ...missing } = artifact;
+    assert.throws(() => validateBadges([missing], model), /unexpected or missing fields/);
+    assert.equal(validateBadges([{ ...artifact, category: "x".repeat(80) }], model).length, 1);
+    for (const category of ["", "   ", "x".repeat(81), "<b>Severity</b>", "Sev\nerity", 42]) {
+        assert.throws(() => validateBadges([{ ...artifact, category }], model), /invalid category/);
+    }
 });
 
 test("badge validation checks membership and distinct artifact sets", () => {
@@ -53,24 +74,43 @@ test("badge validation checks membership and distinct artifact sets", () => {
     bad({ ...artifact, inputs: { wrong: artifact.inputs.item } }, /rule inputs/);
 });
 
-test("Value match requires a confirmed output and bounded nonblank literal text", () => {
+test("Value match requires a confirmed output and bounded ordered entries", () => {
     const config = { ...model, badgeRules: [...model.badgeRules,
         { id: "value-match", inputs: [{ id: "artifact", type: "artifact" },
-            { id: "value", type: "text" }], textPlaceholders: [] }],
+            { id: "choices", type: "badge-selection" }], textPlaceholders: [] }],
     badgeTypes: [...model.badgeTypes,
         { id: "value-match", rule: "value-match", enabled: true }] };
-    const matching = { ...artifact, type: "value-match", text: "Needs review",
-        inputs: { artifact: artifact.inputs.item, value: "Verdict: needs-clarification" } };
-    assert.deepEqual(validateBadges([matching], config), [matching]);
+    const choice = { id: "review", value: "Verdict: needs-clarification", text: "Review",
+        phaseText: "Review phase", color: "amber" };
+    const { text: _text, phaseText: _phaseText, ...base } = artifact;
+    const matching = { ...base, type: "value-match",
+        inputs: { artifact: artifact.inputs.item, choices: [choice] } };
+    const saved = validateBadges([matching], config)[0];
+    assert.deepEqual(saved.inputs.choices, [choice]);
+    assert.notEqual(saved.inputs.choices[0], choice);
     assert.doesNotThrow(() => validateBadges([{ ...matching,
-        inputs: { ...matching.inputs, value: "x".repeat(256) } }], config));
+        inputs: { ...matching.inputs, choices: [{ ...choice, value: "x".repeat(256) }] } }], config));
     for (const value of ["", "  ", "x".repeat(257), "line\nbreak"]) {
         assert.throws(() => validateBadges([{ ...matching,
-            inputs: { ...matching.inputs, value } }], config), /invalid text input/);
+            inputs: { ...matching.inputs, choices: [{ ...choice, value }] } }], config),
+        /invalid badge selection/);
     }
     assert.throws(() => validateBadges([{ ...matching,
         inputs: { ...matching.inputs, artifact: { phase: "plan", output: "missing.md" } } }],
     config), /invalid artifact input/);
+    assert.throws(() => validateBadges([{ ...matching, text: "Needs review" }], config),
+        /text must be present exactly/, "Value match text lives on its entries");
+    const { phaseText: _entryPhase, ...noPhase } = choice;
+    for (const entry of [{ ...choice, summaryText: "Review" }, noPhase]) {
+        assert.throws(() => validateBadges([{ ...matching,
+            inputs: { ...matching.inputs, choices: [entry] } }], config),
+        /invalid badge selection/, "entry text follows the badge placements");
+    }
+    const other = { ...matching, id: "badge-3", color: "blue" };
+    assert.throws(() => validateBadges([matching, other], config), /duplicate phase\/output target/);
+    assert.equal(validateBadges([matching, { ...other, inputs: { ...matching.inputs,
+        choices: [{ ...choice, phaseText: "Other phase" }] } }], config).length, 2,
+    "entries that differ only in phase text are distinct badges");
 });
 
 test("Checklist complete requires a declared, ordered currentness chain and independent target", () => {
@@ -81,7 +121,7 @@ test("Checklist complete requires a declared, ordered currentness chain and inde
             { id: "targetphase", type: "phase" }], textPlaceholders: [] }],
     badgeTypes: [...model.badgeTypes,
         { id: "checklist-complete", rule: "checklist-complete", enabled: true }] };
-    const complete = { ...artifact, type: "checklist-complete", text: "Complete",
+    const complete = { ...artifact, type: "checklist-complete", text: "Complete", phaseText: "Complete",
         inputs: { artifact: { phase: "plan", output: "specs/<slug>/plan.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }],
             targetphase: "plan" } };
@@ -107,7 +147,7 @@ test("Artifact stale requires an ordered declared upstream chain", () => {
                 before: "artifact", minItems: 1 }], textPlaceholders: [] }],
     badgeTypes: [...model.badgeTypes,
         { id: "artifact-stale", rule: "artifact-stale", enabled: true }] };
-    const stale = { ...artifact, type: "artifact-stale", text: "Stale",
+    const stale = { ...artifact, type: "artifact-stale", text: "Stale", phaseText: "Stale",
         inputs: { artifact: { phase: "plan", output: "specs/<slug>/plan.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }] } };
     assert.deepEqual(validateBadges([stale], config), [stale]);
@@ -137,7 +177,7 @@ test("Phase artifact complete accepts one declared earlier output per phase in o
     const plan = { phase: "plan", output: "specs/<slug>/plan.md" };
     const badge = { ...artifact, type: "phase-artifact-complete", text: "Complete",
         showIn: ["workflow-list", "workflow-summary"], phase: null,
-        phaseText: "Phase complete", summaryText: "{workflows} complete",
+        phaseText: "Phase complete", summaryText: "Complete",
         targets: [{ phase: "tasks", output: null }],
         inputs: { target, prerequisites: [previous, plan] } };
     assert.deepEqual(validateBadges([badge], config), [badge]);
@@ -204,15 +244,15 @@ test("Constitution evidence can target its project card or declared output", () 
         outputs: { ...model.outputs, [constitution.phase]: {
             outputs: [constitution.output], view: constitution.output,
         } } };
-    const global = { ...artifact, inputs: { item: constitution },
-        showIn: ["workflow-list"], phase: null };
+    const global = fit({ ...artifact, inputs: { item: constitution },
+        showIn: ["workflow-list"], phase: null });
     assert.deepEqual(validateBadges([global], withConstitution), [global]);
-    assert.deepEqual(validateBadges([{ ...global, showIn: ["phase-card"],
-        phase: constitution.phase }], withConstitution).length, 1);
+    assert.deepEqual(validateBadges([fit({ ...global, showIn: ["phase-card"],
+        phase: constitution.phase })], withConstitution).length, 1);
     for (const output of [null, constitution.output]) {
-        assert.deepEqual(validateBadges([{ ...global, targets: [{
+        assert.deepEqual(validateBadges([fit({ ...global, targets: [{
             phase: constitution.phase, output,
-        }] }], withConstitution).length, 1);
+        }] })], withConstitution).length, 1);
         assert.throws(() => validateBadges([{ ...artifact, showIn: ["workflow-list"],
             phase: null, targets: [{ phase: constitution.phase, output }] }],
         withConstitution), /project placement requires project-level rule inputs/);
@@ -229,8 +269,8 @@ test("Constitution evidence can target its project card or declared output", () 
             { id: "run", inputs: [{ id: "phase", type: "phase" }], textPlaceholders: [] }],
         badgeTypes: [...withConstitution.badgeTypes,
             { id: "run", rule: "run", enabled: true }] };
-    const phaseBadge = { ...global, type: "run", text: "Phase complete",
-        inputs: { phase: "specify" }, targets: [{ phase: constitution.phase, output: null }] };
+    const phaseBadge = fit({ ...global, type: "run", text: "Phase complete",
+        inputs: { phase: "specify" }, targets: [{ phase: constitution.phase, output: null }] });
     assert.throws(() => validateBadges([phaseBadge], phaseModel),
         /project placement requires project-level rule inputs/);
     assert.deepEqual(validateBadges([{ ...phaseBadge, inputs: {
@@ -244,21 +284,23 @@ test("Constitution evidence can target its project card or declared output", () 
     }] }], withConstitution), /phase\/output placement/);
 });
 
-test("duplicate badges require matching text, inputs, and overlapping targets", () => {
+test("duplicate badges require shared placement text, inputs, and overlapping targets", () => {
     const first = { ...artifact, showIn: ["workflow-list"], phase: null,
         targets: [{ phase: "specify", output: null },
             { phase: "plan", output: "specs/<slug>/plan.md" }] };
-    const duplicate = { ...first, id: "another",
+    const duplicate = fit({ ...first, id: "another",
         color: "pink", showIn: ["workflow-summary"],
-        targets: [{ phase: "plan", output: "specs/<slug>/plan.md" }] };
+        targets: [{ phase: "plan", output: "specs/<slug>/plan.md" }] });
+    assert.equal(duplicate.phaseText, first.phaseText);
     assert.throws(() => validateBadges([first, duplicate], model),
-        /duplicate phase\/output target already covered by badge badge-1/);
-    assert.throws(() => validateBadges([artifact, { ...artifact, id: "another",
+        /duplicate phase\/output target already covered by badge badge-1/,
+        "the same phase text on the same phase card is a duplicate");
+    assert.throws(() => validateBadges([artifact, fit({ ...artifact, id: "another",
         color: "blue", showIn: ["workflow-summary"], phase: null,
-        targets: [{ phase: "plan", output: null }] }], model),
+        targets: [{ phase: "plan", output: null }] })], model),
     /duplicate phase\/output target/);
     assert.doesNotThrow(() => validateBadges([first, { ...duplicate,
-        text: "Different {status}" }], model));
+        phaseText: "Different {status}" }], model));
     assert.doesNotThrow(() => validateBadges([artifact, { ...artifact, id: "another",
         inputs: { item: { phase: "plan", output: "specs/<slug>/plan.md" } },
         text: "Plan ready" }], model));
@@ -268,6 +310,11 @@ test("duplicate badges require matching text, inputs, and overlapping targets", 
         targets: [{ phase: "specify", output: "specs/<slug>/spec.md" }] }], model));
     assert.doesNotThrow(() => validateBadges([first, { ...duplicate,
         inputs: { item: { phase: "plan", output: "specs/<slug>/plan.md" } } }], model));
+    const summary = fit({ ...artifact, showIn: ["workflow-summary"], phase: null, summaryText: "Critical" });
+    assert.doesNotThrow(() => validateBadges([summary, { ...summary, id: "another",
+        summaryText: "High" }], model), "different summary-only text is not a duplicate");
+    assert.throws(() => validateBadges([summary, { ...summary, id: "another", color: "red" }], model),
+        /duplicate phase\/output target/);
     assert.throws(() => validateBadges([distinct, { ...distinct, id: "another",
         inputs: { completion: "plan", items: [{ phase: "specify",
             outputs: ["specs/<slug>/notes.md", "specs/<slug>/spec.md"] }] },
@@ -297,20 +344,22 @@ test("badge placement pairs remain specific to their own phase and output", () =
     }), /invalid phase\/output placement/);
 });
 
-test("per-placement text uses rule tokens on cards and workflow count only in summary", () => {
+test("placement text is required exactly for selected placements, without summary tokens", () => {
     const configured = { ...artifact, showIn: ["workflow-list", "workflow-summary"],
         phase: null, targets: [{ phase: "specify", output: null }],
-        text: "List {status}", phaseText: "Phase {status}",
-        summaryText: "Workflows in review ({workflows})" };
+        text: "List {status}", phaseText: "Phase {status}", summaryText: "Workflows in review" };
     assert.deepEqual(validateBadges([configured], model), [configured]);
-    assert.throws(() => validateBadges([{ ...configured,
-        summaryText: "Files ({status})" }], model), /invalid Workflow summary text/);
-    assert.throws(() => validateBadges([{ ...configured,
-        phaseText: "Phase {workflows}" }], model), /invalid Phase text/);
-    assert.throws(() => validateBadges([{ ...configured,
-        showIn: ["workflow-list"] }], model), /invalid Workflow summary text/);
-    assert.throws(() => validateBadges([{ ...configured,
-        targets: [] }], model), /invalid Phase text/);
-    const { phaseText: _phaseText, summaryText: _summaryText, ...legacy } = configured;
-    assert.doesNotThrow(() => validateBadges([{ ...legacy, id: "legacy" }], model));
+    const invalid = /text must be present exactly for each selected placement/;
+    for (const change of [{ summaryText: "Files ({status})" }, { summaryText: "Review: {count}" },
+        { summaryText: "x".repeat(121) },
+        { showIn: ["workflow-list"] }, { targets: [] }]) {
+        assert.throws(() => validateBadges([{ ...configured, ...change }], model), invalid);
+    }
+    assert.throws(() => validateBadges([{ ...configured, phaseText: "Phase {workflows}" }], model),
+        /unknown text token workflows/);
+    for (const key of ["text", "phaseText", "summaryText"]) {
+        const { [key]: _removed, ...missing } = configured;
+        assert.throws(() => validateBadges([missing], model), invalid,
+            `${key} has no fallback when its placement is selected`);
+    }
 });

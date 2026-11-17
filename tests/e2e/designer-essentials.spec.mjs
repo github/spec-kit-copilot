@@ -22,11 +22,13 @@ async function openDesigner(page, fields, extraPage, warnings = [], templates = 
         "canvas.displayName": { type: "string", minLength: 1, maxLength: 120 },
         "canvas.description": { type: "string", maxLength: 240 },
         "canvas.workflowListName": { type: "string", maxLength: 80 },
+        "canvas.workflowItemName": { type: "string", maxLength: 80,
+            pattern: "^[^\\x00-\\x1f\\x7f]*$" },
         "workflowSlug.userProvided": { type: "boolean" },
         "billing.costCode": { type: "string", maxLength: 64 },
     };
     const values = { "canvas.id": "", "canvas.displayName": "",
-        "canvas.description": "", "canvas.workflowListName": "",
+        "canvas.description": "", "canvas.workflowListName": "", "canvas.workflowItemName": "",
         "workflowSlug.userProvided": false, "billing.costCode": "" };
     const ids = [...fields, ...(extraPage?.fields ?? [])].map((field) => field.id);
     for (const field of [...fields, ...(extraPage?.fields ?? [])]) {
@@ -108,7 +110,8 @@ async function openDesigner(page, fields, extraPage, warnings = [], templates = 
             || path === "/ui/generated-output-state.js"
             || path === "/ui/identity-control.js" || path === "/ui/output-evidence.js"
             || path === "/ui/external-control-adapter-contract.js"
-            || path === "/ui/badges-control.js" || path === "/ui/badge-duplicates.js") {
+            || path === "/ui/badges-control.js" || path === "/ui/badge-duplicates.js"
+            || path === "/ui/badge-selection-contract.js" || path === "/ui/badge-import-contract.js") {
             const file = path === "/" ? "index.html" : path.slice(4);
             await route.fulfill({ body: await readFile(new URL(file, ui)), contentType:
                 file.endsWith(".html") ? "text/html" : file.endsWith(".css")
@@ -131,7 +134,8 @@ async function generateFromTab(page) {
 const core = [{ id: "canvas.id", label: "Canvas ID" },
     { id: "canvas.displayName", label: "Title" }];
 const stock = [{ id: "canvas.description", label: "Description" },
-    { id: "canvas.workflowListName", label: "Workflow header" },
+    { id: "canvas.workflowListName", label: "Header text" },
+    { id: "canvas.workflowItemName", label: "Workflow item name" },
     { id: "workflowSlug.userProvided", label: "Allow custom slug", type: "boolean" }];
 
 test("output status errors leave the Designer form available on initial load", async ({ page }) => {
@@ -228,11 +232,11 @@ test("computed provider approval cancels without sending and submits the approve
     await expect(page.locator("#conn-status")).toHaveText("Live");
 });
 
-test("stock Essentials keep five ordered controls and Generate submits all enabled values", async ({ page }) => {
+test("stock Essentials keep ordered controls and Generate submits all enabled values", async ({ page }) => {
     const requests = await openDesigner(page, [...core, ...stock]);
     await expect(page.locator(".settings-field label")).toHaveText([
         "Canvas ID (required)", "Title (required)", "Description",
-        "Workflow header", "Allow custom slug",
+        "Header text", "Workflow item name", "Allow custom slug",
     ]);
     await generateFromTab(page);
     await expect(page.locator("#page-error")).toContainText("Invalid Canvas ID (canvas.id)");
@@ -240,13 +244,15 @@ test("stock Essentials keep five ordered controls and Generate submits all enabl
     await page.getByRole("textbox", { name: /Canvas ID/ }).fill("stock-canvas");
     await page.getByRole("textbox", { name: /Title/ }).fill("Stock Canvas");
     await page.getByRole("textbox", { name: "Description" }).fill("A description");
-    await page.getByRole("textbox", { name: "Workflow header" }).fill("My workflows");
+    await page.getByRole("textbox", { name: "Header text" }).fill("My workflows");
+    await page.getByRole("textbox", { name: "Workflow item name" }).fill("Issue");
     await page.getByRole("checkbox", { name: "Allow custom slug" }).check();
     await generateFromTab(page);
     await expect.poll(() => requests.length).toBe(2);
     expect(requests[1].values).toEqual({
         "canvas.id": "stock-canvas", "canvas.displayName": "Stock Canvas",
         "canvas.description": "A description", "canvas.workflowListName": "My workflows",
+        "canvas.workflowItemName": "Issue",
         "workflowSlug.userProvided": true,
     });
 });

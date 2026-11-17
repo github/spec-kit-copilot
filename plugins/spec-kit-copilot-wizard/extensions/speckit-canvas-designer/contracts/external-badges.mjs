@@ -1,4 +1,6 @@
 import { findDuplicateBadge } from "../ui/badge-duplicates.js";
+import { badgePlacements, validBadgeCategory, validBadgeSelections, validPlacementTexts }
+    from "../ui/badge-selection-contract.js";
 
 const PLACEMENTS = new Set(["workflow-list", "workflow-summary", "phase-card"]);
 const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -22,7 +24,8 @@ export function validateBadges(badges, model) {
             + `${typeof badge?.id === "string" && /^[a-z0-9-]{1,80}$/.test(badge.id)
                 ? ` (${badge.id})` : ""}: ${reason}`); };
         if (!record(badge) || !exactKeys(badge,
-            ["id", "type", "inputs", "text", "color", "showIn",
+            ["id", "type", "inputs", "category", "color", "showIn",
+                ...(Object.hasOwn(badge, "text") ? ["text"] : []),
                 ...(Object.hasOwn(badge, "phaseText") ? ["phaseText"] : []),
                 ...(Object.hasOwn(badge, "summaryText") ? ["summaryText"] : []),
                 ...(Object.hasOwn(badge, "phase") ? ["phase"] : []),
@@ -32,6 +35,7 @@ export function validateBadges(badges, model) {
         if (typeof badge.id !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(badge.id)
             || ids.has(badge.id)) fail("invalid or duplicate id");
         ids.add(badge.id);
+        if (!validBadgeCategory(badge.category)) fail("invalid category");
         const type = types.get(badge.type);
         const rule = rules.get(type?.rule);
         if (!type) fail(`missing badge type ${badge.type}`);
@@ -59,6 +63,9 @@ export function validateBadges(badges, model) {
             } else if (input.type === "text") {
                 if (typeof value !== "string" || !value.trim() || value.length > 256
                     || /[\x00-\x1f\x7f]/.test(value)) fail(`invalid text input ${input.id}`);
+            } else if (input.type === "badge-selection") {
+                if (!Array.isArray(badge.showIn)
+                    || !validBadgeSelections(value, badgePlacements(badge))) fail(`invalid badge selection input ${input.id}`);
             } else if (input.type === "artifact") {
                 if (!record(value) || !exactKeys(value, ["phase", "output"])
                     || !phases.has(value.phase)
@@ -105,14 +112,6 @@ export function validateBadges(badges, model) {
                 fail(`unsupported rule input type ${input.type}`);
             }
         }
-        if (typeof badge.text !== "string" || !badge.text.trim() || badge.text.length > 120
-            || /[\x00-\x1f\x7f<>]/.test(badge.text)) fail("invalid text");
-        const allowed = new Set((rule.textPlaceholders ?? []).map((token) =>
-            typeof token === "string" ? token : token.id));
-        for (const [, token] of badge.text.matchAll(/\{([^{}]+)\}/g)) {
-            if (!allowed.has(token)) fail(`unknown text token ${token}`);
-        }
-        if (/[{}]/.test(badge.text.replace(/\{[^{}]+\}/g, ""))) fail("invalid text token");
         if (typeof badge.color !== "string"
             || !/^(?:theme|red|green|amber|blue|purple|pink|orange|#[0-9a-fA-F]{6})$/.test(badge.color)) {
             fail("invalid color");
@@ -154,28 +153,29 @@ export function validateBadges(badges, model) {
             || badge.showIn.includes("phase-card") && badge.phase === projectPhase)
             && rule.inputs.some(({ id, type }) => {
                 const value = badge.inputs[id];
-                return type !== "text" && (type === "phase" ? value !== projectPhase
+                return !["text", "badge-selection"].includes(type) && (type === "phase" ? value !== projectPhase
                     : Array.isArray(value) ? value.some((entry) => entry.phase !== projectPhase)
                         : value.phase !== projectPhase);
             })) {
             fail("project placement requires project-level rule inputs");
         }
-        const validText = (value, placeholders) => typeof value === "string" && !!value.trim()
-            && value.length <= 120 && !/[\x00-\x1f\x7f<>]/.test(value)
-            && [...value.matchAll(/\{([^{}]+)\}/g)].every(([, token]) =>
-                placeholders.has(token))
-            && !/[{}]/.test(value.replace(/\{[^{}]+\}/g, ""));
-        if (badge.phaseText !== undefined
-            && (!(badge.targets?.length || badge.showIn.includes("phase-card"))
-                || !validText(badge.phaseText, allowed))) fail("invalid Phase text");
-        if (badge.summaryText !== undefined
-            && (!badge.showIn.includes("workflow-summary")
-                || !validText(badge.summaryText, new Set(["workflows"])))) {
-            fail("invalid Workflow summary text");
+        const selection = (rule.inputs ?? []).some(({ type }) => type === "badge-selection");
+        const placeholders = (rule.textPlaceholders ?? []).map((token) =>
+            typeof token === "string" ? token : token.id);
+        for (const key of selection ? [] : ["text", "phaseText"]) {
+            if (typeof badge[key] !== "string") continue;
+            for (const [, token] of badge[key].matchAll(/\{([^{}]+)\}/g)) {
+                if (!placeholders.includes(token)) fail(`unknown text token ${token}`);
+            }
         }
-        const duplicate = findDuplicateBadge(badge, checked);
+        if (selection ? ["text", "phaseText", "summaryText"].some((key) => Object.hasOwn(badge, key))
+            : !validPlacementTexts(badge, badgePlacements(badge), placeholders)) {
+            fail("text must be present exactly for each selected placement, with known tokens"
+                + " and no Workflow summary tokens");
+        }
+        const duplicate = findDuplicateBadge(badge, checked, rule);
         if (duplicate) fail(`duplicate phase/output target already covered by badge ${duplicate.id}`);
-        checked.push(badge);
+        checked.push(structuredClone(badge));
     }
-    return badges;
+    return checked;
 }

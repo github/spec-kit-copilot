@@ -6,6 +6,6 @@
   "slot": "essentials.options",
   "order": 20,
   "field": {"id": "canvas.workflowListName", "type": "string", "control": "stock.text",
-    "label": "Workflow header", "description": "Optional heading of up to 80 characters for the workflow list. Leave blank to use Workflows."},
+    "label": "Header text", "description": "The main header displayed below the canvas title. Leave blank to use ‘Workflows.’"},
   "generatedBinding": {"presentation": "text", "slot": "workflow.heading"}
 }

@@ -64,7 +64,10 @@ export async function evaluate({ ruleId, inputs, evidence }) {
             return { match: false, diagnostics: [file.diagnostic] };
         }
         if (file.state === "missing") return { match: false };
-        return { match: file.text.toLowerCase().includes(inputs.value.toLowerCase()) };
+        const content = file.text.toLowerCase();
+        const selected = inputs.choices.find((choice) =>
+            content.includes(choice.value.toLowerCase()));
+        return selected ? { match: true, selection: selected.id } : { match: false };
     }
     if (ruleId === "markdown-file-count") {
         const directory = await evidence.countMarkdownFiles(inputs.artifact);

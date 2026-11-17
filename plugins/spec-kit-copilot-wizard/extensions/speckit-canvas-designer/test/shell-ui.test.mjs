@@ -312,7 +312,7 @@ test("Generate saves a snapshot and dispatches with the returned revision", asyn
     const context = {
         generate: { disabled: false, addEventListener: (_name, handler) => { click = handler; } },
         model: { preview: false, templates: [], revision: "model-1", settingsRevision: 0 },
-        draft, draftOutputs: {}, draftBadges: [], requestedCanvasId: null, token: "test",
+        draft, draftOutputs: {}, draftBadges: [{ id: "legacy", phaseText: "old" }], requestedCanvasId: null, token: "test",
         outputStatus: "absent", requestedRequestId: null,
         GENERATION_EXISTS,
         generating: false, status: {}, messageBox: {}, checkReady: () => true,
@@ -325,12 +325,13 @@ test("Generate saves a snapshot and dispatches with the returned revision", asyn
         showFieldError: (message) => { throw new Error(message); },
         persistSettings: async (input) => {
             calls.push(["save", input.values["canvas.id"]]);
-            return { revision: "model-1", settingsRevision: 1 };
+            return { revision: "model-1", settingsRevision: 1, badges: [{ id: "legacy" }] };
         },
         fetch: (_url, options) => {
             const body = JSON.parse(options.body);
             submitted = body.values["canvas.id"];
             assert.equal(body.settingsRevision, 1);
+            assert.deepEqual(body.badges, [{ id: "legacy" }]);
             calls.push(["generate", submitted]);
             return new Promise((resolve) => { release = resolve; });
         },

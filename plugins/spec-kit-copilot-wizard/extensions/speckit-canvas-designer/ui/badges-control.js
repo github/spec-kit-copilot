@@ -1,12 +1,24 @@
-const { jsonSafe, validBadgeInputDraft, hasDeclaredBadgeInputs, badgeInputReady } = await import(
+const { jsonSafe, validBadgeInputDraft, validBadgeInputComplete, hasDeclaredBadgeInputs, badgeInputReady } = await import(
     `./external-control-adapter-contract.js${new URL(import.meta.url).search}`);
 const duplicateModule = new URL("./badge-duplicates.js", import.meta.url);
 duplicateModule.search = new URL(import.meta.url).search;
 const { findDuplicateBadge } = await import(duplicateModule.href);
+const { badgePlacements, badgeTextFields, validBadgeCategory } = await import(
+    `./badge-selection-contract.js${new URL(import.meta.url).search}`);
+const { BADGE_IMPORT_FILE_LIMIT, validateBadgeImportResponse } = await import(
+    `./badge-import-contract.js${new URL(import.meta.url).search}`);
+const TEXT_FIELDS = [
+    ["workflow", "Workflow list text", "Shown on each matching workflow."],
+    ["phase", "Phase card text", "Shown on the selected phase cards."],
+    ["summary", "Workflow summary text",
+        "Shown once as 'text: N', where N is the number of matching workflows. Placeholders are not available."],
+];
 
 const PLACES = [
-    ["workflow-list", "Workflow list"],
-    ["workflow-summary", "Workflow summary"],
+    ["workflow-summary", "Workflow summary",
+        "Show once in the summary with the number of matching workflows."],
+    ["workflow-list", "Workflow list",
+        "Show on each matching workflow in the workflow list."],
 ];
 const COLORS = ["theme", "red", "green", "amber", "blue", "purple", "pink", "orange"];
 
@@ -51,15 +63,13 @@ function phaseOptions(phases) {
 
 function newDraft(type) {
     return { id: globalThis.crypto?.randomUUID?.() ?? `badge-${Date.now()}`,
-        type: type.id, inputs: {}, text: type.defaultText, color: type.defaultColor,
-        showIn: ["workflow-list"], phase: null, targets: [] };
+        type: type.id, inputs: {}, category: "", text: type.defaultText,
+        phaseText: type.defaultText, summaryText: type.title, color: type.defaultColor,
+        showIn: ["workflow-summary"],
+        phase: null, targets: [] };
 }
 
-function defaultSummaryText(type) {
-    return `${type.title} ({workflows} workflows)`;
-}
-
-function editableBadge(badge, type) {
+function editableBadge(badge, rule) {
     const draft = structuredClone(badge);
     if (!Array.isArray(draft.targets)) {
         draft.targets = draft.showIn.includes("phase-card") && draft.phase
@@ -67,9 +77,8 @@ function editableBadge(badge, type) {
     }
     draft.showIn = draft.showIn.filter((place) => place !== "phase-card");
     draft.phase = null;
-    if (draft.targets.length && draft.phaseText === undefined) draft.phaseText = draft.text;
-    if (draft.showIn.includes("workflow-summary") && draft.summaryText === undefined) {
-        draft.summaryText = defaultSummaryText(type);
+    if (!rule?.inputs?.some(({ type }) => type === "badge-selection")) {
+        for (const key of Object.values(badgeTextFields)) draft[key] ??= "";
     }
     return draft;
 }
@@ -122,7 +131,10 @@ function readableBadgeForeground(hex) {
 }
 
 function updatePreview(preview, badge) {
-    preview.textContent = (badge.text || "Badge text").replace(/\{count\}/g, "3")
+    const places = badgePlacements(badge);
+    preview.textContent = ((places.workflow || !places.phase && !places.summary) && badge.text
+        || places.phase && badge.phaseText
+        || places.summary && badge.summaryText && `${badge.summaryText}: 3` || "Badge text").replace(/\{count\}/g, "3")
         .replace(/\{completed\}/g, "3").replace(/\{total\}/g, "5")
         .replace(/\{percent\}/g, "60").replace(/\{workflows\}/g, "2");
     preview.dataset.color = badge.color;
@@ -135,7 +147,7 @@ function updatePreview(preview, badge) {
 }
 
 export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRules,
-    draftBadges, onChange, controlMount, onDeclareFile }) {
+    draftBadges, onChange, controlMount, onDeclareFile, onValidateImport }) {
     let outputsSnapshot = JSON.stringify(outputs);
     const types = badgeTypes.filter((type) => type.enabled);
     for (const [first, second] of [
@@ -152,6 +164,10 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
     let pending = null;
     let activeControl;
     let renderId = 0;
+    let disposed = false;
+    let importController;
+    let importMessage = "";
+    let importError = false;
     const openCatalog = () => {
         pending = null;
         catalogOpen = true;
@@ -159,6 +175,12 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         root.querySelector(".badge-type-choice")?.focus?.();
     };
     const redraw = () => {
+        if (importController) {
+            importController.abort();
+            importController = null;
+            importMessage = "Badge import canceled because the draft changed. Select the file again.";
+            importError = true;
+        }
         renderId++;
         const previousControl = activeControl;
         activeControl = null;
@@ -242,22 +264,110 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
                 configured.append(help);
             }
             root.append(configured);
+            const importSection = element("div", undefined, "badge-import");
+            const picker = element("input", undefined, "badge-import-file");
+            picker.type = "file";
+            picker.accept = ".json,application/json";
+            picker.hidden = true;
+            picker.setAttribute("aria-label", "Import badges from canvas-config.json");
+            const importButton = element("button", "Import badges", "badge-import-button");
+            importButton.type = "button";
+            importButton.disabled = typeof onValidateImport !== "function";
+            const importHelp = element("p",
+                "Select a complete generated canvas-config.json. Badges are appended to this draft; use Save to keep them.",
+                "settings-note");
+            const status = element("p", importMessage, "settings-note badge-import-status");
+            status.setAttribute("role", importError ? "alert" : "status");
+            const cancel = element("button", "Cancel import", "badge-import-cancel");
+            cancel.type = "button";
+            cancel.hidden = true;
+            const message = (text, error = false) => {
+                importMessage = text;
+                importError = error;
+                status.textContent = text;
+                status.setAttribute("role", error ? "alert" : "status");
+            };
+            const finish = () => {
+                importController = null;
+                importButton.disabled = false;
+                cancel.hidden = true;
+                picker.value = "";
+            };
+            cancel.addEventListener("click", () => {
+                importController?.abort();
+                finish();
+                message("Badge import canceled. No badges were added.");
+                importButton.focus();
+            });
+            importButton.addEventListener("click", () => {
+                picker.value = "";
+                picker.click();
+            });
+            picker.addEventListener("change", async () => {
+                const file = picker.files?.[0];
+                if (!file || importButton.disabled) return;
+                const controller = new AbortController();
+                importController = controller;
+                const currentRender = renderId;
+                const original = JSON.stringify({ badges: draftBadges, outputs });
+                const current = () => !disposed && !controller.signal.aborted
+                    && importController === controller && renderId === currentRender;
+                const unchanged = () => original === JSON.stringify({ badges: draftBadges, outputs });
+                importButton.disabled = true;
+                cancel.hidden = false;
+                message("Validating badges...");
+                try {
+                    if (file.size > BADGE_IMPORT_FILE_LIMIT) {
+                        throw new Error("Choose a canvas-config.json no larger than 2 MiB.");
+                    }
+                    const contents = await file.text();
+                    if (!current()) return;
+                    if (new TextEncoder().encode(contents).length > BADGE_IMPORT_FILE_LIMIT) {
+                        throw new Error("Choose a canvas-config.json no larger than 2 MiB.");
+                    }
+                    let config;
+                    try { config = JSON.parse(contents); }
+                    catch { throw new Error("The selected file is not valid JSON. Choose a generated canvas-config.json."); }
+                    if (!unchanged()) throw new Error("The badge draft or outputs changed. Select the file again.");
+                    const badges = structuredClone(draftBadges);
+                    const result = await onValidateImport({ config, badges,
+                        outputs: structuredClone(outputs), signal: controller.signal });
+                    if (!current()) return;
+                    if (!unchanged()) throw new Error("The badge draft or outputs changed. Select the file again.");
+                    const expected = [...badges, ...config.badges.instances];
+                    validateBadgeImportResponse(result, expected);
+                    draftBadges.push(...structuredClone(result.badges.slice(badges.length)));
+                    const count = config.badges.instances.length;
+                    finish();
+                    message(`Imported ${count} ${count === 1 ? "badge" : "badges"}. Use Save to keep them.`);
+                    onChange();
+                    redraw();
+                    root.querySelector(".badge-import-button")?.focus();
+                } catch (error) {
+                    if (!current()) return;
+                    finish();
+                    message(`No badges were imported. ${adapterError(error)}`, true);
+                }
+            });
+            if (importButton.disabled) importHelp.textContent =
+                "Badge import requires a Designer session with verifiable resolved badge evaluators.";
+            importSection.append(importButton, cancel, picker, importHelp, status);
+            root.append(importSection);
             const list = element("div", undefined, "badge-list");
             if (!draftBadges.length) list.append(element("p", "No badges yet.", "settings-note"));
             for (const badge of draftBadges) {
                 const row = element("div", undefined, "badge-row");
                 const type = badgeTypes.find((item) => item.id === badge.type);
                 const available = type?.enabled && rules.has(type.rule);
-                const label = badge.showIn.includes("workflow-list") ? badge.text
-                    : badge.targets?.length || badge.showIn.includes("phase-card")
-                        ? badge.phaseText ?? badge.text : badge.summaryText ?? badge.text;
+                const label = badge.text || badge.phaseText || badge.summaryText;
                 const typeName = type?.title ?? badge.type;
                 const instanceName = label || typeName;
                 const detail = element("div");
                 const placements = placementSummary(badge, phases);
                 detail.append(element("strong", instanceName),
-                    element("p", instanceName === typeName ? placements
-                        : `${typeName} · ${placements}`, "settings-note"));
+                    element("p", [badge.category ? `Category: ${badge.category}` : "",
+                        instanceName === typeName ? "" : typeName, placements]
+                        .filter(Boolean).join(" · "), "settings-note"));
                 if (!available) detail.append(element("p",
                     "This badge type is unavailable. Ask your agent to restore it, or remove this badge before saving.",
                     "settings-field-error"));
@@ -267,7 +377,7 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
                 edit.disabled = !available;
                 edit.setAttribute("aria-label", `Edit ${label || type?.title || badge.type}`);
                 edit.addEventListener("click", () => {
-                    pending = editableBadge(badge, type);
+                    pending = editableBadge(badge, rules.get(type.rule));
                     redraw();
                     root.querySelector(".badge-editor-heading")?.focus?.();
                 });
@@ -304,6 +414,7 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         const preview = element("span", undefined, "badge-preview");
         updatePreview(preview, pending);
         const ordered = (rule.inputs ?? []).find(({ type }) => type === "ordered-artifacts");
+        const selection = (rule.inputs ?? []).find(({ type }) => type === "badge-selection");
         editor.append(heading);
         if (ordered) editor.append(element("h3", "When this badge appears"));
         editor.append(element("p", rule.description, "settings-note"));
@@ -317,7 +428,7 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         let duplicateTarget;
         editDuplicate.addEventListener("click", () => {
             if (!duplicateTarget) return;
-            pending = editableBadge(duplicateTarget, type);
+            pending = editableBadge(duplicateTarget, rule);
             redraw();
             root.querySelector(".badge-editor-heading")?.focus?.();
         });
@@ -330,7 +441,7 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         };
         const controlRoot = element("div", undefined, "badge-input-controls");
         const clearHostError = (event) => {
-            if (!controlRoot.contains(event.target)) revealError("");
+            if (!controlRoot.contains(event.target) && !selectionRoot.contains(event.target)) revealError("");
         };
         editor.addEventListener("input", clearHostError);
         editor.addEventListener("change", clearHostError);
@@ -354,9 +465,34 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
             updatePreview(preview, pending);
         });
         colorGroup.append(field("Color", named), customColor, previewField);
-        editor.append(colorGroup, element("h3", ordered
+        const category = element("input", undefined, "badge-category");
+        category.type = "text";
+        category.maxLength = 80;
+        category.required = true;
+        category.value = pending.category ?? "";
+        const categoryList = element("datalist");
+        categoryList.id = `badge-categories-${renderId}`;
+        category.setAttribute("list", categoryList.id);
+        const knownCategories = new Map();
+        for (const entry of draftBadges) {
+            const name = entry.category?.trim();
+            if (name && !knownCategories.has(name.toLowerCase())) knownCategories.set(name.toLowerCase(), name);
+        }
+        for (const name of knownCategories.values()) {
+            const option = element("option");
+            option.value = name;
+            categoryList.append(option);
+        }
+        category.addEventListener("input", () => { pending.category = category.value; });
+        const categoryField = field("Category", category,
+            "Specify a label for grouping badges. Categories are for display only.");
+        categoryField.append(categoryList);
+        editor.append(categoryField);
+        if (!selection) editor.append(colorGroup);
+        editor.append(element("h3", ordered
             ? "Phase and output to check" : "Phases and outputs"));
         let phasePlacement;
+        let updateSelectionPlacements = () => {};
         let refreshLegacy = () => {};
         const phaseCardPhases = () => {
             const selected = typeof control?.selectedPhases === "function"
@@ -369,16 +505,18 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
             const selected = phaseCardPhases();
             if (!selected.length) {
                 phasePlacement.checked = false;
-                phaseTextField.hidden = true;
-                delete pending.phaseText;
                 revealError("Choose phase evidence before selecting Phase placement.");
             }
             pending.targets = selected.map((phase) => ({ phase, output: null }));
             refreshLegacy();
+            if (!selected.length) updateSelectionPlacements();
         };
         editor.append(controlRoot);
+        const selectionRoot = element("div", undefined, "badge-selection-control");
         let control;
         let isReady;
+        let invalidControlUpdate = false;
+        let invalidPlacementUpdate = false;
         const inputIds = (rule.inputs ?? []).map(({ id }) => id).sort().join();
         const hasDeclaredInputs = (value) => hasDeclaredBadgeInputs(value, inputIds);
         const editorPending = pending;
@@ -386,7 +524,13 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         try {
             control = controlMount?.({ root: controlRoot, rule: structuredClone(rule),
                 inputs: structuredClone(pending.inputs), phases: structuredClone(phases),
-                outputs: structuredClone(outputs), onDeclareFile: onDeclareFile && ((phase, path) => {
+                outputs: structuredClone(outputs),
+                ...(selection ? { selectionRoot, placements: {
+                    summary: pending.showIn.includes("workflow-summary"),
+                    workflow: pending.showIn.includes("workflow-list"),
+                    phase: pending.targets.length > 0,
+                } } : {}),
+                onDeclareFile: onDeclareFile && ((phase, path) => {
                     if (renderId !== editorRenderId || pending !== editorPending) {
                         throw new Error("This badge editor is no longer active.");
                     }
@@ -406,12 +550,16 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
                     if (renderId !== editorRenderId || pending !== editorPending) return;
                     try {
                         if (!hasDeclaredInputs(nextInputs) || !jsonSafe(nextInputs)
-                            || !validBadgeInputDraft(nextInputs, rule, phases, outputs)) {
+                            || !validBadgeInputDraft(nextInputs, rule, phases, outputs,
+                                badgePlacements(pending))) {
+                            invalidControlUpdate = true;
                             revealError("Badge control returned inputs that do not match its rule or available evidence.");
                             return;
                         }
                         pending.inputs = structuredClone(nextInputs);
+                        invalidControlUpdate = false;
                     } catch (error) {
+                        invalidControlUpdate = true;
                         revealError(`Badge control returned invalid inputs: ${adapterError(error)}`);
                         return;
                     }
@@ -419,6 +567,9 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
                     syncPhasePlacement();
                 } });
             isReady = control?.isReady;
+            if (selection && typeof control?.updatePlacements !== "function") {
+                throw new Error("Badge selection control cannot update placements.");
+            }
         } catch (error) {
             controlRoot.append(element("p", `Could not load badge input control: ${adapterError(error)}`,
                 "settings-field-error"));
@@ -434,38 +585,66 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         const orderedPlacementOptions = [];
         const ruleTokens = rule.textPlaceholders?.map((placeholder) =>
             `{${typeof placeholder === "string" ? placeholder : placeholder.id}}`).join(", ");
-        for (const [id, title] of PLACES) {
+        const textFields = {};
+        let refreshTexts = () => {};
+        if (!selection) {
+            const textGroup = element("div", undefined, "badge-text-fields");
+            for (const [place, title, help] of TEXT_FIELDS) {
+                const key = badgeTextFields[place];
+                const input = element("input");
+                input.type = "text";
+                input.maxLength = 120;
+                input.value = pending[key] ?? "";
+                input.dataset.textPlacement = place;
+                input.addEventListener("input", () => {
+                    pending[key] = input.value;
+                    updatePreview(preview, pending);
+                });
+                textFields[place] = field(title, input, place !== "summary" && ruleTokens
+                    ? `${help} Available placeholders: ${ruleTokens}` : help);
+                textGroup.append(textFields[place]);
+            }
+            const none = element("p", "Select a placement to enter its badge text.", "settings-note");
+            textGroup.append(none);
+            refreshTexts = () => {
+                const places = badgePlacements(pending);
+                for (const [place, wrapper] of Object.entries(textFields)) wrapper.hidden = !places[place];
+                none.hidden = Object.values(places).some(Boolean);
+                updatePreview(preview, pending);
+            };
+            editor.append(textGroup);
+        }
+        updateSelectionPlacements = () => {
+            refreshTexts();
+            if (selection && control?.updatePlacements) {
+                try {
+                    control.updatePlacements({
+                        summary: pending.showIn.includes("workflow-summary"),
+                        workflow: pending.showIn.includes("workflow-list"),
+                        phase: pending.targets.length > 0,
+                    });
+                    invalidPlacementUpdate = false;
+                } catch (error) {
+                    invalidPlacementUpdate = true;
+                    revealError(`Badge selection placement update failed: ${adapterError(error)}`);
+                }
+            }
+        };
+        for (const [id, title, help] of PLACES) {
             const option = element("div", undefined, "badge-placement-option");
             const label = element("label", undefined, "badge-check");
             const checkbox = element("input");
             checkbox.type = "checkbox";
             checkbox.checked = pending.showIn.includes(id);
-            const isSummary = id === "workflow-summary";
-            const badgeText = element("input");
-            badgeText.type = "text";
-            badgeText.maxLength = 120;
-            badgeText.value = isSummary ? pending.summaryText ?? defaultSummaryText(type)
-                : pending.text;
-            const textField = field(`${title} text`, badgeText,
-                isSummary ? "Use {workflows} for the number of matching workflows."
-                    : ruleTokens ? `Available placeholders: ${ruleTokens}` : "");
-            textField.hidden = !checkbox.checked;
-            badgeText.addEventListener("input", () => {
-                if (isSummary) pending.summaryText = badgeText.value;
-                else pending.text = badgeText.value;
-                updatePreview(preview, { ...pending, text: badgeText.value });
-            });
             checkbox.addEventListener("change", () => {
                 pending.showIn = checkbox.checked
                     ? [...pending.showIn, id] : pending.showIn.filter((place) => place !== id);
-                textField.hidden = !checkbox.checked;
-                if (isSummary) {
-                    if (checkbox.checked) pending.summaryText = badgeText.value;
-                    else delete pending.summaryText;
-                }
+                updateSelectionPlacements();
             });
             label.append(checkbox, element("span", title));
-            option.append(label, textField);
+            const line = element("div", undefined, "badge-phase-placement");
+            line.append(label, element("p", help, "settings-note"));
+            option.append(line);
             if (ordered) orderedPlacementOptions.push(option);
             else placements.append(option);
         }
@@ -482,17 +661,6 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         const phaseHint = element("p", ordered
             ? "Show on the target phase's card."
             : "Show on the selected phases' cards.", "settings-note");
-        const phaseText = element("input");
-        phaseText.type = "text";
-        phaseText.maxLength = 120;
-        phaseText.value = pending.phaseText ?? pending.text;
-        phaseText.addEventListener("input", () => {
-            pending.phaseText = phaseText.value;
-            updatePreview(preview, { ...pending, text: phaseText.value });
-        });
-        const phaseTextField = field(ordered ? "Phase card text" : "Phase text", phaseText,
-            ruleTokens ? `Available placeholders: ${ruleTokens}` : "");
-        phaseTextField.hidden = !phasePlacement.checked;
         phasePlacement.addEventListener("change", () => {
             if (phasePlacement.checked && !phaseCardPhases().length) {
                 phasePlacement.checked = false;
@@ -500,16 +668,13 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
             }
             pending.targets = phasePlacement.checked
                 ? phaseCardPhases().map((phase) => ({ phase, output: null })) : [];
-            phaseTextField.hidden = !phasePlacement.checked;
-            if (phasePlacement.checked) pending.phaseText = phaseText.value;
-            else delete pending.phaseText;
             refreshLegacy();
+            updateSelectionPlacements();
         });
         phaseLabel.append(phasePlacement, element("span", ordered ? "Phase card" : "Phase"));
         const phaseLine = element("div", undefined, "badge-phase-placement");
         phaseLine.append(phaseLabel, phaseHint);
         placements.append(phaseLine);
-        placements.append(phaseTextField);
         placements.append(...orderedPlacementOptions);
         const supportsArtifactTargets = rule.inputs?.some(({ type }) =>
             type === "artifact" || type === "artifact-set");
@@ -518,6 +683,7 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
                 || !outputs[phase]?.outputs?.includes(output)));
         const legacy = element("div", undefined, "badge-legacy-placement");
         refreshLegacy = () => {
+            refreshTexts();
             legacy.replaceChildren();
             if (!pending.targets.length || followsEvidence()) return;
             legacy.append(element("p",
@@ -548,7 +714,9 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         };
         refreshLegacy();
         placements.append(legacy);
-        editor.append(placements, error, editDuplicate);
+        editor.append(placements);
+        if (selection) editor.append(selectionRoot);
+        editor.append(error, editDuplicate);
         const actions = element("div", undefined, "badge-actions");
         const apply = element("button", draftBadges.some((entry) => entry.id === pending.id)
             ? "Save changes" : "Create badge");
@@ -565,36 +733,32 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
         editor.append(actions);
         editor.addEventListener("submit", (event) => {
             event.preventDefault();
-            if (!pending.text.trim()) return revealError("Enter badge text.");
-            if (pending.text.length > 120) {
-                return revealError("Badge text must be 120 characters or fewer.");
-            }
-            if (/[\x00-\x1f\x7f<>]/.test(pending.text)) {
-                return revealError("Badge text cannot contain control characters or angle brackets.");
+            if (!validBadgeCategory(pending.category ?? "")) {
+                return revealError(pending.category?.trim()
+                    ? "Category must be 80 characters or fewer without control characters or angle brackets."
+                    : "Enter a badge category.");
             }
             const allowedPlaceholders = new Set((rule.textPlaceholders ?? []).map((placeholder) =>
                 typeof placeholder === "string" ? placeholder : placeholder.id));
-            const unknownToken = [...pending.text.matchAll(/\{([^{}]+)\}/g)]
-                .find(([, placeholder]) => !allowedPlaceholders.has(placeholder));
-            if (unknownToken) {
-                return revealError(`Unknown badge text token {${unknownToken[1]}}. Use a listed token or remove the braces.`);
-            }
-            if (/[{}]/.test(pending.text.replace(/\{[^{}]+\}/g, ""))) {
-                return revealError("Badge text has unmatched braces. Remove them or use an available token.");
-            }
-            for (const [name, value, placeholders] of [
-                ["Phase", phasePlacement.checked ? pending.phaseText : undefined, allowedPlaceholders],
-                ["Workflow summary", pending.showIn.includes("workflow-summary")
-                    ? pending.summaryText : undefined, new Set(["workflows"])],
-            ]) {
-                if (value === undefined && !(name === "Phase"
-                    ? phasePlacement.checked : pending.showIn.includes("workflow-summary"))) continue;
-                if (typeof value !== "string" || !value.trim() || value.length > 120
-                    || /[\x00-\x1f\x7f<>]/.test(value)
-                    || [...value.matchAll(/\{([^{}]+)\}/g)].some(([, token]) =>
-                        !placeholders.has(token))
-                    || /[{}]/.test(value.replace(/\{[^{}]+\}/g, ""))) {
-                    return revealError(`Enter valid ${name} text using only its available placeholders.`);
+            const places = badgePlacements(pending);
+            if (!selection) for (const [place, title] of TEXT_FIELDS) {
+                if (!places[place]) continue;
+                const value = pending[badgeTextFields[place]] ?? "";
+                const name = title.toLowerCase();
+                if (!value.trim()) return revealError(`Enter ${name}.`);
+                if (value.length > 120) return revealError(`${title} must be 120 characters or fewer.`);
+                if (/[\x00-\x1f\x7f<>]/.test(value)) {
+                    return revealError(`${title} cannot contain control characters or angle brackets.`);
+                }
+                const unknownToken = [...value.matchAll(/\{([^{}]+)\}/g)]
+                    .find(([, placeholder]) => place === "summary" || !allowedPlaceholders.has(placeholder));
+                if (unknownToken) {
+                    return revealError(place === "summary"
+                        ? `Workflow summary text cannot use {${unknownToken[1]}}. The count is added automatically.`
+                        : `Unknown badge text token {${unknownToken[1]}}. Use a listed token or remove the braces.`);
+                }
+                if (/[{}]/.test(value.replace(/\{[^{}]+\}/g, ""))) {
+                    return revealError(`${title} has unmatched braces. Remove them or use an available token.`);
                 }
             }
             if (!pending.color) return revealError("Select a badge color.");
@@ -603,6 +767,10 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
             }
             if (!hasDeclaredInputs(pending.inputs)) {
                 return revealError("Badge control returned inputs that do not match its rule.");
+            }
+            if (selection && (invalidControlUpdate || invalidPlacementUpdate
+                || !validBadgeInputComplete(pending.inputs, rule, places))) {
+                return revealError("Complete every match with valid text and color before saving.");
             }
             try {
                 if (!badgeInputReady(isReady, control)) {
@@ -622,15 +790,21 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
             }
             const index = draftBadges.findIndex((entry) => entry.id === pending.id);
             if (index < 0 && draftBadges.length >= 100) return revealError("At most 100 badges can be configured.");
-            const duplicate = findDuplicateBadge(pending, draftBadges);
+            const saved = structuredClone(pending);
+            saved.category = saved.category.trim();
+            // Text exists only for selected placements; selection rules keep text on their entries.
+            for (const [place, key] of Object.entries(badgeTextFields)) {
+                if (selection || !places[place]) delete saved[key];
+            }
+            const duplicate = findDuplicateBadge(saved, draftBadges, rule);
             if (duplicate) {
                 revealError("This badge already has the same text and evidence at this phase/output. Edit it or change the text.");
                 duplicateTarget = duplicate;
                 editDuplicate.hidden = false;
                 return;
             }
-            if (index < 0) draftBadges.push(structuredClone(pending));
-            else draftBadges[index] = structuredClone(pending);
+            if (index < 0) draftBadges.push(saved);
+            else draftBadges[index] = saved;
             pending = null;
             onChange();
             redraw();
@@ -640,6 +814,11 @@ export function mountBadges({ root, page, phases, outputs, badgeTypes, badgeRule
     };
     redraw();
     return {
+        dispose() {
+            disposed = true;
+            importController?.abort();
+            importController = null;
+        },
         updateOutputs(next) {
             const snapshot = JSON.stringify(next);
             if (snapshot === outputsSnapshot) return;

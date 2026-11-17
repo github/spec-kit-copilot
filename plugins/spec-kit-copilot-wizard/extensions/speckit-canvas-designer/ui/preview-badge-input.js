@@ -1,10 +1,17 @@
 export const controlId = "preview.badge-inputs";
 export const contractVersion = 1;
 
-export function mount({ root, rule, inputs, phases, outputs, onChange }) {
+export function mount({ root, selectionRoot, rule, inputs, phases, outputs, onChange }) {
     const value = { ...inputs };
     let ready = true;
     for (const input of rule.inputs) {
+        if (input.type === "badge-selection") {
+            const hint = document.createElement("p");
+            hint.textContent = "Open the installed Designer to edit match entries.";
+            selectionRoot.append(hint);
+            ready = false;
+            continue;
+        }
         const label = document.createElement(input.type === "ordered-artifacts"
             ? "fieldset" : "label");
         if (input.type === "ordered-artifacts") {
@@ -93,5 +100,7 @@ export function mount({ root, rule, inputs, phases, outputs, onChange }) {
                     && new Set(chain.map((entry) => entry.output.toLowerCase())).size
                         === chain.length;
             })),
-        selectedPhases: () => value.targetphase ? [value.targetphase] : [] };
+        selectedPhases: () => value.targetphase ? [value.targetphase] : [],
+        ...(rule.inputs.some((input) => input.type === "badge-selection")
+            ? { updatePlacements() {} } : {}) };
 }

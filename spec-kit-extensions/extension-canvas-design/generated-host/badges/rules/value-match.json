@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "value-match",
   "label": "Value match",
-  "description": "Match literal text anywhere in one selected Markdown output, ignoring capitalization.",
+  "description": "Search one Markdown output for the first matching entry, ignoring capitalization.",
   "inputs": [
     {
       "id": "artifact",
@@ -10,9 +10,9 @@
       "label": "Output to search"
     },
     {
-      "id": "value",
-      "type": "text",
-      "label": "Text to match"
+      "id": "choices",
+      "type": "badge-selection",
+      "label": "Match order"
     }
   ],
   "textPlaceholders": [],

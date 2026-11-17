@@ -29,7 +29,7 @@ async function journeyFor(page, suffix, { phases = ["specify"], registrations = 
 }
 
 async function generate(page, journey, dispatched, id, {
-    workflowEvidence = false, completedSpecify = false,
+    workflowEvidence = false, workflowName = "Workflows",
 } = {}) {
     await page.getByRole("tab", { name: "Essentials" }).click();
     await page.getByRole("textbox", { name: "Canvas ID (required)" }).fill(id);
@@ -81,30 +81,6 @@ async function generate(page, journey, dispatched, id, {
         config: served.config, cwd: journey.project, workspace: journey.project, session,
     });
     journey.generatedRuntime = runtime;
-    if (completedSpecify) {
-        const run = await runtime.run({
-            phase: "specify", itemId: "specs/preset-feature", args: "Preset feature",
-        }, "preset-generated-e2e");
-        await runtime.report({
-            phaseRunId: run.runId, path: "specs/preset-feature/spec.md",
-        }, "preset-generated-e2e");
-        events.push(
-            { type: "user.message", data: {
-                messageId: "preset-generated-message", interactionId: "preset-interaction",
-            } },
-            { type: "assistant.turn_start", data: {
-                interactionId: "preset-interaction", turnId: "preset-turn",
-            } },
-            { type: "assistant.message", data: {
-                interactionId: "preset-interaction", turnId: "preset-turn",
-                phase: "final", content: "Completed preset phase",
-            } },
-            { type: "assistant.turn_end", data: {
-                interactionId: "preset-interaction", turnId: "preset-turn",
-            } },
-        );
-        await runtime.refresh();
-    }
     await page.route(/\/api\//, async (route) => {
         const path = new URL(route.request().url()).pathname;
         if (path === "/api/events") {
@@ -128,10 +104,10 @@ async function generate(page, journey, dispatched, id, {
     });
     await page.reload();
     await expect(page.locator("#workflow-content").getByRole("heading", {
-        name: "Workflows (1)", exact: true,
+        name: `${workflowName} (1)`, exact: true,
     })).toBeVisible();
     await expect(page.locator("#workflow-rows [data-workflow-id]").first()).toBeVisible();
-    return { request, ...served };
+    return { request, events, ...served };
 }
 
 async function closeJourney(journey) {
@@ -160,7 +136,19 @@ test("risk matrix keyboard selection becomes the generated read-only selected ce
         expect(config.generatedControls).toContainEqual(expect.objectContaining({
             id: "risk.rating", value: { impact: "medium", likelihood: "medium" },
         }));
-        await expect(page.getByRole("table", { name: /impact medium, likelihood medium/ })).toBeVisible();
+        const risk = page.locator('[data-control-id="risk.rating"]').locator("..");
+        const table = page.getByRole("table", { name: /impact medium, likelihood medium/ });
+        await expect(risk).toHaveAttribute("open", "");
+        await expect(table).toBeVisible();
+        await expect(page.locator('[data-control-id="risk.rating"] [aria-current="true"]'))
+            .toHaveText("Selected");
+        expect(await risk.evaluate((section) => Boolean(
+            section.compareDocumentPosition(document.querySelector("#instance-collection"))
+            & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+        await risk.locator(":scope > summary").click();
+        await expect(table).toBeHidden();
+        await risk.locator(":scope > summary").click();
+        await expect(table).toBeVisible();
         await expect(page.locator('[data-control-id="risk.rating"] [aria-current="true"]'))
             .toHaveText("Selected");
     } finally { await closeJourney(journey); }
@@ -182,10 +170,13 @@ test("badge input control saves phase choice and packages a rule evaluated from 
         await expect(page.getByText("This badge appears only after the selected phase's latest run completes."))
             .toBeVisible();
         await expect(page.getByRole("combobox", { name: "Phase to confirm" })).toHaveValue("specify");
+        await page.getByRole("combobox", { name: /^Category/ }).fill("Progress");
+        await page.getByRole("checkbox", { name: /^Workflow summary/ }).check();
+        await page.getByRole("checkbox", { name: /^Workflow list/ }).check();
         await page.getByRole("button", { name: "Create badge" }).click();
         await expect(page.locator(".badge-row")).toContainText("Phase confirmed");
-        const { request, config } = await generate(page, journey, dispatched, "preset-badge", {
-            workflowEvidence: true, completedSpecify: true,
+        const { request, config, events } = await generate(page, journey, dispatched, "preset-badge", {
+            workflowEvidence: true,
         });
         expect(request.badges.instances).toContainEqual(expect.objectContaining({
             type: "test-phase", inputs: { phase: "specify" },
@@ -193,10 +184,105 @@ test("badge input control saves phase choice and packages a rule evaluated from 
         expect(config.badges.rules).toContainEqual(expect.objectContaining({
             id: "test-phase", adapter: "badge-rule-test-phase-adapter",
         }));
-        await expect(page.getByRole("button", { name: /preset-feature Phase confirmed/ }))
+        const summary = page.locator(".workflow-summary");
+        await expect(summary).toBeVisible();
+        await expect(page.locator(".workflow-intro #workflow-heading")).toHaveText("Workflows (1)");
+        await expect(page.getByRole("heading", { name: "Summary", exact: true })).toHaveCount(0);
+        await expect(page.locator(".workflow-intro details, .workflow-intro summary, .workflow-intro button")).toHaveCount(0);
+        await expect(summary.locator("#workflow-badge-summary")).toContainText("Phase confirmed");
+        const emptySummary = async (route) => {
+            const path = new URL(route.request().url()).pathname;
+            if (path === "/api/state" && route.request().method() !== "GET") return route.fallback();
+            const state = path === "/api/refresh" ? await journey.generatedRuntime.refresh()
+                : await journey.generatedRuntime.snapshot();
+            state.badges.summary = [];
+            await route.fulfill({ json: state });
+        };
+        await page.route("**/api/state", emptySummary);
+        await page.route("**/api/refresh", emptySummary);
+        await page.locator("#refresh-state").click();
+        await expect(summary).toBeHidden();
+        await expect(page.locator(".workflow-intro #workflow-heading")).toBeVisible();
+        await page.unroute("**/api/refresh", emptySummary);
+        await page.unroute("**/api/state", emptySummary);
+        const run = await journey.generatedRuntime.run({
+            phase: "specify", itemId: "specs/preset-feature", args: "Preset feature",
+        }, "preset-generated-e2e");
+        await journey.generatedRuntime.report({
+            phaseRunId: run.runId, path: "specs/preset-feature/spec.md",
+        }, "preset-generated-e2e");
+        events.push(
+            { type: "user.message", data: {
+                messageId: "preset-generated-message", interactionId: "preset-interaction",
+            } },
+            { type: "assistant.turn_start", data: {
+                interactionId: "preset-interaction", turnId: "preset-turn",
+            } },
+            { type: "assistant.message", data: {
+                interactionId: "preset-interaction", turnId: "preset-turn",
+                phase: "final", content: "Completed preset phase",
+            } },
+            { type: "assistant.turn_end", data: {
+                interactionId: "preset-interaction", turnId: "preset-turn",
+            } },
+        );
+        await journey.generatedRuntime.refresh();
+        await page.locator("#refresh-state").click();
+        await expect(summary).toBeVisible();
+        await expect(summary.locator("#workflow-badge-summary")).toContainText("Phase confirmed");
+        const groupContrast = () => page.evaluate(() => {
+            const rgb = (value) => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+            const luminance = (value) => {
+                const [r, g, b] = rgb(value).map((channel) => {
+                    const c = channel / 255;
+                    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+                });
+                return r * 0.2126 + g * 0.7152 + b * 0.0722;
+            };
+            const background = (element) => {
+                for (let node = element; node; node = node.parentElement) {
+                    const color = getComputedStyle(node).backgroundColor;
+                    if (!/rgba\(.*,\s*0\)$/.test(color) && color !== "transparent") return color;
+                }
+                return "rgb(255, 255, 255)";
+            };
+            return ["#workflow-badge-summary", "#workflow-rows"].map((slot) => {
+                const group = document.querySelector(`${slot} .canvas-badge-category`);
+                const style = getComputedStyle(group);
+                const [a, b] = [luminance(style.borderTopColor), luminance(background(group.parentElement))];
+                return { slot, style: style.borderTopStyle,
+                    badgeStyle: getComputedStyle(group.querySelector(".canvas-badge")).borderTopStyle,
+                    ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+            });
+        });
+        for (const slot of ["#workflow-badge-summary", "#workflow-rows"]) {
+            await expect(page.locator(`${slot} .canvas-badge-category`).first()).toContainText("Progress");
+        }
+        for (const theme of ["light", "dark"]) {
+            await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
+            for (const { slot, style, badgeStyle, ratio } of await groupContrast()) {
+                expect(style, `${theme} ${slot} group`).toBe("dashed");
+                expect(badgeStyle, `${theme} ${slot} badge`).toBe("solid");
+                expect(ratio, `${theme} ${slot}`).toBeGreaterThanOrEqual(3);
+            }
+        }
+        expect(await summary.evaluate((section) => {
+            const intro = document.querySelector(".workflow-intro");
+            const list = document.querySelector("#instance-collection");
+            return intro.contains(section)
+                && Boolean(section.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)
+                && list.nextElementSibling.matches(".workflow-detail");
+        })).toBe(true);
+        await page.locator("#refresh-state").click();
+        await expect(summary).toBeVisible();
+        await expect(page.locator(".workflow-intro #workflow-heading")).toBeVisible();
+        await page.reload();
+        await expect(summary).toBeVisible();
+        await expect(page.locator(".workflow-intro #workflow-heading")).toBeVisible();
+        await expect(page.getByRole("button", { name: /preset-feature Progress Phase confirmed/ }))
             .toBeVisible({ timeout: 15_000 });
-        await page.getByRole("button", { name: /preset-feature Phase confirmed/ }).click();
-        await expect(page.locator(".canvas-badge").filter({ hasText: "Phase confirmed" }))
+        await page.getByRole("button", { name: /preset-feature Progress Phase confirmed/ }).click();
+        await expect(page.locator("#workflow-rows .canvas-badge").filter({ hasText: "Phase confirmed" }))
             .toBeVisible();
         await expect(page.locator("#workflow-content")).toBeVisible();
     } finally { await closeJourney(journey); }
@@ -216,10 +302,34 @@ test("uploaded gallery logo renders in the added generated page hero slot", asyn
         await page.locator('input[type="file"][id="setting-field-gallery.logo"]').setInputFiles({
             name: "gallery.gif", mimeType: "image/gif", buffer: image,
         });
-        const { config } = await generate(page, journey, dispatched, "preset-gallery");
+        await page.getByRole("tab", { name: "Appearance" }).click();
+        await page.getByRole("group", { name: "Main page logo" }).locator('input[type="file"]')
+            .setInputFiles({ name: "workflow.gif", mimeType: "image/gif", buffer: image });
+        await page.getByRole("tab", { name: "Essentials" }).click();
+        await page.getByRole("textbox", { name: "Description" }).fill("A configured workflow description.");
+        await page.getByRole("textbox", { name: "Header text" }).fill("Bugs");
+        await page.getByRole("textbox", { name: "Workflow item name" }).fill("Issue");
+        const { config } = await generate(page, journey, dispatched, "preset-gallery", {
+            workflowName: "Bugs",
+        });
         expect(config.generatedPageAssets).toContainEqual(expect.objectContaining({
             id: "gallery.logo", page: "canvas-generated-logo-gallery", slot: "hero.logo",
         }));
+        expect(config.mainPageAsset).toMatchObject({ mime: "image/gif" });
+        expect(config.canvas).toMatchObject({ workflowListName: "Bugs", workflowItemName: "Issue" });
+        await expect(page.locator(".workflow-intro").getByRole("img", { name: "Test preset-gallery logo" }))
+            .toBeVisible();
+        await expect(page.locator(".workflow-intro .collection-description"))
+            .toHaveText("A configured workflow description.");
+        await expect(page.locator("#workflow-heading")).toHaveText("Bugs (1)");
+        await expect(page.locator("#new-workflow")).toHaveAttribute("aria-label", "New Issue");
+        await expect(page.locator("#workflow-name-label")).toHaveText("Issue name");
+        await expect(page.locator("#workflow-name")).toHaveValue("Issue 1");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveText("New Issue");
+        await expect(page.locator("#workflow-search")).toHaveAttribute("placeholder", "Search by name or directory");
+        await page.locator("#new-workflow").click();
+        await expect(page.locator("#workflow-name")).toHaveValue("Issue 2");
+        await expect(page.locator("#workflow-heading")).toHaveText("Bugs (2)");
         await page.locator('[data-canvas-page="canvas-generated-logo-gallery"]').click();
         await expect(page.locator("#generated-page").getByRole("heading", { name: "Logo gallery" }))
             .toBeVisible();
@@ -309,6 +419,18 @@ test("dialog-only button stays local while Implement confirmation carries phase 
         expect(config.buttons).toContainEqual(expect.objectContaining({
             id: "canvas-workflow-button-test", action: { type: "dialog.result" },
         }));
+        const additional = page.locator("#workflow-content > details").filter({
+            has: page.getByRole("heading", { name: "Additional fields and actions", exact: true }),
+        });
+        await expect(additional).toHaveAttribute("open", "");
+        await expect(additional.locator('[data-workflow-slot="workflow.actions"]')).toBeVisible();
+        expect(await additional.evaluate((section) => Boolean(
+            section.compareDocumentPosition(document.querySelector("#instance-collection"))
+            & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+        await additional.locator(":scope > summary").click();
+        await expect(page.getByRole("button", { name: "Preview confirmation" })).toBeHidden();
+        await expect(page.locator("#workflow-list")).toBeVisible();
+        await additional.locator(":scope > summary").click();
         await page.getByRole("button", { name: "Preview confirmation" }).click();
         const dialog = page.getByRole("dialog", { name: "Preview confirmation" });
         await expect(dialog).toContainText("No workflow phase will run.");

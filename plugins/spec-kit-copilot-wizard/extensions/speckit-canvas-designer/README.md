@@ -40,6 +40,55 @@ authenticated shell. An unavailable Generate skill takes precedence over a
 duplicate saved ID, so the duplicate-ID click exception cannot mask a missing
 capability.
 
+### Importing badges
+
+On **Badges**, **Import badges** opens a local JSON file picker. Select the complete
+`canvas-config.json` from an existing generated canvas (up to 2 MiB), not a
+Designer settings file or an array of badges. Only `badges.instances` is appended
+to the current badge draft. Nothing is persisted until the existing **Save**
+action, and the source canvas, outputs, values, and registered definitions are
+never imported or modified.
+
+The whole combined draft must pass the existing Save badge validation, including
+required category and placement text, phases/outputs, duplicate IDs and
+overlapping badge conflicts, with at most 100 instances total. Invalid files
+reject all imported badges and show the first useful reason, including a badge
+number or ID when applicable. There are no defaults, old-format migrations,
+skipped entries, or replacements of existing badges. Optional instance fields
+remain exactly as supplied.
+
+`contracts/badge-import.mjs` defines the schema-version-1 generated envelope and
+compatibility check. The envelope requires generated canvas identity, phase,
+output, layout and installed-inventory containers; unrelated canvas settings
+are not interpreted. Its `badges` object contains only `instances`, `types`, and
+`rules`. Types and rules must be unique and used by the imported badges.
+Their behavior must match the current resolved Designer model: type rule,
+enabled state, defaults and replacement group; rule evaluator name, ordered
+input descriptors (including scope, ordering and minimums), placeholders and
+placement-phase input. Display titles, descriptions and input labels may differ.
+The generated rule's `hash` must match the resolved evaluator template's SHA-256;
+the host also verifies its current local bytes against that frozen hash. A type's
+whole-settings hash is required metadata but is not used as the evaluator
+fingerprint. Missing, changed, or unverifiable behavior rejects the import.
+No code from the selected file is loaded or executed.
+
+The new, authenticated `POST /api/validate-badge-import` operation is nonpersisting.
+`ui/badge-import-contract.js` defines its exact request
+`{schemaVersion:1, modelRevision, config, badges, outputs}`, success
+`{schemaVersion:1, badges}` (the unchanged, validated combined draft), and
+`{error}` failure. The request limit is 4 MiB; incorrect content types, oversized
+bodies, stale model revisions, and invalid input fail explicitly. Browser
+validation has a timeout and a reachable **Cancel import** action. Cancellation,
+new edits, output changes, replacement views and late responses cannot overwrite
+a newer draft. Preview sessions cannot verify evaluator provenance and disable
+import. Existing Save, handoff and generated-file contracts are unchanged.
+
+The picker/status UI belongs to the **fixed Designer Badges shell**. This is a
+single-host, non-customizable host operation, not a contributed badge input
+control, so it deliberately has no JSON definition/adapter template pair and
+no generated-host renderer. Existing registered badge input editors are reused
+after import.
+
 For local UX inspection, the project skill `speckit-designer-preview` opens the
 official Designer canvas with `{preview:true}`. It shows an illustrative Badges
 tab with sample phases and output paths, without a Wizard handoff or Specify
@@ -133,7 +182,16 @@ Designer does not open and reports the schema path with repair guidance;
 individual page errors still appear as tabs once the schema loads.
 
 Essentials requires Canvas ID and Title from the resolved core page. Description,
-Workflow header, and Allow custom artifact directory slug are ordered Essentials contributions.
+Header text, Workflow item name, and Allow custom artifact directory slug are
+ordered Essentials contributions. Header text retains the existing
+`canvas.workflowListName` field ID and defaults to `Workflows`; the independent
+`canvas.workflowItemName` is a singular name of at most 80 characters and
+defaults to `Workflow`. Both are trimmed when frozen. The item-name setting is
+nonvisual generated configuration, consumed by the Workflow page adapter and
+the host's default-name logic rather than a separate generated control.
+Renaming the heading does not rewrite a saved settings file. As with all
+Designer settings, native reopening starts a fresh form rather than restoring
+the saved heading; a subsequent Save replaces the prior draft.
 Header logo, Main page logo, and light/dark accent, page background, surface,
 secondary surface, and text colors are ordered Appearance contributions
 registered by the composed load-page command. The two required identity fields
@@ -142,7 +200,7 @@ registered badge input control definitions and Designer adapters. Output evidenc
 is nonvisual host data, not a Designer page. Other fields use registered adapters: `stock.checkbox`
 provides the optional boolean editor, and `stock.text` validates optional text
 and palette values at Generate. Generate packages the winning stock-text generated adapter
-for visible Description, Workflow header, or read-only text placements. Text
+for visible Description, Header text, or read-only text placements. Text
 fields on a page or in a contribution can opt into `"required": true`; the
 shared text validator rejects blank or whitespace-only values at Generate,
 while Save can keep an incomplete draft.

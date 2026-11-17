@@ -199,7 +199,7 @@ test("phase adapter mobile navigation selects phases", async ({ page }) => {
 
 async function openGeneratedCanvas(userProvidesSlug, phases = ["specify", "plan"],
     generatedPages, readOnlyFields, generatedControls, valueSources, vertical = false, phaseArtifacts = {},
-    customAdapter) {
+    customAdapter, options = {}) {
     const root = await mkdtemp(join(scratchRoot, ".generated-slug-e2e-"));
     const selectedAdapter = customAdapter ?? (vertical ? await readFile(new URL(
         "../../spec-kit-presets/copilot-vertical-phase-control/generated/phase-adapter.mjs", import.meta.url))
@@ -213,7 +213,7 @@ async function openGeneratedCanvas(userProvidesSlug, phases = ["specify", "plan"
         workflowPage: { ...workflowPage, managedRun, controlHash: digest(controlDefinition),
             hash: digest(selectedAdapter), phaseSlots: JSON.parse(controlDefinition).slots ?? [] },
         canvas: { id: "sample-canvas", displayName: "Sample Canvas",
-            description: "Workflow canvas.", workflowListName: "Workflows" },
+            description: "Workflow canvas.", workflowListName: "Workflows", ...options.canvas },
         phases,
         phaseOutputs: {
             constitution: { expectsArtifact: true, outputPath: ".specify/memory/constitution.md" },
@@ -350,6 +350,96 @@ test("generated value editors render typed controls without exposing processing-
         await expect(values.locator('[data-edit-value="demo.choice"] option')).toHaveText(["one", "two"]);
         await expect(values.getByText("Processing only")).toHaveCount(0);
         await expect(values.getByText("Not displayed")).toHaveCount(0);
+    } finally {
+        await canvas.close();
+    }
+});
+
+test("workflow sections retain independent expansion through updates and reset on reload", async ({ page }) => {
+    const fields = [
+        { id: "billing.code", label: "Cost code", value: "CC-481",
+            section: { id: "billing", title: "Billing" } },
+        { id: "extra.note", label: "Note", value: "Configured note" },
+    ];
+    const canvas = await openGeneratedCanvas(true, ["constitution", "specify"],
+        undefined, fields, undefined, sampleValueSources());
+    try {
+        await page.goto(canvas.url);
+        await expect(page.locator("#connection-status")).toHaveText("Live");
+        const foundation = page.locator(".project-foundation");
+        const billing = page.locator("#workflow-content > section > details").filter({
+            has: page.getByRole("heading", { name: "Billing", exact: true }),
+        });
+        const configured = page.locator("#workflow-content > section > details").filter({
+            has: page.getByRole("heading", { name: "Configured fields", exact: true }),
+        });
+        const values = page.locator("#canvas-values");
+        const nested = values.locator('details[data-value-section="demo"]');
+        const listToggle = page.getByRole("button", { name: "List", exact: true });
+        const detail = page.locator(".workflow-detail");
+        for (const section of [foundation, billing, configured, values, nested, detail]) {
+            await expect(section).toHaveAttribute("open", "");
+        }
+        await expect(page.locator("#workflow-heading")).toHaveText("Workflows (1)");
+        await expect(page.locator(".workflow-intro .collection-description")).toHaveText("Workflow canvas.");
+        await expect(page.locator(".workflow-summary")).toHaveCount(0);
+        await expect(page.locator(".workflow-intro details, .workflow-intro summary, .workflow-intro button")).toHaveCount(0);
+        const order = await page.evaluate(() => {
+            const children = [...document.querySelector("#workflow-content").children];
+            const index = (selector) => children.indexOf(document.querySelector(selector));
+            const fieldSection = (id) => children.indexOf(
+                document.querySelector(`[data-field-id="${id}"]`).closest("section"));
+            return [index(".workflow-intro"), index(".project-foundation"),
+                fieldSection("billing.code"), fieldSection("extra.note"), index("#canvas-values"),
+                index("#instance-collection"), index(".workflow-detail")];
+        });
+        expect(order.every((index, i) => index >= 0 && (!i || index > order[i - 1]))).toBe(true);
+        expect(order.at(-1)).toBe(order.at(-2) + 1);
+
+        await foundation.locator(":scope > summary").focus();
+        await page.keyboard.press("Enter");
+        await expect(foundation).not.toHaveAttribute("open", "");
+        await expect(page.locator("#constitution-card")).toBeHidden();
+        await expect(billing.locator('[data-field-id="billing.code"]')).toBeVisible();
+        await billing.locator(":scope > summary").click();
+        await configured.locator(":scope > summary").click();
+        await expect(billing).not.toHaveAttribute("open", "");
+        await expect(configured).not.toHaveAttribute("open", "");
+
+        await nested.locator(":scope > summary").focus();
+        await page.keyboard.press("Space");
+        await expect(nested).not.toHaveAttribute("open", "");
+        const update = page.waitForResponse((response) =>
+            response.url().includes("/api/state") && response.request().method() === "GET");
+        canvas.broadcast();
+        expect((await update).status()).toBe(200);
+        await expect(nested).not.toHaveAttribute("open", "");
+        await expect(nested.locator(":scope > summary")).toBeFocused();
+        await values.locator(":scope > summary").click();
+        await detail.locator(":scope > summary").click();
+        await listToggle.focus();
+        await page.keyboard.press("Space");
+        await expect(listToggle).toHaveAttribute("aria-expanded", "false");
+        await expect(page.locator("#workflow-list")).toBeHidden();
+        await expect(page.locator("#new-workflow")).toBeVisible();
+
+        await page.locator("#refresh-state").click();
+        for (const section of [foundation, billing, configured, values, nested, detail]) {
+            await expect(section).not.toHaveAttribute("open", "");
+        }
+        await expect(listToggle).toHaveAttribute("aria-expanded", "false");
+        await page.locator("#new-workflow").click();
+        await expect(listToggle).toHaveAttribute("aria-expanded", "true");
+        await expect(page.locator("#workflow-name")).toHaveValue("Workflow 2");
+        await expect(page.locator("#workflow-name")).toBeFocused();
+        await expect(detail).not.toHaveAttribute("open", "");
+
+        await page.reload();
+        for (const section of [foundation, billing, configured, values, nested, detail]) {
+            await expect(section).toHaveAttribute("open", "");
+        }
+        await expect(listToggle).toHaveAttribute("aria-expanded", "true");
+        await expect(values.locator('[data-edit-value="demo.note"] input')).toHaveValue("Initial note");
     } finally {
         await canvas.close();
     }
@@ -625,17 +715,16 @@ test("generated page selection ignores stale imports and async renderers", async
         { id: "slow", title: "Slow", renderer: "slow" },
         { id: "fast", title: "Fast", renderer: "fast" },
     ]);
+    let releaseSlowModule;
     try {
-        let slowRequested;
-        const slowRequest = new Promise((resolve) => { slowRequested = resolve; });
+        const slowModule = new Promise((resolve) => { releaseSlowModule = resolve; });
         await page.route("**/pages/slow.mjs*", async (route) => {
-            slowRequested();
-            await new Promise((resolve) => setTimeout(resolve, 250));
+            await slowModule;
             await route.fulfill({ contentType: "text/javascript", body: `
                 globalThis.slowModuleLoaded = true;
                 export async function renderPage({ root }) {
                     globalThis.slowRenderStarted = true;
-                    await new Promise((resolve) => setTimeout(resolve, 250));
+                    await new Promise((resolve) => { globalThis.releaseSlowRender = resolve; });
                     root.textContent = "Slow";
                     globalThis.slowRenderDone = true;
                 }
@@ -645,22 +734,32 @@ test("generated page selection ignores stale imports and async renderers", async
             contentType: "text/javascript",
             body: 'export function renderPage({ root }) { root.textContent = "Fast"; }',
         }));
+        const initialState = page.waitForResponse((response) =>
+            new URL(response.url()).pathname === "/api/state"
+                && response.request().method() === "GET" && response.ok());
         await page.goto(canvas.url);
+        await initialState;
         const root = page.locator("#generated-page");
+        const slowRequest = page.waitForRequest((request) =>
+            new URL(request.url()).pathname === "/pages/slow.mjs", { timeout: 5000 });
         await page.locator('[data-canvas-page="slow"]').click();
         await slowRequest;
         await page.locator('[data-canvas-page="fast"]').click();
         await expect(root).toHaveText("Fast");
+        releaseSlowModule();
         await page.waitForFunction(() => globalThis.slowModuleLoaded);
         await expect(root).toHaveText("Fast");
         await page.locator('[data-canvas-page="slow"]').click();
         await page.waitForFunction(() => globalThis.slowRenderStarted);
         await page.locator('[data-canvas-page="fast"]').click();
         await expect(root).toHaveText("Fast");
+        await page.evaluate(() => globalThis.releaseSlowRender());
         await page.waitForFunction(() => globalThis.slowRenderDone);
         await expect(root).toHaveText("Fast");
         await expect(page.locator('[data-canvas-page="fast"]')).toHaveAttribute("aria-current", "page");
     } finally {
+        releaseSlowModule?.();
+        await page.evaluate(() => globalThis.releaseSlowRender?.());
         await canvas.close();
     }
 });
@@ -832,6 +931,7 @@ test("enabled slug previews the View target folder and persists across phases", 
         const target = page.locator("#browse-output-folder");
         await expect(page.locator("#workflow-slug")).toBeVisible();
         await expect(page.locator("#workflow-slug")).toHaveValue("");
+        await expect(page.locator("#workflow-slug")).toHaveAttribute("placeholder", "workflow-1");
         await expect(page.locator("#phase-output-prompt")).toHaveText(
             "Choose an artifact folder name to preview the output path.");
         await expect(target).toBeHidden();
@@ -852,6 +952,27 @@ test("enabled slug previews the View target folder and persists across phases", 
     } finally {
         await canvas.close();
     }
+});
+
+test("custom item name supplies the artifact slug hint without assigning a directory", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(true, undefined, undefined, undefined, undefined,
+        undefined, false, undefined, undefined, {
+            canvas: { workflowItemName: "Bug Report", workflowListName: "Bugs" },
+        });
+    try {
+        await page.goto(canvas.url);
+        await expect(page.locator("#workflow-name")).toHaveValue("Bug Report 1");
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("Bug Report 1");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
+        await expect(page.locator("#workflow-slug")).toHaveAttribute("placeholder", "bug-report-1");
+        await expect(page.locator("#workflow-slug")).toHaveValue("");
+        await page.locator("#workflow-name").fill("Customer dashboard");
+        await page.locator("#refresh-state").click();
+        await expect(page.locator("#workflow-slug")).toHaveAttribute("placeholder", "bug-report-1");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
+        await expect(page.locator("#workflow-slug")).toHaveValue("");
+        await expect(page.locator("#browse-output-folder")).toBeHidden();
+    } finally { await canvas.close(); }
 });
 
 test("failed autosave retains workflow identity through SSE and Refresh for retry", async ({ page }) => {
@@ -932,12 +1053,14 @@ test("disabled custom slugs leave the artifact directory unresolved until Specif
         await expect(page.locator("#workflow-name")).toBeVisible();
         await expect(page.locator("#workflow-slug")).toBeHidden();
         await expect(page.locator("#constitution-card")).toHaveCount(0);
-        await expect(page.locator("#selected-workflow-heading")).toHaveText("Selected workflow: Workflow 2");
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("Workflow 2");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
         const gaps = await page.evaluate(() => {
             const collection = document.querySelector("#instance-collection").getBoundingClientRect();
+            const detail = document.querySelector(".workflow-detail").getBoundingClientRect();
             const heading = document.querySelector("#selected-workflow-heading").getBoundingClientRect();
             const navigation = document.querySelector("#phase-navigation").getBoundingClientRect();
-            return [heading.top - collection.bottom, navigation.top - heading.bottom];
+            return [detail.top - collection.bottom, navigation.top - heading.bottom];
         });
         for (const gap of gaps) {
             expect(gap).toBeGreaterThanOrEqual(16);
@@ -1251,10 +1374,10 @@ test("one workflow header, compact constitution and legible narrow phase navigat
             return {
                 left: bounds.left + parseFloat(surface.left) - list.left,
                 right: bounds.right - parseFloat(surface.right) - list.right,
-                cardLeft: constitution.left - phase.left,
-                cardRight: constitution.right - phase.right,
-                leftGutter: constitution.left - list.left,
-                rightGutter: list.right - constitution.right,
+                cardLeft: constitution.left - list.left,
+                cardRight: constitution.right - list.right,
+                leftGutter: phase.left - list.left,
+                rightGutter: list.right - phase.right,
             };
         });
         for (const edge of [edges.left, edges.right, edges.cardLeft, edges.cardRight]) {
@@ -1272,17 +1395,19 @@ test("one workflow header, compact constitution and legible narrow phase navigat
             const body = document.querySelector("#workflow-content");
             return [...body.querySelectorAll("#setup-surface, #instance-collection, #constitution-card")]
                 .map((child) => child.id);
-        })).toEqual(["setup-surface", "instance-collection", "constitution-card"]);
-        await expect(page.locator("#workflow-content > .workflow-workspace")).toHaveCount(1);
-        await expect(page.locator(".workflow-workspace > .project-foundation")).toBeVisible();
-        await expect(page.locator(".project-foundation > h2")).toHaveText("Project foundation");
+        })).toEqual(["setup-surface", "constitution-card", "instance-collection"]);
+        await expect(page.locator("#workflow-content > .workflow-detail > .workflow-workspace")).toHaveCount(1);
+        await expect(page.locator(".workflow-detail > summary > h2")).toHaveText("Detail");
+        await expect(page.locator("#workflow-content > .project-foundation")).toBeVisible();
+        await expect(page.locator(".project-foundation > summary > h2")).toHaveText("Project foundation");
         await expect(page.locator(".project-foundation > #constitution-card")).toHaveCount(1);
-        await expect(page.locator(".workflow-workspace #constitution-card")).toHaveCount(1);
+        await expect(page.locator(".workflow-workspace #constitution-card")).toHaveCount(0);
         await expect(page.locator(".workflow-workspace > #selected-workflow-heading")).toHaveCount(1);
-        expect(await page.locator("#phase-card").evaluate((element) =>
-            element.closest(".workflow-workspace") === document.querySelector("#constitution-card")
-                .closest(".workflow-workspace"))).toBe(true);
-        await expect(page.locator("#instance-collection .collection-description")).toHaveText("Workflow canvas.");
+        await expect(page.locator(".workflow-workspace #phase-card")).toHaveCount(1);
+        await expect(page.locator("#new-workflow")).toHaveText("+ New");
+        await expect(page.locator("#new-workflow")).toHaveAttribute("aria-label", "New Workflow");
+        await expect(page.locator(".stepper .step-hint")).toHaveCount(0);
+        await expect(page.locator(".workflow-intro .collection-description")).toHaveText("Workflow canvas.");
         await expect(page.locator("#current-workflow-title")).toHaveCount(0);
         await expect(page.locator("#feature-select")).toHaveCount(0);
         await expect(page.locator("#new-workflow")).toBeVisible();
@@ -1290,8 +1415,9 @@ test("one workflow header, compact constitution and legible narrow phase navigat
         await expect(page.locator("#workflow-list .instance-row")).toHaveCount(1);
         await expect(page.locator("#workflow-empty")).toBeHidden();
         await expect(page.locator("#workflow-name")).toHaveValue("Workflow 1");
-        await expect(page.locator("#selected-workflow-heading")).toHaveText("Selected workflow: Workflow 1");
-        await expect(page.locator("#constitution-status")).toHaveText("Needed before starting a workflow");
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("Workflow 1");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
+        await expect(page.locator("#constitution-status")).toHaveText("Needed before starting");
         await expect(page.locator(".stepper")).toBeVisible();
         await expect(page.locator('[data-phase-index="0"]')).toBeEnabled();
         await expect(page.locator("#phase-card")).toBeVisible();
@@ -1299,13 +1425,14 @@ test("one workflow header, compact constitution and legible narrow phase navigat
         const foundationGaps = await page.evaluate(() => {
             const collection = document.querySelector("#instance-collection").getBoundingClientRect();
             const foundation = document.querySelector(".project-foundation").getBoundingClientRect();
-            const heading = document.querySelector("#selected-workflow-heading").getBoundingClientRect();
-            return [foundation.top - collection.bottom, heading.top - foundation.bottom];
+            const detail = document.querySelector(".workflow-detail").getBoundingClientRect();
+            return [collection.top - foundation.bottom, detail.top - collection.bottom];
         });
         for (const gap of foundationGaps) {
-            expect(gap).toBeGreaterThanOrEqual(32);
-            expect(gap).toBeLessThanOrEqual(40);
+            expect(gap).toBeGreaterThanOrEqual(16);
+            expect(gap).toBeLessThanOrEqual(24);
         }
+        expect(Math.abs(foundationGaps[0] - foundationGaps[1])).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => {
             const heading = document.querySelector("#selected-workflow-heading").getBoundingClientRect();
             const navigation = document.querySelector("#phase-navigation").getBoundingClientRect();
@@ -1318,9 +1445,16 @@ test("one workflow header, compact constitution and legible narrow phase navigat
         await expect(page.locator("#workflow-slug")).toHaveValue("");
         await expect(page.locator("#run-phase")).toBeDisabled();
         await page.locator('[data-phase-index="3"]').click();
+        await expect(page.locator('[data-phase-index="3"]')).toHaveAttribute("aria-current", "step");
+        await expect(page.locator('[data-phase-index="3"]')).toHaveClass(/active/);
+        expect(await page.locator('[data-phase-index="3"]').evaluate((step) =>
+            getComputedStyle(step).outlineStyle)).toBe("solid");
         await expect(page.locator("#next-phase")).toHaveText("Next: Create issues ▶");
         await page.locator("#next-phase").click();
         await expect(page.locator('[data-phase-index="4"]')).toHaveAttribute("aria-current", "step");
+        await expect(page.locator('[data-phase-index="4"]')).toHaveClass(/active/);
+        await expect(page.locator('[data-phase-index="3"]')).not.toHaveAttribute("aria-current");
+        await expect(page.locator('[data-phase-index="3"]')).not.toHaveClass(/active/);
         await mkdir(join(canvas.root, ".specify", "memory"), { recursive: true });
         await writeFile(join(canvas.root, ".specify", "memory", "constitution.md"), "# Constitution");
         await page.locator("#refresh-state").click();
@@ -1345,7 +1479,7 @@ test("one workflow header, compact constitution and legible narrow phase navigat
         expect(surface.borderWidth).toBe("1px");
         expect(surface.borderStyle).toBe("solid");
         await page.locator("#workflow-name").fill("Customer dashboard");
-        await expect(page.locator("#selected-workflow-heading")).toHaveText("Selected workflow: Customer dashboard");
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("Customer dashboard");
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.screenshot({ path: testInfo.outputPath("workspace-narrow.png"), fullPage: true });
         await page.locator("#theme-toggle").click();
@@ -1472,13 +1606,36 @@ test("workflow list stays bounded and searchable across selection and refresh", 
         await page.setViewportSize({ width: 390, height: 780 });
         await page.goto(canvas.url);
         await expect(page.locator("#workflow-list .instance-select")).toHaveCount(12);
+        const firstWorkflow = page.getByRole("button", { name: "feature-11", exact: true });
+        const secondWorkflow = page.getByRole("button", { name: "feature-12", exact: true });
+        await firstWorkflow.click();
+        await expect(firstWorkflow).toHaveAttribute("aria-current", "true");
+        await expect(firstWorkflow.locator("..")).toHaveClass(/active/);
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("feature-11");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
+        await secondWorkflow.click();
+        await expect(secondWorkflow).toHaveAttribute("aria-current", "true");
+        await expect(secondWorkflow.locator("..")).toHaveClass(/active/);
+        await expect(firstWorkflow).not.toHaveAttribute("aria-current");
+        await expect(firstWorkflow.locator("..")).not.toHaveClass(/active/);
+        const selectionStyles = await page.evaluate(() => {
+            const selected = document.querySelector(".instance-row.active");
+            const other = [...document.querySelectorAll(".instance-row")].find((row) => row !== selected);
+            return { selected: getComputedStyle(selected).backgroundColor,
+                other: getComputedStyle(other).backgroundColor,
+                accent: getComputedStyle(selected).boxShadow };
+        });
+        expect(selectionStyles.selected).not.toBe(selectionStyles.other);
+        expect(selectionStyles.accent).not.toBe("none");
+        expect(await secondWorkflow.locator(".instance-select-main").evaluate((element) =>
+            getComputedStyle(element, "::after").content)).toBe("none");
         await expect(page.locator("#workflow-search")).toBeVisible();
         await expect(page.locator("#workflow-count")).toHaveText("(12)");
         expect(await page.locator("#workflow-list").evaluate((list) =>
             list.scrollHeight > list.clientHeight && list.clientHeight <= 320)).toBe(true);
         await page.locator("#workflow-search").fill("FEATURE-11");
         await expect(page.locator("#workflow-list .instance-row:visible")).toHaveCount(1);
-        await expect(page.locator("#workflow-list-status")).toHaveText("1 of 12 workflows match.");
+        await expect(page.locator("#workflow-list-status")).toHaveText("1 of 12 items match.");
         const invalid = await page.evaluate(async () => {
             const response = await fetch("/api/workflow/delete", {
                 method: "POST",
@@ -1501,14 +1658,14 @@ test("workflow list stays bounded and searchable across selection and refresh", 
         await page.getByRole("button", { name: "Cancel" }).click();
         expect(await readFile(artifact, "utf8")).toBe("# Keep until confirmed");
         await page.getByRole("button", { name: "Delete feature-11" }).click();
-        await page.getByRole("button", { name: "Delete workflow" }).click();
+        await page.getByRole("button", { name: "Delete Workflow" }).click();
         await expect(page.locator("#workflow-count")).toHaveText("(11)");
         await expect(page.locator("#workflow-list .instance-row.active")).toHaveCount(0);
         await expect(page.locator("#workflow-identity")).toBeHidden();
         await expect(readFile(artifact, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
         expect(await readFile(neighbor, "utf8")).toBe("# Keep always");
         await page.locator("#workflow-search").fill("missing-workflow");
-        await expect(page.locator("#workflow-list-status")).toHaveText("0 of 11 workflows match.");
+        await expect(page.locator("#workflow-list-status")).toHaveText("0 of 11 items match.");
         await page.locator("#new-workflow").click();
         await expect(page.locator("#workflow-search")).toHaveValue("");
         await expect(page.locator("#workflow-identity")).toBeVisible();

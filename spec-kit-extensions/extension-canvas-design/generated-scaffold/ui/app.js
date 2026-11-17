@@ -8,8 +8,11 @@ const { renderMarkdown } = await import(`./markdown.mjs${new URL(import.meta.url
 const { mountPageAssets, createStockImageRenderer } = await import(
     `./page-assets.mjs${new URL(import.meta.url).search}`);
 const { validatePhaseAdapter, validatePhaseMount, validatePhaseState,
-    validateWorkflowPageState, validateWorkflowAdapter, validateWorkflowMount } = await import(
+    validateWorkflowPageState, validateWorkflowPageDefinition, validateWorkflowAdapter,
+    validateWorkflowMount, workflowItemName } = await import(
     `/contracts/external-host-adapter.mjs${new URL(import.meta.url).search}`);
+const itemName = workflowItemName(document.getElementById("workflow-surface")?.dataset.workflowItemName);
+const slugHint = `${itemName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workflow"}-1`;
 const token = new URL(location.href).searchParams.get("token");
 const imageRegistration = document.getElementById("stock-image-registration");
 const renderStockImage = createStockImageRenderer(imageRegistration, token);
@@ -762,7 +765,7 @@ function phaseState(pendingLabel = () => null) {
         slugEditable: Boolean(model?.userProvidesSlug),
         setupPending: Boolean(model?.showSetup && !model?.setup?.ready),
         blocked: model?.showSetup && !model?.setup?.ready ? "Available after setup"
-            : !model?.items.length ? "Choose New workflow to start."
+            : !model?.items.length ? "Choose + New to start."
             : !model?.constitutionReady ? "Create a constitution before running a workflow."
                 : pending && model?.userProvidesSlug ? slugError() : null,
         sending: Boolean(selected && sending && sending.phase === selected.id
@@ -819,7 +822,7 @@ function renderStatus() {
         artifactAction("view-constitution", "constitution-artifact-status", status);
         const available = status?.artifactAvailability === "available";
         const statusText = available ? "" : status?.artifactAvailability === "error"
-            ? "Unavailable" : status?.status === "Not run" ? "Needed before starting a workflow"
+            ? "Unavailable" : status?.status === "Not run" ? "Needed before starting"
                 : status?.status ?? "Checking...";
         const card = $("constitution-card");
         card.classList.toggle("constitution-ready", available);
@@ -857,7 +860,7 @@ function renderSlug() {
         || Boolean(status && !["Not started", "Failed"].includes(status))
         || Boolean(sending && sending.phase === first?.id)
         || ["Request sent", "Running"].includes(model.statuses[first?.id]?.status);
-    input.placeholder = input.readOnly ? "Automatically assigned" : "workflow-1";
+    input.placeholder = input.readOnly ? "Automatically assigned" : slugHint;
     if (document.activeElement !== input && !timer) {
         input.value = selectedPending() ? model.slug
             : model.items.find((entry) => entry.id === model.selected)?.slug ?? "";
@@ -976,7 +979,7 @@ function renderCollection() {
     }
     $("workflow-empty").hidden = Boolean(model.items.length);
     $("workflow-empty").textContent = workflowPhases().length
-        ? "No workflows yet." : "No workflow phases are configured.";
+        ? "No items yet." : "No workflow phases are configured.";
     $("workflow-list").scrollTop = scroll;
     $("workflow-search-field").hidden = model.items.length <= 8;
     $("workflow-search").value = workflowQuery;
@@ -994,6 +997,7 @@ function readableBadgeForeground(hex) {
 function badgeList(badges, phaseText = false) {
     const group = document.createElement("span");
     group.className = "canvas-badges";
+    const brackets = new Map();
     for (const badge of badges) {
         const label = document.createElement("span");
         label.className = "canvas-badge";
@@ -1003,7 +1007,20 @@ function badgeList(badges, phaseText = false) {
             label.style.color = readableBadgeForeground(badge.color);
         }
         label.textContent = phaseText ? badge.phaseText ?? badge.text : badge.text;
-        group.append(label);
+        // Phase cards omit category brackets.
+        const key = !phaseText && badge.category?.toLowerCase();
+        if (key && !brackets.has(key)) {
+            const bracket = document.createElement("span");
+            bracket.className = "canvas-badge-category";
+            bracket.setAttribute("role", "group");
+            bracket.setAttribute("aria-label", badge.category);
+            const name = document.createElement("span");
+            name.className = "canvas-badge-category-label";
+            name.textContent = badge.category;
+            bracket.append(name);
+            brackets.set(key, group.appendChild(bracket));
+        }
+        (key ? brackets.get(key) : group).append(label);
     }
     return group;
 }
@@ -1017,8 +1034,8 @@ function filterWorkflowList() {
     }
     const notice = $("workflow-list-status");
     const missing = model.selected !== "__new__" && !model.items.some((entry) => entry.id === model.selected);
-    notice.textContent = missing ? "Selected workflow is unavailable. Choose another or start a new workflow."
-        : query ? `${shown} of ${rows.length} workflows match.` : "";
+    notice.textContent = missing ? "Selected item is unavailable. Choose another or start a new one."
+        : query ? `${shown} of ${rows.length} items match.` : "";
     notice.hidden = !notice.textContent;
 }
 async function refresh(reconcile = false) {
@@ -1035,7 +1052,7 @@ async function refresh(reconcile = false) {
             model.slug = previous.slug;
             model.name = previous.name;
             const entry = model.items.find((item) => item.id === model.selected && item.pending);
-            if (entry) { entry.slug = model.slug; entry.label = model.name?.trim() || model.slug || "Unstarted workflow"; }
+            if (entry) { entry.slug = model.slug; entry.label = model.name?.trim() || model.slug || `Unstarted ${itemName}`; }
         }
     }
     const project = constitution();
@@ -1241,7 +1258,7 @@ document.addEventListener("input", (event) => {
         model.name = event.target.value;
         const entry = model.items.find((item) => item.id === model.selected && item.pending);
         if (entry) {
-            entry.label = model.name?.trim() || entry.slug || "Unstarted workflow";
+            entry.label = model.name?.trim() || entry.slug || `Unstarted ${itemName}`;
             const row = [...$("workflow-rows").children].find((item) => item.dataset.workflowId === entry.id);
             row.querySelector("strong").textContent = entry.label;
             row.querySelector("strong").title = entry.label;
@@ -1256,7 +1273,7 @@ document.addEventListener("input", (event) => {
         const entry = model.items.find((item) => item.id === model.selected && item.pending);
         if (entry) {
             entry.slug = model.slug;
-            entry.label = model.name?.trim() || entry.slug || "Unstarted workflow";
+            entry.label = model.name?.trim() || entry.slug || `Unstarted ${itemName}`;
             const row = [...$("workflow-rows").children].find((item) => item.dataset.workflowId === entry.id);
             row.querySelector("strong").textContent = entry.label;
             row.querySelector("strong").title = entry.label;
@@ -1409,7 +1426,8 @@ try {
         const pageModule = await import(`${workflowRoot.dataset.pageModule}?token=${encodeURIComponent(token)}`);
         validateWorkflowAdapter(pageModule);
         workflowPage = await pageModule.mount({
-            root: workflowRoot, definition: JSON.parse(workflowRoot.dataset.pageDefinition),
+            root: workflowRoot, definition: validateWorkflowPageDefinition(
+                JSON.parse(workflowRoot.dataset.pageDefinition)),
             state: validateWorkflowPageState({ model: null, phaseState: initialState }),
             actions: {
                 selectWorkflow: (id) => { requireModel(); return selectFeature(id); },
@@ -1455,7 +1473,7 @@ try {
                     const entry = model.items.find((item) => item.id === model.selected && item.pending);
                     if (entry) {
                         entry.slug = model.slug;
-                        entry.label = model.name?.trim() || entry.slug || "Unstarted workflow";
+                        entry.label = model.name?.trim() || entry.slug || `Unstarted ${itemName}`;
                     }
                     queueInput();
                     renderStatus();

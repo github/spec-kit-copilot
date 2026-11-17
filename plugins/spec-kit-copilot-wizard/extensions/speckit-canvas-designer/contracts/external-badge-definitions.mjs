@@ -67,7 +67,7 @@ export function validateBadgeRule(value, name) {
             ...(Object.hasOwn(input, "minItems") ? ["minItems"] : []),
             ...(Object.hasOwn(input, "label") ? ["label"] : [])])
             || typeof input.id !== "string" || !BADGE_ID.test(input.id)
-            || !["artifact", "artifact-set", "ordered-artifacts", "phase", "text"].includes(input.type)
+            || !["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"].includes(input.type)
             || (input.label !== undefined
                 && (typeof input.label !== "string" || !input.label.trim() || input.label.length > 80))
             || (input.scope !== undefined
@@ -81,6 +81,7 @@ export function validateBadgeRule(value, name) {
                 || !value.inputs.some((candidate) => candidate.id === input.before
                     && candidate.type === "artifact" && candidate.scope !== "directory"))))
         || new Set(value.inputs.map((input) => input.id)).size !== value.inputs.length
+        || value.inputs.filter((input) => input.type === "badge-selection").length > 1
         || (value.placementPhaseInput !== undefined
             && !value.inputs.some((input) =>
                 input.id === value.placementPhaseInput && input.type === "artifact"))

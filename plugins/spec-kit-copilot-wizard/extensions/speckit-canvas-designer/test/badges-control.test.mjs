@@ -10,6 +10,8 @@ import { mount as mountPhaseArtifactInputs, controlId as phaseArtifactControlId 
     "../../../../../spec-kit-extensions/extension-canvas-design/designer-host/badge-input-controls/phase-artifact/designer.mjs";
 import { mount as mountStockInputs, controlId, contractVersion } from
     "../../../../../spec-kit-extensions/extension-canvas-design/designer-host/badge-input-controls/stock/designer.mjs";
+import { mount as mountValueMatchInputs } from
+    "../../../../../spec-kit-extensions/extension-canvas-design/designer-host/badge-input-controls/value-match/designer.mjs";
 import { mount as mountPresetInputs } from
     "../../../../../tests/fixtures/test-presets/copilot-badge-input-test/designer/adapter.mjs";
 
@@ -29,10 +31,13 @@ class Node {
     addEventListener(name, handler) { this.events[name] = handler; }
     setAttribute(name, value) { this.attributes[name] = value; }
     focus() { this.focused = true; }
+    click() { this.clicked = true; this.events.click?.(); }
     contains(node) { return descendants(this).includes(node); }
     querySelector(selector) {
-        return descendants(this).find((node) => node.className.split(" ").includes(selector.slice(1)));
+        return descendants(this).find((node) => selector.startsWith(".")
+            ? node.className.split(" ").includes(selector.slice(1)) : node.tagName === selector);
     }
+    querySelectorAll(selector) { return descendants(this).filter((node) => node.tagName === selector); }
 }
 
 function descendants(node) {
@@ -47,19 +52,20 @@ function setup({ phases = ["specify", "plan"], outputs = {
     defaultColor: "amber", enabled: true }], badgeRules = [{
     id: "count", description: "Count distinct selected artifacts",
     textPlaceholders: ["count"], inputs: [{ id: "artifacts", type: "artifact-set" }],
-}], draftBadges = [], controlMount = mountStockInputs, onDeclareFile } = {}) {
+}], draftBadges = [], controlMount = mountStockInputs, onDeclareFile, onValidateImport } = {}) {
     const previous = globalThis.document;
     globalThis.document = { createElement: (tag) => new Node(tag) };
     const root = new Node("div");
     let changes = 0;
     const view = mountBadges({ root, page: { title: "Badges", description: "Add result badges" },
-        phases, outputs, badgeTypes, badgeRules, draftBadges, controlMount, onDeclareFile,
+        phases, outputs, badgeTypes, badgeRules, draftBadges, controlMount, onDeclareFile, onValidateImport,
         onChange() { changes++; } });
     return { root, view, draftBadges, changes: () => changes,
         cleanup: () => { globalThis.document = previous; } };
 }
 
-function choose(root, index = 0) {
+// Pass category null to leave the required Category field empty.
+function choose(root, index = 0, category = "Severity") {
     root.querySelector(".badge-add").events.click();
     assert.equal(root.querySelector(".badge-add"), undefined);
     assert.equal(root.querySelector(".badge-list"), undefined);
@@ -68,7 +74,15 @@ function choose(root, index = 0) {
     choices[index].events.click();
     assert.equal(root.querySelector(".badge-add"), undefined);
     assert.equal(root.querySelector(".badge-list"), undefined);
-    return root.querySelector(".badge-editor");
+    const editor = root.querySelector(".badge-editor");
+    if (category !== null) setCategory(root, category);
+    return editor;
+}
+
+function setCategory(root, value) {
+    const input = root.querySelector(".badge-category");
+    input.value = value;
+    input.events.input();
 }
 
 function check(root, groupClass, name) {
@@ -80,13 +94,311 @@ function check(root, groupClass, name) {
 }
 
 function placementText(root, name) {
-    const label = descendants(root.querySelector(".badge-placements")).find((node) =>
+    const label = descendants(root.querySelector(".badge-editor")).find((node) =>
         node.tagName === "label" && node.children[0]?.textContent === name);
     assert.ok(label, `${name} field exists`);
     return label.children[1];
 }
 
 function submit(editor) { editor.events.submit({ preventDefault() {} }); }
+
+function importFile(root, config, size) {
+    const picker = root.querySelector(".badge-import-file");
+    const contents = typeof config === "string" ? config : JSON.stringify(config);
+    picker.files = [{ size: size ?? new TextEncoder().encode(contents).length,
+        text: async () => contents }];
+    return picker.events.change();
+}
+
+test("badge import picks a local file, appends the validated combined draft, and signals unsaved changes", async () => {
+    const existing = { id: "existing", category: "Progress" };
+    const imported = { id: "imported", category: "Severity" };
+    const draftBadges = [];
+    let submitted;
+    const { root, changes, cleanup } = setup({ draftBadges, onValidateImport: async (input) => {
+        submitted = input;
+        return { schemaVersion: 1, badges: [...input.badges, ...input.config.badges.instances] };
+    } });
+    // Imported data is rendered by the existing list, not interpreted as executable content.
+    const complete = { ...imported, type: "count", inputs: {},
+        showIn: ["workflow-list"], text: "Critical", color: "red" };
+    try {
+        root.querySelector(".badge-import-button").events.click();
+        assert.equal(root.querySelector(".badge-import-file").clicked, true);
+        assert.equal(root.querySelector(".badge-import-file").accept, ".json,application/json");
+        const existingBadge = { ...complete, ...existing, text: "Existing" };
+        draftBadges.push(existingBadge);
+        const source = { badges: { instances: [complete] } };
+        await importFile(root, source);
+        assert.deepEqual(submitted.badges.map(({ id }) => id), ["existing"]);
+        assert.deepEqual(draftBadges.map(({ id }) => id), ["existing", "imported"]);
+        assert.equal(draftBadges[0], existingBadge, "import appends without replacing existing badge objects");
+        assert.equal(changes(), 1);
+        assert.match(root.querySelector(".badge-import-status").textContent, /Imported 1 badge.*Save/);
+        submitted.config.badges.instances[0].category = "Changed";
+        assert.equal(draftBadges[1].category, "Severity");
+    } finally { cleanup(); }
+});
+
+test("badge import cancellation, malformed JSON, file limits, and host rejections leave the draft alone", async () => {
+    let calls = 0;
+    const { root, draftBadges, changes, cleanup } = setup({ onValidateImport: async () => {
+        calls++;
+        throw new Error("Invalid Designer badge 2 (broken): invalid category");
+    } });
+    try {
+        await root.querySelector(".badge-import-file").events.change();
+        assert.equal(calls, 0, "canceling the file dialog is a no-op");
+        await importFile(root, "{ broken");
+        assert.match(root.querySelector(".badge-import-status").textContent, /not valid JSON/);
+        assert.equal(calls, 0);
+        await importFile(root, "{}", 2 * 1024 * 1024 + 1);
+        assert.match(root.querySelector(".badge-import-status").textContent, /no larger than 2 MiB/);
+        assert.equal(calls, 0);
+        await importFile(root, { badges: { instances: [{ id: "valid" }, { id: "broken" }] } });
+        assert.match(root.querySelector(".badge-import-status").textContent, /badge 2 \(broken\): invalid category/);
+        assert.equal(root.querySelector(".badge-import-status").attributes.role, "alert");
+        assert.deepEqual(draftBadges, []);
+        assert.equal(changes(), 0);
+        assert.equal(calls, 1);
+    } finally { cleanup(); }
+});
+
+test("canceling an in-flight import ignores late results and permits a retry", async () => {
+    let release, signal;
+    const { root, draftBadges, changes, cleanup } = setup({ onValidateImport: (input) => {
+        signal = input.signal;
+        return new Promise((resolve) => { release = resolve; });
+    } });
+    try {
+        const pending = importFile(root, { badges: { instances: [] } });
+        await Promise.resolve();
+        root.querySelector(".badge-import-cancel").events.click();
+        assert.equal(signal.aborted, true);
+        release({ schemaVersion: 1, badges: [] });
+        await pending;
+        assert.deepEqual(draftBadges, []);
+        assert.equal(changes(), 0);
+        assert.match(root.querySelector(".badge-import-status").textContent, /canceled.*No badges/);
+        assert.equal(root.querySelector(".badge-import-button").disabled, false);
+    } finally { cleanup(); }
+});
+
+test("an import cannot overwrite edited badges, changed outputs, or a replaced Designer view", async () => {
+    for (const change of ["badges", "outputs", "dispose"]) {
+        let release;
+        const { root, view, draftBadges, changes, cleanup } = setup({ onValidateImport: () =>
+            new Promise((resolve) => { release = resolve; }) });
+        try {
+            const pending = importFile(root, { badges: { instances: [] } });
+            await Promise.resolve();
+            if (change === "badges") draftBadges.push({ id: "newer-edit" });
+            if (change === "outputs") view.updateOutputs({
+                specify: { outputs: ["new.md"], view: null }, plan: { outputs: [], view: null },
+            });
+            if (change === "dispose") view.dispose();
+            release({ schemaVersion: 1, badges: [] });
+            await pending;
+            assert.deepEqual(draftBadges, change === "badges" ? [{ id: "newer-edit" }] : []);
+            assert.equal(changes(), 0);
+            if (change !== "dispose") assert.match(root.querySelector(".badge-import-status").textContent,
+                /changed.*Select the file again/);
+        } finally { cleanup(); }
+    }
+});
+
+test("incompatible import responses cannot partially append or replace the draft", async () => {
+    const { root, draftBadges, changes, cleanup } = setup({ onValidateImport: async () =>
+        ({ schemaVersion: 1, badges: [] }) });
+    try {
+        await importFile(root, { badges: { instances: [{ id: "not-returned" }] } });
+        assert.match(root.querySelector(".badge-import-status").textContent, /incompatible badge import result/);
+        assert.deepEqual(draftBadges, []);
+        assert.equal(changes(), 0);
+    } finally { cleanup(); }
+});
+
+test("Value match edits ordered entries with per-placement text and rejects invalid stale updates", () => {
+    const type = { id: "value-match", rule: "value-match", title: "Value match",
+        defaultText: "Match", defaultColor: "amber", enabled: true };
+    const rule = { id: type.rule, inputs: [{ id: "artifact", type: "artifact" },
+        { id: "choices", type: "badge-selection" }], textPlaceholders: [] };
+    const { root, draftBadges, cleanup } = setup({ badgeTypes: [type], badgeRules: [rule],
+        controlMount: mountValueMatchInputs });
+    const labelInput = (scope, label) => descendants(scope).find((item) =>
+        item.tagName === "label" && item.children[0]?.textContent === label)?.children[1];
+    const help = (scope, label) => descendants(scope).find((item) =>
+        item.tagName === "label" && item.children[0]?.textContent === label)?.children[2]?.textContent;
+    const button = (scope, text) => descendants(scope).find((item) =>
+        item.tagName === "button" && item.textContent === text);
+    const type_ = (input, value) => { input.value = value; input.events.input(); };
+    try {
+        const editor = choose(root);
+        const selection = root.querySelector(".badge-selection-control");
+        const rows = () => selection.children.filter((item) => item.tagName === "details");
+        assert.equal(check(root, "badge-placements", "Workflow summary").checked, true);
+        assert.equal(check(root, "badge-placements", "Workflow list").checked, false);
+        assert.equal(labelInput(rows()[0], "Value"), undefined, "no shared Value field");
+        assert.equal(labelInput(rows()[0], "Workflow list text"), undefined);
+        assert.equal(labelInput(rows()[0], "Phase card text"), undefined);
+        assert.equal(labelInput(rows()[0], "Workflow summary text").value, "Match");
+        assert.equal(help(rows()[0], "Workflow summary text"),
+            "Shown once as 'text: N', where N is the number of matching workflows.");
+        const list = check(root, "badge-placements", "Workflow list");
+        list.checked = true;
+        list.events.change();
+        assert.equal(labelInput(rows()[0], "Workflow list text").value, "Match");
+        type_(labelInput(rows()[0], "Text to find"), "critical");
+        type_(labelInput(rows()[0], "Workflow list text"), "Critical");
+        assert.equal(descendants(rows()[0]).find((item) => item.className === "badge-preview").textContent,
+            "Critical");
+        assert.equal(rows()[0].children[0].attributes["aria-label"], "Match 1: Critical");
+        type_(labelInput(rows()[0], "Workflow summary text"), "Critical issues");
+        button(selection, "+ Add match").events.click();
+        type_(labelInput(rows()[1], "Text to find"), "low");
+        type_(labelInput(rows()[1], "Workflow list text"), "Low");
+        type_(labelInput(rows()[1], "Workflow summary text"), "Low issues");
+        assert.equal(button(rows()[1], "Move match up"), undefined);
+        const reorder = (row, position) => {
+            const order = labelInput(rows()[row], "Order");
+            order.value = String(position);
+            order.events.change();
+        };
+        assert.equal(labelInput(rows()[1], "Order").value, "2");
+        reorder(1, 1);
+        assert.equal(labelInput(rows()[0], "Text to find").value, "critical");
+        assert.equal(labelInput(rows()[0], "Order").value, "2");
+        assert.equal(labelInput(rows()[1], "Order").value, "1");
+        const phasePlacement = check(root, "badge-placements", "Phase");
+        phasePlacement.checked = true;
+        phasePlacement.events.change();
+        const phaseText = labelInput(rows()[1], "Phase card text");
+        assert.equal(phaseText.value, "Match");
+        type_(phaseText, "bad {token}");
+        submit(editor);
+        assert.equal(draftBadges.length, 0, "placement text cannot contain braces");
+        type_(phaseText, "Low phase");
+        assert.equal(labelInput(rows()[1], "Phase card text"), phaseText,
+            "typing must not replace the input");
+        list.checked = false;
+        list.events.change();
+        assert.equal(labelInput(rows()[1], "Workflow list text"), undefined);
+        list.checked = true;
+        list.events.change();
+        assert.equal(labelInput(rows()[1], "Workflow list text").value, "Low",
+            "re-selecting a placement restores its text");
+        const color = labelInput(rows()[1], "Color");
+        color.value = "custom";
+        color.events.change();
+        type_(labelInput(rows()[1], "Custom color"), "#ffffff");
+        assert.equal(descendants(rows()[1]).find((item) =>
+            item.className === "badge-preview").style.color, "#111");
+        const phase = labelInput(root.querySelector(".badge-input-controls"), "Phase");
+        phase.value = "plan";
+        phase.events.change();
+        submit(editor);
+        assert.equal(draftBadges.length, 1);
+        assert.equal(draftBadges[0].category, "Severity");
+        for (const key of ["text", "phaseText", "summaryText"]) {
+            assert.equal(Object.hasOwn(draftBadges[0], key), false, `selection badges carry no instance ${key}`);
+        }
+        assert.deepEqual(draftBadges[0].inputs.choices.map(({ value }) => value), ["low", "critical"]);
+        assert.deepEqual(draftBadges[0].inputs.choices[0], { id: draftBadges[0].inputs.choices[0].id,
+            value: "low", color: "#ffffff", text: "Low", phaseText: "Low phase", summaryText: "Low issues" });
+        assert.equal(draftBadges[0].inputs.choices[1].summaryText, "Critical issues");
+        assert.deepEqual(draftBadges[0].targets, [{ phase: "plan", output: null }]);
+        assert.deepEqual(new Set(draftBadges[0].showIn), new Set(["workflow-summary", "workflow-list"]));
+    } finally { cleanup(); }
+});
+
+test("Value match order dropdowns keep rows in place and placement updates conform entries", () => {
+    const previous = globalThis.document;
+    globalThis.document = { createElement: (tag) => new Node(tag) };
+    const root = new Node("div");
+    const selectionRoot = new Node("div");
+    const choices = ["critical", "high", "low"].map((value, index) => ({
+        id: value, value, text: value, summaryText: `${value} summary`,
+        phaseText: `${value} phase`, color: ["red", "orange", "amber"][index],
+    }));
+    const original = choices.map((entry) => ({ ...entry }));
+    const inputs = { artifact: { phase: "specify", output: "spec.md" }, choices };
+    const snapshots = [];
+    const rows = () => selectionRoot.children.filter((item) => item.tagName === "details");
+    const orderAt = (index) => rows()[index].querySelector("select");
+    const reorder = (index, position) => {
+        orderAt(index).value = String(position);
+        orderAt(index).events.change();
+    };
+    const labelInput = (row, label) => descendants(row).find((item) =>
+        item.tagName === "label" && item.children[0]?.textContent === label)?.children[1];
+    const shownValues = () => rows().map((row) => labelInput(row, "Text to find").value);
+    const assertOrders = (shown) => {
+        assert.deepEqual(shownValues(), shown, "rows stay where they were shown");
+        rows().forEach((row, index) => {
+            const order = orderAt(index);
+            assert.equal(order.value, String(choices.findIndex(({ value }) =>
+                value === shown[index]) + 1));
+            assert.deepEqual(order.children.map((option) => option.value),
+                choices.map((_, position) => String(position + 1)));
+            assert.equal(row.children[0].draggable, undefined);
+        });
+    };
+    try {
+        const handle = mountValueMatchInputs({ root, selectionRoot, inputs,
+            rule: { inputs: [{ id: "artifact", type: "artifact" },
+                { id: "choices", type: "badge-selection" }] },
+            phases: ["specify"], outputs: { specify: { outputs: ["spec.md"], view: "spec.md" } },
+            placements: { summary: true, workflow: true, phase: true },
+            onChange: (next) => snapshots.push(next) });
+        assert.match(selectionRoot.children[1].textContent, /^Search /);
+        assert.deepEqual(choices, original, "placement text is preserved for selected placements");
+        const shown = ["critical", "high", "low"];
+        assertOrders(shown);
+        reorder(0, 3);
+        assert.deepEqual(choices, [original[1], original[2], original[0]]);
+        assert.equal(rows()[0].open, true);
+        assert.equal(orderAt(0).focused, true);
+        assertOrders(shown);
+        reorder(0, 1);
+        assert.deepEqual(choices, original);
+        const count = snapshots.length;
+        reorder(0, 1);
+        assert.equal(snapshots.length, count, "selecting the current order does not emit an update");
+        assert.deepEqual(snapshots.at(-1), inputs);
+        assert.notEqual(snapshots.at(-1).choices, choices);
+        handle.updatePlacements({ summary: true, workflow: false, phase: false });
+        assert.deepEqual(snapshots.at(-1).choices.map((entry) => Object.keys(entry).sort()),
+            choices.map(() => ["color", "id", "summaryText", "value"]),
+            "text for unselected placements is removed from emitted entries");
+        assert.equal(labelInput(rows()[0], "Workflow list text"), undefined);
+        assert.equal(labelInput(rows()[0], "Phase card text"), undefined);
+        assert.equal(handle.isReady(), true);
+        handle.updatePlacements({ summary: true, workflow: true, phase: true });
+        assert.deepEqual(snapshots.at(-1).choices, original, "re-selected placements restore their text");
+        const button = (scope, text) => descendants(scope).find((item) =>
+            item.tagName === "button" && item.textContent === text);
+        button(rows()[1], "Remove match").events.click();
+        assert.deepEqual(choices, [original[0], original[2]]);
+        assertOrders(["critical", "low"]);
+        button(selectionRoot, "+ Add match").events.click();
+        assert.deepEqual({ ...choices[2], id: "new" }, { id: "new", value: "", color: "amber",
+            text: "Match", phaseText: "Match", summaryText: "Match" });
+        assert.equal(handle.isReady(), false, "a match needs text to find");
+        assertOrders(["critical", "low", ""]);
+        const added = structuredClone(choices[2]);
+        reorder(2, 1);
+        assert.deepEqual(choices, [added, original[0], original[2]]);
+        button(rows()[0], "Remove match").events.click();
+        button(rows()[1], "Remove match").events.click();
+        assert.equal(button(rows()[0], "Remove match").disabled, true);
+        assert.equal(orderAt(0).disabled, true);
+        assertOrders(["low"]);
+        const listText = labelInput(rows()[0], "Workflow list text");
+        listText.value = " ";
+        listText.events.input();
+        assert.equal(handle.isReady(), false, "selected placement text must be nonblank");
+    } finally { globalThis.document = previous; }
+});
 
 test("configured badges show their type alongside the instance name and placements", () => {
     const type = { id: "phase-artifact-complete", rule: "phase-artifact-complete",
@@ -144,6 +456,37 @@ test("host accepts a custom input control without rendering rule-specific inputs
         submit(editor);
         assert.equal(disposed, 1);
         assert.equal(draftBadges[0].inputs.phase, "plan");
+    } finally { cleanup(); }
+});
+
+test("clearing phase evidence with Phase checked removes the placement without throwing", () => {
+    let selected = ["specify"];
+    let change;
+    const { root, draftBadges, cleanup } = setup({
+        badgeTypes: [{ id: "custom", rule: "custom", title: "Custom",
+            defaultText: "Ready", defaultColor: "green", enabled: true }],
+        badgeRules: [{ id: "custom", inputs: [{ id: "phase", type: "phase" }] }],
+        draftBadges: [{ id: "phase-only", type: "custom", category: "Status", inputs: { phase: "specify" },
+            phaseText: "Phase ready", color: "green", showIn: [],
+            targets: [{ phase: "specify", output: null }] }],
+        controlMount({ onChange }) {
+            change = onChange;
+            return { isReady: () => true, selectedPhases: () => selected };
+        },
+    });
+
+    try {
+        root.querySelector(".badge-edit").events.click();
+        assert.equal(check(root, "badge-placements", "Phase").checked, true);
+        selected = [];
+        assert.doesNotThrow(() => change({ phase: "plan" }));
+        assert.equal(check(root, "badge-placements", "Phase").checked, false);
+        assert.match(root.querySelector(".badge-editor-error").textContent,
+            /Choose phase evidence/);
+        submit(root.querySelector(".badge-editor"));
+        assert.equal(root.querySelector(".badge-editor"), undefined);
+        assert.equal(Object.hasOwn(draftBadges[0], "phaseText"), false);
+        assert.deepEqual(draftBadges[0].targets, []);
     } finally { cleanup(); }
 });
 
@@ -305,7 +648,8 @@ test("checklist control defaults to its evidence phase and permits independent p
         const editor = choose(root);
         assert.equal(editor.children[1].textContent, "When this badge appears");
         assert.equal(editor.children[2].textContent, checklist.description);
-        assert.equal(editor.children[3].className, "badge-input-group");
+        assert.equal(editor.children[3].children[1].className, "badge-category");
+        assert.equal(editor.children[4].className, "badge-input-group");
         const selectors = descendants(editor.querySelector(".badge-input-controls"))
             .filter((node) => node.tagName === "select");
         assert.deepEqual(selectors.map((node) => node.value),
@@ -857,6 +1201,9 @@ test("refreshing confirmed outputs updates cached choices without losing the bad
         const editor = choose(root);
         view.updateOutputs(outputs);
         assert.equal(root.querySelector(".badge-editor"), editor);
+        const list = check(root, "badge-placements", "Workflow list");
+        list.checked = true;
+        list.events.change();
         const text = placementText(root, "Workflow list text");
         text.value = "Still editing {count}";
         text.events.input();
@@ -989,13 +1336,9 @@ test("Phase artifact editor follows target and one earlier output per checked ph
         select("Plan output").events.change();
         check(root, "badge-placements", "Phase card").checked = true;
         check(root, "badge-placements", "Phase card").events.change();
-        placementText(root, "Phase card text").value = "Tasks are ready";
+        placementText(root, "Phase card text").value = "Tasks ready";
         placementText(root, "Phase card text").events.input();
-        placementText(root, "Workflow list text").value = "Workflow ready";
-        placementText(root, "Workflow list text").events.input();
-        check(root, "badge-placements", "Workflow summary").checked = true;
-        check(root, "badge-placements", "Workflow summary").events.change();
-        placementText(root, "Workflow summary text").value = "{workflows} ready";
+        placementText(root, "Workflow summary text").value = "Workflow ready";
         placementText(root, "Workflow summary text").events.input();
         submit(editor);
         assert.equal(changes(), 1);
@@ -1005,9 +1348,9 @@ test("Phase artifact editor follows target and one earlier output per checked ph
                 { phase: "plan", output: "research.md" }],
         });
         assert.deepEqual(draftBadges[0].targets, [{ phase: "tasks", output: null }]);
-        assert.equal(draftBadges[0].text, "Workflow ready");
-        assert.equal(draftBadges[0].phaseText, "Tasks are ready");
-        assert.equal(draftBadges[0].summaryText, "{workflows} ready");
+        assert.equal(Object.hasOwn(draftBadges[0], "text"), false, "Workflow list is not selected");
+        assert.equal(draftBadges[0].phaseText, "Tasks ready");
+        assert.equal(draftBadges[0].summaryText, "Workflow ready");
     } finally { cleanup(); }
 });
 
@@ -1099,11 +1442,11 @@ test("Phase artifact editor rejects incompatible rule and file declaration respo
     } finally { globalThis.document = previous; }
 });
 
-test("Value match requires user-provided text and selects a single output", () => {
+test("stock text input requires user-provided text and selects a single output", () => {
     const { root, draftBadges, changes, cleanup } = setup({
-        badgeTypes: [{ id: "value-match", rule: "value-match", title: "Value match",
+        badgeTypes: [{ id: "literal-search", rule: "literal-search", title: "Literal search",
             defaultText: "Value matched", defaultColor: "amber", enabled: true }],
-        badgeRules: [{ id: "value-match", textPlaceholders: [], inputs: [
+        badgeRules: [{ id: "literal-search", textPlaceholders: [], inputs: [
             { id: "artifact", type: "artifact", label: "Output to search" },
             { id: "value", type: "text", label: "Text to match" },
         ] }],
@@ -1169,7 +1512,7 @@ test("Checklist complete uses two labeled outputs and requires a confirmed earli
 
 test("editing an older Checklist complete badge requires selecting its missing earlier output", () => {
     const saved = { id: "old", type: "checklist-complete",
-        inputs: { artifact: { phase: "plan", output: "plan.md" } },
+        category: "Checklists", inputs: { artifact: { phase: "plan", output: "plan.md" } },
         text: "Checklist complete", color: "green", showIn: ["workflow-list"], phase: null };
     const { root, draftBadges, changes, cleanup } = setup({
         badgeTypes: [checklistType], badgeRules: [checklistRule], draftBadges: [saved],
@@ -1236,9 +1579,13 @@ test("list, picker, and editor are separate screens with one primary action each
         assert.ok(fields.findIndex((node) => node.textContent === "Phases and outputs")
             < fields.findIndex((node) => node.textContent === "Where to show this badge"));
         assert.ok(fields.findIndex((node) => node.textContent === "Where to show this badge")
-            < fields.findIndex((node) => node.textContent === "Workflow list text"));
+            < fields.findIndex((node) => node.textContent === "Workflow summary text"));
         assert.deepEqual(draftBadges, []);
         assert.equal(changes(), 0);
+        submit(editor);
+        assert.equal(changes(), 0, "a new badge needs a category");
+        assert.equal(editor.querySelector(".badge-editor-error").textContent, "Enter a badge category.");
+        setCategory(root, "Clarifications");
         submit(editor);
         assert.equal(changes(), 1);
         assert.deepEqual(draftBadges[0].inputs.artifacts,
@@ -1270,8 +1617,8 @@ test("Add badge blocks duplicate targets and links to the existing badge editor"
     } finally { cleanup(); }
 });
 
-test("Add badge allows different text with the same evidence and phase placement", () => {
-    const existing = { id: "existing", type: "count",
+test("Add badge allows different placement text with the same evidence and phase placement", () => {
+    const existing = { id: "existing", type: "count", category: "Severity",
         inputs: { artifacts: [{ phase: "specify", outputs: ["spec.md"] }] },
         text: "Clarifications needed ({count})", color: "green",
         phaseText: "Clarifications needed ({count})",
@@ -1280,6 +1627,12 @@ test("Add badge allows different text with the same evidence and phase placement
     const { root, draftBadges, changes, cleanup } = setup({ draftBadges: [existing] });
     try {
         const editor = choose(root);
+        const list = check(root, "badge-placements", "Workflow list");
+        list.checked = true;
+        list.events.change();
+        const summaryPlacement = check(root, "badge-placements", "Workflow summary");
+        summaryPlacement.checked = false;
+        summaryPlacement.events.change();
         const phase = check(root, "badge-placements", "Phase");
         phase.checked = true;
         phase.events.change();
@@ -1290,50 +1643,119 @@ test("Add badge allows different text with the same evidence and phase placement
         text.value = "Specify needs review ({count})";
         text.events.input();
         submit(editor);
+        assert.equal(draftBadges.length, 1, "the same phase card text on the same phase is still a duplicate");
+        const phaseText = placementText(root, "Phase card text");
+        phaseText.value = "Specify review ({count})";
+        phaseText.events.input();
+        submit(editor);
         assert.equal(draftBadges.length, 2);
         assert.equal(changes(), 1);
         assert.equal(draftBadges[1].text, "Specify needs review ({count})");
+        assert.equal(draftBadges[1].phaseText, "Specify review ({count})");
         assert.deepEqual(draftBadges[1].targets, [{ phase: "specify", output: null }]);
     } finally { cleanup(); }
 });
 
-test("each checked placement edits its own text and summary uses workflow count", () => {
+test("each selected placement has its own text field and summary text rejects tokens", () => {
     const { root, draftBadges, cleanup } = setup();
+    const wrapper = (name) => placementText(root, name) && descendants(root.querySelector(".badge-editor"))
+        .find((node) => node.tagName === "label" && node.children[0]?.textContent === name);
+    const error = () => root.querySelector(".badge-editor-error").textContent;
     try {
         const editor = choose(root);
-        const list = placementText(root, "Workflow list text");
-        assert.equal(list.value, "Clarifications needed ({count})");
-        const summary = check(root, "badge-placements", "Workflow summary");
-        summary.checked = true;
-        summary.events.change();
-        const summaryLabel = placementText(root, "Workflow summary text");
-        assert.equal(summaryLabel.value, "Clarifications needed ({workflows} workflows)");
-        const phase = check(root, "badge-placements", "Phase");
-        phase.checked = true;
-        phase.events.change();
-        const phaseLabel = placementText(root, "Phase text");
-        assert.equal(phaseLabel.value, list.value);
-        list.value = "List ({count})";
-        list.events.input();
-        phaseLabel.value = "Phase ({count})";
-        phaseLabel.events.input();
-        summaryLabel.value = "Workflows with checklists ({count})";
-        summaryLabel.events.input();
+        assert.equal(wrapper("Workflow summary text").hidden, false);
+        assert.equal(wrapper("Workflow list text").hidden, true);
+        assert.equal(wrapper("Phase card text").hidden, true);
+        assert.equal(placementText(root, "Workflow summary text").value, "Clarifications needed");
+        assert.equal(placementText(root, "Workflow list text").value, "Clarifications needed ({count})");
+        assert.match(wrapper("Workflow summary text").children[2].textContent,
+            /'text: N'.*Placeholders are not available\./);
+        assert.match(wrapper("Workflow list text").children[2].textContent,
+            /Available placeholders: \{count\}/);
+        for (const name of ["Workflow list", "Phase"]) {
+            const placement = check(root, "badge-placements", name);
+            placement.checked = true;
+            placement.events.change();
+        }
+        assert.equal(wrapper("Workflow list text").hidden, false);
+        assert.equal(wrapper("Phase card text").hidden, false);
+        const type = (name, value) => {
+            placementText(root, name).value = value;
+            placementText(root, name).events.input();
+        };
+        type("Workflow summary text", "Open ({count})");
         submit(editor);
+        assert.equal(error(), "Workflow summary text cannot use {count}. The count is added automatically.");
+        type("Workflow summary text", "Open clarifications");
+        type("Workflow list text", "Ready ({workflows})");
+        submit(editor);
+        assert.match(error(), /Unknown badge text token \{workflows\}/);
+        type("Workflow list text", "Ready ({count})");
+        type("Phase card text", " ");
+        submit(editor);
+        assert.equal(error(), "Enter phase card text.");
         assert.deepEqual(draftBadges, []);
-        assert.match(editor.querySelector(".badge-editor-error").textContent,
-            /Workflow summary text/);
-        summaryLabel.value = "Workflows with checklists ({workflows})";
-        summaryLabel.events.input();
+        type("Phase card text", "Phase ({count})");
         submit(editor);
-        assert.deepEqual(draftBadges[0].text, "List ({count})");
+        assert.equal(draftBadges.length, 1);
+        assert.equal(draftBadges[0].category, "Severity");
+        assert.equal(draftBadges[0].text, "Ready ({count})");
         assert.equal(draftBadges[0].phaseText, "Phase ({count})");
-        assert.equal(draftBadges[0].summaryText, "Workflows with checklists ({workflows})");
+        assert.equal(draftBadges[0].summaryText, "Open clarifications");
         root.querySelector(".badge-edit").events.click();
-        assert.equal(placementText(root, "Workflow list text").value, "List ({count})");
-        assert.equal(placementText(root, "Phase text").value, "Phase ({count})");
-        assert.equal(placementText(root, "Workflow summary text").value,
-            "Workflows with checklists ({workflows})");
+        assert.equal(placementText(root, "Phase card text").value, "Phase ({count})");
+        const summary = check(root, "badge-placements", "Workflow summary");
+        summary.checked = false;
+        summary.events.change();
+        assert.equal(wrapper("Workflow summary text").hidden, true);
+        submit(root.querySelector(".badge-editor"));
+        assert.equal(Object.hasOwn(draftBadges[0], "summaryText"), false,
+            "text for an unselected placement is not saved");
+        assert.equal(draftBadges[0].text, "Ready ({count})");
+        assert.equal(draftBadges[0].phaseText, "Phase ({count})");
+    } finally { cleanup(); }
+});
+
+test("badge category is required, suggests existing categories, and labels configured badges", () => {
+    const base = { type: "count", inputs: { artifacts: [{ phase: "specify", outputs: ["spec.md"] }] },
+        color: "red", showIn: ["workflow-summary"], phase: null };
+    const { root, draftBadges, cleanup } = setup({ draftBadges: [
+        { ...base, id: "critical", category: "Severity", summaryText: "Critical" },
+        { ...base, id: "high", category: "severity", summaryText: "High" },
+        { ...base, id: "owner", category: "Owner", summaryText: "Owned" },
+    ] });
+    const error = () => root.querySelector(".badge-editor-error").textContent;
+    try {
+        const rows = descendants(root).filter((node) => node.className === "badge-row");
+        assert.deepEqual(rows.map((row) => row.children[0].children[1].textContent.split(" · ")[0]),
+            ["Category: Severity", "Category: severity", "Category: Owner"]);
+        const editor = choose(root, 0, null);
+        const datalist = descendants(editor).find((node) => node.tagName === "datalist");
+        assert.equal(root.querySelector(".badge-category").attributes.list, datalist.id);
+        const categoryField = descendants(editor).find((node) => node.tagName === "label"
+            && node.children[0]?.textContent === "Category");
+        assert.equal(categoryField.children[2].textContent,
+            "Specify a label for grouping badges. Categories are for display only.");
+        assert.deepEqual(datalist.children.map((option) => option.value), ["Severity", "Owner"],
+            "suggestions are de-duplicated without regard to case");
+        submit(editor);
+        assert.equal(error(), "Enter a badge category.");
+        setCategory(root, "   ");
+        submit(editor);
+        assert.equal(error(), "Enter a badge category.");
+        setCategory(root, "<Severity>");
+        submit(editor);
+        assert.match(error(), /^Category must be 80 characters or fewer/);
+        setCategory(root, "x".repeat(81));
+        submit(editor);
+        assert.match(error(), /^Category must be 80 characters or fewer/);
+        assert.equal(draftBadges.length, 3);
+        setCategory(root, "  Review  ");
+        placementText(root, "Workflow summary text").value = "Needs review";
+        placementText(root, "Workflow summary text").events.input();
+        submit(editor);
+        assert.equal(draftBadges.length, 4);
+        assert.equal(draftBadges[3].category, "Review", "the saved category is trimmed");
     } finally { cleanup(); }
 });
 
@@ -1393,14 +1815,14 @@ test("output checkboxes add evidence without automatically adding placements", (
         const other = check(root, "badge-artifact-set", "other.md");
         other.checked = true;
         other.events.change();
-        check(root, "badge-placements", "Workflow summary").checked = true;
-        const summary = check(root, "badge-placements", "Workflow summary");
-        summary.events.change();
+        check(root, "badge-placements", "Workflow list").checked = true;
+        const list = check(root, "badge-placements", "Workflow list");
+        list.events.change();
         submit(editor);
         assert.deepEqual(draftBadges[0].inputs.artifacts,
             [{ phase: "specify", outputs: ["other.md", "spec.md"] }]);
         assert.deepEqual(draftBadges[0].targets, []);
-        assert.deepEqual(draftBadges[0].showIn, ["workflow-list", "workflow-summary"]);
+        assert.deepEqual(draftBadges[0].showIn, ["workflow-summary", "workflow-list"]);
     } finally { cleanup(); }
 });
 
@@ -1497,8 +1919,13 @@ test("preview reflects live text and custom color, while invalid placeholders ar
     try {
         const editor = choose(root);
         const preview = root.querySelector(".badge-preview");
-        assert.equal(preview.textContent, "Clarifications needed (3)");
+        assert.equal(preview.textContent, "Clarifications needed: 3",
+            "the default Workflow summary placement previews as 'text: N'");
         assert.equal(preview.dataset.color, "amber");
+        const list = check(root, "badge-placements", "Workflow list");
+        list.checked = true;
+        list.events.change();
+        assert.equal(preview.textContent, "Clarifications needed (3)");
         const text = placementText(root, "Workflow list text");
         text.value = "Needs review ({missing})";
         text.events.input();
@@ -1525,8 +1952,8 @@ test("preview reflects live text and custom color, while invalid placeholders ar
 test("editing shows and preserves saved placements until Phase is explicitly changed", () => {
     const saved = { id: "old", type: "count",
         inputs: { artifacts: [{ phase: "specify", outputs: ["spec.md"] }] },
-        text: "Needs review", color: "blue", showIn: ["workflow-list"],
-        phase: null, targets: [{ phase: "plan", output: "plan.md" }] };
+        category: "Review", text: "Needs review", phaseText: "Plan review", color: "blue",
+        showIn: ["workflow-list"], phase: null, targets: [{ phase: "plan", output: "plan.md" }] };
     const { root, draftBadges, cleanup } = setup({ draftBadges: [saved] });
     try {
         root.querySelector(".badge-edit").events.click();
@@ -1552,8 +1979,8 @@ test("editing shows and preserves saved placements until Phase is explicitly cha
 test("editing removes only unavailable output placements", () => {
     const saved = { id: "old", type: "count",
         inputs: { artifacts: [{ phase: "specify", outputs: ["spec.md"] }] },
-        text: "Needs review", color: "blue", showIn: ["workflow-list"],
-        phase: null, targets: [{ phase: "specify", output: "spec.md" },
+        category: "Review", text: "Needs review", phaseText: "Phase review", color: "blue",
+        showIn: ["workflow-list"], phase: null, targets: [{ phase: "specify", output: "spec.md" },
             { phase: "plan", output: "removed.md" }] };
     const { root, draftBadges, cleanup } = setup({ draftBadges: [saved] });
     try {
@@ -1597,7 +2024,7 @@ test("refreshing a cached editor flags newly unavailable saved placements", () =
 test("stale outputs and unavailable badge types report errors without deleting saved data", () => {
     const stale = { id: "old", type: "count",
         inputs: { artifacts: [{ phase: "plan", outputs: ["removed.md"] }] },
-        text: "Needs review", color: "amber", showIn: ["workflow-list"],
+        category: "Review", text: "Needs review", color: "amber", showIn: ["workflow-list"],
         phase: null, targets: [] };
     const { root, draftBadges, cleanup } = setup({ draftBadges: [stale] });
     try {

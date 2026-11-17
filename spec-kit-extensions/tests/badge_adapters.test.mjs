@@ -22,19 +22,19 @@ test("test preset evaluator decides matches from only its declared phase run", a
 
 test("value match searches literal text anywhere in one output without regard to case", async () => {
     const inputs = { artifact: { phase: "decide", output: "decision.md" },
-        value: "Verdict: needs-clarification" };
+        choices: [{ id: "review", value: "Verdict: needs-clarification" }] };
     const evidence = { readArtifact: async () =>
         ({ state: "ok", text: "## Outcome\nVERDICT: NEEDS-CLARIFICATION\n" }) };
     assert.deepEqual(await content({ ruleId: "value-match", inputs, evidence }),
-        { match: true });
-    inputs.value = "Verdict: needs.clarification";
+        { match: true, selection: "review" });
+    inputs.choices[0].value = "Verdict: needs.clarification";
     assert.deepEqual(await content({ ruleId: "value-match", inputs, evidence }),
         { match: false });
-    inputs.value = "VERDICT: NEEDS-CLARIFICATION";
+    inputs.choices[0].value = "VERDICT: NEEDS-CLARIFICATION";
     evidence.readArtifact = async () =>
         ({ state: "ok", text: "```\nverdict: needs-clarification\n```" });
     assert.deepEqual(await content({ ruleId: "value-match", inputs, evidence }),
-        { match: true });
+        { match: true, selection: "review" });
     evidence.readArtifact = async () => ({ state: "missing" });
     assert.deepEqual(await content({ ruleId: "value-match", inputs, evidence }),
         { match: false });
@@ -163,7 +163,8 @@ test("unreadable evidence reports a diagnostic without claiming a match", async 
         getRun: async () => null,
     };
     assert.deepEqual(await content({ ruleId: "value-match",
-        inputs: { artifact: { phase: "p", output: "missing.md" }, value: "hello" }, evidence }),
+        inputs: { artifact: { phase: "p", output: "missing.md" },
+            choices: [{ id: "hello", value: "hello" }] }, evidence }),
     { match: false, diagnostics: ["Artifact could not be read"] });
     assert.deepEqual(await content({ ruleId: "checklist-progress",
         inputs: { artifact: { phase: "p", output: "list.md" },

@@ -76,9 +76,11 @@ const values = { "canvas.id": "my-workflow", "canvas.displayName": "My Workflow"
 
 async function registerStockBadgeInput(selected, project, ruleId) {
     const checklist = ["checklist-progress", "checklist-complete"].includes(ruleId);
-    const control = checklist ? "checklist" : ruleId === "artifact-stale" ? "ordered-stale"
+    const control = ruleId === "value-match" ? "value-match"
+        : checklist ? "checklist" : ruleId === "artifact-stale" ? "ordered-stale"
         : ruleId === "phase-artifact-complete" ? "phase-artifact" : "stock";
-    const id = checklist ? "stock.checklist-inputs"
+    const id = ruleId === "value-match" ? "stock.value-match-inputs"
+        : checklist ? "stock.checklist-inputs"
         : ruleId === "artifact-stale" ? "stock.ordered-stale-inputs"
             : ruleId === "phase-artifact-complete" ? "stock.phase-artifact-inputs" : "stock.badge-inputs";
     const definition = `designer-badge-input-${control}`;
@@ -349,18 +351,19 @@ handoff.sourceFingerprint = createHash("sha256").update(JSON.stringify({
     workflow: handoff.workflow, selections: handoff.selections,
 })).digest("hex");
 
-async function fixture(t, selectedHandoff = handoff, selectedValues = values, runtimeInventory) {
+async function fixture(t, selectedHandoff = handoff, selectedValues = values, runtimeInventory,
+    selectedModel = model) {
     const root = await mkdtemp(join(tmpdir(), "designer-generate-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const project = join(root, "project"), workspace = join(root, "workspace");
     await mkdir(project);
     await mkdir(workspace);
-    await addDesignerAdapterFixture(project, model);
-    await addWorkflowFixture(project, model);
+    await addDesignerAdapterFixture(project, selectedModel);
+    await addWorkflowFixture(project, selectedModel);
     const folder = join(workspace, "speckit-canvas-designer", "handoffs", handoff.handoffId);
     await mkdir(folder, { recursive: true });
     await writeFile(join(folder, "handoff.json"), JSON.stringify(selectedHandoff));
-    const prepared = await freezeGeneration({ project, workspace, model, values: selectedValues,
+    const prepared = await freezeGeneration({ project, workspace, model: selectedModel, values: selectedValues,
         handoff: selectedHandoff, runtimeInventory });
     const sdk = join(project, ".github", "extensions", selectedValues["canvas.id"]);
     return { project, workspace, prepared, sdk };
@@ -452,11 +455,12 @@ test("selected badge definitions and evaluator are packaged without preset files
         specify: { outputs: ["specs/<slug>/spec.md"], view: "specs/<slug>/spec.md" },
         plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" },
     };
-    const badges = [{ id: "verdict", type: "preset-value-match",
+    const badges = [{ id: "verdict", type: "preset-value-match", category: "Verdict",
         inputs: { artifact: { phase: "specify", output: "specs/<slug>/spec.md" },
-            value: "Verdict: needs-clarification" },
-        text: "Review needed", phaseText: "Phase review",
-        summaryText: "Workflows with review ({workflows})", color: "amber",
+            choices: [{ id: "review", value: "Verdict: needs-clarification", text: "Review needed",
+                phaseText: "Phase review", summaryText: "Workflows with review",
+                color: "amber" }] },
+        color: "amber",
         showIn: ["workflow-list", "workflow-summary"], phase: null,
         targets: [{ phase: "specify", output: "specs/<slug>/spec.md" },
             { phase: "plan", output: "specs/<slug>/plan.md" },
@@ -465,18 +469,20 @@ test("selected badge definitions and evaluator are packaged without preset files
         handoff, outputs, badges });
     await materialize(project, workspace, handoff.handoffId, frozen.requestId);
     const overlap = { ...badges[0], id: "overlap",
-        color: "blue", showIn: ["workflow-summary"],
+        color: "blue",
         targets: [{ phase: "plan", output: null }] };
     const alternateValues = { ...values, "canvas.id": "badge-duplicate-check" };
     await assert.rejects(freezeGeneration({ project, workspace, model: selected, values: alternateValues,
         handoff, outputs, badges: [...badges, overlap] }), /duplicates phase\/output target/);
-    const alternateText = { ...overlap, text: "Another review needed" };
+    const alternateText = { ...overlap, inputs: { ...overlap.inputs, choices: overlap.inputs.choices
+        .map((choice) => ({ ...choice, text: "Another review needed" })) } };
     const differentlyLabeled = await freezeGeneration({ project, workspace, model: selected,
         values: alternateValues, handoff, outputs, badges: [...badges, alternateText] });
     const differentlyLabeledRequest = JSON.parse(await readFile(join(workspace,
         "speckit-canvas-designer", "handoffs", handoff.handoffId, "generations",
         differentlyLabeled.requestId, "request.json"), "utf8"));
-    assert.equal(differentlyLabeledRequest.badges.instances[1].text, "Another review needed");
+    assert.equal(differentlyLabeledRequest.badges.instances[1].inputs.choices[0].text,
+        "Another review needed");
     const distinctTarget = { ...overlap, targets: [{ phase: "specify", output: null }] };
     const unique = await freezeGeneration({ project, workspace, model: selected, values: alternateValues,
         handoff, outputs, badges: [...badges, distinctTarget] });
@@ -501,7 +507,8 @@ test("selected badge definitions and evaluator are packaged without preset files
     await assert.rejects(materialize(project, workspace, handoff.handoffId, unique.requestId),
         /unsupported by the Workflow page adapter/);
     const config = JSON.parse(await readFile(join(sdk, "canvas-config.json"), "utf8"));
-    assert.deepEqual(config.badges.instances, badges);
+    const shared = structuredClone(badges);
+    assert.deepEqual(config.badges.instances, shared, "generation preserves placement text");
     assert.equal(config.badges.types[0].id, "preset-value-match");
     assert.equal(config.badges.types[0].title, "Customized value match");
     assert.equal(config.badges.types[0].description,
@@ -667,7 +674,7 @@ test("selected badge definitions and evaluator are packaged without preset files
     await assert.rejects(materialize(project, workspace, handoff.handoffId,
         projectRequest.requestId), /project placement with workflow rule inputs/);
     await assert.rejects(readdir(join(project, projectRequest.target)), { code: "ENOENT" });
-    const browserOnly = `${originalPage}\nthrow new Error("Workflow page adapter ran in Node");\n`;
+    const browserOnly = `${originalPage.replace(/\r\n/g, "\n")}\nthrow new Error("Workflow page adapter ran in Node");\n`;
     await writeFile(pageAdapter.path, browserOnly);
     pageAdapter.hash = createHash("sha256").update(browserOnly).digest("hex");
     const browserRequest = await freezeGeneration({ project, workspace, model: selected,
@@ -710,10 +717,11 @@ test("Phase artifact replacement group freezes with its badge type and rejects m
         view: ".specify/memory/constitution.md" },
     specify: { outputs: ["specs/<slug>/spec.md"], view: "specs/<slug>/spec.md" },
     plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" } };
-    const badge = { id: "phase-plan", type: rule.id,
+    const badge = { id: "phase-plan", type: rule.id, category: "Progress",
         inputs: { target: { phase: "plan", output: "specs/<slug>/plan.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }] },
-        text: "Plan complete", color: "green",
+        text: "Plan complete", phaseText: "Plan complete", summaryText: "Plans complete",
+        color: "green",
         showIn: ["workflow-list", "workflow-summary"], phase: null,
         targets: [{ phase: "plan", output: null }] };
     const frozen = await freezeGeneration({ project, workspace, model: selected,
@@ -771,14 +779,14 @@ test("Checklist complete freezes an ordered currentness chain and rejects invali
         view: ".specify/memory/constitution.md" },
     specify: { outputs: ["specs/<slug>/spec.md"], view: "specs/<slug>/spec.md" },
     plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" } };
-    const instance = { id: "checklist", type: "checklist-complete",
+    const instance = { id: "checklist", type: "checklist-complete", category: "Quality",
         inputs: { artifact: { phase: "plan", output: "specs/<slug>/plan.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }],
             targetphase: "plan" },
-        text: "Checklist complete", color: "green", showIn: ["workflow-summary"], phase: null };
-    const outputTarget = { ...instance, id: "checklist-output",
+        summaryText: "Checklists complete", color: "green", showIn: ["workflow-summary"], phase: null };
+    const outputTarget = { ...instance, id: "checklist-output", phaseText: "Checklist complete",
         targets: [{ phase: "plan", output: "specs/<slug>/plan.md" }] };
-    const multipleTargets = { ...instance, id: "checklist-multiple",
+    const multipleTargets = { ...instance, id: "checklist-multiple", phaseText: "Checklist complete",
         targets: [{ phase: "specify", output: null },
             { phase: "specify", output: "specs/<slug>/spec.md" }] };
     assert.deepEqual(validateDesignerBadges([outputTarget, multipleTargets],
@@ -850,9 +858,9 @@ test("directory-scoped rule freezes with its output anchor and evaluator", async
         view: ".specify/memory/constitution.md" },
     specify: { outputs: [output], view: output },
     plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" } };
-    const badges = [{ id: "markdown-files", type: "markdown-file-count",
+    const badges = [{ id: "markdown-files", type: "markdown-file-count", category: "Files",
         inputs: { artifact: { phase: "specify", output } },
-        text: "Files ({count})", color: "blue",
+        text: "Files ({count})", summaryText: "Files", color: "blue",
         showIn: ["workflow-list", "workflow-summary"], phase: null }];
     const frozen = await freezeGeneration({ project, workspace, model: selected, values,
         handoff, outputs, badges });
@@ -867,8 +875,8 @@ test("directory-scoped rule freezes with its output anchor and evaluator", async
         session: { sessionId: "directory-generation", log: async () => {} } });
     try {
         const snapshot = await runtime.snapshot();
-        assert.deepEqual(snapshot.badges.summary, [{ id: "markdown-files", color: "blue",
-            count: 0, text: "Markdown files (0)" }]);
+        assert.deepEqual(snapshot.badges.summary, [{ id: "markdown-files", category: "Files",
+            color: "blue", count: 0, text: "Files: 0" }]);
         await writeFile(join(project, "specs", "demo", "review", "security.md"), "# Review");
         assert.deepEqual((await runtime.snapshot()).badges.items["specs/demo"], []);
         const updated = await runtime.refresh();
@@ -1236,7 +1244,7 @@ test("generated stock scalar is escaped, read-only and absent from unchanged def
     ] });
     assert.equal((grouped.match(/<h2>Billing<\/h2>/g) ?? []).length, 2);
     assert.equal((grouped.match(/<h2>Configured fields<\/h2>/g) ?? []).length, 1);
-    assert.match(grouped, /<h2>Billing<\/h2><dl[^>]*>[\s\S]*?billing\.costCode[\s\S]*?billing\.other[\s\S]*?<\/dl>/);
+    assert.match(grouped, /<h2>Billing<\/h2><\/summary><dl[^>]*>[\s\S]*?billing\.costCode[\s\S]*?billing\.other[\s\S]*?<\/dl>/);
     for (const invalid of [
         [{ id: "billing.costCode", label: "Cost code", value: 123 }],
         [{ id: "billing.costCode", label: "Cost code", value: "x".repeat(1001) }],
@@ -1319,6 +1327,107 @@ test("materialization accepts frozen default description and workflow header", a
     const config = JSON.parse(await readFile(join(sdk, "canvas-config.json"), "utf8"));
     assert.equal(config.canvas.description, "Spec Kit workflow canvas.");
     assert.equal(config.canvas.workflowListName, "Workflows");
+    assert.equal(config.canvas.workflowItemName, "Workflow");
+});
+
+test("item naming survives generation while keeping legacy IDs, slugs and configurations", async (t) => {
+    const namedModel = structuredClone(model);
+    namedModel.constraints["canvas.workflowItemName"] = {
+        type: "string", maxLength: 80, pattern: "^[^\\x00-\\x1f\\x7f]*$",
+    };
+    const selected = { ...values, "canvas.workflowListName": "Bugs", "canvas.workflowItemName": "Bug" };
+    const { project, workspace, prepared, sdk } = await fixture(t, handoff, selected, undefined, namedModel);
+    await materialize(project, workspace, handoff.handoffId, prepared.requestId);
+    const configPath = join(sdk, "canvas-config.json");
+    const { readConfig, renderHtml: renderPackaged } = await import(pathToFileURL(join(sdk, "server.mjs")).href);
+    const config = readConfig();
+    assert.equal(config.canvas.workflowListName, "Bugs");
+    assert.equal(config.canvas.workflowItemName, "Bug");
+    const html = renderPackaged(config);
+    assert.match(html, /&quot;workflowListName&quot;:&quot;Bugs&quot;/);
+    assert.match(html, /&quot;workflowItemName&quot;:&quot;Bug&quot;/);
+    const markup = stockMarkup(config);
+    assert.match(markup, /id="workflow-heading">Bugs/);
+    assert.match(markup, /aria-label="New Bug"/);
+    assert.match(markup, /id="workflow-name-label">Bug name/);
+    assert.match(markup, /placeholder="Bug 1"/);
+    assert.match(markup, /placeholder="bug-1"/);
+    const { pageAdapter, pageAdapterHash, ...fallbackPage } = config.workflowPage;
+    assert.match(renderPackaged({ ...config, workflowPage: fallbackPage }), /placeholder="bug-1"/);
+    assert.match(markup, />Delete Bug<\/button>/);
+
+    await mkdir(join(project, "specs", "workflow-1"), { recursive: true });
+    const session = { sessionId: "naming-test", on: () => () => {},
+        getEvents: async () => [], log: async () => {} };
+    const runtime = await createRuntime({ config, cwd: project, workspace, session });
+    t.after(() => runtime.close());
+    const pending = await runtime.createPending({ revision: 0 });
+    assert.equal(pending.id, "__new__:2");
+    const draft = (await runtime.snapshot()).items.find((item) => item.id === pending.id);
+    assert.equal(draft.label, "Bug 2");
+    assert.equal(draft.slug, "");
+    const reopened = await createRuntime({ config, cwd: project, workspace, session });
+    t.after(() => reopened.close());
+    assert.equal((await reopened.snapshot()).items.find((item) => item.id === pending.id).label, "Bug 2");
+
+    for (const invalid of [null, "", " Bug", "Bug\nReport", "x".repeat(81)]) {
+        await writeFile(configPath, JSON.stringify({
+            ...config, canvas: { ...config.canvas, workflowItemName: invalid },
+        }));
+        assert.throws(readConfig, /Invalid generated canvas configuration/);
+    }
+    const legacy = structuredClone(config);
+    delete legacy.canvas.workflowItemName;
+    await writeFile(configPath, JSON.stringify(legacy));
+    const oldConfig = readConfig();
+    assert.equal(oldConfig.canvas.workflowListName, "Bugs");
+    assert.match(stockMarkup(oldConfig), /aria-label="New Workflow"/);
+    assert.match(stockMarkup(oldConfig), /placeholder="workflow-1"/);
+    assert.match(renderPackaged({ ...oldConfig, workflowPage: fallbackPage }), /placeholder="workflow-1"/);
+    assert.match(renderPackaged(oldConfig), /&quot;workflowItemName&quot;:&quot;Workflow&quot;/);
+});
+
+test("materialization rejects inconsistent frozen item names", async (t) => {
+    for (const [label, mutate] of [
+        ["different value", (request) => { request.canvas.workflowItemName = "Issue"; }],
+        ["missing value", (request) => { delete request.canvas.workflowItemName; }],
+        ["blank value", (request) => { request.canvas.workflowItemName = ""; }],
+        ["non-string value", (request) => { request.canvas.workflowItemName = 1; }],
+        ["too-long value", (request) => { request.canvas.workflowItemName = "x".repeat(81); }],
+    ]) {
+        await t.test(label, async (child) => {
+            const namedModel = structuredClone(model);
+            namedModel.constraints["canvas.workflowItemName"] = {
+                type: "string", maxLength: 80, pattern: "^[^\\x00-\\x1f\\x7f]*$",
+            };
+            const { project, workspace, prepared, sdk } = await fixture(child, handoff,
+                { ...values, "canvas.workflowItemName": "Bug" }, undefined, namedModel);
+            const path = join(workspace, "speckit-canvas-designer", "handoffs", handoff.handoffId,
+                "generations", prepared.requestId, "request.json");
+            const request = JSON.parse(await readFile(path, "utf8"));
+            mutate(request);
+            const { integrity: _integrity, ...payload } = request;
+            request.integrity = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+            await writeFile(path, JSON.stringify(request));
+            await assert.rejects(materialize(project, workspace, handoff.handoffId, prepared.requestId),
+                /Invalid frozen canvas identity/);
+            await assert.rejects(readdir(sdk), { code: "ENOENT" });
+        });
+    }
+});
+
+test("legacy frozen generation requests without an item name retain the Workflow default", async (t) => {
+    const { project, workspace, prepared, sdk } = await fixture(t);
+    const path = join(workspace, "speckit-canvas-designer", "handoffs", handoff.handoffId,
+        "generations", prepared.requestId, "request.json");
+    const request = JSON.parse(await readFile(path, "utf8"));
+    delete request.canvas.workflowItemName;
+    const { integrity: _integrity, ...payload } = request;
+    request.integrity = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    await writeFile(path, JSON.stringify(request));
+    await materialize(project, workspace, handoff.handoffId, prepared.requestId);
+    const { readConfig, renderHtml: renderPackaged } = await import(pathToFileURL(join(sdk, "server.mjs")).href);
+    assert.match(renderPackaged(readConfig()), /&quot;workflowItemName&quot;:&quot;Workflow&quot;/);
 });
 
 async function delayedSessionSdk(target, workspace, project) {
@@ -2027,7 +2136,11 @@ test("Essentials contributes a default-off custom slug option", async () => {
     const setup = JSON.parse(await readFile(new URL("../extension-canvas-design/designer-host/essentials-settings/show-setup.json", import.meta.url)));
     assert.equal(slug.field.id, "workflowSlug.userProvided");
     assert.equal(slug.field.default, false);
-    assert.equal(heading.field.label, "Workflow header");
+    const item = JSON.parse(await readFile(new URL("../extension-canvas-design/designer-host/essentials-settings/workflow-item-name.json", import.meta.url)));
+    assert.equal(heading.field.id, "canvas.workflowListName");
+    assert.equal(heading.field.label, "Header text");
+    assert.equal(item.field.id, "canvas.workflowItemName");
+    assert.equal(item.field.label, "Workflow item name");
     assert.match(setup.field.description, /review and approve installation/);
     assert.match(setup.field.description, /When off, nothing is installed automatically/);
 });
@@ -2095,7 +2208,7 @@ test("optional artifact folder slug previews only when enabled and binds the act
         const html = renderHtml(config);
         assert.equal(config.userProvidesSlug, enabled);
         const collection = stockMarkup(config);
-        assert.ok(collection.indexOf('id="instance-collection"') < collection.indexOf('id="constitution-card"'));
+        assert.ok(collection.indexOf('id="constitution-card"') < collection.indexOf('id="instance-collection"'));
         assert.match(collection, /id="constitution-card"/);
         assert.doesNotMatch(stockMarkup({ ...config, phases: ["specify"] }),
             /id="constitution-card"|id="view-constitution"|id="constitution-dialog"/);
@@ -2113,11 +2226,11 @@ test("optional artifact folder slug previews only when enabled and binds the act
         assert.doesNotMatch(collection, /id="workflow-slug-label"[^<]*Optional/);
         assert.doesNotMatch(collection, /id="workflow-slug"[^>]+required/);
         assert.match(collection, /id="workflow-slug-help">Leave blank to let Spec Kit choose/);
-        assert.match(collection, /id="workflow-name-help">Shown in the workflow list\./);
+        assert.match(collection, /id="workflow-name-help">Shown in the list\./);
         assert.doesNotMatch(collection, /id="create-first-workflow"/);
-        assert.match(collection, /id="new-workflow"[^>]*>New workflow<\/button>/);
+        assert.match(collection, /id="new-workflow"[^>]*aria-label="New Workflow">\+ New<\/button>/);
         assert.match(collection, /id="workflow-rows" role="list" aria-labelledby="workflow-heading"/);
-        assert.match(collection, /id="workflow-empty">No workflows yet\.<\/p>/);
+        assert.match(collection, /id="workflow-empty">No items yet\.<\/p>/);
         assert.doesNotMatch(collection, /Nothing has been created yet|id="workflow-draft-note"/);
         const ui = await readFile(new URL("../extension-canvas-design/generated-scaffold/ui/app.js", import.meta.url), "utf8");
         assert.match(ui, /function slugError\(\)/);

@@ -188,7 +188,7 @@ test("Outputs persist with Designer settings and reject unsafe or stale edits", 
     const outputs = { constitution, specify: { outputs: [
         "specs/<slug>/spec.md", "specs/<slug>/research.md"],
         view: "specs/<slug>/research.md" }, plan: { outputs: [], view: null } };
-    const badges = [{ id: "research", type: "artifact",
+    const badges = [{ id: "research", type: "artifact", category: "Readiness",
         inputs: { artifact: { phase: "specify", output: "specs/<slug>/research.md" } },
         text: "Research ready", color: "green", showIn: ["workflow-list"], phase: null }];
     const saved = await saveDesignerSettings(workspace, handoff, initial,
@@ -446,6 +446,10 @@ async function badgeTemplates(project) {
             "designer.badge-input-control"],
         ["designer-badge-input-ordered-stale-adapter", join("..", "ordered-stale", "designer.mjs"),
             "designer.badge-input-adapter"],
+        ["designer-badge-input-value-match", join("..", "value-match", "control.json"),
+            "designer.badge-input-control"],
+        ["designer-badge-input-value-match-adapter", join("..", "value-match", "designer.mjs"),
+            "designer.badge-input-adapter"],
         ...["value-match", "artifact-current", "artifact-stale", "markdown-file-count",
             "checklist-progress", "checklist-complete",
             "phase-run-complete", "phase-artifact-complete"].map((id) =>
@@ -480,6 +484,8 @@ test("registered badge definitions resolve types, rules, adapters, and declared 
     assert.ok(model.badgeInputControls.every((item) => {
         const control = ["checklist-progress", "checklist-complete"].includes(item.rule)
             ? ["stock.checklist-inputs", "designer-badge-input-checklist-adapter"]
+            : item.rule === "value-match"
+                ? ["stock.value-match-inputs", "designer-badge-input-value-match-adapter"]
             : item.rule === "artifact-stale"
                 ? ["stock.ordered-stale-inputs", "designer-badge-input-ordered-stale-adapter"]
                 : item.rule === "phase-artifact-complete"
@@ -490,7 +496,7 @@ test("registered badge definitions resolve types, rules, adapters, and declared 
                 === (item.rule !== "artifact-stale");
     }));
     assert.ok(model.badgeRules.some((rule) => rule.id === "value-match"
-        && rule.inputs[0].type === "artifact" && rule.inputs[1].type === "text"));
+        && rule.inputs[0].type === "artifact" && rule.inputs[1].type === "badge-selection"));
     assert.ok(model.badgeRules.some((rule) => rule.id === "markdown-file-count"
         && rule.inputs[0].scope === "directory"));
     assert.equal(model.badgeTypes.find((item) => item.id === "value-match").title,
@@ -514,7 +520,9 @@ test("registered badge definitions resolve types, rules, adapters, and declared 
     const disabledTypes = JSON.parse(typeBytes);
     disabledTypes.types.find((item) => item.id === "value-match").enabled = false;
     await writeFile(typeEntry.path, JSON.stringify(disabledTypes));
-    const withoutUnusedBinding = await load(templates.filter((item) => item !== binding));
+    const withoutUnusedBinding = await load(templates.filter((item) => item !== binding
+        && !["designer-badge-input-value-match", "designer-badge-input-value-match-adapter"]
+            .includes(item.name)));
     assert.equal(withoutUnusedBinding.badgeInputControls.some((item) =>
         item.rule === "value-match"), false);
     assert.equal(withoutUnusedBinding.badgeTypes.find((item) =>
@@ -756,7 +764,7 @@ test("Designer badge save and reopen freezes registered assets into generated co
         assert.equal(model.badgeInputControls.find((item) => item.rule === "test-phase").control,
             "test.phase-choice");
         const initial = await loadDesignerSettings(workspace, handoff, model);
-        const badge = { id: "test-phase-1", type: "test-phase", inputs: { phase: "specify" },
+        const badge = { id: "test-phase-1", type: "test-phase", category: "Phase", inputs: { phase: "specify" },
             text: "Phase confirmed", color: "purple", showIn: ["workflow-list"], phase: null };
         await assert.rejects(saveDesignerSettings(workspace, handoff, initial, {
             modelRevision: model.revision, revision: 0, values: initial.values,
@@ -816,20 +824,32 @@ test("Designer badge save and reopen freezes registered assets into generated co
         outputs: [...model.outputs.plan.outputs, "specs/<slug>/plan.md"],
         view: "specs/<slug>/plan.md",
     } };
-    const badges = [{ id: "checklist-progress-1", type: "checklist-progress",
+    const badges = [{ id: "checklist-progress-1", type: "checklist-progress", category: "Progress",
         inputs: { artifact: { phase: "plan", output: "specs/<slug>/plan.md" },
             prerequisites: [{ phase: "specify", output: "specs/<slug>/spec.md" }],
             targetphase: "plan" },
         text: "{completed}/{total} complete", color: "blue",
-        showIn: ["workflow-list"], phase: null,
+        phaseText: "{completed}/{total} done", summaryText: "Workflows",
+        showIn: ["workflow-list", "workflow-summary"], phase: null,
         targets: [{ phase: "specify", output: "specs/<slug>/spec.md" },
-            { phase: "plan", output: null }] }];
+            { phase: "plan", output: null }] }, {
+        id: "verdict", type: "value-match", category: "Severity",
+        inputs: { artifact: { phase: "specify", output: "specs/<slug>/spec.md" },
+            choices: [{ id: "critical", value: "critical", text: "Critical",
+                summaryText: "Critical", phaseText: "Critical", color: "red" },
+            { id: "low", value: "low", text: "Low", summaryText: "Low", phaseText: "Low", color: "blue" }] },
+        color: "amber", showIn: ["workflow-list", "workflow-summary"], phase: null,
+        targets: [{ phase: "specify", output: null }] }];
     const saved = await saveDesignerSettings(workspace, handoff, model, {
         modelRevision: model.revision, revision: 0, values, outputs, badges,
     });
     assert.equal(saved.settingsRevision, 1);
+    const shared = structuredClone(badges);
     const reopened = await loadDesignerSettings(workspace, handoff, pages);
-    assert.deepEqual(reopened.badges, badges);
+    assert.deepEqual(reopened.badges, shared);
+    const stored = JSON.parse(await readFile(join(workspace, "speckit-canvas-designer",
+        "handoffs", handoff.handoffId, "settings.json"), "utf8"));
+    assert.deepEqual(stored.badges, shared, "settings saves preserve per-placement text");
     const prepared = await freezeGeneration({ model: reopened, values: reopened.values,
         badges: reopened.badges, outputs: reopened.outputs, handoff, project, workspace });
     const request = JSON.parse(await readFile(join(workspace, "speckit-canvas-designer",
@@ -841,13 +861,96 @@ test("Designer badge save and reopen freezes registered assets into generated co
         "../../../../../spec-kit-extensions/extension-canvas-design/scripts/generate.mjs", import.meta.url));
     await materialize(project, workspace, handoff.handoffId, prepared.requestId);
     const config = JSON.parse(await readFile(join(project, prepared.target, "canvas-config.json"), "utf8"));
-    assert.deepEqual(config.badges.instances, badges);
+    assert.deepEqual(config.badges.instances, shared);
     assert.equal(config.badges.types[0].id, "checklist-progress");
     assert.equal(config.badges.rules[0].id, "checklist-progress");
     assert.equal(config.badges.rules[0].adapter, "badge-rule-content-adapter");
     assert.deepEqual(Object.keys(config.badges).sort(), ["instances", "rules", "types"]);
+    await t.test("generated category and value-match badges import atomically, then save and generate unchanged", async (t) => {
+        const shell = await startShell(handoff, model, { project, workspace });
+        t.after(() => shell.close());
+        const base = new URL(shell.url);
+        const endpoint = (path) => new URL(`${path}${base.search}`, base);
+        const send = (input, contentType = "application/json") => fetch(
+            endpoint("/api/validate-badge-import"), { method: "POST",
+                headers: { "Content-Type": contentType },
+                body: typeof input === "string" ? input : JSON.stringify(input) });
+        const input = { schemaVersion: 1, modelRevision: model.revision,
+            config, badges: [], outputs };
+        const settingsPath = join(workspace, "speckit-canvas-designer", "handoffs",
+            handoff.handoffId, "settings.json");
+        const before = await readFile(settingsPath, "utf8");
+        const accepted = await send(input);
+        assert.equal(accepted.status, 200);
+        const imported = await accepted.json();
+        assert.deepEqual(imported, { schemaVersion: 1, badges });
+        assert.deepEqual((await (await fetch(endpoint("/api/state"))).json()).badges, []);
+        assert.equal(await readFile(settingsPath, "utf8"), before, "validation does not save settings");
+        const renamed = structuredClone(config);
+        renamed.badges.types.forEach((type) => { type.hash = "f".repeat(64); });
+        assert.equal((await send({ ...input, config: renamed })).status, 200,
+            "a different whole badge-settings hash is not an evaluator incompatibility");
+        for (const [body, reason] of [
+            [{ ...input, config: { badges: config.badges } }, /complete generated canvas-config/],
+            [{ ...input, badges }, /duplicate id/],
+            [{ ...input, outputs: model.outputs }, /invalid artifact input/],
+            [{ ...input, config: { ...config, badges: { ...config.badges,
+                instances: [badges[0], { ...badges[1], category: "" }] } } }, /badge 2.*invalid category/],
+            [{ ...input, config: { ...config, badges: { ...config.badges,
+                rules: config.badges.rules.map((rule) => ({ ...rule, hash: "0".repeat(64) })) } } },
+            /evaluator.*incompatible/],
+        ]) {
+            const rejected = await send(body);
+            assert.equal(rejected.status, 422);
+            assert.match((await rejected.json()).error, reason);
+            assert.equal(await readFile(settingsPath, "utf8"), before);
+        }
+        assert.equal((await send({ ...input, modelRevision: "stale" })).status, 409);
+        assert.equal((await send({ ...input, save: true })).status, 422);
+        assert.equal((await send("{broken")).status, 422);
+        assert.equal((await send(input, "text/plain")).status, 415);
+        assert.equal((await send(" ".repeat(4 * 1024 * 1024 + 1))).status, 413);
+        const unauthorized = new URL(endpoint("/api/validate-badge-import"));
+        unauthorized.search = "";
+        assert.equal((await fetch(unauthorized, { method: "POST", body: JSON.stringify(input) })).status, 404);
+        const evaluator = model.templates.find((entry) => entry.kind === "generated.badge-rule-adapter"
+            && entry.name === "badge-rule-content-adapter");
+        const evaluatorBytes = await readFile(evaluator.path);
+        try {
+            await appendFile(evaluator.path, "\n// changed since opening");
+            const changed = await send(input);
+            assert.equal(changed.status, 422);
+            assert.match((await changed.json()).error, /changed since Designer opened/);
+        } finally { await writeFile(evaluator.path, evaluatorBytes); }
+        const save = await fetch(endpoint("/api/save"), { method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ modelRevision: model.revision, revision: 1,
+                values: { ...values, "canvas.id": "imported-badge-canvas" },
+                outputs, badges: imported.badges }) });
+        assert.equal(save.status, 200);
+        const kept = await save.json();
+        assert.deepEqual(kept.badges, badges);
+        const roundTrip = await freezeGeneration({ model: kept, values: kept.values,
+            badges: kept.badges, outputs: kept.outputs, handoff, project, workspace });
+        await materialize(project, workspace, handoff.handoffId, roundTrip.requestId);
+        const regenerated = JSON.parse(await readFile(
+            join(project, roundTrip.target, "canvas-config.json"), "utf8"));
+        assert.deepEqual(regenerated.badges, config.badges);
+    });
     assert.deepEqual(await readFile(join(project, prepared.target, "badges",
         "badge-rule-content-adapter.mjs")), Buffer.from(request.badges.adapters[0].content, "base64"));
+    const runtime = await import(pathToFileURL(join(project, prepared.target, "badge-runtime.mjs")).href);
+    const phases = [{ id: "specify", outputs: ["specs/<slug>/spec.md"] },
+        { id: "plan", outputs: ["specs/<slug>/plan.md"] }];
+    runtime.validateBadges(config.badges, phases);
+    await mkdir(join(project, "specs", "alpha"), { recursive: true });
+    await writeFile(join(project, "specs", "alpha", "spec.md"), "low and CRITICAL");
+    const result = await runtime.evaluateBadges(config.badges, { cwd: project, phases,
+        workflows: ["alpha"], outputPath: async ({ phase }) =>
+            `specs/alpha/${phase === "specify" ? "spec" : "plan"}.md`, runFor: () => null });
+    assert.equal(result.items.alpha.find(({ id }) => id === "verdict").text, "Critical");
+    assert.deepEqual(result.summary.map(({ count }) => count), [0, 1, 0]);
+    assert.deepEqual(result.summary.map(({ text }) => text), ["Workflows: 0", "Critical: 1", "Low: 0"]);
 });
 
 test("Generate accepts Constitution card and declared output destinations", async (t) => {
@@ -871,10 +974,18 @@ test("Generate accepts Constitution card and declared output destinations", asyn
     const model = await loadDesignerSettings(workspace, handoff, pages);
     const values = { ...model.values, "canvas.id": "constitution-badge",
         "canvas.displayName": "Constitution badge" };
-    const global = { id: "constitution-evidence", type: "value-match",
+    // Value match entry text exists exactly for the badge's selected placements.
+    const fitEntries = (badge) => {
+        const phase = Boolean(badge.targets?.length || badge.showIn.includes("phase-card"));
+        const choices = badge.inputs.choices.map(({ text: _t, phaseText: _p, ...choice }) => ({
+            ...choice, ...(badge.showIn.includes("workflow-list") ? { text: "Value matched" } : {}),
+            ...(phase ? { phaseText: "Value matched" } : {}) }));
+        return { ...badge, inputs: { ...badge.inputs, choices } };
+    };
+    const global = { id: "constitution-evidence", type: "value-match", category: "Constitution",
         inputs: { artifact: { phase: "constitution", output: ".specify/memory/constitution.md" },
-            value: "adopted" },
-        text: "Value matched", color: "amber",
+            choices: [{ id: "adopted", value: "adopted", text: "Value matched", color: "amber" }] },
+        color: "amber",
         showIn: ["workflow-list"], phase: null };
     const options = { model, values, outputs: model.outputs, handoff, project, workspace };
     await assert.doesNotReject(freezeGeneration({ ...options, badges: [global] }));
@@ -882,12 +993,12 @@ test("Generate accepts Constitution card and declared output destinations", asyn
         { ...global, showIn: ["phase-card"], phase: "constitution" },
         { ...global, targets: [{ phase: "constitution", output: null }] },
         { ...global, targets: [{ phase: "constitution", output: ".specify/memory/constitution.md" }] },
-    ]) {
+    ].map(fitEntries)) {
         await assert.doesNotReject(freezeGeneration({ ...options, badges: [badge] }));
     }
     const workflowEvidence = { ...global, inputs: {
         artifact: { phase: "specify", output: "specs/<slug>/spec.md" },
-        value: "adopted",
+        choices: global.inputs.choices,
     } };
     await assert.doesNotReject(freezeGeneration({ ...options, badges: [workflowEvidence] }));
     for (const badge of [
@@ -898,7 +1009,7 @@ test("Generate accepts Constitution card and declared output destinations", asyn
         { ...workflowEvidence, targets: [
             { phase: "constitution", output: null }, { phase: "specify", output: null },
         ] },
-    ]) {
+    ].map(fitEntries)) {
         await assert.rejects(saveDesignerSettings(workspace, handoff, model, {
             modelRevision: model.revision, revision: 0, values, outputs: model.outputs,
             badges: [badge],
@@ -907,7 +1018,7 @@ test("Generate accepts Constitution card and declared output destinations", asyn
             /project placement with workflow rule inputs/);
     }
     const phaseBadge = { ...global, type: "phase-run-complete",
-        inputs: { phase: "specify" }, text: "Phase run complete",
+        inputs: { phase: "specify" }, text: "Phase run complete", phaseText: "Phase run complete",
         targets: [{ phase: "constitution", output: null }] };
     await assert.rejects(saveDesignerSettings(workspace, handoff, model, {
         modelRevision: model.revision, revision: 0, values, outputs: model.outputs,
@@ -915,9 +1026,9 @@ test("Generate accepts Constitution card and declared output destinations", asyn
     }), /project placement requires project-level rule inputs/);
     await assert.rejects(freezeGeneration({ ...options, badges: [phaseBadge] }),
         /project placement with workflow rule inputs/);
-    await assert.rejects(freezeGeneration({ ...options, badges: [{
+    await assert.rejects(freezeGeneration({ ...options, badges: [fitEntries({
         ...global, targets: [{ phase: "constitution", output: "undeclared.md" }],
-    }] }),
+    })] }),
     /invalid or removed output, phase, text, or placement/);
 });
 
@@ -928,7 +1039,7 @@ async function stockTemplates(project) {
         "designer-host", "essentials-settings");
     await mkdir(directory, { recursive: true });
     const templates = [];
-    for (const name of ["description", "workflow-heading", "custom-slug"]) {
+    for (const name of ["description", "workflow-heading", "workflow-item-name", "custom-slug"]) {
         const path = join(directory, `${name}.json`);
         await copyFile(join(source, "designer-host", "essentials-settings", `${name}.json`), path);
         templates.push({ name: `designer-essentials-${name}`, path,
@@ -1752,7 +1863,8 @@ test("stock contributions retain the optional slug setting and minimal replaced 
     assert.equal(full.pages[0].description, "Configure settings for your generated canvas app.");
     assert.deepEqual(full.pages[0].fields.map(({ id, label }) => [id, label]), [
         ["canvas.id", "Canvas ID"], ["canvas.displayName", "Title"],
-        ["canvas.description", "Description"], ["canvas.workflowListName", "Workflow header"],
+        ["canvas.description", "Description"], ["canvas.workflowListName", "Header text"],
+        ["canvas.workflowItemName", "Workflow item name"],
         ["workflowSlug.userProvided", "Allow custom artifact directory slug"],
     ]);
     const essentials = new Map(full.pages[0].fields.map(({ id, description }) => [id, description]));
@@ -1761,11 +1873,15 @@ test("stock contributions retain the optional slug setting and minimal replaced 
     assert.match(essentials.get("canvas.id"), /Windows device names like con and com1/);
     assert.match(essentials.get("canvas.displayName"), /1–120 characters/);
     assert.match(essentials.get("canvas.description"), /240 characters/);
-    assert.match(essentials.get("canvas.workflowListName"), /80 characters/);
+    assert.equal(essentials.get("canvas.workflowListName"),
+        "The main header displayed below the canvas title. Leave blank to use ‘Workflows.’");
+    assert.equal(essentials.get("canvas.workflowItemName"),
+        "The name for one workflow item, used in buttons, labels, and default names. Use the singular form. Leave blank to use ‘Workflow.’");
     assert.equal(full.values["workflowSlug.userProvided"], false);
     const values = { ...full.values, "canvas.id": "stock-canvas",
         "canvas.displayName": "Stock Canvas", "canvas.description": "Stock description",
-        "canvas.workflowListName": "Stock heading", "workflowSlug.userProvided": true };
+        "canvas.workflowListName": "Stock heading", "canvas.workflowItemName": "Issue",
+        "workflowSlug.userProvided": true };
     await assert.rejects(freezeGeneration({ model: full, values, project, workspace,
         handoff: { ...handoff, workflow: { ...handoff.workflow, installed: {
             ...handoff.workflow.installed, presets: [{ id: "local-runtime", source: "local",
@@ -1803,30 +1919,64 @@ test("stock contributions retain the optional slug setting and minimal replaced 
     await materialize(project, workspace, handoff.handoffId, prepared.requestId);
     const config = JSON.parse(await readFile(join(project, prepared.target, "canvas-config.json"), "utf8"));
     assert.deepEqual(config.canvas, { id: "stock-canvas", displayName: "Stock Canvas",
-        description: "Stock description", workflowListName: "Stock heading" });
+        description: "Stock description", workflowListName: "Stock heading", workflowItemName: "Issue" });
     assert.equal(config.userProvidesSlug, true);
     assert.equal(phaseRequest.values["workflowSlug.userProvided"], true);
 
-    for (const [id, description, heading, expectedDescription, expectedHeading] of [
-        ["blank-stock", "   ", "  ", "Spec Kit workflow canvas.", "Workflows"],
-        ["padded-stock", "  About this canvas  ", "  My workflows  ",
-            "About this canvas", "My workflows"],
+    for (const [id, description, heading, itemName, expectedDescription, expectedHeading, expectedItem] of [
+        ["blank-stock", "   ", "  ", "  ", "Spec Kit workflow canvas.", "Workflows", "Workflow"],
+        ["padded-stock", "  About this canvas  ", "  My workflows  ", "  Bug  ",
+            "About this canvas", "My workflows", "Bug"],
     ]) {
         const stockValues = { ...values, "canvas.id": id, "canvas.description": description,
-            "canvas.workflowListName": heading };
+            "canvas.workflowListName": heading, "canvas.workflowItemName": itemName };
         const frozen = await freezeGeneration({ model: saved, values: stockValues,
             handoff, project, workspace });
         const request = JSON.parse(await readFile(join(workspace, "speckit-canvas-designer",
             "handoffs", handoff.handoffId, "generations", frozen.requestId, "request.json"), "utf8"));
         assert.equal(request.values["canvas.description"], description.trim());
         assert.equal(request.values["canvas.workflowListName"], heading.trim());
+        assert.equal(request.values["canvas.workflowItemName"], itemName.trim());
         assert.equal(request.canvas.description, expectedDescription);
         assert.equal(request.canvas.workflowListName, expectedHeading);
+        assert.equal(request.canvas.workflowItemName, expectedItem);
         await materialize(project, workspace, handoff.handoffId, frozen.requestId);
         const output = JSON.parse(await readFile(join(project, frozen.target, "canvas-config.json"), "utf8"));
         assert.equal(output.canvas.description, expectedDescription);
         assert.equal(output.canvas.workflowListName, expectedHeading);
+        assert.equal(output.canvas.workflowItemName, expectedItem);
     }
+    for (const invalid of ["x".repeat(81), "Bug\nReport"]) {
+        await assert.rejects(freezeGeneration({ model: saved,
+            values: { ...values, "canvas.workflowItemName": invalid }, handoff, project, workspace }),
+        /Invalid Workflow item name \(canvas.workflowItemName\)/);
+    }
+
+    const legacy = await loadResolvedDesignerPages(handoff, project, entries,
+        templates.filter((item) => item.name !== "designer-essentials-workflow-item-name"));
+    const legacyWorkspace = join(workspace, "legacy-settings");
+    await mkdir(legacyWorkspace);
+    await saveHandoff(legacyWorkspace, handoff);
+    const legacyValues = { ...legacy.values, "canvas.id": "legacy-naming",
+        "canvas.displayName": "Legacy", "canvas.workflowListName": "Existing heading" };
+    const legacySaved = await saveDesignerSettings(legacyWorkspace, handoff, legacy,
+        { revision: 0, modelRevision: legacy.revision, values: legacyValues });
+    const legacyReopened = await loadDesignerSettings(legacyWorkspace, handoff, legacy);
+    assert.equal(legacyReopened.values["canvas.workflowListName"], "Existing heading");
+    assert.equal(Object.hasOwn(legacyReopened.values, "canvas.workflowItemName"), false);
+    await assert.rejects(loadDesignerSettings(legacyWorkspace, handoff, full),
+        /Saved Designer settings do not match the current handoff or pages/);
+    const fresh = await freshDesignerSettings(legacyWorkspace, handoff, full);
+    assert.equal(fresh.settingsRevision, legacySaved.settingsRevision);
+    assert.equal(fresh.values["canvas.workflowListName"], full.values["canvas.workflowListName"]);
+    assert.equal((await loadDesignerSettings(legacyWorkspace, handoff, legacy))
+        .values["canvas.workflowListName"], "Existing heading");
+    const legacyRequest = await freezeGeneration({ model: legacySaved, values: legacyReopened.values,
+        handoff, project, workspace: legacyWorkspace });
+    await materialize(project, legacyWorkspace, handoff.handoffId, legacyRequest.requestId);
+    const legacyConfig = JSON.parse(await readFile(join(project, legacyRequest.target, "canvas-config.json"), "utf8"));
+    assert.equal(legacyConfig.canvas.workflowListName, "Existing heading");
+    assert.equal(legacyConfig.canvas.workflowItemName, "Workflow");
 
     const minimal = await loadResolvedDesignerPages(handoff, project, entries);
     assert.deepEqual(minimal.pages[0].fields.map((field) => field.id),
@@ -1838,6 +1988,7 @@ test("stock contributions retain the optional slug setting and minimal replaced 
     const defaults = JSON.parse(await readFile(join(project, next.target, "canvas-config.json"), "utf8"));
     assert.equal(defaults.canvas.description, "Spec Kit workflow canvas.");
     assert.equal(defaults.canvas.workflowListName, "Workflows");
+    assert.equal(defaults.canvas.workflowItemName, "Workflow");
     assert.equal(defaults.userProvidesSlug, false);
     const { renderHtml } = await import(new URL("../../../../../spec-kit-extensions/extension-canvas-design/generated-scaffold/server.mjs",
         import.meta.url));
@@ -3413,6 +3564,14 @@ test("empty shell renders without a handoff and keeps the token gate", async (t)
     assert.match(await (await fetch(shell.url)).text(), /No Wizard handoff is attached yet/);
     const url = new URL(shell.url);
     assert.equal((await fetch(url.origin)).status, 404);
+});
+
+test("preview Value match exposes the shipping ordered input shape", async () => {
+    const shipping = JSON.parse(await readFile(new URL(
+        "../../../../../spec-kit-extensions/extension-canvas-design/generated-host/badges/rules/value-match.json",
+        import.meta.url), "utf8"));
+    const preview = previewModel().badgeRules.find(({ id }) => id === "value-match");
+    assert.deepEqual(preview.inputs, shipping.inputs);
 });
 
 test("preview checklist progress matches the shipping badge type and rule", async () => {
@@ -5065,7 +5224,7 @@ test("canvas opens with a partial inventory and rebuilds on reopening", async (t
     for (const file of ["index.html", "app.js", "generation-state.js", "generated-output-state.js",
         "identity-control.js", "output-evidence.js",
         "external-control-adapter-contract.js", "badges-control.js", "badge-duplicates.js",
-        "preview-badge-input.js", "styles.css"]) {
+        "badge-selection-contract.js", "badge-import-contract.js", "preview-badge-input.js", "styles.css"]) {
         await copyFile(join(source, "ui", file), join(extension, "ui", file));
     }
     const { project, entries } = await projectFixture(t, workspace);

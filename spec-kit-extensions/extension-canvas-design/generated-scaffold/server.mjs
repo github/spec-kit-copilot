@@ -7,6 +7,7 @@ import { isWindowsDeviceName, UserError } from "./files.mjs";
 import { phaseContract, valueContract } from "./contract.mjs";
 import { validControlValue } from "./external-control-contract.mjs";
 import { validateRuntimeSetup } from "./setup.mjs";
+import { validWorkflowItemName, workflowItemName } from "./contracts/external-host-adapter.mjs";
 import { readFieldPlacement as checkFieldPlacement, readPlacementControl as checkPlacementControl,
     readWorkflowPage as checkWorkflowPage, readImageAsset as checkImageAsset,
     readImageControl as checkImageControl, readTextControl as checkTextControl } from "./contracts/packaged-contributions.mjs";
@@ -200,6 +201,7 @@ export function readConfig() {
         || isWindowsDeviceName(config.canvas.id)
         || ["displayName", "description", "workflowListName"].some((key) =>
             typeof config.canvas[key] !== "string" || !config.canvas[key].trim())
+        || !validWorkflowItemName(config.canvas.workflowItemName)
         || !Array.isArray(config.phases) || !config.phases.length
         || config.phases.some((phase) => typeof phase !== "string" || !phase)
         || typeof config.userProvidesSlug !== "boolean"
@@ -629,13 +631,16 @@ const APPEARANCE_PROPERTIES = {
 
 export function renderHtml(config, token = "") {
     if (!validRuntimeConfig(config)) throw new Error("Invalid generated canvas configuration");
+    const itemName = workflowItemName(config.canvas?.workflowItemName);
+    const itemLabel = escapeHtml(itemName);
+    const slugHint = `${itemName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workflow"}-1`;
     const adapted = Boolean(config.workflowPage.pageAdapter);
     const wrapped = adapted || Boolean(config.generatedPages?.length);
     const presentation = adapted ? {
         id: "workflow", title: config.workflowPage.title,
         slots: config.workflowPage.slots, badgeDestinations: config.workflowPage.badgeDestinations,
         canvas: { displayName: config.canvas.displayName, workflowListName: config.canvas.workflowListName,
-            description: config.canvas.description },
+            description: config.canvas.description, workflowItemName: itemName },
         mainPageAsset: config.mainPageAsset, readOnlyFields: config.readOnlyFields ?? [],
         textPlacements: config.textPlacements ?? [], hasValues: Boolean(config.valueSources?.length),
         generatedControls: config.generatedControls ?? [],
@@ -674,32 +679,32 @@ export function renderHtml(config, token = "") {
             ${config.mainPageAsset
                 ? `<div class="collection-intro"><span data-stock-image="workflow.intro" data-image-file="${escapeHtml(config.mainPageAsset.file)}" data-image-alt="${escapeHtml(canvas.displayName)} logo" data-image-class="collection-logo generated-image"></span>${intro}</div>`
                 : intro}
-            <button class="btn btn-secondary" id="new-workflow" type="button">New workflow</button>
+            <button class="btn btn-secondary" id="new-workflow" type="button" aria-label="New ${itemLabel}">+ New</button>
         </div>
         <div id="workflow-identity" class="workflow-identity-fields" hidden>
             <label class="field" for="workflow-name">
-                <span class="field-label" id="workflow-name-label">Workflow name</span>
-                <input class="phase-input-control" id="workflow-name" type="text" maxlength="120" placeholder="Workflow 1" aria-describedby="workflow-name-help">
-                <span class="muted" id="workflow-name-help">Shown in the workflow list.</span>
+                <span class="field-label" id="workflow-name-label">${itemLabel} name</span>
+                <input class="phase-input-control" id="workflow-name" type="text" maxlength="120" placeholder="${itemLabel} 1" aria-describedby="workflow-name-help">
+                <span class="muted" id="workflow-name-help">Shown in the list.</span>
             </label>
             <label class="field" for="workflow-slug">
                 <span class="field-label" id="workflow-slug-label">Artifact directory slug <span class="muted">Optional</span></span>
                 <input class="phase-input-control" id="workflow-slug" type="text" maxlength="100"
-                    pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="workflow-1" aria-describedby="workflow-slug-help workflow-slug-error">
+                    pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="${slugHint}" aria-describedby="workflow-slug-help workflow-slug-error">
                 <span class="muted" id="workflow-slug-help">Leave blank to let Spec Kit choose the directory. Use lowercase, numbers, or hyphens.</span>
                 <span id="workflow-slug-error" class="workflow-error" role="alert" hidden></span>
             </label>
         </div>
         ${config.badges?.instances?.length && config.workflowPage.slots.some((slot) => slot.id === "workflow.summary")
-            ? '<div id="workflow-badge-summary" data-badge-slot="workflow.summary" class="canvas-badges" aria-label="Selected workflow badges" hidden></div>' : ""}
+            ? '<div id="workflow-badge-summary" data-badge-slot="workflow.summary" class="canvas-badges" aria-label="Selected item badges" hidden></div>' : ""}
         ${config.badges?.instances?.length ? '<p id="workflow-badge-diagnostics" class="muted" role="status" hidden></p>' : ""}
-        <label id="workflow-search-field" class="workflow-search" for="workflow-search" hidden><span class="visually-hidden">Search workflows</span><input id="workflow-search" type="search" placeholder="Search workflows by name or directory"></label>
+        <label id="workflow-search-field" class="workflow-search" for="workflow-search" hidden><span class="visually-hidden">Search by name or directory</span><input id="workflow-search" type="search" placeholder="Search by name or directory"></label>
         <div id="workflow-list" class="instance-list">
             <div id="workflow-rows" role="list" aria-labelledby="workflow-heading"${config.workflowPage.slots.some((slot) => slot.id === "workflow.list")
                 ? ' data-badge-slot="workflow.list"' : ""}></div>
-            <p id="workflow-empty">No workflows yet.</p>
+            <p id="workflow-empty">No items yet.</p>
         </div>
-        <p id="workflow-constitution-note" class="muted" hidden>Create a constitution to start a workflow.</p>
+        <p id="workflow-constitution-note" class="muted" hidden>Create a constitution before starting.</p>
         <p id="workflow-list-status" class="muted" role="status" hidden></p>
         <p id="workflow-action-error" class="workflow-error" role="alert" hidden></p>
     </section>`,
@@ -722,12 +727,12 @@ export function renderHtml(config, token = "") {
             data-canvas-title="${escapeHtml(canvas.displayName)}" hidden></section>
         <p id="generated-page-error" class="workflow-error" role="alert" hidden></p>` : "",
         constitution: hasConstitution ? `<section id="constitution-card" class="constitution-card" aria-label="Constitution">
-            <div class="constitution-summary"><strong>Constitution</strong><span class="muted">Applies to all workflows</span><span class="muted" id="constitution-status" role="status">Checking...</span>
+            <div class="constitution-summary"><strong>Constitution</strong><span class="muted">Applies to all items</span><span class="muted" id="constitution-status" role="status">Checking...</span>
             ${config.badges?.instances?.length
                 && (config.workflowPage.badgeDestinations ?? ["phase.card"]).includes("phase.card")
                 ? '<span id="constitution-badges" class="canvas-badges" aria-label="Constitution badges"></span>' : ""}
             </div>
-            <div class="constitution-details"><p id="constitution-prerequisite">Set the principles that guide every workflow in this project.</p><p id="constitution-artifact-status" class="muted" role="status"></p>
+            <div class="constitution-details"><p id="constitution-prerequisite">Set the principles that guide this project.</p><p id="constitution-artifact-status" class="muted" role="status"></p>
             </div>
             <div class="constitution-actions">${config.badges?.instances?.length
                 && (config.workflowPage.badgeDestinations ?? ["phase.output"]).includes("phase.output")
@@ -758,7 +763,7 @@ export function renderHtml(config, token = "") {
     <div class="header-status"><button class="btn-icon" id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">&#9680;</button><button class="btn btn-secondary" id="refresh-state" type="button">Refresh</button><span id="connection-status" class="conn conn-connecting" role="status">Connecting</span></div>
 </header>
 <p id="canvas-fatal-error" class="workflow-error" role="alert" hidden></p>
-<main id="workflow-surface" class="app-body workflow-surface">
+<main id="workflow-surface" class="app-body workflow-surface" data-workflow-item-name="${itemLabel}">
     ${adapted ? "" : `<section id="setup-surface" class="phase-card" aria-labelledby="setup-heading" hidden>
         <div class="setup-copy"><h2 id="setup-heading">Set up this project</h2>
             <p class="muted">Set up Spec Kit and install the selected presets, extensions, and bundles.</p></div>
@@ -798,7 +803,7 @@ export function renderHtml(config, token = "") {
     data-button-controls="${escapeHtml(JSON.stringify(config.buttonControls ?? []))}"></span>
 <div id="generated-dialog-root"></div>
 <dialog id="artifact-viewer" class="artifact-viewer" aria-labelledby="artifact-title"><header class="artifact-viewer-header"><button class="btn btn-secondary artifact-viewer-back" id="close-artifact" type="button">&#8592; Canvas</button><div class="artifact-viewer-title"><h2 id="artifact-title">Artifact</h2><code id="artifact-path" class="muted"></code></div></header><div class="artifact-viewer-body"><p id="artifact-message" role="status"></p><article id="artifact-content" class="artifact-viewer-md"></article></div></dialog>
-${adapted ? "" : '<dialog id="delete-workflow-dialog" aria-labelledby="delete-workflow-title"><h2 id="delete-workflow-title">Delete <span id="delete-workflow-name"></span>?</h2><p>This permanently deletes the selected workflow directory and everything in it:</p><p><code id="delete-workflow-directory"></code></p><footer class="viewer-head"><button class="btn btn-secondary" id="cancel-delete-workflow" type="button">Cancel</button><button class="btn btn-danger" id="confirm-delete-workflow" type="button">Delete workflow</button></footer></dialog>'}
+${adapted ? "" : `<dialog id="delete-workflow-dialog" aria-labelledby="delete-workflow-title"><h2 id="delete-workflow-title">Delete <span id="delete-workflow-name"></span>?</h2><p>This permanently deletes the selected item directory and everything in it:</p><p><code id="delete-workflow-directory"></code></p><footer class="viewer-head"><button class="btn btn-secondary" id="cancel-delete-workflow" type="button">Cancel</button><button class="btn btn-danger" id="confirm-delete-workflow" type="button">Delete ${itemLabel}</button></footer></dialog>`}
 ${!adapted && hasConstitution ? `<dialog id="constitution-dialog" aria-labelledby="constitution-dialog-title"><h2 id="constitution-dialog-title">Create constitution</h2><label class="field" for="constitution-args"><span class="field-label" id="constitution-args-label">Project principles</span><textarea class="phase-input-control" id="constitution-args" required></textarea></label><p id="constitution-message" role="status"></p><footer class="viewer-head"><button class="btn btn-secondary" id="cancel-constitution" type="button">Cancel</button><button class="btn btn-primary" id="send-constitution" type="button">Create constitution</button></footer></dialog>` : ""}
 <script type="module" src="/ui/app.js?token=${escapeHtml(encodeURIComponent(token))}"></script>
 </body></html>`;

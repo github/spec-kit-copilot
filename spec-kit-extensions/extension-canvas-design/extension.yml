@@ -42,7 +42,10 @@ provides:
       description: Optional Essentials collection description.
     - name: designer-essentials-workflow-heading
       file: designer-host/essentials-settings/workflow-heading.json
-      description: Optional Essentials workflow heading.
+      description: Optional Essentials header text.
+    - name: designer-essentials-workflow-item-name
+      file: designer-host/essentials-settings/workflow-item-name.json
+      description: Optional singular name for a workflow item.
     - name: designer-essentials-custom-slug
       file: designer-host/essentials-settings/custom-slug.json
       description: Default-off option to request a custom workflow artifact folder name.
@@ -152,6 +155,10 @@ provides:
       file: designer-host/badge-input-controls/stock/control.json
     - name: designer-badge-input-stock-adapter
       file: designer-host/badge-input-controls/stock/designer.mjs
+    - name: designer-badge-input-value-match
+      file: designer-host/badge-input-controls/value-match/control.json
+    - name: designer-badge-input-value-match-adapter
+      file: designer-host/badge-input-controls/value-match/designer.mjs
     - name: designer-badge-input-checklist
       file: designer-host/badge-input-controls/checklist/control.json
     - name: designer-badge-input-checklist-adapter
