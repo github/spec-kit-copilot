@@ -37,6 +37,7 @@ import { hydrateExtensionsForSources } from "./catalog/extensions.mjs";
 import { hydrateBundlesForSources } from "./catalog/bundles.mjs";
 import { PRESET_CATALOG_URL, EXTENSION_CATALOG_URL, BUNDLE_CATALOG_URL } from "./catalog/sources.mjs";
 import { snapshot } from "./canvas-runtime/snapshot.mjs";
+import { cancelBackgroundInference } from "./canvas-runtime/background-inference.mjs";
 import { runFastComposition, normalizeHookArtifactsInComposition } from "./canvas-runtime/composition-apply.mjs";
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
@@ -339,6 +340,12 @@ async function hydrateCatalogs(inst) {
 async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);
     if (!inst) return;
+    cancelBackgroundInference(inst);
+    clearTimeout(inst.outputInference?.timer);
+    clearTimeout(inst.refreshStatus?.timer);
+    inst.outputInference = null;
+    inst.outputInferenceOwner = null;
+    inst.refreshStatus = null;
     stopStateWatcher(inst);
     stopArtifactWatcher(inst);
     if (inst.sseClients) {

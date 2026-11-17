@@ -10,6 +10,7 @@ import {
     currentBundleFilter,
 } from "./state.js";
 import { readGenerateCanvas } from "../contracts/generate-feature.mjs";
+import { catalogOperationKind, validateCatalogRequest, validateCatalogResult } from "../contracts/catalog-operation.mjs";
 // The message router touches every renderer. Everything below is imported
 // lazily-safe (used only inside handleServerMessage bodies at SSE-event
 // time, not at module load) so the circular edges between client.js and
@@ -53,18 +54,28 @@ export function createClient({
     };
 
     async function postJson(path, body) {
+        const packageRequest = path === "/api/prompt" && catalogOperationKind(body?.kind);
         try {
             const res = await fetch(`${path}?token=${encodeURIComponent(token ?? "")}`, {
                 method: "POST",
                 headers,
                 body: JSON.stringify(body),
+                ...(packageRequest ? { signal: AbortSignal.timeout(20 * 60 * 1000) } : {}),
             });
             if (!res.ok) {
                 const text = await res.text().catch(() => "");
+                if (packageRequest) {
+                    let details;
+                    try { details = JSON.parse(text); }
+                    catch { throw new Error(`${res.status} ${text}`); }
+                    throw new Error(`${details.stage ?? "operation"}: ${details.error ?? text}${details.changed === true
+                        ? " Package files may have changed; no rollback was attempted." : ""}`);
+                }
                 throw new Error(`${res.status} ${text}`);
             }
             return await res.json().catch(() => ({}));
         } catch (err) {
+            if (packageRequest) showCatalogError(err.message);
             onError(path, err);
             return undefined;
         }
@@ -154,13 +165,55 @@ export function setPostJson(fn) {
 }
 
 export async function dispatchKind(kind, payload) {
-    return __postJson("/api/prompt", { kind, payload });
+    if (!catalogOperationKind(kind)) return __postJson("/api/prompt", { kind, payload });
+    showCatalogError("");
+    try {
+        validateCatalogRequest(kind, payload);
+        const result = await __postJson("/api/prompt", { kind, payload });
+        if (result === undefined) return undefined;
+        return validateCatalogResult(result, { kind });
+    } catch (error) {
+        console.error(`Package operation failed: ${error.message}`);
+        showCatalogError(error.message);
+        return undefined;
+    }
+}
+
+function showCatalogError(message) {
+    if (typeof document === "undefined") return;
+    const element = document.getElementById("catalog-operation-error");
+    if (!element) return;
+    element.textContent = message;
+    element.hidden = !message;
+}
+
+const catalogAttempts = new Map();
+
+export async function runCatalogAction(kind, payload, { pending, id, render }) {
+    const key = `${kind.split(".")[0]}:${id}`;
+    if (catalogAttempts.has(key)) {
+        showCatalogError("This package operation is still finishing; retry shortly.");
+        return undefined;
+    }
+    const attempt = {};
+    catalogAttempts.set(key, attempt);
+    pending[id] = kind.endsWith("install") ? "install" : "remove";
+    render();
+    const clear = () => {
+        if (catalogAttempts.get(key) !== attempt) return;
+        catalogAttempts.delete(key);
+        delete pending[id];
+        render();
+    };
+    const timer = setTimeout(clear, 90000);
+    try { return await dispatchKind(kind, payload); }
+    finally { clearTimeout(timer); clear(); }
 }
 
 // -------- Snapshot waiter: await an agent-driven state transition --------
 //
-// dispatchKind() only awaits the /api/prompt HTTP POST — it returns as soon
-// as the prompt is queued, NOT when the agent turn completes. That is a
+// Non-package dispatchKind() awaits only the /api/prompt acknowledgement,
+// NOT the agent turn. That is a
 // problem for multi-step flows like `runInit` where step N+1
 // (skills.reload) depends on step N (setup.init) having actually finished
 // writing files and updating state.json.

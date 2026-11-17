@@ -6,11 +6,8 @@ export function isCurrentRefresh(inst, refresh) {
 
 export function startRefresh(inst) {
     if (inst.refreshStatus?.timer) clearTimeout(inst.refreshStatus.timer);
-    if (inst.outputInference?.timer) clearTimeout(inst.outputInference.timer);
-    inst.outputInference = null;
-    inst.outputInferenceOwner = null;
     const refresh = { id: randomUUID(), status: "refreshing", pipelinePending: true,
-        outputsPending: true };
+        outputsPending: false };
     refresh.timer = setTimeout(() => {
         failRefresh(inst, refresh);
     }, 10 * 60 * 1000);

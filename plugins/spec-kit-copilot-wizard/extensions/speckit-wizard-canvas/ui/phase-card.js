@@ -34,7 +34,7 @@ import {
     markPhaseRunning,
     markPhaseSubmitted,
 } from "./phase-runtime.js";
-import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
+import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, performInstallDefaults, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
 import { outputEvidenceForCommand, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
@@ -72,11 +72,7 @@ function wireEnvironmentCard(el) {
             } else if (action === "probe-env") {
                 await performEnvProbe(btn.dataset.probeSource);
             } else if (action === "reinstall-defaults") {
-                installCatalogPreset({
-                    presetId: "copilot-sub-agents",
-                    name: "copilot-sub-agents",
-                    downloadUrl: "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
-                });
+                await performInstallDefaults();
             }
         });
     });
@@ -563,9 +559,6 @@ export function renderGraphPhaseCard(el, p) {
         analyze: {
             overlayHtml: `<span class="phase-input-overlay-primary">Add a specific concern for analysis to focus on.</span> <em class="phase-input-overlay-hint">If left empty, a full consistency and quality analysis will be performed across spec.md, plan.md, and tasks.md (with constitution.md as governing authority).</em>`,
         },
-        taskstoissues: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add issue-creation guidance like labels, milestone, and assignees.</span> <em class="phase-input-overlay-hint">If left empty, one GitHub issue per task will be created in tasks.md on the current repo's git remote.</em>`,
-        },
     };
     const DEFAULT_PHASE_OVERLAY = {
         overlayHtml: `<span class="phase-input-overlay-primary">Provide guidance to focus or scope this phase.</span> <em class="phase-input-overlay-hint">If left empty, the phase will run with default behavior using the existing artifacts.</em>`,
@@ -623,7 +616,6 @@ export function renderGraphPhaseCard(el, p) {
         tasks: "Break the plan into actionable work items.",
         analyze: "Check the spec, plan, and tasks for consistency.",
         implement: "Execute the tasks to build the feature.",
-        taskstoissues: "Convert generated task lists into GitHub issues for tracking and execution.",
     };
     const phaseTagline = PHASE_TAGLINE_OVERRIDES[p.id] ?? p.description ?? (p.title || p.helpText || "");
 

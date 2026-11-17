@@ -336,7 +336,8 @@ export function createHandler(deps) {
                 // scaffolding to remember. Deps bundles per handler because a
                 // few take different sub-sets of the closure environment.
                 const postRoutes = {
-                    "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance }),
+                    "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance,
+                        catalogOperation: deps.catalogOperation }),
                     "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body,
@@ -356,6 +357,8 @@ export function createHandler(deps) {
                             enableProviderForSession: deps.enableDesignerProvider,
                             getInstalledWorkflow: deps.getInstalledWorkflow,
                             stageHandoff: deps.stageDesignerHandoff,
+                            ensureOutputInference: deps.ensureOutputInference,
+                            waitForOutputInference: deps.waitForOutputInference,
                         });
                     },
                     "/api/designer/local-source": async () => {

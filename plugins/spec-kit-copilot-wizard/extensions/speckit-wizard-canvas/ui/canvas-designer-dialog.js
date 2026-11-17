@@ -82,6 +82,7 @@ function updateLaunch(root) {
         && typeof state.snapshot.catalog.designerFingerprint === "string";
     submit.disabled = Boolean(processing || confirming || inspecting || !ready);
     submit.setAttribute("aria-busy", String(processing));
+    submit.textContent = processing ? "Launching…" : "Launch designer";
     root.querySelectorAll("[data-designer-kind], [data-designer-tab], .wizard-modal-close, .wizard-modal-cancel")
         .forEach((element) => {
             element.disabled = Boolean(processing || pendingInspections.has(element)) || requiredInputs.has(element);
@@ -101,6 +102,7 @@ function updateLaunch(root) {
         });
     const error = root.querySelector(".designer-error");
     error.textContent = errorMessage || (!ready ? "Wait for the catalog to load before launching." : "");
+    error.setAttribute("role", "alert");
     error.hidden = !error.textContent;
 }
 

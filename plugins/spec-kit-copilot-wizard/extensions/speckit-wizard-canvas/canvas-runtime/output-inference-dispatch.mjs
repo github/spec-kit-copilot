@@ -1,0 +1,78 @@
+import { commandId } from "../artifact-evidence.mjs";
+import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { snapshot } from "./snapshot.mjs";
+import { sessionAdapter } from "./instances.mjs";
+import { buildArtifactInferencePrompt as defaultBuildPrompt } from "./artifact-inference-prompt.mjs";
+import { startBackgroundInference } from "./background-inference.mjs";
+import {
+    beginOutputInference,
+    createOutputInferenceWorker,
+    failOutputInference,
+    unassignedOutputRequests,
+} from "./output-inference.mjs";
+
+const MAX_BACKGROUND_WORKERS = 3;
+
+function splitRequests(requests, count) {
+    const chunkSize = Math.ceil(requests.length / count);
+    return Array.from({ length: count }, (_, index) =>
+        requests.slice(index * chunkSize, (index + 1) * chunkSize)).filter((chunk) => chunk.length);
+}
+
+function scheduleWorkers(inst, inference) {
+    if (inst.outputInference !== inference || inference.status !== "updating") return;
+    const slots = MAX_BACKGROUND_WORKERS - inference.workers.size;
+    if (slots < 1) return;
+    const requests = unassignedOutputRequests(inference);
+    if (!requests.length) return;
+    const batches = splitRequests(requests, Math.min(slots, requests.length));
+    for (const commands of batches) {
+        const { worker, endpoint } = createOutputInferenceWorker(inst, inference, commands);
+        const isCurrent = () => inst.outputInference === inference
+            && inference.workers.get(worker.id) === worker;
+        void Promise.resolve().then(() => inference.buildPrompt({
+            workspacePath: inst.workspacePath,
+            commands,
+            endpoint: endpoint.toString(),
+        })).then((prompt) => inference.startWorker(inst, { prompt },
+            inference.session, isCurrent, worker.id)).catch((error) => {
+            failOutputInference(inst, inference, worker.id,
+                `Output inference dispatch failed: ${error.message}`);
+        });
+    }
+}
+
+export async function ensurePipelineOutputInference(inst, {
+    getSnapshot = snapshot,
+    session = sessionAdapter(),
+    buildPrompt = defaultBuildPrompt,
+    startWorker = (target, request, workerSession, isCurrent, workerId) =>
+        startBackgroundInference(target, request, workerSession, isCurrent, workerId),
+} = {}) {
+    const current = await getSnapshot(inst);
+    const pipelineCommands = new Set(effectivePipelinePhases(current)
+        .map(({ id }) => commandId(id)));
+    const requests = (current?.artifactInferenceRequests ?? [])
+        .filter(({ commandId: id }) => pipelineCommands.has(commandId(id)));
+    if (!requests.length) return { queued: false, requests: [] };
+    const inference = beginOutputInference(inst, requests);
+    if (!inference) return { queued: false, requests: [] };
+    inference.session = session;
+    inference.buildPrompt = buildPrompt;
+    inference.startWorker = startWorker;
+    inference.schedule = () => scheduleWorkers(inst, inference);
+    scheduleWorkers(inst, inference);
+    return { queued: true, requests, inference };
+}
+
+// Resolves once the given inference run is no longer updating. The run's own
+// timeout marks it incomplete, so this wait is bounded.
+export async function waitForOutputInference(inst, inference, { intervalMs = 250 } = {}) {
+    while (inference && inst.outputInference === inference && inference.status === "updating") {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+}
+
+export function scheduleOutputInference(inst, inference = inst.outputInference) {
+    if (inference?.schedule) scheduleWorkers(inst, inference);
+}

@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { CONSTITUTION_OUTPUT, fingerprint, HANDOFF_LIMIT, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
 import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
+import { ensurePipelineOutputInference, waitForOutputInference as waitForPipelineOutputInference } from "../canvas-runtime/output-inference-dispatch.mjs";
 import { buildAugmentedPath } from "../env/resolve-path.mjs";
 import { runtimeSettings } from "../env/runtime-settings.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
@@ -424,6 +425,8 @@ export async function handleDesignerLaunch(res, body, {
     getState, getInstance, session, log, enableProviderForSession = enableDesignerProvider,
     getInstalledWorkflow = readInstalledWorkflowInventory,
     stageHandoff = stageDesignerHandoff,
+    ensureOutputInference = ensurePipelineOutputInference,
+    waitForOutputInference = waitForPipelineOutputInference,
 }) {
     const inst = getInstance();
     if (!inst?.workspacePath) return jsonError(res, 400, "Wizard workspace is unavailable");
@@ -431,7 +434,7 @@ export async function handleDesignerLaunch(res, body, {
     if (!session?.send) return jsonError(res, 503, "Designer session dispatch is unavailable");
     inst.designerLaunchPending = true;
     try {
-        const snapshot = await getState();
+        let snapshot = await getState();
         if (!snapshot?.catalog || KINDS.some((kind) => !Array.isArray(snapshot.catalog[kind]))
             || typeof snapshot.catalog.designerFingerprint !== "string") {
             return jsonError(res, 409, "Designer catalog is not ready");
@@ -443,12 +446,24 @@ export async function handleDesignerLaunch(res, body, {
             || JSON.stringify(body?.expectedPhases) !== JSON.stringify(phases)) {
             return jsonError(res, 409, "Wizard pipeline or catalog changed; reopen the Designer setup");
         }
-        if (!outputEvidenceReady(snapshot)) {
-            return jsonError(res, 409, "Wizard output inference is not ready; refresh outputs before opening Designer");
-        }
         let selections;
         try { selections = validateDesignerSelections(body.selections, snapshot.catalog); }
         catch (error) { return jsonError(res, 422, error.message); }
+        const preparation = await ensureOutputInference(inst, {
+            getSnapshot: async () => snapshot,
+            session,
+        });
+        if (preparation.queued) {
+            await waitForOutputInference(inst, preparation.inference);
+            snapshot = await getState();
+            if (snapshot?.catalog?.designerFingerprint !== body.catalogFingerprint
+                || JSON.stringify(designerPhaseIds(snapshot)) !== JSON.stringify(phases)) {
+                return jsonError(res, 409, "Wizard pipeline or catalog changed; reopen the Designer setup");
+            }
+        }
+        if (!outputEvidenceReady(snapshot)) {
+            return jsonError(res, 409, "Pipeline preparation did not finish; retry Designer launch");
+        }
         let localSelections;
         try { localSelections = await validateLocalDesignerSelections(body.localSelections); }
         catch (error) { return jsonError(res, 422, error.message); }

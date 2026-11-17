@@ -167,27 +167,41 @@ the server's fingerprint validation rather than saving outdated evidence.
 Opening an expected output in the viewer before it exists shows an
 "Output not ready or not found" message rather than a raw 404.
 The **Composition** button reads **Refresh** when idle, whether or not the latest
-data is up to date; progress and retry messages appear beside it. It rechecks
-installed skills and refreshes the phase output evidence; catalog install/remove actions refresh it as
-part of their normal update. On the Phases tab, a prominent status row above
-the phase cards stays visible while pipeline or output inference is pending,
-briefly confirms completion, and remains visible with retry guidance if a
-refresh cannot finish. Merely opening the Phases tab does not start an
-inference turn.
-An unreadable output cache marks an active inference incomplete immediately,
-rather than leaving the refresh pending until its fallback timeout.
-Starting a refresh detaches previous output inference and clears its timers
-immediately. Asynchronous refresh work captures its owning refresh before
-awaiting; lifecycle helpers only update that owner while it is still current.
-Output completion, failures, and timeouts also require the same inference
-object. The instance retains that inference owner after completion, with or
-without an explicit refresh, until new inference setup or a new refresh replaces
-it. Superseded setup returns an explicit error and does not enqueue another
-turn. Agent replies also carry their originating run ID:
+data is up to date; its progress and retry messages describe composition refresh
+only. Opening the Phases tab and changing installed packages do not start output
+inference. After a phase Run click, the Wizard checks missing or stale outputs
+for the current user-visible pipeline and dispatches inference in the background
+while the phase runs. The Output(s) row shows "Retrieving outputs…" while those
+details are pending. If Canvas Designer is launched before a phase has been run,
+the launch starts the same pipeline-scoped inference, waits for it to finish
+(the button reads "Launching…"), and then opens the Designer session.
+Fingerprint-matched cached outputs are reused. Output inference uses up to
+three concurrent background workers; refreshes, pipeline edits, and package
+removal do not cancel useful work or delete cached results. Removing a command,
+preset, or extension leaves its cache available if it is later restored.
+Before dispatch, the host reads requested effective `SKILL.md` files
+concurrently and includes them in one prompt, up to 512 KiB total. The agent
+uses those supplied contents and only reads referenced path helpers when needed.
+Unchanged built-in commands use canonical Markdown outputs without inference.
+Preset/extension command contributions (including wrap/prepend/append), or
+installed skill metadata identifying a non-core provider, retain inference.
+Without confirmed core provenance, the host also retains inference. Explicit
+artifact declarations and manual metadata keep their existing precedence.
+The host uses `session.rpc.tasks.startAgent` and `tasks.cancel`, inheriting
+the session's model and permissions. Unsupported runtimes fail visibly rather
+than silently falling back to the foreground queue. Each worker has its own
+reply run ID, validates only its assigned commands, and merges cache writes
+serially so concurrent results are retained. Stale replies remain rejected by
+run ID and fingerprint.
+This is nonvisual host scheduling; the existing stock Phases status renderer
+and snapshot contract are reused, with no new customizable UI template.
+An unreadable output cache marks the relevant inference incomplete immediately,
+rather than leaving it pending until its fallback timeout. Output inference is
+independent of composition refresh ownership; the composition refresh indicator
+does not reflect output inference. Agent replies carry their originating run ID:
 `showInferredPipeline({runId, inferredPipeline})` copies the refresh prompt's
-ID; artifact POSTs use the complete returned `artifactInferenceEndpoint`,
-including its inference-specific `runId` query parameter, even without an
-explicit refresh. Never replace an old ID using a newer state snapshot.
+ID; artifact POSTs use the worker-specific endpoint, including its `runId`
+query parameter. Never replace an old ID using a newer state snapshot.
 Missing/malformed IDs are rejected (HTTP 400); stale, completed, or expired IDs
 are rejected (HTTP 409). Pipeline actions return `ok: false` with
 `inferredPipelineStatus.accepted: false` and the concrete rejection reason.
@@ -215,8 +229,9 @@ The skill's output declaration is parsed from the same bytes used to fingerprint
 it, so a concurrent skill edit cannot mix two versions in one snapshot.
 Cache updates use an exclusive temporary file in a revalidated directory and
 atomically replace the destination rather than writing through a cache symlink.
-The extension-artifact scanner uses these same cache read and write paths when
-hydrating outputs and pruning entries for removed extensions.
+The extension-artifact scanner uses the same secure cache reader when
+hydrating outputs. It leaves entries on disk when their command is unavailable,
+but does not hydrate them until that command is available again.
 
 ## Opening the dashboard
 
@@ -247,6 +262,76 @@ active chat turn for that run has finished.
 Commands are restricted to the `speckit-*` skills of the customized
 lifecycle, and feature slugs are normalized to `[a-z0-9-]`, so the
 canvas can only trigger phases that belong to your composed pipeline.
+
+## Direct package operations
+
+Preset, extension, and bundle install/remove buttons run Specify directly in the
+Wizard provider, rather than queueing an install skill behind the Copilot agent.
+Setup's default-preset install, `addPreset`/`addExtension`, and Composition
+removal actions use the same service. Initialization, phases, package updates,
+and priority-editing actions retain their existing behavior.
+
+The shared contract is `contracts/catalog-operation.mjs`. For these mutations,
+`POST /api/prompt` now waits for verified completion and returns HTTP 200 with
+`{ok, id, kind, outcome, skillsReloaded, timings}`; `outcome` is `changed` or
+`already-satisfied`. It no longer returns the old HTTP 202 `{queued:true}` install
+acknowledgement. Other prompt kinds still do. The browser validates the result
+against the requested kind; a queued acknowledgement is not package success.
+Remove requests identify the actual installed manifest ID, not its display name.
+Failures include `error`, `stage`, and `changed` (files may already have changed).
+Catalog broadcasts continue to reflect verified inventories even if subsequent
+skill reload or composition fails; the provider does not claim rollback.
+
+Install selections must come from provider-fetched catalogs, not advisory
+agent-pushed catalog data. Community confirmation is bound to the exact selected
+URL or inline manifest. URLs require HTTPS; no catalog trust policy is changed.
+ID-only actions require an unambiguous trusted selection. Existing installations
+are not forcibly replaced: version, enabled state, requested priority and source
+must be verifiable, otherwise the operation reports a conflict. Bundle receipts
+do not establish their original source, so an already-installed bundle is not
+silently treated as matching another install request.
+
+Specify owns bundle resolution, ordering, and ownership-aware removal. Archive
+and manifest staging uses unique, narrowly cleaned temporary directories.
+Subprocesses retain augmented PATH, argument-array invocation, a two-minute
+timeout and 2 MiB output limit. Concurrent mutations of the same checkout return
+an actionable busy error instead of entering a queue. Only the affected catalog
+controls show pending state; unrelated phase Run/retry remains available.
+
+Fresh JSON inventories are read in parallel before and after each mutation.
+Effective preset/extension changes trigger one bounded SDK skill reload and one
+composition rebuild. Package changes do not start output inference; it runs
+only on a phase Run click or as the Canvas Designer launch fallback.
+Pipeline-order inference still requires the existing Refresh flow when the fast
+assembler cannot determine it. Setup skips its extra reload only after the
+package result confirms a successful reload.
+
+`timings` reports available inventory, command, source-staging, reload,
+composition and total host durations in milliseconds. Browser journeys exercise
+real Specify installs and removals in disposable checkouts while `session.send`
+remains unresolved. Preset/extension acquisition is mapped to local fixtures;
+the bundle journey uses a CLI-bundled extension and checks that removal retains
+an independently installed preset. These are local-source measurements, not
+hosted-download benchmarks or a matched agent-path speedup comparison.
+
+One local Windows fixture run recorded these host durations in seconds:
+
+| Operation | Inventory before / after | Specify mutation | Composition | Total |
+| --- | --- | --- | --- | --- |
+| Preset install | 0.86 / 2.76 | 1.03 | 0.58 | 5.23 |
+| Extension install | 1.46 / 0.77 | 1.00 | 0.15 | 3.37 |
+| Preset removal | 0.82 / 2.89 | 0.98 | 0.53 | 5.22 |
+
+SDK reload was mocked and took under 2 ms; a live reload can cost more. The
+retained legacy dispatcher acknowledged enqueueing in about 2 ms without running
+any install: that is not an end-to-end baseline. The measured improvement is
+independence from agent availability, not a defensible percentage speedup.
+
+Existing stock catalog buttons, community modal, and error styling are reused;
+the new error message is fixed-shell UI. No customizable control or cross-host
+renderer is added, so no definition/adapter template pair is needed. This
+development change does not publish packages, change versions, or refresh an
+installed provider.
 
 ## Agent-callable actions
 

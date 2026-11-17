@@ -13,7 +13,11 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
-import { beginOutputInference } from "../canvas-runtime/output-inference.mjs";
+import {
+    beginOutputInference,
+    createOutputInferenceWorker,
+    failOutputInference,
+} from "../canvas-runtime/output-inference.mjs";
 import { buildStateSnapshot } from "../canvas-runtime/snapshot-builder.mjs";
 import {
     ACTION_KINDS,
@@ -374,11 +378,13 @@ function tmpWorkspace() {
 function artifactDeps(workspacePath) {
     const inst = { workspacePath, state: {}, url: "http://127.0.0.1:1234",
         token: "secret-token", broadcast() {} };
-    const endpoint = beginOutputInference(inst,
-        [{ commandId: "speckit.plan", fingerprint: "a".repeat(64) }], inst.refreshStatus);
+    const requests = [{ commandId: "speckit.plan", fingerprint: "a".repeat(64) }];
+    const inference = beginOutputInference(inst, requests);
+    const { worker, endpoint } = createOutputInferenceWorker(inst, inference, requests);
     outputTimers.push(inst.outputInference.timer);
     return { ...baseDeps({ getInstance: () => inst }),
-        artifactEndpoint: endpoint.pathname + endpoint.search };
+        artifactEndpoint: endpoint.pathname + endpoint.search,
+        artifactWorker: worker.id };
 }
 
 // NOTE: The "writes a fresh cache with valid entries" happy path is
@@ -404,7 +410,7 @@ test("POST /api/artifact-targets: merges into an existing cache without clobberi
         const h = createHandler(deps);
         const body = JSON.stringify({
             entries: {
-                "commands/new.one": { writesTo: ".specify/new.md", source: "llm" },
+                "commands/plan": { writesTo: ".specify/new.md", source: "llm" },
             },
         });
         const req = mockReq({
@@ -418,13 +424,13 @@ test("POST /api/artifact-targets: merges into an existing cache without clobberi
         assert.equal(res.statusCode, 200, res.body);
         const parsed = JSON.parse(readFileSync(join(ws, ".speckit-wizard", "artifact-targets.json"), "utf8"));
         assert.equal(parsed.entries["commands/old.one"].writesTo, ".specify/old.md");
-        assert.equal(parsed.entries["commands/new.one"].writesTo, ".specify/new.md");
+        assert.equal(parsed.entries["commands/plan"].writesTo, ".specify/new.md");
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
 });
 
-test("POST /api/artifact-targets: drops non-commands/ keys and missing writesTo", async () => {
+test("POST /api/artifact-targets: drops non-command keys and keeps the assigned command", async () => {
     const ws = tmpWorkspace();
     try {
         const deps = artifactDeps(ws);
@@ -432,9 +438,7 @@ test("POST /api/artifact-targets: drops non-commands/ keys and missing writesTo"
         const body = JSON.stringify({
             entries: {
                 "templates/foo": { writesTo: ".specify/skip.md" }, // wrong prefix
-                "commands/good": { writesTo: ".specify/keep.md" },
-                "commands/bad": { source: "llm" }, // no writesTo
-                "commands/blank": { writesTo: "   " }, // blank writesTo
+                "commands/plan": { writesTo: ".specify/keep.md" },
             },
         });
         const req = mockReq({
@@ -447,7 +451,7 @@ test("POST /api/artifact-targets: drops non-commands/ keys and missing writesTo"
         await h(req, res);
         assert.equal(res.statusCode, 200);
         const parsed = JSON.parse(readFileSync(join(ws, ".speckit-wizard", "artifact-targets.json"), "utf8"));
-        assert.deepEqual(Object.keys(parsed.entries), ["commands/good"]);
+        assert.deepEqual(Object.keys(parsed.entries), ["commands/plan"]);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -501,7 +505,12 @@ test("HTTP artifact replies require the originating endpoint runId before any ca
         const oldUrl = deps.artifactEndpoint;
         beginOutputInference(inst, [{ commandId: "speckit.plan", fingerprint: "a".repeat(64) }],
             inst.refreshStatus);
-        const current = inst.outputInference;
+        const previousWorker = deps.artifactWorker;
+        failOutputInference(inst, inst.outputInference, previousWorker);
+        const requests = [{ commandId: "speckit.plan", fingerprint: "a".repeat(64) }];
+        const current = beginOutputInference(inst, requests);
+        const { worker, endpoint } = createOutputInferenceWorker(inst, current, requests);
+        const currentUrl = endpoint.pathname + endpoint.search;
         outputTimers.push(current.timer);
         const handler = createHandler(deps);
         for (const [url, status] of [
@@ -522,6 +531,8 @@ test("HTTP artifact replies require the originating endpoint runId before any ca
             assert.equal(current.timer._destroyed, false);
             assert.ok(!existsSync(join(ws, ".speckit-wizard", "artifact-targets.json")));
         }
+        assert.notEqual(currentUrl, oldUrl);
+        assert.equal(worker.id, new URL(currentUrl, "http://localhost").searchParams.get("runId"));
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -739,8 +750,9 @@ test("S5: artifact-targets round-trip — POST writes cache, scanner surfaces ar
         const deps = baseDeps({ workspacePath: ws });
         const inst = { workspacePath: ws, state: {}, url: "http://127.0.0.1:1234",
             token: "secret-token", broadcast() {} };
-        const endpoint = beginOutputInference(inst,
-            [{ commandId: "speckit.assess.intake", fingerprint: "a".repeat(64) }], inst.refreshStatus);
+        const requests = [{ commandId: "speckit.assess.intake", fingerprint: "a".repeat(64) }];
+        const inference = beginOutputInference(inst, requests);
+        const { endpoint } = createOutputInferenceWorker(inst, inference, requests);
         outputTimers.push(inst.outputInference.timer);
         deps.getInstance = () => inst;
         const h = createHandler(deps);
@@ -931,15 +943,6 @@ test("S7: buildStateSnapshot derives per-phase locked from durable setup complet
         if (id === "setup") continue;
         assert.equal(phase.locked, false, `phase ${id} must be unlocked when setup complete`);
     }
-    // Case C: taskstoissues stays gated until a provider is in composition.
-    assert.equal(snapB.phases.taskstoissues?.gated, true, "no taskstoissues provider → gated=true");
-    // Add a matching layer, re-snapshot: gated flips.
-    const scanWithProvider = {
-        ...scanComplete,
-        composition: { presets: [], extensions: [{ name: "speckit-taskstoissues", source: "catalog" }] },
-    };
-    const snapC = buildStateSnapshot(scanWithProvider);
-    assert.equal(snapC.phases.taskstoissues?.gated, false, "taskstoissues provider in composition → gated=false");
 });
 
 // -------- S8: env-probe → state-store setup slice → derived phase ---------

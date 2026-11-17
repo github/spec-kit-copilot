@@ -10,6 +10,8 @@ import { collectArtifactEvidence, effectiveSource, readEvidenceCache } from "../
 import { compositionActions } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/actions/composition.mjs";
 import { phaseActions } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/actions/phase.mjs";
 import { runFastComposition } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/composition-apply.mjs";
+import { runCatalogOperation } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/catalog-operations.mjs";
+import { runSpecify } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/specify-command.mjs";
 import { allInstances, fsDeps, getInstance, setSession } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/instances.mjs";
 import { attachOutputEvidence } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/canvas-runtime/output-availability.mjs";
 import { startServer } from "../../plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server.mjs";
@@ -25,7 +27,7 @@ const run = promisify(execFile);
 
 async function withWizardCheckout(page, run, {
     setup: setupOverrides = {}, environment: environmentOverrides = {},
-    reload, boot, depsError, beforeNavigate, send,
+    reload, boot, depsError, beforeNavigate, send, startInference, packageCommand,
     generateCanvas = false,
     checkoutPrefix = join(tmpdir(), "wizard-flow-e2e-"),
 } = {}) {
@@ -55,7 +57,16 @@ async function withWizardCheckout(page, run, {
                 prompts.push(prompt);
                 return send ? send(prompt) : new Promise(() => {});
             },
-            rpc: { skills: { reload: reload ?? (async () => ({ errors: [], warnings: [] })) } },
+            rpc: {
+                skills: { reload: reload ?? (async () => ({ errors: [], warnings: [] })) },
+                tasks: {
+                    startAgent: ({ prompt }) => {
+                        prompts.push(prompt);
+                        return startInference ? startInference(prompt) : Promise.resolve({ agentId: randomUUID() });
+                    },
+                    cancel: async () => ({ cancelled: true }),
+                },
+            },
         };
         setSession(session);
         const getState = async () => ({
@@ -69,14 +80,18 @@ async function withWizardCheckout(page, run, {
                 artifactPath: inst.state.phases?.constitution?.artifactPath ?? null, locked: false }],
             pipeline: inst.state.pipeline,
             composition: inst.cachedComposition,
-            catalog,
+            catalog: { ...catalog, presets: inst.cachedPresetItems ?? catalog.presets,
+                extensions: inst.cachedExtensionItems ?? catalog.extensions,
+                bundles: inst.cachedBundleItems ?? catalog.bundles },
             environment: inst.environment,
             scaffoldedSkills: ["speckit-constitution"], skillsReload: inst.skillsReload,
             refreshStatus: inst.refreshStatus?.status ?? "ready",
             refreshId: inst.refreshStatus?.id ?? null,
             warnings: [],
         });
-        server = await startServer(id, { session, log: async () => {}, getInstance: () => inst, getState });
+        server = await startServer(id, { session, log: async () => {}, getInstance: () => inst, getState,
+            catalogOperation: packageCommand ? (instance, kind, payload) =>
+                runCatalogOperation(instance, kind, payload, { command: packageCommand, session }) : undefined });
         inst.broadcast = (message) => server.broadcast(message.type === "state"
             ? { type: "invalidate", reason: "fixture state changed" } : message);
         await beforeNavigate?.({ root, id, inst, server });
@@ -94,6 +109,53 @@ async function withWizardCheckout(page, run, {
         setSession(null);
         await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
+}
+
+async function initializePackageFixture({ root, inst }) {
+    inst._verifiedCatalogFields = new Set(["cachedPresetItems", "cachedExtensionItems", "cachedBundleItems"]);
+    await runSpecify(root, ["init", "--here", "--force", "--non-interactive",
+        "--ignore-agent-tools", "--integration", "copilot", "--integration-options=--skills",
+        "--script", process.platform === "win32" ? "ps" : "sh"]);
+}
+
+test("unchanged built-in outputs require no inference after real CLI initialization", async ({ page }) => {
+    await withWizardCheckout(page, async ({ root, inst, prompts }) => {
+        expect((await runFastComposition(inst, { reason: "core output fixture" })).ok).toBe(true);
+        const outputs = await collectArtifactEvidence(root, { composition: inst.cachedComposition });
+        expect(outputs.warnings).toEqual([]);
+        expect(outputs.requests.map(({ commandId }) => commandId)).toEqual([]);
+        expect(outputs.evidence.plan.candidates[0]).toMatchObject({
+            path: "specs/<slug>/plan.md", source: "core",
+        });
+        expect(outputs.evidence.analyze.candidates[0].kind).toBe("none");
+        expect(prompts).toEqual([]);
+    }, { beforeNavigate: initializePackageFixture });
+});
+
+// Keep network acquisition out of the fixture benchmark; the real CLI still
+// installs, composes, records ownership and removes every selected package.
+async function fixturePackageCommand(project, args, _run, options) {
+    if (args[1] === "add") {
+        const path = args[0] === "preset" ? presetPath : extensionPath;
+        const id = args[0] === "preset" ? preset.id : extension.id;
+        expect(args[2]).toBe(id);
+        expect(args.slice(3)).toEqual(["--from", `https://fixtures.invalid/${id}.zip`]);
+        return runSpecify(project, args[0] === "preset"
+            ? ["preset", "add", "--dev", path] : ["extension", "add", path, "--dev"]);
+    }
+    return runSpecify(project, args, undefined, options);
+}
+
+async function completePackageClick(page, button, kind) {
+    const response = page.waitForResponse((res) => res.url().includes("/api/prompt")
+        && res.request().method() === "POST" && res.request().postDataJSON()?.kind === kind);
+    await button.click();
+    const completed = await response;
+    const result = await completed.json();
+    expect(result, JSON.stringify(result)).toHaveProperty("ok", true);
+    expect(completed.status()).toBe(200);
+    expect(result.queued).toBeUndefined();
+    return result;
 }
 
 test("environment Recheck adopts the latest probe without reopening the Wizard", async ({ page }) => {
@@ -297,35 +359,32 @@ test("installed Wizard preset replaces Plan and prepends Specify in the visible 
 });
 
 test("catalog choices update real fixture layers and retain their package identity", async ({ page }) => {
-    await withWizardCheckout(page, async ({ root, inst, prompts, catalog, server }) => {
+    test.setTimeout(120000);
+    let reloads = 0;
+    const measurements = [];
+    await withWizardCheckout(page, async ({ inst, prompts, catalog, server }) => {
         const presetItem = { id: preset.id, name: preset.name, version: preset.version,
-            source: "copilot", active: false, enabled: true };
+            source: "copilot", active: false, enabled: true,
+            downloadUrl: `https://fixtures.invalid/${preset.id}.zip` };
         const extensionItem = { id: extension.id, name: extension.name, version: extension.version,
-            source: "copilot", active: false, enabled: true };
+            source: "copilot", active: false, enabled: true,
+            downloadUrl: `https://fixtures.invalid/${extension.id}.zip` };
         catalog.presets.push(presetItem);
         catalog.extensions.push(extensionItem);
+        inst.cachedPresetItems = catalog.presets;
+        inst.cachedExtensionItems = catalog.extensions;
         server.broadcast({ type: "invalidate", reason: "fixture catalog loaded" });
         await page.locator('#setup-stepper .step[data-substep="catalogs"]').click();
         const presetCard = page.locator("#catalog-grid .catalog-card")
             .filter({ has: page.locator("h3", { hasText: preset.name }) });
-        await presetCard.getByRole("button", { name: "Add" }).click();
-        await expect.poll(() => prompts.length).toBe(1);
-        await cp(presetPath, join(root, ".specify", "presets", preset.id), { recursive: true });
-        presetItem.active = true;
-        inst.cachedPresetItems = [presetItem];
-        expect((await runFastComposition(inst, { reason: "catalog-test" })).ok).toBe(true);
-        server.broadcast({ type: "preset-catalog", items: catalog.presets });
+        measurements.push(await completePackageClick(page,
+            presetCard.getByRole("button", { name: "Add" }), "preset.install"));
         await expect(presetCard.getByRole("button", { name: "Remove" })).toBeVisible();
         await page.locator('[data-subtab-group="catalogs"] .subtab[data-subtab="extensions"]').first().click();
         const extensionCard = page.locator("#extension-grid .catalog-card")
             .filter({ has: page.locator("h3", { hasText: extension.name }) });
-        await extensionCard.getByRole("button", { name: "Add" }).click();
-        await expect.poll(() => prompts.length).toBe(2);
-        await cp(extensionPath, join(root, ".specify", "extensions", extension.id), { recursive: true });
-        extensionItem.active = true;
-        inst.cachedExtensionItems = [extensionItem];
-        expect((await runFastComposition(inst, { reason: "catalog-test" })).ok).toBe(true);
-        server.broadcast({ type: "extension-catalog", items: catalog.extensions });
+        measurements.push(await completePackageClick(page,
+            extensionCard.getByRole("button", { name: "Add" }), "extension.install"));
         await expect(extensionCard.getByRole("button", { name: "Remove" })).toBeVisible();
         await page.locator('#setup-stepper .step[data-substep="composition"]').click();
         await expect(page.locator("#comp-artifacts")).toContainText(preset.name);
@@ -341,30 +400,36 @@ test("catalog choices update real fixture layers and retain their package identi
         expect(inst.cachedComposition.artifacts.some((item) => item.kind === "hook")).toBe(true);
         await page.locator('#setup-stepper .step[data-substep="catalogs"]').click();
         await page.locator('[data-subtab-panel][data-subtab-group="catalogs"]:not([hidden]) .subtab[data-subtab="presets"]').click();
-        await presetCard.getByRole("button", { name: "Remove" }).click();
-        await expect.poll(() => prompts.length).toBe(3);
-        await rm(join(root, ".specify", "presets", preset.id), { recursive: true });
-        presetItem.active = false;
-        inst.cachedPresetItems = [];
-        expect((await runFastComposition(inst, { reason: "catalog-test" })).ok).toBe(true);
-        server.broadcast({ type: "preset-catalog", items: catalog.presets });
+        measurements.push(await completePackageClick(page,
+            presetCard.getByRole("button", { name: "Remove" }), "preset.remove"));
         await expect(presetCard.getByRole("button", { name: "Add" })).toBeVisible();
         expect(inst.cachedComposition.presets.some((item) => item.id === preset.id)).toBe(false);
-    });
+        expect(reloads).toBe(3);
+        expect(prompts.length).toBeGreaterThan(0);
+        expect(prompts.every((prompt) => prompt.startsWith("Work only in this Wizard checkout:"))).toBe(true);
+        expect(prompts.every((prompt) => prompt.includes("Infer outputs for the listed installed commands"))).toBe(true);
+        console.log("Direct package fixture timings (ms; acquisition is local):",
+            JSON.stringify(measurements.map(({ kind, timings }) => ({ kind, ...timings }))));
+    }, { packageCommand: fixturePackageCommand, beforeNavigate: initializePackageFixture,
+        reload: async () => { reloads++; return { errors: [], warnings: [] }; } });
 });
 
 test("controlled community bundle confirmation preserves an overlapping direct choice", async ({ page }) => {
-    await withWizardCheckout(page, async ({ prompts, catalog, server }) => {
+    test.setTimeout(120000);
+    await withWizardCheckout(page, async ({ inst, prompts, catalog, server }) => {
         const direct = { id: preset.id, name: preset.name, version: preset.version,
             source: "copilot", active: true, enabled: true };
-        const bundledExtension = { id: extension.id, name: extension.name,
-            version: extension.version, source: "copilot", active: false, enabled: true };
+        const bundledExtension = { id: "bug", name: "Bug",
+            version: inst.fixtureBugVersion, source: "default", active: false, enabled: true };
         const bundle = { id: "wizard-flow-bundle-test", name: "Wizard Flow Bundle Test",
             source: "community", active: false, installAllowed: false,
-            bundleYml: `schema_version: "1.0"\nbundle:\n  id: wizard-flow-bundle-test\n  name: Wizard Flow Bundle Test\n  version: ${preset.version}\n  role: workflow\n  description: Controlled Wizard flow bundle\n  author: Spec Kit test fixtures\n  license: MIT\nrequires:\n  speckit_version: ">=0.11"\npresets:\n  - ${preset.id}\nextensions:\n  - ${extension.id}\n` };
+            bundleYml: `schema_version: "1.0"\nbundle:\n  id: wizard-flow-bundle-test\n  name: Wizard Flow Bundle Test\n  version: ${preset.version}\n  role: workflow\n  description: Controlled Wizard flow bundle\n  author: Spec Kit test fixtures\n  license: MIT\nrequires:\n  speckit_version: ">=1.0.7"\nprovides:\n  presets:\n    - id: ${preset.id}\n      version: ${preset.version}\n      priority: 10\n      strategy: replace\n  extensions:\n    - id: bug\n      version: ${inst.fixtureBugVersion}\n` };
         catalog.presets.push(direct);
         catalog.extensions.push(bundledExtension);
         catalog.bundles.push(bundle);
+        inst.cachedPresetItems = catalog.presets;
+        inst.cachedExtensionItems = catalog.extensions;
+        inst.cachedBundleItems = catalog.bundles;
         server.broadcast({ type: "invalidate", reason: "controlled bundle loaded" });
         await page.locator('#setup-stepper .step[data-substep="catalogs"]').click();
         await page.locator('[data-subtab-panel][data-subtab-group="catalogs"]:not([hidden]) .subtab[data-subtab="bundles"]').click();
@@ -374,26 +439,102 @@ test("controlled community bundle confirmation preserves an overlapping direct c
         await page.locator("#community-install-modal").getByRole("button", { name: "Cancel" }).click();
         expect(prompts).toHaveLength(0);
         await card.getByRole("button", { name: "Add" }).click();
-        await page.locator("#community-install-modal").getByRole("button", { name: "Install anyway" }).click();
-        await expect.poll(() => prompts.length).toBe(1);
-        expect(prompts[0]).toContain(JSON.stringify(bundle.bundleYml));
-        bundle.active = true;
-        bundledExtension.active = true;
-        server.broadcast({ type: "bundle-catalog", items: catalog.bundles });
-        server.broadcast({ type: "extension-catalog", items: catalog.extensions });
+        const installed = await completePackageClick(page,
+            page.locator("#community-install-modal").getByRole("button", { name: "Install anyway" }), "bundle.install");
+        expect(installed.skillsReloaded).toBe(true);
         await expect(card.getByRole("button", { name: "Remove" })).toBeVisible();
-        await card.getByRole("button", { name: "Remove" }).click();
-        await expect.poll(() => prompts.length).toBe(2);
-        bundle.active = false;
-        bundledExtension.active = false;
-        server.broadcast({ type: "bundle-catalog", items: catalog.bundles });
-        server.broadcast({ type: "extension-catalog", items: catalog.extensions });
-        server.broadcast({ type: "preset-catalog", items: catalog.presets });
+        const installedExtensions = JSON.parse(await runSpecify(inst.workspacePath, ["extension", "list", "--json"]));
+        expect(installedExtensions.some((item) => item.id === "bug")).toBe(true);
+        await completePackageClick(page, card.getByRole("button", { name: "Remove" }), "bundle.remove");
         await expect(card.getByRole("button", { name: "Add" })).toBeVisible();
         await page.locator('[data-subtab-panel][data-subtab-group="catalogs"]:not([hidden]) .subtab[data-subtab="presets"]').click();
         await expect(page.locator("#catalog-grid .catalog-card")
             .filter({ hasText: direct.name }).getByRole("button", { name: "Remove" })).toBeVisible();
-    });
+        const extensions = JSON.parse(await runSpecify(inst.workspacePath, ["extension", "list", "--json"]));
+        expect(extensions.some((item) => item.id === "bug")).toBe(false);
+    }, { packageCommand: fixturePackageCommand,
+        beforeNavigate: async (context) => {
+            await initializePackageFixture(context);
+            await runSpecify(context.root, ["preset", "add", "--dev", presetPath]);
+            await runSpecify(context.root, ["extension", "add", "bug"]);
+            const installed = JSON.parse(await runSpecify(context.root, ["extension", "list", "--json"]));
+            context.inst.fixtureBugVersion = installed.find((item) => item.id === "bug").version;
+            await runSpecify(context.root, ["extension", "remove", "bug", "--force"]);
+        } });
+});
+
+test("package errors and incompatible queued acknowledgements clear pending controls for retry", async ({ page }) => {
+    let attempts = 0;
+    await withWizardCheckout(page, async ({ catalog, server }) => {
+        catalog.extensions.push({ id: "retry-fixture", name: "Retry fixture", source: "default",
+            active: false, installAllowed: true });
+        server.broadcast({ type: "invalidate", reason: "retry fixture loaded" });
+        await page.locator('#setup-stepper .step[data-substep="catalogs"]').click();
+        await page.locator('[data-subtab-group="catalogs"] .subtab[data-subtab="extensions"]').first().click();
+        const add = page.locator("#extension-grid .catalog-card")
+            .filter({ hasText: "Retry fixture" }).getByRole("button", { name: "Add" });
+        await add.click();
+        await expect(page.getByRole("alert")).toContainText("fixture command failed");
+        await expect(add).toBeEnabled();
+        await add.click();
+        await expect(page.getByRole("alert")).toContainText("Invalid catalog completion result");
+        await expect(add).toBeEnabled();
+        await completePackageClick(page, add, "extension.install");
+        await expect(page.getByRole("alert")).toBeHidden();
+        expect(attempts).toBe(3);
+    }, { beforeNavigate: async () => {
+        await page.route(/\/api\/prompt(?:\?|$)/, async (route) => {
+            attempts++;
+            const body = attempts === 1 ? { ok: false, error: "fixture command failed", changed: false, stage: "command" }
+                : attempts === 2 ? { queued: true, kind: "extension.install" }
+                    : { ok: true, id: "retry-fixture", kind: "extension.install",
+                        outcome: "changed", skillsReloaded: true, timings: { total: 1 } };
+            await route.fulfill({ status: attempts === 1 ? 500 : attempts === 2 ? 202 : 200,
+                contentType: "application/json", body: JSON.stringify(body) });
+        });
+    } });
+});
+
+test("Setup awaits verified default installation and does not reload twice", async ({ page }) => {
+    let releaseInstall;
+    const installed = new Promise((resolve) => { releaseInstall = resolve; });
+    let selection, reloads = 0;
+    const downloadUrl = "https://fixtures.invalid/configured-default.zip";
+    await withWizardCheckout(page, async () => {
+        await expect.poll(() => selection?.priority).toBe(1);
+        expect(selection).toMatchObject({ name: "copilot-sub-agents", source: "copilot", downloadUrl });
+        await expect(page.locator("#environment-card")).toContainText("installing");
+        expect(reloads).toBe(0);
+        releaseInstall();
+        await expect(page.getByRole("tab", { name: "Phases" })).toHaveAttribute("aria-disabled", "false");
+        expect(reloads).toBe(0);
+    }, { setup: { projectInitialized: false, skillsReloaded: false, defaultPresetsSkipped: false },
+        beforeNavigate: async ({ inst, server }) => {
+            inst.cachedPresetItems = [{ id: "copilot-sub-agents", name: "Copilot Sub-Agent Delegation",
+                source: "copilot", downloadUrl, active: false, installAllowed: true }];
+            await page.route(/\/api\/skills\/reload(?:\?|$)/, async (route) => {
+                reloads++;
+                await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+            });
+            await page.route(/\/api\/prompt(?:\?|$)/, async (route) => {
+                const { kind, payload } = route.request().postDataJSON();
+                if (kind === "setup.init") {
+                    inst.state.setup.projectInitialized = true;
+                    server.broadcast({ type: "invalidate", reason: "fixture initialized" });
+                    return route.fulfill({ status: 202, contentType: "application/json",
+                        body: JSON.stringify({ queued: true, kind }) });
+                }
+                expect(kind).toBe("preset.install");
+                selection = payload;
+                await installed;
+                inst.state.setup.skillsReloaded = true;
+                inst.cachedPresetItems[0].active = true;
+                server.broadcast({ type: "invalidate", reason: "fixture defaults installed and reloaded" });
+                return route.fulfill({ status: 200, contentType: "application/json",
+                    body: JSON.stringify({ ok: true, id: "copilot-sub-agents", kind,
+                        outcome: "changed", skillsReloaded: true, timings: { total: 1 } }) });
+            });
+        } });
 });
 
 test("phase status and execution report reach the stepper, then verified output opens in the viewer", async ({ page }) => {
@@ -513,7 +654,7 @@ test("failed composition inference exposes retry and starts a new refresh", asyn
         await expect.poll(() => prompts.length).toBe(2);
         expect(attempts).toBe(2);
     }, {
-        send: () => (++attempts === 1 ? Promise.reject(new Error("fixture inference failed"))
+        startInference: () => (++attempts === 1 ? Promise.reject(new Error("fixture inference failed"))
             : new Promise(() => {})),
     });
 });
@@ -557,6 +698,7 @@ test("refresh keeps Composition and Phases pending until pipeline and output evi
     let server;
     const prompts = [];
     const finishTurns = [];
+    let foregroundTurns = 0;
     const setup = { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true };
     try {
         inst.workspacePath = root;
@@ -584,10 +726,20 @@ test("refresh keeps Composition and Phases pending until pipeline and output evi
         inst.cachedExtensionItems = [{ id: extension.id, name: extension.name, version: extension.version, active: true, enabled: true }];
         const session = {
             send: ({ prompt }) => {
+                foregroundTurns++;
                 prompts.push(prompt);
                 return new Promise((resolve) => finishTurns.push(resolve));
             },
-            rpc: { skills: { reload: async () => ({ errors: [], warnings: [] }) } },
+            rpc: {
+                skills: { reload: async () => ({ errors: [], warnings: [] }) },
+                tasks: {
+                    startAgent: async ({ prompt }) => {
+                        prompts.push(prompt);
+                        return { agentId: randomUUID() };
+                    },
+                    cancel: async () => ({ cancelled: true }),
+                },
+            },
         };
         setSession(session);
         const getState = async () => {
@@ -707,9 +859,10 @@ test("refresh keeps Composition and Phases pending until pipeline and output evi
         await expect(progress).toHaveText("Updating…");
         await expect(refresh).toHaveAttribute("aria-busy", "true");
         await page.getByRole("tab", { name: "Phases" }).click();
-        await expect(page.locator("#pipeline-banner")).toContainText("Updating pipeline and output details");
+        await expect(page.locator("#pipeline-banner")).toContainText("Updating the pipeline to reflect your installed presets and extensions");
+        await expect(page.locator("#pipeline-banner")).toContainText("large number of commands can take several minutes");
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
-        await expect(page.locator("#phase-card")).toContainText("Updating outputs");
+        await expect(page.locator("#phase-card")).toContainText("Retrieving outputs");
         await page.locator('#more-commands [data-command-id="converge"]').click();
         await expect(page.locator("#stepper")).toContainText("Converge");
         await expect(page.locator("#stepper .step.active")).toContainText("Review");
@@ -743,6 +896,7 @@ test("refresh keeps Composition and Phases pending until pipeline and output evi
         const completed = await getState();
         expect(completed.artifactInferenceRequests.map((request) => request.commandId)).toEqual([]);
         expect(completed.refreshStatus).toBe("up-to-date");
+        expect(foregroundTurns).toBe(0);
         await expect(refresh).not.toHaveAttribute("aria-busy", "true");
         await expect(progress).toHaveText("");
         await page.getByRole("tab", { name: "Phases" }).click();

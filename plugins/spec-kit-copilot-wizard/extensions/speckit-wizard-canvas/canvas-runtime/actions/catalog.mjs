@@ -6,12 +6,23 @@ import { withInstance } from "../instances.mjs";
 import { hydratePresetsForSources } from "../../catalog/presets.mjs";
 import { hydrateExtensionsForSources } from "../../catalog/extensions.mjs";
 import { hydrateBundlesForSources } from "../../catalog/bundles.mjs";
-import { persistAndBroadcast, runFastComposition } from "../composition-apply.mjs";
+import { persistAndBroadcast } from "../composition-apply.mjs";
 import { reloadSkillsIfInstalledSetChanged } from "../instances.mjs";
-import { UnknownActionKindError } from "../../prompts.mjs";
-import { dispatchKindPrompt } from "../dispatch.mjs";
-import { beginOutputInference } from "../output-inference.mjs";
-import { isCurrentRefresh } from "../refresh-status.mjs";
+import { catalogFailure, finishCatalogUpdate, runCatalogOperation } from "../catalog-operations.mjs";
+import { validateCatalogRequest, validateCatalogResult } from "../../contracts/catalog-operation.mjs";
+
+export function createCatalogAddHandler(group, operate = runCatalogOperation) {
+    return (ctx) => withInstance(ctx, async (inst) => {
+        try {
+            const id = typeof ctx.input?.id === "string" ? ctx.input.id.trim() : "";
+            const kind = `${group}.install`;
+            validateCatalogRequest(kind, { name: id });
+            return validateCatalogResult(await operate(inst, kind, { name: id }), { kind });
+        } catch (error) {
+            return catalogFailure(error);
+        }
+    });
+}
 
 /**
  * Shared body of the three showXCatalog handlers.
@@ -42,8 +53,7 @@ import { isCurrentRefresh } from "../refresh-status.mjs";
  * @param {string} cfg.reason           - passed through to runFastComposition
  */
 async function applyCatalogPush(inst, ctx, cfg) {
-    const refresh = inst.refreshStatus;
-    const inference = inst.outputInferenceOwner ?? null;
+    const owners = { refresh: inst.refreshStatus };
     const pushed = Array.isArray(ctx.input?.items) ? ctx.input.items : [];
 
     // 1) Re-hydrate from cached catalog sources (fresh install state via
@@ -58,6 +68,7 @@ async function applyCatalogPush(inst, ctx, cfg) {
     // whatever the caller pushed so the UI shows something.
     if (!inst[cfg.itemsField]?.length && pushed.length) {
         inst[cfg.itemsField] = pushed;
+        inst._verifiedCatalogFields?.delete(cfg.itemsField);
     }
 
     // 2) Auto-reload session skills when the installed set has changed so
@@ -87,23 +98,14 @@ async function applyCatalogPush(inst, ctx, cfg) {
     // Removable once the Speckit CLI exposes the composition data this
     // wizard currently computes locally.
     if (cfg.runComposition) {
-        const result = await runFastComposition(inst, { reason: cfg.reason });
-        if (!result.ok) throw new Error(`Composition refresh failed: ${result.reason}`);
+        return finishCatalogUpdate(inst, { reason: cfg.reason, activePresetId: cfg.activePresetId, ...owners });
     }
 
-    const snap = await persistAndBroadcast(
+    await persistAndBroadcast(
         inst,
         cfg.kind === "preset" && cfg.activePresetId ? { preset: cfg.activePresetId } : null,
     );
-    if (!cfg.runComposition) return { ok: true };
-    if (!isCurrentRefresh(inst, refresh)
-        || (inst.outputInferenceOwner ?? null) !== inference) {
-        throw new Error("Catalog output inference superseded by newer refresh work");
-    }
-    const requests = snap.artifactInferenceRequests ?? [];
-    const endpoint = beginOutputInference(inst, requests, refresh);
-    return { ok: true, artifactInferenceRequests: requests,
-        ...(endpoint ? { artifactInferenceEndpoint: endpoint.toString() } : {}) };
+    return { ok: true };
 }
 
 const CATALOG_ITEM_SCHEMA = {
@@ -197,7 +199,7 @@ export const catalogActions = [
     {
         name: "addPreset",
         description:
-            "Install a preset by id — the same code path the wizard's Install button uses. The agent will run `specify preset add <id>`, then re-list and push `showPresetCatalog`. Use this when the user asks the agent to add a preset instead of clicking Install.",
+            "Install a trusted catalog preset directly with Specify and return verified completion. Community sources require confirmation in the Wizard.",
         inputSchema: {
             type: "object",
             required: ["id"],
@@ -205,23 +207,12 @@ export const catalogActions = [
                 id: { type: "string", description: "Preset id from the catalog (e.g. `copilot-sub-agents`)." },
             },
         },
-        handler: (ctx) =>
-            withInstance(ctx, async (inst) => {
-                const id = typeof ctx.input?.id === "string" ? ctx.input.id.trim() : "";
-                if (!id) return { ok: false, error: "missing id" };
-                try {
-                    await dispatchKindPrompt(inst, "preset.install", { name: id });
-                } catch (err) {
-                    if (err instanceof UnknownActionKindError) return { ok: false, error: err.message };
-                    return { ok: false, error: err?.message ?? String(err) };
-                }
-                return { ok: true, id };
-            }),
+        handler: createCatalogAddHandler("preset"),
     },
     {
         name: "addExtension",
         description:
-            "Install a Spec Kit extension by id — the same code path the wizard's Install button uses. The agent will run `specify extension add <id>`, then re-list and push `showExtensionCatalog`. Use this when the user asks the agent to add an extension instead of clicking Install.",
+            "Install a trusted catalog extension directly with Specify and return verified completion. Community sources require confirmation in the Wizard.",
         inputSchema: {
             type: "object",
             required: ["id"],
@@ -229,17 +220,6 @@ export const catalogActions = [
                 id: { type: "string", description: "Extension id from the catalog (e.g. `spec-kit-assess`)." },
             },
         },
-        handler: (ctx) =>
-            withInstance(ctx, async (inst) => {
-                const id = typeof ctx.input?.id === "string" ? ctx.input.id.trim() : "";
-                if (!id) return { ok: false, error: "missing id" };
-                try {
-                    await dispatchKindPrompt(inst, "extension.install", { name: id });
-                } catch (err) {
-                    if (err instanceof UnknownActionKindError) return { ok: false, error: err.message };
-                    return { ok: false, error: err?.message ?? String(err) };
-                }
-                return { ok: true, id };
-            }),
+        handler: createCatalogAddHandler("extension"),
     },
 ];

@@ -218,7 +218,7 @@ test("launch closes the dialog on acceptance without a queued status", async () 
         const button = root.querySelector(".designer-submit");
         const pending = button.click();
         assert.equal(button.disabled, true);
-        assert.equal(button.textContent, "Launch designer");
+        assert.equal(button.textContent, "Launching…");
         assert.equal(root.querySelector(".wizard-modal-close").disabled, true);
         await button.click();
         assert.equal(requests.length, 1);

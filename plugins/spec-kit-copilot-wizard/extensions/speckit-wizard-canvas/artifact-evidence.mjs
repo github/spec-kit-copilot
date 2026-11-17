@@ -6,6 +6,7 @@ import { effectivePipelinePhases, stripCommandsPrefix } from "./pipeline/effecti
 import { parseCommandFile } from "./composition/preset-loader.mjs";
 import { CORE_OUTPUTS } from "./pipeline/canonical.mjs";
 import { PHASE_ORDER } from "./canvas-runtime/wizard-phases.mjs";
+import { activeChainForArtifact } from "./pipeline/active-artifacts.mjs";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const SOURCE_LIMIT = 512 * 1024;
@@ -302,14 +303,37 @@ export async function collectArtifactEvidence(cwd, snapshot, openFile = open) {
         const candidates = [];
         try {
             const source = await effectiveSource(cwd, id, openFile);
-            const declaration = source ? pathEvidence(
-                (await parseCommandFile(source.skillText, warnings, "effective", id)).artifact, "declaration") : null;
+            const parsed = source ? await parseCommandFile(source.skillText, warnings, "effective", id) : null;
+            const declaration = parsed ? pathEvidence(parsed.artifact, "declaration") : null;
             if (declaration) candidates.push(declaration);
             const cached = Object.entries(cache.entries).find(([key]) => commandId(key) === id)?.[1];
             const legacy = ["manual", "author"].includes(cached?.source)
                 ? pathEvidence(cached.writesTo, cached.source === "manual" ? "manual" : "declaration") : null;
             if (legacy && !candidates.some((item) => item.path === legacy.path)) candidates.push(legacy);
             const current = source && cached?.outputEvidence?.fingerprint === source.fingerprint;
+            const artifact = snapshot.composition?.artifacts?.find((item) =>
+                item.kind === "command" && commandId(item.id) === id);
+            const chain = activeChainForArtifact(artifact);
+            const core = source && Object.hasOwn(CORE_OUTPUTS, id)
+                && chain.length === 1 && chain[0].layer === "core"
+                && (!parsed?.source || ["core", "builtin", `templates/commands/${id}.md`].includes(parsed.source))
+                && source.sources.slice(1).every((helper) => {
+                    if (!helper.sha256) return false;
+                    const name = helper.path.split("/").at(-1).replace(/\.(?:ps1|sh|py)$/, "");
+                    const script = snapshot.composition?.artifacts?.find((item) =>
+                        item.kind === "script" && item.id.replace(/^scripts\//, "") === name);
+                    return !activeChainForArtifact(script).some((layer) => layer.layer !== "core");
+                });
+            if (core && !candidates.length) {
+                const defaults = CORE_OUTPUTS[id].map((path) => pathEvidence(path, "core"));
+                const primaryIndex = defaults.findIndex((candidate) => candidate.kind === "file");
+                evidence[id] = {
+                    fingerprint: source.fingerprint,
+                    candidates: defaults.length ? defaults : [{ kind: "none", source: "core", effect: "unknown" }],
+                    primaryIndex: primaryIndex < 0 ? null : primaryIndex,
+                };
+                continue;
+            }
             if (!current && !candidates.length) {
                 for (const path of CORE_OUTPUTS[id] ?? []) {
                     const candidate = pathEvidence(path, "core");

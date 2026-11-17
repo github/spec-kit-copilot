@@ -141,6 +141,26 @@ test("phase outputs show explicit no-file result without stale default links", (
     assert.doesNotMatch(rows[0], /specs\/old/);
 });
 
+test("phase outputs describe retrieval without hiding known outputs", () => {
+    const buildRow = (label, parts) => `${label}: ${parts.join(" ")}`;
+    const pending = renderOutputRows({ inferenceStatus: "updating", buildRow });
+    assert.deepEqual(pending, ['Output(s): <span role="status">Retrieving outputs…</span>']);
+
+    const known = renderOutputRows({
+        inferenceStatus: "updating",
+        outputEvidence: { primaryIndex: 0,
+            candidates: [{ kind: "file", path: "specs/feature/spec.md", source: "inference" }] },
+        availability: { candidates: [{ filePath: "specs/feature/spec.md" }] },
+        buildRow,
+    });
+    assert.match(known[0], /data-output-path="specs\/feature\/spec\.md"/);
+    assert.match(known[0], /Retrieving outputs…/);
+
+    const idle = renderOutputRows({ buildRow });
+    assert.match(idle[0], /Not yet identified/);
+    assert.doesNotMatch(idle[0], /Retrieving outputs/);
+});
+
 test("phase card browses project root for an unresolved output directory", () => {
     const el = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
     const priorDocument = globalThis.document;
@@ -254,7 +274,7 @@ test("Composition leaves the Refresh button as the only idle label without hidin
     }
 });
 
-test("Phases shows a prominent transient refresh status and persistent retry guidance", () => {
+test("Phases keeps composition refresh status separate from output inference progress", () => {
     const previousDocument = globalThis.document;
     const previousSnapshot = state.snapshot;
     const previousTab = state.activeTab;
@@ -275,7 +295,8 @@ test("Phases shows a prominent transient refresh status and persistent retry gui
         renderPipelineBanner();
         assert.match(banner.innerHTML, /role="status" aria-live="polite" data-progress="updating"/);
         assert.match(banner.innerHTML, /pipeline-refresh-spinner" aria-hidden="true"/);
-        assert.match(banner.innerHTML, /Updating pipeline and output details…/);
+        assert.match(banner.innerHTML, /Updating the pipeline to reflect your installed presets and extensions/);
+        assert.match(banner.innerHTML, /large number of commands can take several minutes/);
         assert.match(banner.innerHTML, /<\/header>\s*<div class="pipeline-refresh-status"/);
 
         state.snapshot.refreshStatus = "up-to-date";
@@ -291,6 +312,9 @@ test("Phases shows a prominent transient refresh status and persistent retry gui
         renderPipelineBanner();
         assert.match(banner.innerHTML, /Refresh incomplete/);
         state.snapshot.refreshStatus = "ready";
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
+        state.snapshot.outputInferenceProgress = { status: "updating", total: 25, remaining: 12 };
         renderPipelineBanner();
         assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
     } finally {
@@ -352,7 +376,7 @@ test("canonicalTemplateIds contracts with CORE_CAPABILITIES (specify carries two
     assert.deepEqual(canonicalTemplateIds("checklist"), ["checklist-template"]);
     assert.deepEqual(canonicalTemplateIds("outline"), ["outline-template"]);
 
-    // Empty-template phases (implement, clarify, taskstoissues, analyze)
+    // Empty-template phases (implement, clarify, analyze)
     // carry the empty list from CORE_CAPABILITIES — NOT the fallback.
     assert.deepEqual(canonicalTemplateIds("implement"), []);
     assert.deepEqual(canonicalTemplateIds("clarify"), []);
@@ -420,7 +444,6 @@ test("effectivePipelinePhases falls back to the full canonical spine and filters
         { id: "specify" },
         { id: "clarify" },
         { id: "plan" },
-        { id: "taskstoissues" },
         { id: "analyze" },
         { id: "checklist" },
         { id: "implement" },
@@ -728,13 +751,13 @@ test("renderPhaseCard ignores earlier optional phase metadata when deciding lock
                 projectInitialized: true,
                 skillsReloaded: true,
             },
-            pipeline: [{ id: "taskstoissues" }, { id: "implement" }],
+            pipeline: [{ id: "speckit.github.taskstoissues" }, { id: "implement" }],
             phases: {
-                taskstoissues: { status: "empty" },
+                "speckit.github.taskstoissues": { status: "empty" },
                 implement: { status: "empty" },
             },
             commands: [
-                { id: "taskstoissues", commandName: "speckit.taskstoissues", status: "empty", optional: false, locked: false },
+                { id: "speckit.github.taskstoissues", commandName: "speckit.github.taskstoissues", status: "empty", optional: false, locked: false },
                 { id: "implement", commandName: "speckit.implement", status: "empty", locked: false },
             ],
             composition: { artifacts: [] },

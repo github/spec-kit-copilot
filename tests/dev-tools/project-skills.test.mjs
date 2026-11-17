@@ -9,6 +9,7 @@ test('project development skill frontmatter matches its directory', async () => 
     'dev-tools-speckit-wizard-installed-refresh',
     'dev-tools-speckit-wizard-installed-open',
     'dev-tools-speckit-wizard-local-generate-launch',
+    'dev-tools-speckit-wizard-project-reset',
     'dev-tools-speckit-distribution',
   ];
   for (const name of names) {

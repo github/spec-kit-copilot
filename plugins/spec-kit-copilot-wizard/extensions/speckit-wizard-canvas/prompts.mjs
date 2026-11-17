@@ -12,7 +12,7 @@
 //                              refresh, bundle.*.
 //   prompts/pipeline.mjs     — constitution|specify|plan|checklist|
 //                              tasks|implement, clarify(.answer),
-//                              analyze(.answer), taskstoissues.
+//                              analyze(.answer), converge.
 //   prompts/composition.mjs  — composition.*, extension
 //                              .inferArtifactTargets.
 //

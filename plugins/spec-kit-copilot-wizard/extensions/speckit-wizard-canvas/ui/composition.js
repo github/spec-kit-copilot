@@ -33,6 +33,7 @@ export function deriveLayers({ presets = [], extensions = [] } = {}) {
         if (!name) continue;
         layers.push({
             kind: "extension",
+            id: e.id ?? name,
             name,
             source: typeof e.source === "string" ? e.source : "catalog",
             version: typeof e.version === "string" ? e.version : null,
@@ -45,6 +46,7 @@ export function deriveLayers({ presets = [], extensions = [] } = {}) {
         if (!name) continue;
         layers.push({
             kind: "preset",
+            id: p.id ?? name,
             name,
             source: typeof p.source === "string" ? p.source : "catalog",
             version: typeof p.version === "string" ? p.version : null,
@@ -413,7 +415,7 @@ export function renderFlatLayerTable(layers) {
             ? `
             <button class="btn btn-ghost btn-xs" data-comp-action="view" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">View</button>
             <button class="btn btn-ghost btn-xs" data-comp-action="update" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">Update</button>
-            <button class="btn btn-ghost btn-xs" data-comp-action="remove" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">Remove</button>`
+            <button class="btn btn-ghost btn-xs" data-comp-action="remove" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.id ?? l.name)}">Remove</button>`
             : "";
         return `<tr>
             <td>${escapeHtml(l.kind)}</td>
@@ -669,8 +671,7 @@ export function renderComposition() {
 export function compositionProgressText(snapshot, refreshing = false) {
     if (refreshing || snapshot?.refreshStatus === "refreshing") return "Refreshing…";
     if (snapshot?.refreshStatus === "incomplete") return "Refresh incomplete — retry";
-    if (snapshot?.compositionRefreshing || snapshot?.outputInferenceProgress?.status === "updating") return "Refreshing…";
-    if (snapshot?.outputInferenceProgress?.status === "incomplete") return "Refresh incomplete — retry";
+    if (snapshot?.compositionRefreshing) return "Refreshing…";
     return snapshot?.refreshStatus === "up-to-date" ? "Up to date" : "Ready";
 }
 

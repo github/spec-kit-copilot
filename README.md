@@ -67,6 +67,8 @@ Canonical repository skills live in `.github\skills`, not the shipping core
   default, explicit Generate requests enable it, focus-only reopening preserves it.
 - `dev-tools-speckit-wizard-local-generate-launch`: refresh, then explicitly enable Generate;
   leave phase selection, Designer launch/settings and Generate submission to the user.
+- `dev-tools-speckit-wizard-project-reset`: back up and clear a worktree's Spec Kit
+  setup, generated skills, feature specs, and Wizard state for a fresh local test.
 - `dev-tools-speckit-distribution`: prepare local metadata, orchestrate explicitly authorized
   releases, or verify published installations.
 

@@ -85,7 +85,6 @@ export const PHASE_ORDER = [
     "plan",
     "tasks",
     "analyze",
-    "taskstoissues",
     "implement",
 ];
 

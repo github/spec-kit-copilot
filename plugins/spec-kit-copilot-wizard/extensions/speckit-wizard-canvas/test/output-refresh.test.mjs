@@ -5,7 +5,14 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { buildCatalogPrompt } from "../prompts/catalog.mjs";
 import { buildCompositionPrompt } from "../prompts/composition.mjs";
-import { beginOutputInference, failOutputInference, finishOutputInference } from "../canvas-runtime/output-inference.mjs";
+import {
+    beginOutputInference as beginInferenceGroup,
+    createOutputInferenceWorker,
+    failOutputInference as failInferenceWorker,
+    finishOutputInference as finishInferenceWorker,
+    unassignedOutputRequests,
+} from "../canvas-runtime/output-inference.mjs";
+import { commandId } from "../artifact-evidence.mjs";
 import { dispatchKindPrompt } from "../canvas-runtime/dispatch.mjs";
 import { failRefresh, finishRefreshPart, setRefreshWork, startRefresh } from "../canvas-runtime/refresh-status.mjs";
 import { validateCandidates } from "../artifact-evidence.mjs";
@@ -34,6 +41,38 @@ test("both reply paths share the originating run ID contract", () => {
 const request = { commandId: "speckit.plan", fingerprint: "a".repeat(64) };
 const instance = () => ({ url: "http://127.0.0.1:1234", token: "test-token", broadcast() {} });
 
+function beginOutputInference(inst, requests) {
+    const inference = beginInferenceGroup(inst, requests);
+    let worker;
+    const unassigned = unassignedOutputRequests(inference);
+    if (unassigned.length) {
+        ({ worker } = createOutputInferenceWorker(inst, inference, unassigned));
+    } else {
+        worker = [...inference.workers.values()].find((candidate) =>
+            requests.every((item) => candidate.requests.get(commandId(item.commandId))?.fingerprint
+                === item.fingerprint));
+    }
+    if (!worker) throw new Error("No worker was assigned to the requested inference");
+    const endpoint = new URL("/api/artifact-targets", inst.url);
+    endpoint.searchParams.set("token", inst.token);
+    endpoint.searchParams.set("runId", worker.id);
+    return endpoint;
+}
+
+function finishOutputInference(inst, inference, commands) {
+    const completed = new Set(commands.map(commandId));
+    const worker = [...inference.workers.values()].find((candidate) =>
+        [...completed].every((id) => candidate.requests.has(id)));
+    if (!worker) return false;
+    return finishInferenceWorker(inst, inference, worker.id, commands);
+}
+
+function failOutputInference(inst, inference) {
+    for (const workerId of [...inference.workers.keys()]) {
+        failInferenceWorker(inst, inference, workerId);
+    }
+}
+
 function deferred() {
     let resolve, reject;
     const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -44,7 +83,11 @@ const dispatchDeps = (send) => ({
     compose: async () => ({ ok: true, stage2Needed: true }),
     getSnapshot: async () => ({ artifactInferenceRequests: [request] }),
     getInstalledCounts: async () => ({}),
+    buildInferencePrompt: async ({ commands, endpoint, workspacePath }) =>
+        buildCompositionPrompt("extension.inferArtifactTargets",
+            { commands, endpoint, skillSources: [] }, {}, { workspacePath }),
     send,
+    sendInference: send,
 });
 
 async function actionFixture(run) {
@@ -64,7 +107,7 @@ async function actionFixture(run) {
 }
 
 for (const replacement of ["refresh", "inference"]) {
-    test(`owned swap and publication finish before a queued ${replacement} replacement`, async () => {
+    test(`owned swap and publication finish before queued ${replacement} work`, async () => {
         await actionFixture(async (inst) => {
             startRefresh(inst);
             beginOutputInference(inst, [request], inst.refreshStatus);
@@ -89,7 +132,7 @@ for (const replacement of ["refresh", "inference"]) {
             assert.equal(published, true);
             assert.equal(inst.outputInference, inference);
             await new Promise(setImmediate);
-            assert.notEqual(inst.outputInference, inference);
+            assert.equal(inst.outputInference, inference);
             assert.equal(await readFile(target, "utf8"), "current payload");
         });
     });
@@ -111,6 +154,40 @@ test("owned swap rejects a stale owner and never publishes after a failed rename
             () => {}, () => { published = true; }), { code: "ENOENT" });
         assert.equal(await readFile(target, "utf8"), "old payload");
         assert.equal(published, false);
+    });
+});
+
+test("owned state retry rechecks refresh ownership before another rename", async () => {
+    await actionFixture(async (inst) => {
+        await mkdir(join(inst.workspacePath, ".speckit-wizard"));
+        const statePath = join(inst.workspacePath, ".speckit-wizard", "state.json");
+        await writeFile(statePath, "previous state");
+        startRefresh(inst);
+        const owner = inst.refreshStatus;
+        let attempts = 0;
+        let published = false;
+        const assertCurrent = () => {
+            if (inst.refreshStatus !== owner) throw new Error("stale owner");
+        };
+
+        await assert.rejects(writeState(inst.workspacePath, inst.state, {
+            ...fsDeps,
+            platform: "win32",
+            waitForRenameRetry: async () => { startRefresh(inst); },
+        }, (temp, target) => {
+            attempts++;
+            if (attempts === 1) {
+                assertCurrent();
+                throw Object.assign(new Error("temporary sharing violation"), { code: "EPERM" });
+            }
+            commitOwnedFile(temp, target, assertCurrent, () => { published = true; });
+        }), /stale owner/);
+
+        assert.equal(attempts, 2);
+        assert.equal(published, false);
+        assert.equal(await readFile(statePath, "utf8"), "previous state");
+        assert.deepEqual((await readdir(join(inst.workspacePath, ".speckit-wizard")))
+            .filter((name) => name.endsWith(".tmp")), []);
     });
 });
 
@@ -180,7 +257,7 @@ for (const pause of ["state read", "queued state write", "temporary state write"
                     assert.equal(inst.refreshStatus, current);
                     assert.equal(current.status, replacementFails ? "incomplete" : "refreshing");
                     assert.equal(current.pipelinePending, true);
-                    assert.equal(current.outputsPending, true);
+                    assert.equal(current.outputsPending, false);
                     assert.equal(inst.cachedComposition, composition);
                     assert.equal(inst.state, currentState);
                     assert.equal(await readFile(statePath, "utf8"), saved);
@@ -370,8 +447,10 @@ for (const reply of ["missing", "malformed", "delayed", "duplicate", "expired"])
             assert.equal(inst.cachedComposition, composition);
             assert.equal(await readFile(statePath, "utf8"), saved);
             assert.equal(inst.refreshStatus, current);
-            assert.equal(current.status, reply === "expired" ? "incomplete" : "refreshing");
+            assert.equal(current.status, reply === "expired" ? "incomplete"
+                : reply === "duplicate" ? "up-to-date" : "refreshing");
             assert.equal(current.pipelinePending, reply !== "duplicate");
+            assert.equal(current.outputsPending, false);
             assert.deepEqual(frames, []);
         });
     });
@@ -401,13 +480,18 @@ for (const kind of ["composition.refresh", "composition.inferPipeline", "extensi
                 dispatchDeps((message) => sent.push(message)));
             await new Promise(setImmediate);
             assert.equal(sent.length, 1);
-            const runId = inst.outputInference.id;
-            assert.ok(result.prompt.includes(`runId=${runId}`));
-            assert.ok(!result.prompt.includes("caller-endpoint"));
+            const prompt = sent[0].prompt;
+            assert.ok(!prompt.includes("caller-endpoint"));
             if (kind !== "extension.inferArtifactTargets") {
-                assert.ok(result.prompt.includes(`runId: "${inst.refreshStatus.id}"`));
+                assert.ok(prompt.includes(`runId: "${inst.refreshStatus.id}"`));
+                assert.ok(!prompt.includes("/api/artifact-targets?"));
             } else {
+                const match = prompt.match(/http:\/\/127\.0\.0\.1:1234\/api\/artifact-targets\?[^ )]+/);
+                assert.ok(match);
+                const runId = new URL(match[0]).searchParams.get("runId");
+                assert.ok(prompt.includes(`runId=${runId}`));
                 assert.equal(inst.refreshStatus, undefined);
+                assert.equal(result.fastComposition, true);
             }
         } finally {
             clearTimeout(inst.refreshStatus?.timer);
@@ -416,7 +500,7 @@ for (const kind of ["composition.refresh", "composition.inferPipeline", "extensi
     });
 }
 
-test("starting a refresh immediately detaches old output inference and both timers", () => {
+test("starting a refresh leaves useful output inference active", () => {
     const inst = instance();
     startRefresh(inst);
     beginOutputInference(inst, [request], inst.refreshStatus);
@@ -426,9 +510,9 @@ test("starting a refresh immediately detaches old output inference and both time
         const next = startRefresh(inst);
         assert.equal(next, inst.refreshStatus);
         assert.notEqual(next, refresh);
-        assert.equal(inst.outputInference, null);
+        assert.equal(inst.outputInference, inference);
         assert.equal(refresh.timer._destroyed, true);
-        assert.equal(inference.timer._destroyed, true);
+        assert.equal(inference.timer._destroyed, false);
         assert.equal(inference.pending.size, 1);
     } finally {
         clearTimeout(inst.refreshStatus.timer);
@@ -436,7 +520,7 @@ test("starting a refresh immediately detaches old output inference and both time
     }
 });
 
-test("stale refresh helpers cannot declare, complete, or fail replacement work", () => {
+test("refresh ownership is independent from output inference ownership", () => {
     const inst = instance();
     startRefresh(inst);
     const previous = inst.refreshStatus;
@@ -446,27 +530,27 @@ test("stale refresh helpers cannot declare, complete, or fail replacement work",
         setRefreshWork(inst, { pipeline: false, outputs: false }, previous);
         finishRefreshPart(inst, "pipeline", previous);
         failRefresh(inst, previous);
-        assert.throws(() => beginOutputInference(inst, [request], previous), /superseded/);
+        beginOutputInference(inst, [request]);
         assert.equal(inst.refreshStatus, current);
         assert.equal(current.status, "refreshing");
         assert.equal(current.pipelinePending, true);
-        assert.equal(current.outputsPending, true);
+        assert.equal(current.outputsPending, false);
+        assert.equal(inst.outputInference.status, "updating");
         assert.equal(current.timer._destroyed, false);
     } finally {
         clearTimeout(current.timer);
     }
 });
 
-test("an inference-only replacement rejects an older failure", () => {
+test("a failed output worker does not fail composition refresh", () => {
     const inst = instance();
     startRefresh(inst);
     beginOutputInference(inst, [request], inst.refreshStatus);
-    const previous = inst.outputInference;
-    beginOutputInference(inst, [request], inst.refreshStatus);
+    const inference = inst.outputInference;
     try {
-        failOutputInference(inst, previous);
-        assert.equal(inst.outputInference.status, "updating");
-        assert.equal(inst.outputInference.timer._destroyed, false);
+        failOutputInference(inst, inference);
+        assert.equal(inst.outputInference.status, "incomplete");
+        assert.equal(inst.outputInference.timer, null);
         assert.equal(inst.refreshStatus.status, "refreshing");
     } finally {
         clearTimeout(inst.outputInference.timer);
@@ -474,17 +558,18 @@ test("an inference-only replacement rejects an older failure", () => {
     }
 });
 
-test("an old output timeout cannot fail a refresh-only retry", (t) => {
+test("output timeout does not fail or complete the composition refresh", (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const inst = instance();
     try {
         startRefresh(inst);
         beginOutputInference(inst, [request], inst.refreshStatus);
         t.mock.timers.tick(9 * 60 * 1000);
-        startRefresh(inst);
+        const refresh = startRefresh(inst);
         t.mock.timers.tick(60 * 1000);
+        assert.equal(inst.refreshStatus, refresh);
         assert.equal(inst.refreshStatus.status, "refreshing");
-        assert.equal(inst.outputInference, null);
+        assert.equal(inst.outputInference.status, "incomplete");
         t.mock.timers.tick(9 * 60 * 1000);
         assert.equal(inst.refreshStatus.status, "incomplete");
     } finally {
@@ -532,7 +617,7 @@ test("a pipeline accepted before an await cannot complete a refresh started duri
 });
 
 for (const replacement of ["refresh", "inference"]) {
-    test(`a delayed catalog push cannot replace newer ${replacement} work`, async () => {
+    test(`a delayed catalog push is isolated from newer ${replacement} work`, async () => {
         await actionFixture(async (inst) => {
             let currentInference;
             let replaced = false;
@@ -544,8 +629,12 @@ for (const replacement of ["refresh", "inference"]) {
                 currentInference = inst.outputInference;
             };
             const action = catalogActions.find(({ name }) => name === "showExtensionCatalog");
-            await assert.rejects(action.handler({ instanceId: inst.instanceId, input: { items: [] } }),
-                /superseded/);
+            const pending = action.handler({ instanceId: inst.instanceId, input: { items: [] } });
+            if (replacement === "refresh") {
+                await assert.rejects(pending, /superseded/);
+            } else {
+                assert.equal((await pending).ok, true);
+            }
             assert.ok(replaced);
             assert.equal(inst.outputInference, currentInference);
             assert.equal(currentInference.status, "updating");
@@ -567,45 +656,41 @@ for (const refreshing of [false, true]) {
             const result = await action.handler({ instanceId: inst.instanceId, input: { items: [] } });
             assert.equal(result.ok, true);
             assert.equal(inference.pending.size, 0);
-            assert.equal(inference.timer._destroyed, true);
+            assert.equal(inference.timer, null);
             if (!refreshing) assert.equal(inst.refreshStatus, undefined);
         });
     });
 }
 
-test("a refresh-less catalog push rejects replacement work even if the replacement completes during persistence", async () => {
+test("a refresh-less catalog push does not couple to inference work during persistence", async () => {
     await actionFixture(async (inst) => {
         beginOutputInference(inst, [request], inst.refreshStatus);
         const previous = inst.outputInference;
         let replacement;
         inst.broadcast = (frame) => {
             if (frame.type !== "state" || replacement) return;
-            beginOutputInference(inst, [request], inst.refreshStatus);
+            beginOutputInference(inst, [{ ...request, commandId: "speckit.tasks" }], inst.refreshStatus);
             replacement = inst.outputInference;
-            finishOutputInference(inst, replacement, ["speckit.plan"]);
+            finishOutputInference(inst, replacement, ["speckit.tasks"]);
         };
         const action = catalogActions.find(({ name }) => name === "showExtensionCatalog");
-        await assert.rejects(action.handler({ instanceId: inst.instanceId, input: { items: [] } }),
-            /superseded/);
+        const result = await action.handler({ instanceId: inst.instanceId, input: { items: [] } });
+        assert.equal(result.ok, true);
         assert.ok(replacement);
-        assert.notEqual(replacement, previous);
+        assert.equal(replacement, previous);
         assert.equal(previous.pending.size, 1);
-        assert.equal(replacement.pending.size, 0);
-        assert.equal(inst.outputInference, null);
+        assert.equal(previous.workers.size, 1);
+        assert.equal(inst.outputInference, previous);
         assert.equal(inst.refreshStatus, undefined);
     });
 });
 
-for (const [stage, value, failure, inferenceOnly] of [
+for (const [stage, value, failure] of [
     ["compose", { ok: true, stage2Needed: true }],
-    ["getSnapshot", { artifactInferenceRequests: [request] }],
     ["getInstalledCounts", {}],
     ["getInstalledCounts", null, "installed-count probe failed"],
-    ["getSnapshot", { artifactInferenceRequests: [request] }, null, true],
-    ["getInstalledCounts", {}, null, true],
 ]) {
-    test(`superseded dispatch ${failure ? "failure" : "result"} at ${stage} preserves newer ${
-        inferenceOnly ? "inference" : "refresh"} work`, async () => {
+    test(`superseded composition dispatch ${failure ? "failure" : "result"} at ${stage} preserves current work`, async () => {
         const inst = instance();
         const entered = deferred();
         const waiting = deferred();
@@ -614,9 +699,9 @@ for (const [stage, value, failure, inferenceOnly] of [
         deps[stage] = () => { entered.resolve(); return waiting.promise; };
         const running = dispatchKindPrompt(inst, "composition.refresh", {}, deps);
         await entered.promise;
-        const refresh = inferenceOnly ? inst.refreshStatus : startRefresh(inst);
+        const refresh = startRefresh(inst);
         beginOutputInference(inst, [request], refresh);
-        setRefreshWork(inst, { pipeline: true, outputs: true }, refresh);
+        setRefreshWork(inst, { pipeline: true, outputs: false }, refresh);
         const inference = inst.outputInference;
         try {
             if (failure) waiting.reject(new Error(failure));
@@ -625,7 +710,7 @@ for (const [stage, value, failure, inferenceOnly] of [
             assert.equal(inst.refreshStatus, refresh);
             assert.equal(refresh.status, "refreshing");
             assert.equal(refresh.pipelinePending, true);
-            assert.equal(refresh.outputsPending, true);
+            assert.equal(refresh.outputsPending, false);
             assert.equal(refresh.timer._destroyed, false);
             assert.equal(inst.outputInference, inference);
             assert.equal(inference.status, "updating");
@@ -648,14 +733,14 @@ test("a queued refresh send is skipped if a newer refresh starts before the defe
         assert.deepEqual(sent, []);
         assert.equal(inst.refreshStatus.status, "refreshing");
         assert.equal(inst.refreshStatus.pipelinePending, true);
-        assert.equal(inst.refreshStatus.outputsPending, true);
+        assert.equal(inst.refreshStatus.outputsPending, false);
     } finally {
         clearTimeout(inst.refreshStatus.timer);
         clearTimeout(inst.outputInference?.timer);
     }
 });
 
-for (const retry of [null, "refresh", "inference", "completed outputs"]) {
+for (const retry of [null, "refresh", "inference"]) {
     test(`deferred transport failure after ${retry ?? "no replacement"} affects only its owning work`, async () => {
         const inst = instance();
         const entered = deferred();
@@ -672,20 +757,17 @@ for (const retry of [null, "refresh", "inference", "completed outputs"]) {
             if (retry === "refresh" || retry === "inference") {
                 beginOutputInference(inst, [request], inst.refreshStatus);
             }
-            if (retry === "completed outputs") {
-                finishOutputInference(inst, inst.outputInference, ["speckit.plan"]);
-            }
             const refresh = inst.refreshStatus;
             const inference = inst.outputInference;
             transport.reject(new Error("session unavailable"));
             await new Promise(setImmediate);
             assert.equal(inst.refreshStatus, refresh);
             assert.equal(inst.outputInference, inference);
-            const superseded = retry === "refresh" || retry === "inference";
+            const superseded = retry === "refresh";
             assert.equal(refresh.status, superseded ? "refreshing" : "incomplete");
             if (inference) {
-                assert.equal(inference.status, superseded ? "updating" : "incomplete");
-                assert.equal(inference.timer._destroyed, !superseded);
+                assert.equal(inference.status, "updating");
+                assert.equal(inference.timer._destroyed, false);
             }
         } finally {
             clearTimeout(inst.refreshStatus.timer);
@@ -698,13 +780,17 @@ test("catalog inference without an explicit refresh can complete or fail normall
     const inst = instance();
     try {
         beginOutputInference(inst, [request], inst.refreshStatus);
-        finishOutputInference(inst, inst.outputInference, ["speckit.plan"]);
+        const completed = inst.outputInference;
+        finishOutputInference(inst, completed, ["speckit.plan"]);
         assert.equal(inst.outputInference, null);
+        assert.equal(completed.status, "complete");
+        assert.equal(completed.timer, null);
         assert.equal(inst.refreshStatus, undefined);
         beginOutputInference(inst, [request], inst.refreshStatus);
-        failOutputInference(inst, inst.outputInference);
-        assert.equal(inst.outputInference.status, "incomplete");
-        assert.equal(inst.outputInference.timer._destroyed, true);
+        const failed = inst.outputInference;
+        failOutputInference(inst, failed);
+        assert.equal(failed.status, "incomplete");
+        assert.equal(failed.timer, null);
         assert.equal(inst.refreshStatus, undefined);
     } finally {
         clearTimeout(inst.outputInference?.timer);
@@ -725,7 +811,7 @@ test("current output inference still times out and broadcasts its concrete failu
     }
 });
 
-test("refresh finishes only after both pipeline and output inference complete", () => {
+test("refresh completion is independent of output inference", () => {
     const frames = [];
     const inst = { url: "http://127.0.0.1:1234", token: "test-token",
         broadcast: (frame) => frames.push(frame) };
@@ -734,11 +820,13 @@ test("refresh finishes only after both pipeline and output inference complete", 
         { commandId: "speckit.plan", fingerprint: "a".repeat(64) },
     ], inst.refreshStatus);
     assert.equal(endpoint.searchParams.get("token"), "test-token");
-    setRefreshWork(inst, { pipeline: true, outputs: true }, inst.refreshStatus);
+    setRefreshWork(inst, { pipeline: true, outputs: false }, inst.refreshStatus);
     finishRefreshPart(inst, "pipeline", inst.refreshStatus);
-    assert.equal(inst.refreshStatus.status, "refreshing");
+    assert.equal(inst.refreshStatus.status, "up-to-date");
+    assert.equal(inst.outputInference.status, "updating");
     finishOutputInference(inst, inst.outputInference, ["speckit.plan"]);
     assert.equal(inst.refreshStatus.status, "up-to-date");
+    assert.equal(inst.outputInference, null);
     assert.ok(frames.some(({ type, reason }) => type === "invalidate"
         && reason === "composition refresh status changed"));
     const completedId = inst.refreshStatus.id;
@@ -749,36 +837,34 @@ test("refresh finishes only after both pipeline and output inference complete", 
     assert.equal(inst.refreshStatus.status, "incomplete");
 });
 
-test("output inference failure marks refresh incomplete without leaving a timer", () => {
+test("output inference failure does not mark refresh incomplete", () => {
     const inst = { url: "http://127.0.0.1:1234", token: "test-token", broadcast() {} };
     startRefresh(inst);
     beginOutputInference(inst, [{ commandId: "speckit.specify", fingerprint: "b".repeat(64) }], inst.refreshStatus);
     failOutputInference(inst, inst.outputInference);
     assert.equal(inst.outputInference.status, "incomplete");
-    assert.equal(inst.refreshStatus.status, "incomplete");
+    assert.equal(inst.outputInference.timer, null);
+    assert.equal(inst.refreshStatus.status, "refreshing");
+    assert.equal(inst.refreshStatus.outputsPending, false);
 });
 
-test("catalog changes infer outputs after catalog updates, including removal", () => {
+test("catalog changes do not request output inference, including removal", () => {
     for (const kind of ["preset.install", "preset.remove", "extension.install",
         "extension.remove", "bundle.install", "bundle.remove"]) {
         const prompt = buildCatalogPrompt(kind, { name: "example" }, {},
             { workspacePath: "C:\\workspace", skill: "speckit-bundle" });
         const finalCatalog = prompt.indexOf(kind.startsWith("preset.") ? "showPresetCatalog"
             : "showExtensionCatalog");
-        const inference = prompt.indexOf("After the final catalog action");
-        assert.ok(finalCatalog >= 0 && inference > finalCatalog,
-            `${kind} must request output evidence only after its final catalog update`);
-        assert.match(prompt, /artifactInferenceRequests/);
+        assert.ok(finalCatalog >= 0);
+        assert.doesNotMatch(prompt, /artifactInferenceEndpoint|Infer outputs|artifact-targets/);
+        assert.doesNotMatch(prompt, /pipeline output details in the background/);
     }
 });
 
 test("inference prompt distinguishes feature-relative paths from named roots", () => {
-    for (const prompt of [
-        buildCatalogPrompt("preset.install", { name: "example" }, {},
-            { workspacePath: "C:\\workspace", skill: "speckit-preset" }),
-        buildCatalogPrompt("extension.install", { name: "example" }, {},
-            { workspacePath: "C:\\workspace", skill: "speckit-extension" }),
-    ]) {
+    for (const prompt of [buildCompositionPrompt("extension.inferArtifactTargets",
+        { commands: [request], endpoint: `http://127.0.0.1:1234/api/artifact-targets?token=test&runId=${randomUUID()}` },
+        {}, { workspacePath: "C:\\workspace" })]) {
         assert.match(prompt, /Never include root and relativeTo on the same candidate/);
         assert.match(prompt, /including helpers that call it FEATURE_DIR/);
         assert.match(prompt, /\"path\":\"plan\.md\",\"relativeTo\":\"feature\"/);
@@ -796,10 +882,6 @@ test("inference prompt distinguishes feature-relative paths from named roots", (
 
 test("inference prompts require copying fresh fingerprints rather than transcribing them", () => {
     for (const prompt of [
-        buildCatalogPrompt("preset.install", { name: "example" }, {},
-            { workspacePath: "C:\\workspace", skill: "speckit-preset" }),
-        buildCatalogPrompt("extension.install", { name: "example" }, {},
-            { workspacePath: "C:\\workspace", skill: "speckit-extension" }),
         buildCompositionPrompt("extension.inferArtifactTargets",
             { commands: [{ commandId: "speckit.plan", skillPath: ".github/skills/speckit-plan/SKILL.md",
                 fingerprint: "a".repeat(64) }],
@@ -808,9 +890,10 @@ test("inference prompts require copying fresh fingerprints rather than transcrib
     ]) {
         assert.match(prompt, /GET \/api\/state on the artifactInferenceEndpoint origin with the same token/);
         assert.match(prompt, /artifactInferenceRequests as the data source for command IDs and fingerprints/);
-        assert.match(prompt, /Verify the GET request IDs exactly match/);
+        assert.match(prompt, /Verify each listed command appears exactly once/);
         assert.match(prompt, /Build entries programmatically by joining your inferred candidates by command ID/);
-        assert.match(prompt, /If an ID is missing, extra, duplicated, or lacks a fingerprint or inference result, stop without POST/);
+        assert.match(prompt, /If a listed ID is missing, duplicated, or lacks a fingerprint or inference result, stop without POST/);
         assert.match(prompt, /fingerprint copied programmatically from matching GET request/);
+        assert.match(prompt, /Use the supplied bundled SKILL\.md text/);
     }
 });

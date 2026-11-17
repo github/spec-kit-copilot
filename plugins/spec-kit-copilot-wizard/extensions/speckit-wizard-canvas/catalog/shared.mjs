@@ -68,6 +68,7 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
     const { kind, dataKey, outputField, listInstalled, extraFields } = cfg;
     if (!Array.isArray(sources) || !sources.length) {
         inst[outputField] = [];
+        inst._verifiedCatalogFields?.delete(outputField);
         return;
     }
     const installed = inst.workspacePath ? await listInstalled(inst.workspacePath) : EMPTY_INSTALLED;
@@ -116,6 +117,8 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
         }
     }
     inst[outputField] = items;
+    inst._verifiedCatalogFields ??= new Set();
+    inst._verifiedCatalogFields.add(outputField);
 }
 
 /**

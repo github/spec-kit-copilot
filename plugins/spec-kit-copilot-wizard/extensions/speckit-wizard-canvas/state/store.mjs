@@ -237,6 +237,7 @@ export function applyPatch(current, patch) {
 // this file), and the payload is written via a tmp file + rename so a crash
 // mid-write can't leave a truncated state.json on disk.
 const _writeQueues = new Map();
+const _renameRetryDelaysMs = [50, 100, 200];
 
 function _enqueueWrite(workspacePath, task) {
     const prev = _writeQueues.get(workspacePath) ?? Promise.resolve();
@@ -244,6 +245,21 @@ function _enqueueWrite(workspacePath, task) {
     const next = prev.then(task, task);
     _writeQueues.set(workspacePath, next.then(() => {}, () => {}));
     return next;
+}
+
+// Retry only transient Windows EPERM swaps; rerunning the commit callback
+// rechecks ownership before every rename and publishes only after success.
+async function _commitWithRetry(commit, platform, wait) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await commit();
+        } catch (error) {
+            if (platform !== "win32" || error?.code !== "EPERM" || attempt >= _renameRetryDelaysMs.length) {
+                throw error;
+            }
+            await wait(_renameRetryDelaysMs[attempt]);
+        }
+    }
 }
 
 // An owned caller may supply a synchronous commitFile(temp, target) that
@@ -273,8 +289,11 @@ export async function writeState(workspacePath, state, deps, commitFile) {
         const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
         try {
             await deps.writeFile(tmpPath, payload, "utf8");
-            if (commitFile) commitFile(tmpPath, filePath);
-            else await rename(tmpPath, filePath);
+            await _commitWithRetry(
+                () => commitFile ? commitFile(tmpPath, filePath) : rename(tmpPath, filePath),
+                deps.platform ?? process.platform,
+                deps.waitForRenameRetry ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+            );
         } catch (err) {
             // Preparation or swap failed. Clean up the temporary file and
             // preserve the destination before surfacing the error.

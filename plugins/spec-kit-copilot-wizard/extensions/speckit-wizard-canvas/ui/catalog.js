@@ -1,6 +1,6 @@
 // Catalog tab: presets, extensions, bundles tiles + install/remove.
 
-import { escapeHtml, safeExternalHref, dispatchKind } from "./client.js";
+import { escapeHtml, safeExternalHref, runCatalogAction } from "./client.js";
 import { openCommunityInstallModal } from "./modals.js";
 import {
     state,
@@ -176,31 +176,17 @@ function renderCatalogItems(snapshot, filter) {
             const action = btn.dataset.presetAction;
             const name = btn.dataset.name;
             const presetId = btn.dataset.presetId || name;
-            // Guard against double-clicks / spam clicks while an action is
-            // in-flight. The pending state is cleared by the next
-            // `preset-catalog` broadcast (or the safety timeout below).
+            // Terminal completion or the bounded recovery timer clears pending.
             if (state.pendingPresetActions[presetId]) return;
-            const markPending = (kind) => {
-                state.pendingPresetActions[presetId] = kind;
-                renderCatalogItems(state.snapshot, currentFilter());
-                // Safety timeout — clear pending after 90s so the user is
-                // never permanently locked out if a broadcast is missed.
-                setTimeout(() => {
-                    if (state.pendingPresetActions[presetId] === kind) {
-                        delete state.pendingPresetActions[presetId];
-                        renderCatalogItems(state.snapshot, currentFilter());
-                    }
-                }, 90000);
-            };
             if (action === "install") {
                 const requiresConfirm = btn.dataset.requiresConfirm === "1";
                 const downloadUrl = btn.dataset.downloadUrl || null;
                 const displayName = btn.dataset.displayName || name;
                 const doInstall = () => {
-                    // Use the same shared helper the Setup row 4 button
-                    // uses. It handles markPending + safety timeout +
-                    // dispatchKind identically for both entry points.
-                    __installCatalogPreset({ presetId, name, downloadUrl });
+                    // Setup and Catalogs share verified completion and recovery.
+                    return __installCatalogPreset({ presetId, name, downloadUrl,
+                        source: btn.dataset.source || undefined, confirmed: requiresConfirm,
+                        ...(DEFAULT_INSTALL_PRESET_IDS.has(presetId) ? { priority: 1 } : {}) });
                 };
                 if (requiresConfirm) {
                     openCommunityInstallModal({ displayName, onConfirm: doInstall, kind: "preset" });
@@ -208,8 +194,10 @@ function renderCatalogItems(snapshot, filter) {
                     doInstall();
                 }
             } else {
-                markPending("remove");
-                dispatchKind(`preset.${action}`, { name });
+                void runCatalogAction(`preset.${action}`, { name }, {
+                    pending: state.pendingPresetActions, id: presetId,
+                    render: () => renderCatalogItems(state.snapshot, currentFilter()),
+                });
             }
         });
     });
@@ -324,23 +312,16 @@ export function renderExtensionCatalogItems(snapshot, filter) {
             const name = btn.dataset.name;
             const extId = btn.dataset.extensionId || name;
             if (state.pendingExtensionActions[extId]) return;
-            const markPending = (kind) => {
-                state.pendingExtensionActions[extId] = kind;
-                renderExtensionCatalogItems(state.snapshot, currentExtensionFilter());
-                setTimeout(() => {
-                    if (state.pendingExtensionActions[extId] === kind) {
-                        delete state.pendingExtensionActions[extId];
-                        renderExtensionCatalogItems(state.snapshot, currentExtensionFilter());
-                    }
-                }, 90000);
-            };
             if (action === "install") {
                 const requiresConfirm = btn.dataset.requiresConfirm === "1";
                 const downloadUrl = btn.dataset.downloadUrl || null;
                 const displayName = btn.dataset.displayName || name;
                 const doInstall = () => {
-                    markPending("install");
-                    dispatchKind("extension.install", { name, downloadUrl });
+                    return runCatalogAction("extension.install", { name, downloadUrl,
+                        source: btn.dataset.source || undefined, confirmed: requiresConfirm }, {
+                        pending: state.pendingExtensionActions, id: extId,
+                        render: () => renderExtensionCatalogItems(state.snapshot, currentExtensionFilter()),
+                    });
                 };
                 if (requiresConfirm) {
                     openCommunityInstallModal({ displayName, onConfirm: doInstall, kind: "extension" });
@@ -348,8 +329,10 @@ export function renderExtensionCatalogItems(snapshot, filter) {
                     doInstall();
                 }
             } else {
-                markPending("remove");
-                dispatchKind(`extension.${action}`, { name });
+                void runCatalogAction(`extension.${action}`, { name }, {
+                    pending: state.pendingExtensionActions, id: extId,
+                    render: () => renderExtensionCatalogItems(state.snapshot, currentExtensionFilter()),
+                });
             }
         });
     });
@@ -461,29 +444,20 @@ export function renderBundleCatalogItems(snapshot, filter) {
             const name = btn.dataset.name;
             const bundleId = btn.dataset.bundleId || name;
             if (state.pendingBundleActions[bundleId]) return;
-            const markPending = (kind) => {
-                state.pendingBundleActions[bundleId] = kind;
-                renderBundleCatalogItems(state.snapshot, currentBundleFilter());
-                setTimeout(() => {
-                    if (state.pendingBundleActions[bundleId] === kind) {
-                        delete state.pendingBundleActions[bundleId];
-                        renderBundleCatalogItems(state.snapshot, currentBundleFilter());
-                    }
-                }, 90000);
-            };
             if (action === "install") {
                 const requiresConfirm = btn.dataset.requiresConfirm === "1";
                 const downloadUrl = btn.dataset.downloadUrl || null;
                 const displayName = btn.dataset.displayName || name;
-                // TODO: temp only — the `test` catalog embeds bundle.yml
-                // inline. Look up the current item to pass it through.
                 const bundleItem = (state.snapshot?.catalog?.bundles ?? []).find(
-                    (b) => (b?.id ?? b?.name) === bundleId,
+                    (b) => (b?.id ?? b?.name) === bundleId && b.source === btn.dataset.source,
                 );
                 const bundleYml = bundleItem?.bundleYml || null;
                 const doInstall = () => {
-                    markPending("install");
-                    dispatchKind("bundle.install", { name, downloadUrl, bundleYml });
+                    return runCatalogAction("bundle.install", { name, downloadUrl, bundleYml,
+                        source: btn.dataset.source || undefined, confirmed: requiresConfirm }, {
+                        pending: state.pendingBundleActions, id: bundleId,
+                        render: () => renderBundleCatalogItems(state.snapshot, currentBundleFilter()),
+                    });
                 };
                 if (requiresConfirm) {
                     openCommunityInstallModal({ displayName, onConfirm: doInstall, kind: "bundle" });
@@ -491,8 +465,10 @@ export function renderBundleCatalogItems(snapshot, filter) {
                     doInstall();
                 }
             } else {
-                markPending("remove");
-                dispatchKind(`bundle.${action}`, { name });
+                void runCatalogAction(`bundle.${action}`, { name }, {
+                    pending: state.pendingBundleActions, id: bundleId,
+                    render: () => renderBundleCatalogItems(state.snapshot, currentBundleFilter()),
+                });
             }
         });
     });

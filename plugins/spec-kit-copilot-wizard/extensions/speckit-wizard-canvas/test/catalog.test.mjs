@@ -47,6 +47,9 @@ test("catalog hydration keeps only string tags for every item kind", async (t) =
         });
         assert.deepEqual(inst.items.map((item) => item.tags),
             [["canvas-design", "appearance"], [], [], ["canvas-design"]]);
+        assert.equal(inst._verifiedCatalogFields.has("items"), true);
+        await hydrateFromCatalogSources(inst, [], { kind, dataKey: `${kind}s`, outputField: "items" });
+        assert.equal(inst._verifiedCatalogFields.has("items"), false);
     }
 });
 
@@ -479,7 +482,7 @@ test("isOptional predicate matches PHASES declarations", () => {
     // Optional-vs-required is a semantic invariant the wizard uses to gate
     // Skip actions. Regression risk is high enough to keep this predicate
     // guarded independently: no integration test asserts the boolean.
-    for (const id of ["clarify", "checklist", "analyze", "taskstoissues"]) {
+    for (const id of ["clarify", "checklist", "analyze"]) {
         assert.equal(isOptional(id), true, `${id} must be optional`);
     }
     for (const id of ["setup", "preset", "constitution", "specify", "plan", "tasks", "implement"]) {

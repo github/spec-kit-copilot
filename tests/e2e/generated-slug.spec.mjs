@@ -180,7 +180,7 @@ for (const [scenario, module, error] of [
 
 test("phase adapter mobile navigation selects phases", async ({ page }) => {
     const canvas = await openGeneratedCanvas(false,
-        ["specify", "plan", "clarify", "tasks", "taskstoissues", "analyze", "checklist", "implement"]);
+        ["specify", "plan", "clarify", "tasks", "converge", "analyze", "checklist", "implement"]);
     try {
         await page.setViewportSize({ width: 390, height: 780 });
         await page.goto(canvas.url);
@@ -1362,7 +1362,7 @@ test("Constitution guidance saves once after typing and flushes before sending",
 
 test("one workflow header, compact constitution and legible narrow phase navigation", async ({ page }, testInfo) => {
     const canvas = await openGeneratedCanvas(true,
-        ["constitution", "specify", "clarify", "plan", "tasks", "taskstoissues", "analyze", "checklist", "implement"]);
+        ["constitution", "specify", "clarify", "plan", "tasks", "converge", "analyze", "checklist", "implement"]);
     const expectAlignedWorkspace = async () => {
         const edges = await page.evaluate(() => {
             const list = document.querySelector("#workflow-list").getBoundingClientRect();
@@ -1449,7 +1449,7 @@ test("one workflow header, compact constitution and legible narrow phase navigat
         await expect(page.locator('[data-phase-index="3"]')).toHaveClass(/active/);
         expect(await page.locator('[data-phase-index="3"]').evaluate((step) =>
             getComputedStyle(step).outlineStyle)).toBe("solid");
-        await expect(page.locator("#next-phase")).toHaveText("Next: Create issues ▶");
+        await expect(page.locator("#next-phase")).toHaveText("Next: Converge ▶");
         await page.locator("#next-phase").click();
         await expect(page.locator('[data-phase-index="4"]')).toHaveAttribute("aria-current", "step");
         await expect(page.locator('[data-phase-index="4"]')).toHaveClass(/active/);
