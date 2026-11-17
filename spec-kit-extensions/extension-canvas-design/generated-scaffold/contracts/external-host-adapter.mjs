@@ -61,6 +61,20 @@ export function validateWorkflowPageState(state) {
             }
         }
     }
+    const invalidBadgeCategory = (badge) => !badge || typeof badge !== "object"
+        || Array.isArray(badge)
+        || (badge.category !== undefined && typeof badge.category !== "string");
+    const workflowBadges = state.model?.badges?.items;
+    if (workflowBadges !== undefined && (!workflowBadges || typeof workflowBadges !== "object"
+        || Array.isArray(workflowBadges) || Object.values(workflowBadges).some((badges) =>
+            !Array.isArray(badges) || badges.some(invalidBadgeCategory)))) {
+        throw new Error("Incompatible Workflow page state: invalid workflow badge results");
+    }
+    const summaryBadges = state.model?.badges?.summary;
+    if (summaryBadges !== undefined && (!Array.isArray(summaryBadges)
+        || summaryBadges.some(invalidBadgeCategory))) {
+        throw new Error("Incompatible Workflow page state: invalid summary badge results");
+    }
     const projectBadges = state.model?.badges?.project;
     if (projectBadges !== undefined && (!Array.isArray(projectBadges)
         || projectBadges.some((badge) => !badge || typeof badge !== "object"

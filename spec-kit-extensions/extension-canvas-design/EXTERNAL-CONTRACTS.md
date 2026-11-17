@@ -146,6 +146,10 @@ of at most 80 characters without control characters or angle brackets.
 Rendered workflow-list and summary badges carry `category`; hosts group
 badges whose categories match case-insensitively into one labeled bracket,
 ordered by first appearance. Phase cards do not show category labels.
+Before a Workflow page adapter update, the host checks that optional
+`badges.items` maps item IDs to arrays of badge objects and `badges.summary` is
+an array of badge objects. Their `category` is either a string or absent for
+legacy results; incompatible collections and category values are rejected.
 Instances of rules without a `badge-selection` input carry `text`,
 `phaseText` and `summaryText` exactly for their selected Workflow list,
 Phase and Workflow summary placements; selection-rule instances carry no

@@ -384,7 +384,7 @@ test("Workflow page contract validates pending recovery before a replacement ada
 test("Workflow page contract validates project badges before a replacement adapter receives them", () => {
     const received = [];
     const replacement = { update(state) { received.push(state.model.badges.project); } };
-    const badge = { id: "constitution", text: "Ready", phaseText: "Project ready",
+    const badge = { id: "constitution", category: "Progress", text: "Ready", phaseText: "Project ready",
         color: "purple", showIn: [], targets: [{ phase: "speckit.constitution", output: null },
             { phase: "speckit.constitution", output: ".specify/memory/constitution.md" }] };
     const legacy = { id: "legacy", text: "Ready", color: "theme",
@@ -397,9 +397,44 @@ test("Workflow page contract validates project badges before a replacement adapt
     for (const invalid of ["invalid", [null], [{ ...badge, text: null }],
         [{ ...badge, color: null }], [{ ...badge, targets: [{ phase: "speckit.constitution" }] }],
         [{ ...badge, targets: [{ phase: 42, output: null }] }],
-        [{ ...badge, targets: "invalid" }], [{ ...legacy, phase: undefined }]]) {
+        [{ ...badge, targets: "invalid" }], [{ ...legacy, phase: undefined }],
+        ...[null, 7, false, {}, []].map((category) => [{ ...badge, category }])]) {
         assert.throws(() => replacement.update(validateWorkflowPageState(state(invalid))),
             /invalid project badge results/);
     }
     assert.equal(received.length, 2);
+});
+
+test("Workflow page contract validates list and summary categories before adapter updates", () => {
+    const received = [];
+    const replacement = { update(state) { received.push(state.model.badges); } };
+    const state = (badges) => ({ phaseState: { slugEditable: false },
+        model: { userProvidesSlug: false, badges } });
+    const item = { id: "ready", category: "Progress", text: "Ready", color: "green",
+        showIn: ["workflow-list"] };
+    const summary = { id: "ready", category: "Progress", text: "Ready: 1", color: "green", count: 1 };
+    const { category: _itemCategory, ...legacyItem } = item;
+    const { category: _summaryCategory, ...legacySummary } = summary;
+    const valid = { items: { first: [item, legacyItem], second: [] },
+        summary: [summary, legacySummary] };
+    for (const badges of [valid, { items: {}, summary: [] }, {}]) {
+        replacement.update(validateWorkflowPageState(state(badges)));
+    }
+    assert.deepEqual(received, [valid, { items: {}, summary: [] }, {}]);
+    for (const category of [null, 7, false, {}, []]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(
+            state({ items: { first: [{ ...item, category }] } }))), /invalid workflow badge results/);
+        assert.throws(() => replacement.update(validateWorkflowPageState(
+            state({ summary: [{ ...summary, category }] }))), /invalid summary badge results/);
+    }
+    for (const items of [null, [], "invalid", { first: null }, { first: {} },
+        { first: [null] }, { first: [[]] }, { first: [7] }]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(state({ items }))),
+            /invalid workflow badge results/);
+    }
+    for (const summary of [null, {}, "invalid", [null], [[]], [7]]) {
+        assert.throws(() => replacement.update(validateWorkflowPageState(state({ summary }))),
+            /invalid summary badge results/);
+    }
+    assert.equal(received.length, 3);
 });

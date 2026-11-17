@@ -951,6 +951,10 @@ with string `phase` and `output` either a string path or `null` for a card)
 or a legacy `phase` string with `phase-card` in `showIn`. Malformed project
 badge results cause an incompatible Workflow-page state error rather than
 being passed to a replacement adapter.
+For Workflow list and summary results, optional `badges.items` maps item IDs to
+arrays of badge objects, and optional `badges.summary` is an array of badge
+objects. The host rejects malformed collections or non-string `category` values
+before adapter updates; categories may be absent in older results.
 The `generated-phase-control` definition places itself in
 `workflow.phases`, has `schemaVersion: 1`, `id: "workflow-phases"`, an `adapter` name (stock:
 `generated-phase-adapter`), and optional `viewLabels` keyed by selected phase ID,
