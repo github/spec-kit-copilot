@@ -521,9 +521,11 @@ Renaming a type/default does not overwrite previously saved custom badge text.
 **Value match** searches one confirmed Markdown output for an ordered list of
 literal strings, ignoring capitalization. For each workflow, the first match
 selects the matching value's color and its placement text. Each match has its
-own Workflow list, Phase card and Workflow summary text for the badge's selected
-placements; new badges start with Workflow summary selected, and each Summary
-item counts only workflows where that value won, displaying `text: N`.
+own **Text shown in workflow summary**, **Text shown in workflow list** and
+**Text shown on phase card** fields for the selected placements. These fields
+start blank with general prompts; new badges start with Workflow summary
+selected. Each Summary item counts only workflows where that value won,
+displaying `text: N`.
 Add up to 100 entries and set priority with each
 match's numbered **Order** dropdown. Rows stay where they are while editing;
 changing an order shifts the other entries' priorities and saves entries in

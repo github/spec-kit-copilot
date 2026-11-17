@@ -219,6 +219,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .badge-preview[data-color="purple"] { color: var(--badge-purple); }
 .badge-preview[data-color="pink"] { color: var(--badge-pink); }
 .badge-preview[data-color="orange"] { color: var(--badge-orange); }
+.badge-preview.badge-preview-empty { border-style: dashed; background: transparent;
+    color: var(--text-color-muted); font-weight: 400; }
 .badge-section h3 { margin: .5rem 0 0; font-size: 15px; }
 .badge-section h4 { margin: .25rem 0 0; font-size: 14px; }
 .badge-editor > h3 { margin-top: 1.25rem; }
@@ -253,6 +255,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .badge-selection-entry > summary { cursor: pointer; font-weight: 600; }
 .badge-selection-entry > .badge-field { margin-top: .75rem; }
 .badge-selection-entry > button { margin: .75rem .4rem 0 0; }
+.badge-color-preview-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .75rem; }
+.badge-color-preview-row > .badge-field { flex: 1 1 240px; }
 .badge-preview-field { display: grid; gap: .3rem; font-size: 14px; font-weight: 600; }
 .badge-preview-field .badge-preview { justify-self: start; }
 .badge-field { display: grid; gap: .3rem; min-width: min(240px, 100%); max-width: 420px; font-size: 14px; font-weight: 600; }
