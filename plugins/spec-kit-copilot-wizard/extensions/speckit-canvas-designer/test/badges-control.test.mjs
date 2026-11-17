@@ -227,8 +227,6 @@ test("Value match edits ordered entries with per-placement text and rejects inva
         controlMount: mountValueMatchInputs });
     const labelInput = (scope, label) => descendants(scope).find((item) =>
         item.tagName === "label" && item.children[0]?.textContent === label)?.children[1];
-    const help = (scope, label) => descendants(scope).find((item) =>
-        item.tagName === "label" && item.children[0]?.textContent === label)?.children[2]?.textContent;
     const button = (scope, text) => descendants(scope).find((item) =>
         item.tagName === "button" && item.textContent === text);
     const type_ = (input, value) => { input.value = value; input.events.input(); };
@@ -239,25 +237,36 @@ test("Value match edits ordered entries with per-placement text and rejects inva
         assert.equal(check(root, "badge-placements", "Workflow summary").checked, true);
         assert.equal(check(root, "badge-placements", "Workflow list").checked, false);
         assert.equal(labelInput(rows()[0], "Value"), undefined, "no shared Value field");
-        assert.equal(labelInput(rows()[0], "Workflow list text"), undefined);
-        assert.equal(labelInput(rows()[0], "Phase card text"), undefined);
-        assert.equal(labelInput(rows()[0], "Workflow summary text").value, "Match");
-        assert.equal(help(rows()[0], "Workflow summary text"),
-            "Shown once as 'text: N', where N is the number of matching workflows.");
+        assert.equal(selection.children[0].textContent, "Matches (checked in order)");
+        assert.equal(rows()[0].children[0].textContent, "1. Enter text to find");
+        assert.equal(rows()[0].children[0].attributes["aria-label"], "Match 1: Enter text to find");
+        assert.equal(labelInput(rows()[0], "Text shown in workflow list"), undefined);
+        assert.equal(labelInput(rows()[0], "Text shown on phase card"), undefined);
+        const summaryText = labelInput(rows()[0], "Text shown in workflow summary");
+        assert.equal(summaryText.value, "");
+        assert.equal(summaryText.placeholder, "Enter display text");
+        const valueText = labelInput(rows()[0], "Text to find");
+        assert.equal(valueText.placeholder, "Enter text to find");
+        const preview = (row) => descendants(row).find((item) => item.className.includes("badge-preview"));
+        assert.equal(preview(rows()[0]).textContent, "Preview");
+        assert.equal(preview(rows()[0]).className, "badge-preview badge-preview-empty");
+        assert.ok(descendants(rows()[0]).find((item) =>
+            item.className === "badge-color-preview-row")?.children.includes(preview(rows()[0])),
+        "preview is aligned in the color row");
         const list = check(root, "badge-placements", "Workflow list");
         list.checked = true;
         list.events.change();
-        assert.equal(labelInput(rows()[0], "Workflow list text").value, "Match");
+        assert.equal(labelInput(rows()[0], "Text shown in workflow list").value, "");
         type_(labelInput(rows()[0], "Text to find"), "critical");
-        type_(labelInput(rows()[0], "Workflow list text"), "Critical");
-        assert.equal(descendants(rows()[0]).find((item) => item.className === "badge-preview").textContent,
-            "Critical");
-        assert.equal(rows()[0].children[0].attributes["aria-label"], "Match 1: Critical");
-        type_(labelInput(rows()[0], "Workflow summary text"), "Critical issues");
+        assert.equal(rows()[0].children[0].textContent, '1. If "critical" is found');
+        assert.equal(rows()[0].children[0].attributes["aria-label"], 'Match 1: If "critical" is found');
+        type_(labelInput(rows()[0], "Text shown in workflow list"), "Critical");
+        assert.equal(preview(rows()[0]).textContent, "Critical");
+        type_(labelInput(rows()[0], "Text shown in workflow summary"), "Critical issues");
         button(selection, "+ Add match").events.click();
         type_(labelInput(rows()[1], "Text to find"), "low");
-        type_(labelInput(rows()[1], "Workflow list text"), "Low");
-        type_(labelInput(rows()[1], "Workflow summary text"), "Low issues");
+        type_(labelInput(rows()[1], "Text shown in workflow list"), "Low");
+        type_(labelInput(rows()[1], "Text shown in workflow summary"), "Low issues");
         assert.equal(button(rows()[1], "Move match up"), undefined);
         const reorder = (row, position) => {
             const order = labelInput(rows()[row], "Order");
@@ -272,20 +281,21 @@ test("Value match edits ordered entries with per-placement text and rejects inva
         const phasePlacement = check(root, "badge-placements", "Phase");
         phasePlacement.checked = true;
         phasePlacement.events.change();
-        const phaseText = labelInput(rows()[1], "Phase card text");
-        assert.equal(phaseText.value, "Match");
+        type_(labelInput(rows()[0], "Text shown on phase card"), "Critical phase");
+        const phaseText = labelInput(rows()[1], "Text shown on phase card");
+        assert.equal(phaseText.value, "");
         type_(phaseText, "bad {token}");
         submit(editor);
         assert.equal(draftBadges.length, 0, "placement text cannot contain braces");
         type_(phaseText, "Low phase");
-        assert.equal(labelInput(rows()[1], "Phase card text"), phaseText,
+        assert.equal(labelInput(rows()[1], "Text shown on phase card"), phaseText,
             "typing must not replace the input");
         list.checked = false;
         list.events.change();
-        assert.equal(labelInput(rows()[1], "Workflow list text"), undefined);
+        assert.equal(labelInput(rows()[1], "Text shown in workflow list"), undefined);
         list.checked = true;
         list.events.change();
-        assert.equal(labelInput(rows()[1], "Workflow list text").value, "Low",
+        assert.equal(labelInput(rows()[1], "Text shown in workflow list").value, "Low",
             "re-selecting a placement restores its text");
         const color = labelInput(rows()[1], "Color");
         color.value = "custom";
@@ -350,7 +360,7 @@ test("Value match order dropdowns keep rows in place and placement updates confo
             phases: ["specify"], outputs: { specify: { outputs: ["spec.md"], view: "spec.md" } },
             placements: { summary: true, workflow: true, phase: true },
             onChange: (next) => snapshots.push(next) });
-        assert.match(selectionRoot.children[1].textContent, /^Search /);
+        assert.equal(selectionRoot.children[0].textContent, "Matches (checked in order)");
         assert.deepEqual(choices, original, "placement text is preserved for selected placements");
         const shown = ["critical", "high", "low"];
         assertOrders(shown);
@@ -370,8 +380,8 @@ test("Value match order dropdowns keep rows in place and placement updates confo
         assert.deepEqual(snapshots.at(-1).choices.map((entry) => Object.keys(entry).sort()),
             choices.map(() => ["color", "id", "summaryText", "value"]),
             "text for unselected placements is removed from emitted entries");
-        assert.equal(labelInput(rows()[0], "Workflow list text"), undefined);
-        assert.equal(labelInput(rows()[0], "Phase card text"), undefined);
+        assert.equal(labelInput(rows()[0], "Text shown in workflow list"), undefined);
+        assert.equal(labelInput(rows()[0], "Text shown on phase card"), undefined);
         assert.equal(handle.isReady(), true);
         handle.updatePlacements({ summary: true, workflow: true, phase: true });
         assert.deepEqual(snapshots.at(-1).choices, original, "re-selected placements restore their text");
@@ -382,7 +392,7 @@ test("Value match order dropdowns keep rows in place and placement updates confo
         assertOrders(["critical", "low"]);
         button(selectionRoot, "+ Add match").events.click();
         assert.deepEqual({ ...choices[2], id: "new" }, { id: "new", value: "", color: "amber",
-            text: "Match", phaseText: "Match", summaryText: "Match" });
+            text: "", phaseText: "", summaryText: "" });
         assert.equal(handle.isReady(), false, "a match needs text to find");
         assertOrders(["critical", "low", ""]);
         const added = structuredClone(choices[2]);
@@ -393,7 +403,7 @@ test("Value match order dropdowns keep rows in place and placement updates confo
         assert.equal(button(rows()[0], "Remove match").disabled, true);
         assert.equal(orderAt(0).disabled, true);
         assertOrders(["low"]);
-        const listText = labelInput(rows()[0], "Workflow list text");
+        const listText = labelInput(rows()[0], "Text shown in workflow list");
         listText.value = " ";
         listText.events.input();
         assert.equal(handle.isReady(), false, "selected placement text must be nonblank");

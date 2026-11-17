@@ -3,10 +3,9 @@ export const contractVersion = 1;
 export const declaresMarkdownOutput = true;
 
 const textFields = [
-    ["workflow", "text", "Workflow list text", "Shown on each matching workflow."],
-    ["phase", "phaseText", "Phase card text", "Shown on the output phase card."],
-    ["summary", "summaryText", "Workflow summary text",
-        "Shown once as 'text: N', where N is the number of matching workflows."],
+    ["summary", "summaryText", "Text shown in workflow summary"],
+    ["workflow", "text", "Text shown in workflow list"],
+    ["phase", "phaseText", "Text shown on phase card"],
 ];
 const colors = ["theme", "red", "green", "amber", "blue", "purple", "pink", "orange"];
 const node = (tag, text, className) => {
@@ -55,7 +54,7 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
     const conform = (entry) => {
         const saved = stash.get(entry.id) ?? {};
         for (const [place, key] of textFields) {
-            if (places[place]) entry[key] ??= saved[key] ?? "Match";
+            if (places[place]) entry[key] ??= saved[key] ?? "";
             else if (Object.hasOwn(entry, key)) {
                 saved[key] = entry[key];
                 delete entry[key];
@@ -64,7 +63,12 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
         stash.set(entry.id, saved);
         return entry;
     };
-    const label = (entry) => entry.text || entry.phaseText || entry.summaryText || "Match";
+    const displayText = (entry) => entry.summaryText || entry.text || entry.phaseText || "";
+    const matchDescription = (entry) => entry.value.trim()
+        ? `If "${entry.value}" is found`
+        : "Enter text to find";
+    const headingText = (index, entry) => `${index + 1}. ${matchDescription(entry)}`;
+    const headingAriaLabel = (index, entry) => `Match ${index + 1}: ${matchDescription(entry)}`;
     const newEntry = () => conform({
         id: globalThis.crypto?.randomUUID?.() ?? `match-${Date.now()}-${counter++}`,
         value: "", color: "amber",
@@ -134,9 +138,7 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
     declaration.append(field("Markdown file path", path), addFile, declarationError);
     root.append(declaration);
     const render = () => {
-        selectionRoot.replaceChildren(node("h3", "Match order"), node("p",
-            "Search the selected output for each match's text by order number. The first match determines which badge appears.",
-            "settings-note"));
+        selectionRoot.replaceChildren(node("h3", "Matches (checked in order)"));
         shown.forEach((entry, row) => {
             const index = entries.indexOf(entry);
             const details = node("details", undefined, "badge-selection-entry");
@@ -145,8 +147,8 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
                 if (details.open) opened.add(entry.id);
                 else opened.delete(entry.id);
             });
-            const heading = node("summary", `${index + 1}  ${label(entry)}`);
-            heading.setAttribute("aria-label", `Match ${index + 1}: ${label(entry)}`);
+            const heading = node("summary", headingText(index, entry));
+            heading.setAttribute("aria-label", headingAriaLabel(index, entry));
             details.append(heading);
             const order = choice(entries.map((_, position) =>
                 [String(position + 1), String(position + 1)]), String(index + 1), "Order");
@@ -160,28 +162,36 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
                 selectionRoot.querySelectorAll("details")[row]?.querySelector("select")?.focus();
             });
             details.append(field("Order", order));
+            const preview = node("span", undefined, "badge-preview");
+            const updatePreview = () => {
+                const text = displayText(entry);
+                const hasText = !!text.trim();
+                preview.textContent = hasText ? text : "Preview";
+                preview.className = hasText ? "badge-preview" : "badge-preview badge-preview-empty";
+                preview.dataset.color = entry.color;
+                preview.style.backgroundColor = hasText && entry.color.startsWith("#") ? entry.color : "";
+                preview.style.color = hasText && entry.color.startsWith("#") ? foreground(entry.color) : "";
+            };
             const input = (title, property, maxLength) => {
                 const element = node("input");
                 element.type = "text";
                 element.maxLength = maxLength;
                 element.value = entry[property];
+                element.placeholder = property === "value" ? "Enter text to find" : "Enter display text";
                 element.addEventListener("input", () => {
                     entry[property] = element.value;
-                    if (property !== "value") {
-                        heading.textContent = `${index + 1}  ${label(entry)}`;
-                        heading.setAttribute("aria-label", `Match ${index + 1}: ${label(entry)}`);
-                        preview.textContent = label(entry);
-                    }
+                    if (property === "value") {
+                        heading.textContent = headingText(index, entry);
+                        heading.setAttribute("aria-label", headingAriaLabel(index, entry));
+                    } else updatePreview();
                     emit();
                 });
                 return field(title, element);
             };
             details.append(input("Text to find", "value", 256));
-            for (const [place, key, title, help] of textFields) {
+            for (const [place, key, title] of textFields) {
                 if (!places[place]) continue;
-                const textField = input(title, key, 120);
-                textField.append(node("p", help, "settings-note"));
-                details.append(textField);
+                details.append(input(title, key, 120));
             }
             const select = choice([...colors.map((color) => [color, color]), ["custom", "Custom color"]],
                 colors.includes(entry.color) ? entry.color : "custom", "Color");
@@ -193,20 +203,15 @@ export function mount({ root, selectionRoot, rule, inputs, phases, outputs,
             const setColor = () => {
                 customField.hidden = select.value !== "custom";
                 entry.color = customField.hidden ? select.value : custom.value;
-                preview.dataset.color = entry.color;
-                preview.style.backgroundColor = entry.color.startsWith("#") ? entry.color : "";
-                preview.style.color = entry.color.startsWith("#") ? foreground(entry.color) : "";
+                updatePreview();
                 emit();
             };
             select.addEventListener("change", setColor);
             custom.addEventListener("input", setColor);
-            const preview = node("span", label(entry), "badge-preview");
-            preview.dataset.color = entry.color;
-            if (entry.color.startsWith("#")) {
-                preview.style.backgroundColor = entry.color;
-                preview.style.color = foreground(entry.color);
-            }
-            details.append(field("Color", select), customField, node("span", "Preview: "), preview);
+            const colorPreview = node("div", undefined, "badge-color-preview-row");
+            colorPreview.append(field("Color", select), preview);
+            updatePreview();
+            details.append(colorPreview, customField);
             const remove = node("button", "Remove match");
             remove.type = "button";
             remove.disabled = entries.length === 1;
