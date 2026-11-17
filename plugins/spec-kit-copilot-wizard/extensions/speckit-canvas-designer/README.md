@@ -57,6 +57,11 @@ number or ID when applicable. There are no defaults, old-format migrations,
 skipped entries, or replacements of existing badges. Optional instance fields
 remain exactly as supplied.
 
+For Value match duplicates, ordered entries are compared without their stable
+IDs. Existing saved settings containing otherwise identical overlapping badges
+may need correction before Designer can reopen them; import and generation also
+reject such duplicates.
+
 `contracts/badge-import.mjs` defines the schema-version-1 generated envelope and
 compatibility check. The envelope requires generated canvas identity, phase,
 output, layout and installed-inventory containers; unrelated canvas settings

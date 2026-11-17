@@ -325,7 +325,8 @@ test("uploaded gallery logo renders in the added generated page hero slot", asyn
         await expect(page.locator("#new-workflow")).toHaveAttribute("aria-label", "New Issue");
         await expect(page.locator("#workflow-name-label")).toHaveText("Issue name");
         await expect(page.locator("#workflow-name")).toHaveValue("Issue 1");
-        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveText("New Issue");
+        await expect(page.locator("#selected-workflow-heading > strong")).toHaveText("Issue 1");
+        await expect(page.locator("#selected-workflow-heading > .muted")).toHaveCount(0);
         await expect(page.locator("#workflow-search")).toHaveAttribute("placeholder", "Search by name or directory");
         await page.locator("#new-workflow").click();
         await expect(page.locator("#workflow-name")).toHaveValue("Issue 2");

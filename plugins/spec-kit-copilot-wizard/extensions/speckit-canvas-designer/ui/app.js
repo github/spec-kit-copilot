@@ -377,7 +377,6 @@ saveButton.addEventListener("click", async () => {
     updateSave();
     try {
         model = await persistSettings({ values: draft, outputs: draftOutputs, badges: draftBadges });
-        draftBadges.splice(0, draftBadges.length, ...structuredClone(model.badges));
         setMessage(messageBox, "Settings saved.");
     } catch (error) {
         showError(`Could not save settings: ${error.message}`);

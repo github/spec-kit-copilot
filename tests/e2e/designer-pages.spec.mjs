@@ -279,6 +279,39 @@ test("Badges editor persists a configured badge through the Designer save bounda
     }
 });
 
+test("removing the first badge after Save preserves the other badge", async ({ page }) => {
+    const state = await badgeState();
+    state.badges = ["First", "Second"].map((text) => ({
+        id: text.toLowerCase(), type: "phase-run-complete", category: "Progress",
+        inputs: { phase: "specify" }, text, color: "green",
+        showIn: ["workflow-list"], phase: null,
+    }));
+    const shell = await startPreparedShell(state);
+    try {
+        await page.goto(shell.url);
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(2);
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toHaveText("Settings saved.");
+        await page.getByRole("button", { name: "Remove First" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await expect(page.locator(".badge-row")).toContainText("Second");
+        await expect(page.locator("#save-settings")).toBeEnabled();
+        await page.locator("#save-settings").click();
+        await expect(page.locator("#action-message")).toHaveText("Settings saved.");
+        const url = new URL(shell.url);
+        const response = await page.request.get(new URL(
+            `/api/state?token=${url.searchParams.get("token")}`, url).href);
+        expect((await response.json()).badges.map(({ id }) => id)).toEqual(["second"]);
+        await page.reload();
+        await page.getByRole("tab", { name: "Badges" }).click();
+        await expect(page.locator(".badge-row")).toHaveCount(1);
+        await expect(page.locator(".badge-row")).toContainText("Second");
+    } finally {
+        await shell.close();
+    }
+});
+
 test("Designer imports a local generated config into the badge draft without saving or partially accepting invalid badges", async ({ page }) => {
     const state = await badgeState();
     const shell = await startPreparedShell(state);

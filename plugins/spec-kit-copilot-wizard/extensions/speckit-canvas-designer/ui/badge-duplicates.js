@@ -11,6 +11,12 @@ function canonical(value, ordered, key = "") {
     return value;
 }
 
+function canonicalInputs(inputs, ordered) {
+    return canonical(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [
+        key, ordered.has(key) ? value.map(({ id: _id, ...entry }) => entry) : value,
+    ])), ordered);
+}
+
 // Badges collide when they show the same text in a placement they share; badges without
 // top-level text (Value match) are distinguished by their entries in inputs.
 function sharesText(a, b) {
@@ -30,12 +36,12 @@ function targets(badge) {
 export function findDuplicateBadge(candidate, existing, rule) {
     const ordered = new Set((rule?.inputs ?? [])
         .filter(({ type }) => type === "badge-selection").map(({ id }) => id));
-    const inputs = JSON.stringify(canonical(candidate.inputs, ordered));
+    const inputs = JSON.stringify(canonicalInputs(candidate.inputs, ordered));
     const destinations = new Set(targets(candidate).map(({ phase, output }) =>
         JSON.stringify([phase, output])));
     return existing.find((badge) => badge.id !== candidate.id && badge.type === candidate.type
         && sharesText(badge, candidate)
-        && JSON.stringify(canonical(badge.inputs, ordered)) === inputs
+        && JSON.stringify(canonicalInputs(badge.inputs, ordered)) === inputs
         && targets(badge).some(({ phase, output }) =>
             destinations.has(JSON.stringify([phase, output]))));
 }

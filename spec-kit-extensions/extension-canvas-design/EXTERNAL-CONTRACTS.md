@@ -136,6 +136,11 @@ editor a separate `selectionRoot` and `placements` object with boolean
 the new placements. It owns the entry rendering and interaction;
 the host owns the shared placements and rejects invalid changes or handles.
 
+Duplicate checks compare ordered selection entries by value, color, and
+placement text, not entry ID; IDs remain required and are preserved in saved
+and generated data. Previously saved overlapping duplicates that differ only by
+entry IDs must be corrected before they can be reopened or generated.
+
 Every badge instance has a required `category`: a nonblank user-entered name
 of at most 80 characters without control characters or angle brackets.
 Rendered workflow-list and summary badges carry `category`; hosts group

@@ -41,16 +41,27 @@ test("Designer and generated contracts accept only valid ordered selections", ()
 });
 
 test("duplicate detection preserves the priority of ordered selections", () => {
-    const choices = [entry("critical", "Critical", "red"), entry("low", "Low", "blue")];
+    const choices = [entry("critical", "Critical", "red"), entry("low", "Low", "blue")]
+        .map((choice) => ({ ...choice, phaseText: `${choice.text} phase`,
+            summaryText: `${choice.text} summary` }));
     const badge = { id: "first", type: "match", category: "Severity", inputs: { choices },
-        showIn: ["workflow-list"] };
+        showIn: ["workflow-list", "workflow-summary", "phase-card"], phase: "plan" };
     const rule = { inputs: [{ id: "choices", type: "badge-selection" }] };
     assert.ok(findDuplicateBadge({ ...badge, id: "same", category: "Other" }, [badge], rule));
+    const differentIds = choices.map((choice, index) => ({ ...choice, id: `other-${index}` }));
+    assert.equal(findDuplicateBadge({ ...badge, id: "different-ids",
+        inputs: { choices: differentIds } }, [badge], rule), badge);
+    for (const [key, value] of [["value", "Different"], ["text", "Different"],
+        ["phaseText", "Different phase"], ["summaryText", "Different summary"], ["color", "purple"]]) {
+        assert.equal(findDuplicateBadge({ ...badge, id: `different-${key.toLowerCase()}`, inputs: {
+            choices: [{ ...differentIds[0], [key]: value }, differentIds[1]],
+        } }, [badge], rule), undefined);
+    }
     assert.equal(findDuplicateBadge({ ...badge, id: "renamed",
         inputs: { choices: choices.map((choice) => ({ ...choice, text: `${choice.id}!` })) } },
     [badge], rule), undefined);
     assert.equal(findDuplicateBadge({ ...badge, id: "reordered",
-        inputs: { choices: [...choices].reverse() } }, [badge], rule), undefined);
+        inputs: { choices: [...differentIds].reverse() } }, [badge], rule), undefined);
 });
 
 test("Designer duplicate detection compares the text of shared placements", () => {

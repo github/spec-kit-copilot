@@ -106,11 +106,16 @@ test("Value match requires a confirmed output and bounded ordered entries", () =
             inputs: { ...matching.inputs, choices: [entry] } }], config),
         /invalid badge selection/, "entry text follows the badge placements");
     }
-    const other = { ...matching, id: "badge-3", color: "blue" };
+    const other = { ...matching, id: "badge-3", color: "blue", inputs: { ...matching.inputs,
+        choices: [{ ...choice, id: "other-review" }] } };
     assert.throws(() => validateBadges([matching, other], config), /duplicate phase\/output target/);
     assert.equal(validateBadges([matching, { ...other, inputs: { ...matching.inputs,
         choices: [{ ...choice, phaseText: "Other phase" }] } }], config).length, 2,
     "entries that differ only in phase text are distinct badges");
+    const distinctChoices = [{ ...choice, id: "other-review", value: "Verdict: approved" }];
+    const distinct = validateBadges([matching, { ...other, inputs: { ...matching.inputs,
+        choices: distinctChoices } }], config);
+    assert.deepEqual(distinct[1].inputs.choices, distinctChoices);
 });
 
 test("Checklist complete requires a declared, ordered currentness chain and independent target", () => {

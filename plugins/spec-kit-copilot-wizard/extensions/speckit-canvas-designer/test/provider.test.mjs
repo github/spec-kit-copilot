@@ -890,9 +890,13 @@ test("Designer badge save and reopen freezes registered assets into generated co
         renamed.badges.types.forEach((type) => { type.hash = "f".repeat(64); });
         assert.equal((await send({ ...input, config: renamed })).status, 200,
             "a different whole badge-settings hash is not an evaluator incompatibility");
+        const duplicateMatch = { ...badges[1], id: "other-verdict",
+            inputs: { ...badges[1].inputs, choices: badges[1].inputs.choices.map((choice, index) =>
+                ({ ...choice, id: `other-${index}` })) } };
         for (const [body, reason] of [
             [{ ...input, config: { badges: config.badges } }, /complete generated canvas-config/],
             [{ ...input, badges }, /duplicate id/],
+            [{ ...input, badges: [duplicateMatch] }, /duplicate phase\/output target.*other-verdict/],
             [{ ...input, outputs: model.outputs }, /invalid artifact input/],
             [{ ...input, config: { ...config, badges: { ...config.badges,
                 instances: [badges[0], { ...badges[1], category: "" }] } } }, /badge 2.*invalid category/],
@@ -905,6 +909,12 @@ test("Designer badge save and reopen freezes registered assets into generated co
             assert.match((await rejected.json()).error, reason);
             assert.equal(await readFile(settingsPath, "utf8"), before);
         }
+        try {
+            const prior = JSON.parse(before);
+            await writeFile(settingsPath, JSON.stringify({ ...prior, badges: [badges[1], duplicateMatch] }));
+            await assert.rejects(loadDesignerSettings(workspace, handoff, pages),
+                /duplicate phase\/output target already covered by badge verdict/);
+        } finally { await writeFile(settingsPath, before); }
         assert.equal((await send({ ...input, modelRevision: "stale" })).status, 409);
         assert.equal((await send({ ...input, save: true })).status, 422);
         assert.equal((await send("{broken")).status, 422);

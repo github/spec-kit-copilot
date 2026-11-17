@@ -338,6 +338,10 @@ export function frozenBadges(badges, workflow) {
             ? Object.fromEntries(Object.keys(value).sort().map((key) =>
                 [key, canonical(value[key], ordered, key)]))
             : value;
+    const canonicalInputs = (inputs, ordered) => canonical(Object.fromEntries(
+        Object.entries(inputs).map(([key, value]) => [
+            key, ordered.has(key) ? value.map(({ id: _id, ...entry }) => entry) : value,
+        ])), ordered);
     const targets = (instance) => instance.targets?.length ? instance.targets
         : instance.showIn?.includes("phase-card") && instance.phase
             ? [{ phase: instance.phase, output: null }]
@@ -405,8 +409,8 @@ export function frozenBadges(badges, workflow) {
             .map(({ id }) => id));
         const duplicate = checked.find((other) => other.type === instance.type
             && sharesText(other, instance)
-            && isDeepStrictEqual(canonical(other.inputs, ordered),
-                canonical(instance.inputs, ordered))
+            && isDeepStrictEqual(canonicalInputs(other.inputs, ordered),
+                canonicalInputs(instance.inputs, ordered))
             && targets(other).some(({ phase, output }) =>
                 destinations.has(JSON.stringify([phase, output]))));
         if (duplicate) {

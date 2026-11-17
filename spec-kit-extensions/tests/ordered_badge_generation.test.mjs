@@ -195,3 +195,53 @@ test("generator requires a badge category and compares text only in shared place
         showIn: ["workflow-list", "workflow-summary"], text: "Listed" }), workflow),
     /Duplicate frozen badge target: summary-b overlaps summary-a/);
 });
+
+test("generator compares ordered Value match entries without their stable IDs", () => {
+    const matchRule = { schemaVersion: 1, id: "value-match", label: "Value match",
+        description: "Match content", adapter: "badge-rule-content-adapter",
+        inputs: [{ id: "artifact", type: "artifact" }, { id: "choices", type: "badge-selection" }],
+        textPlaceholders: [] };
+    const matchType = { id: "value-match", title: "Value match", description: "Match content",
+        rule: matchRule.id, defaultText: "Match", defaultColor: "amber", enabled: true };
+    const choices = [
+        { id: "critical", value: "Critical", text: "Critical", phaseText: "Critical phase",
+            summaryText: "Critical", color: "red" },
+        { id: "low", value: "Low", text: "Low", phaseText: "Low phase",
+            summaryText: "Low", color: "blue" },
+    ];
+    const first = { id: "first", type: matchType.id, category: "Severity",
+        inputs: { artifact: target, choices }, color: "amber",
+        showIn: ["workflow-list", "workflow-summary", "phase-card"], phase: "plan" };
+    const differentIds = choices.map((choice, index) => ({ ...choice, id: `other-${index}` }));
+    const second = { ...first, id: "second", inputs: { ...first.inputs, choices: differentIds } };
+    const pair = (other) => ({
+        instances: [first, other],
+        settings: asset("badges-settings", "designer.badges-settings-definition",
+            { schemaVersion: 1, types: [matchType] }),
+        types: [{ name: "badges-settings", sourceId: "test-preset", schemaVersion: 1, ...matchType }],
+        rules: [{ name: "value-match-definition", sourceId: "test-preset", ...matchRule,
+            assets: [asset("value-match-definition", "generated.badge-rule-definition", matchRule)] }],
+        adapters: [asset(matchRule.adapter, "generated.badge-rule-adapter",
+            "export const contractVersion = 1; export function evaluate() {}")],
+    });
+    const duplicate = pair(second);
+    const before = structuredClone(duplicate);
+    assert.throws(() => frozenBadges(duplicate, workflow),
+        /Duplicate frozen badge target: second overlaps first/);
+    assert.deepEqual(duplicate, before);
+    const variants = [
+        [...differentIds].reverse(),
+        ...[["value", "Different"], ["text", "Different"], ["phaseText", "Different phase"],
+            ["summaryText", "Different summary"], ["color", "purple"]]
+            .map(([key, value]) => [{ ...differentIds[0], [key]: value }, differentIds[1]]),
+    ];
+    for (const variant of variants) {
+        const distinct = { ...second, inputs: { ...second.inputs, choices: variant } };
+        const frozen = frozenBadges(pair(distinct), workflow);
+        assert.deepEqual(frozen.instances[0].inputs.choices, choices);
+        assert.deepEqual(frozen.instances[1].inputs.choices, variant);
+    }
+    const differentEvidence = { ...second, inputs: { ...second.inputs, artifact: earlier } };
+    assert.deepEqual(frozenBadges(pair(differentEvidence), workflow).instances[1],
+        differentEvidence);
+});
