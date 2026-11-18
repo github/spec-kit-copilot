@@ -221,7 +221,7 @@ export async function handleArtifactTargets(res, body, { getInstance, runId,
             await writeCache(inst.workspacePath, payload, undefined, (temp, target) =>
                 commitOwnedFile(temp, target, requireCurrentAssignment, () => {
                     finishOutputInference(inst, inference, runId,
-                        Object.entries(entries).filter(([, entry]) => entry.outputEvidence)
+                        Object.entries(cleaned).filter(([, entry]) => entry.outputEvidence)
                             .map(([key]) => commandId(key)));
                 }));
         });

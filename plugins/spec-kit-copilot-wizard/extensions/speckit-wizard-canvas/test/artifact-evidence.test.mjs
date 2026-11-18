@@ -218,6 +218,43 @@ test("a valid worker reply survives composition refresh and merges its cache ent
     });
 });
 
+test("metadata-only reply cannot complete inference from stale cached evidence", async () => {
+    await fixture(async ({ root, write }) => {
+        const current = await effectiveSource(root, "plan");
+        const staleEvidence = {
+            fingerprint: "a".repeat(64),
+            primaryIndex: null,
+            candidates: [{ kind: "unknown", source: "inference", effect: "unknown",
+                evidence: "Evidence from the previous skill version" }],
+        };
+        await write(".speckit-wizard/artifact-targets.json", JSON.stringify({
+            version: 1,
+            entries: { "commands/speckit.plan": { outputEvidence: staleEvidence } },
+        }));
+        const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };
+        const { inference, worker } = startWorker(inst, [
+            { commandId: "speckit.plan", fingerprint: current.fingerprint },
+        ]);
+        const res = response();
+        try {
+            await handleArtifactTargets(res, { entries: {
+                "commands/speckit.plan": { description: "Plan generation" },
+            } }, {
+                getInstance: () => inst,
+                runId: worker.id,
+                readSource: async () => current,
+            });
+            assert.equal(res.status, 200);
+            assert.equal(inference.status, "incomplete");
+            assert.equal(inference.failures.get("plan")?.fingerprint, current.fingerprint);
+            const saved = await readEvidenceCache(root);
+            assert.deepEqual(saved.entries["commands/speckit.plan"].outputEvidence, staleEvidence);
+        } finally {
+            clearTimeout(inference.timer);
+        }
+    });
+});
+
 test("a superseded worker cannot overwrite newer fingerprint evidence", async () => {
     await fixture(async ({ root }) => {
         const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };

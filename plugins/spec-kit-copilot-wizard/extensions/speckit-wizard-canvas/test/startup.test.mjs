@@ -69,7 +69,9 @@ for (const fails of [false, true]) {
         const closed = canvas.open({ instanceId: "closed", input: {} })
             .then((value) => value, (error) => error);
         try {
+            const closingInstance = allInstances().get("closed");
             await canvas.onClose({ instanceId: "closed" });
+            assert.equal(closingInstance.closed, true);
             await nextTurn();
             assert.equal(settled, false);
             assert.equal(allInstances().get("restored")?.server ?? null, null);

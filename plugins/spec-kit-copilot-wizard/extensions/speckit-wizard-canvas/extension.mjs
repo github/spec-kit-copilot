@@ -340,6 +340,7 @@ async function hydrateCatalogs(inst) {
 async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);
     if (!inst) return;
+    inst.closed = true;
     cancelBackgroundInference(inst);
     clearTimeout(inst.outputInference?.timer);
     clearTimeout(inst.refreshStatus?.timer);

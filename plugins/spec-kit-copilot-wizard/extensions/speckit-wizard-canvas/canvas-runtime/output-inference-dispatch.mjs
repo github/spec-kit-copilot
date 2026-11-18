@@ -37,7 +37,9 @@ export async function ensurePipelineOutputInference(inst, {
     startWorker = (target, request, workerSession, isCurrent, workerId) =>
         startBackgroundInference(target, request, workerSession, isCurrent, workerId),
 } = {}) {
+    if (inst.closed) return { queued: false, requests: [] };
     const current = await getSnapshot(inst);
+    if (inst.closed) return { queued: false, requests: [] };
     const pipelineCommands = new Set(effectivePipelinePhases(current)
         .map(({ id }) => commandId(id)));
     const requests = (current?.artifactInferenceRequests ?? [])

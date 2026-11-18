@@ -83,6 +83,26 @@ test("new pipeline checks share active inference without cancelling useful worke
     assert.equal(dispatched[1].prompt, "speckit.tasks");
 });
 
+test("closing the canvas during snapshot prevents starting inference", async () => {
+    const inst = fixture();
+    let resolveSnapshot, starts = 0;
+    const pending = ensurePipelineOutputInference(inst, {
+        getSnapshot: () => new Promise((resolve) => { resolveSnapshot = resolve; }),
+        session: {},
+        buildPrompt: async () => "prompt",
+        startWorker: async () => { starts++; },
+    });
+    inst.closed = true;
+    resolveSnapshot({
+        pipeline: [{ id: "plan" }],
+        artifactInferenceRequests: [request("plan")],
+    });
+    assert.deepEqual(await pending, { queued: false, requests: [] });
+    await new Promise(setImmediate);
+    assert.equal(inst.outputInference, undefined);
+    assert.equal(starts, 0);
+});
+
 test("progress ignores failed work outside the current pipeline request set", (t) => {
     const inst = fixture();
     t.after(() => clearTimeout(inst.outputInference?.timer));
