@@ -7,7 +7,9 @@ import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
-import { hydrateFromCatalogSources, parseInstalledPackageList, specifyRun } from "../catalog/shared.mjs";
+import {
+    hydrateCatalogGroups, hydrateFromCatalogSources, parseInstalledPackageList, specifyRun,
+} from "../catalog/shared.mjs";
 import { listInstalledExtensions } from "../catalog/extensions.mjs";
 import { listInstalledPresets } from "../catalog/presets.mjs";
 import { bundleSelectionMembers } from "../catalog/bundles.mjs";
@@ -55,6 +57,29 @@ test("catalog hydration keeps only string tags for every item kind", async (t) =
         await hydrateFromCatalogSources(inst, [], { kind, dataKey: `${kind}s`, outputField: "items" });
         assert.equal(inst._verifiedCatalogFields.has("items"), false);
     }
+});
+
+test("catalog groups continue hydrating after an installed-inventory error", async () => {
+    const attempted = [];
+    let composed = false;
+    const failures = await hydrateCatalogGroups([
+        {
+            kind: "presets",
+            hydrate: async () => {
+                attempted.push("presets");
+                throw new Error("Invalid installed preset list from Specify");
+            },
+        },
+        { kind: "extensions", hydrate: async () => { attempted.push("extensions"); } },
+        { kind: "bundles", hydrate: async () => { attempted.push("bundles"); } },
+    ], async () => { composed = true; });
+
+    assert.deepEqual(attempted, ["presets", "extensions", "bundles"]);
+    assert.equal(composed, true);
+    assert.deepEqual(failures, [{
+        kind: "presets",
+        message: "Invalid installed preset list from Specify",
+    }]);
 });
 
 test("installed extension inventory uses Specify's JSON resolver order", async () => {

@@ -36,6 +36,7 @@ import { hydratePresetsForSources } from "./catalog/presets.mjs";
 import { hydrateExtensionsForSources } from "./catalog/extensions.mjs";
 import { hydrateBundlesForSources } from "./catalog/bundles.mjs";
 import { PRESET_CATALOG_URL, EXTENSION_CATALOG_URL, BUNDLE_CATALOG_URL } from "./catalog/sources.mjs";
+import { hydrateCatalogGroups } from "./catalog/shared.mjs";
 import { snapshot } from "./canvas-runtime/snapshot.mjs";
 import { cancelBackgroundInference } from "./canvas-runtime/background-inference.mjs";
 import { runFastComposition, normalizeHookArtifactsInComposition } from "./canvas-runtime/composition-apply.mjs";
@@ -113,10 +114,18 @@ async function onOpen(ctx) {
         onProjectInitialized: async () => {
             try {
                 await inst.bootPromise;
-                await hydrateCatalogs(inst);
-                await runFastComposition(inst, { reason: "project initialized" });
-                const snap = await snapshot(inst);
-                inst.broadcast({ type: "state", data: snap });
+                let snap;
+                const failures = await hydrateCatalogs(inst, async () => {
+                    await runFastComposition(inst, { reason: "project initialized" });
+                    snap = await snapshot(inst);
+                });
+                if (failures.length) {
+                    await sessionAdapter().log?.(
+                        `catalog refresh had failures: ${formatCatalogFailures(failures)}`,
+                        "warning",
+                    );
+                }
+                if (snap) inst.broadcast({ type: "state", data: snap });
             } catch (err) {
                 await sessionAdapter().log?.(
                     `catalog refresh after project initialization failed: ${err?.message ?? err}`,
@@ -222,13 +231,14 @@ export async function bootAsync(inst) {
 
     // Step 5: catalog bootstrap + fast composition.
     tracker.start("catalog");
-    try {
-        await hydrateCatalogs(inst);
+    const failures = await hydrateCatalogs(inst, async () => {
         await runFastComposition(inst, { reason: "boot" });
         await snapshot(inst);
+    });
+    if (failures.length) {
+        tracker.fail("catalog", { title: `catalog bootstrap incomplete: ${formatCatalogFailures(failures)}` });
+    } else {
         tracker.ok("catalog");
-    } catch (err) {
-        tracker.fail("catalog", { title: `catalog hydrate failed: ${err?.message ?? err}` });
     }
 
     // Step 6: ready
@@ -254,10 +264,13 @@ async function hydrateReadState(inst) {
     }
 }
 
-// Catalog bootstrap: presets → extensions → bundles. Same content as the
-// old hydrateOnce, just factored out so bootAsync can time it as its own
-// step and the retry endpoint can re-run just this phase.
-async function hydrateCatalogs(inst) {
+function formatCatalogFailures(failures) {
+    return failures.map(({ kind, message }) => `${kind}: ${message}`).join("; ");
+}
+
+// Catalog bootstrap: presets → extensions → bundles. Each catalog is
+// independent, so a failed installed-inventory read must not block the rest.
+async function hydrateCatalogs(inst, afterHydration) {
     // On a fresh instance (extension reload etc.) we auto-hydrate from the
     // hardcoded plugin catalog URLs so the Catalogs tab is populated without
     // requiring the user to re-run the skill.
@@ -295,7 +308,6 @@ async function hydrateCatalogs(inst) {
         ];
         inst.cachedCatalogSources = bootstrap;
     }
-    await hydratePresetsForSources(inst, inst.cachedCatalogSources);
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
             {
@@ -325,7 +337,6 @@ async function hydrateCatalogs(inst) {
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
     }
-    await hydrateExtensionsForSources(inst, inst.cachedExtensionCatalogSources);
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
             {
@@ -347,12 +358,14 @@ async function hydrateCatalogs(inst) {
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
     }
-    await hydrateBundlesForSources(inst, inst.cachedBundleCatalogSources);
+    return hydrateCatalogGroups([
+        { kind: "presets", hydrate: () => hydratePresetsForSources(inst, inst.cachedCatalogSources) },
+        { kind: "extensions", hydrate: () => hydrateExtensionsForSources(inst, inst.cachedExtensionCatalogSources) },
+        { kind: "bundles", hydrate: () => hydrateBundlesForSources(inst, inst.cachedBundleCatalogSources) },
+    ], afterHydration);
 }
 
-// Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
-// individual phases (hydrateReadState, hydrateCatalogs) are exported
-// internally for the retry/HTTP path.
+// Legacy hydrateOnce removed — bootAsync in this file supersedes it.
 
 async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);

@@ -48,6 +48,31 @@ export function parseInstalledPackageList(stdout, kind) {
     return installed;
 }
 
+export async function hydrateCatalogGroups(groups, afterHydration) {
+    const failures = [];
+    for (const { kind, hydrate } of groups) {
+        try {
+            await hydrate();
+        } catch (error) {
+            failures.push({
+                kind,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    if (afterHydration) {
+        try {
+            await afterHydration();
+        } catch (error) {
+            failures.push({
+                kind: "composition",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    return failures;
+}
+
 /**
  * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule.
  * Resolves with stdout, or stderr when stdout is empty, so CLI diagnostics
