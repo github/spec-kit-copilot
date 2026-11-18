@@ -1525,6 +1525,28 @@ test("core-only workspace: no presets/extensions, synthesized canonical pipeline
     }
 });
 
+test("preset composition chooses the CLI-ordered layer over catalog input order", async () => {
+    const root = makeWorkspace();
+    try {
+        for (const id of ["first", "second"]) {
+            writePreset(root, id, {
+                provides: { templates: [{ name: "plan-template", replaces: "plan-template" }] },
+            });
+        }
+        const comp = await assembleComposition({
+            workspaceRoot: root,
+            presetItems: [presetItem("second", { cliOrder: 1 }), presetItem("first", { cliOrder: 0 })],
+            extensionItems: [],
+        });
+        const artifact = findArtifact(comp, "plan-template");
+        assert.equal(activeLayer(artifact)?.presetId, "first");
+        assert.deepEqual(artifact.stack.filter((layer) => layer.layer === "preset").map((layer) => layer.presetId),
+            ["first", "second"]);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("preset that replaces a template: stack has preset (active, replace) above core", async () => {
     const root = makeWorkspace();
     try {

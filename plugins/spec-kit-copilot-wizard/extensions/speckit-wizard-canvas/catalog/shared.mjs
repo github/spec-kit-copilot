@@ -18,6 +18,34 @@ import { specifySpawnOptions } from "../env/specify-invocation.mjs";
 
 const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] });
 
+export function parseInstalledPackageList(stdout, kind) {
+    const empty = { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
+    if (stdout == null) return empty;
+
+    let items;
+    try {
+        items = JSON.parse(stdout);
+    } catch (cause) {
+        throw new Error(`Invalid installed ${kind} list from Specify: ${cause.message}`, { cause });
+    }
+    if (!Array.isArray(items)) throw new Error(`Invalid installed ${kind} list from Specify`);
+
+    const installed = { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
+    for (const item of items) {
+        if (typeof item?.id !== "string" || !item.id
+            || typeof item.name !== "string" || !item.name
+            || installed.ids.has(item.id)) {
+            throw new Error(`Invalid installed ${kind} entry from Specify`);
+        }
+        const name = item.name.toLowerCase();
+        installed.ids.add(item.id);
+        installed.names.add(name);
+        installed.byName.set(name, item.id);
+        installed.orderedIds.push(item.id);
+    }
+    return installed;
+}
+
 /**
  * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule
  * and stdout capture. Resolves with the captured stdout on success/error —
@@ -123,7 +151,7 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
 
 /**
  * Compute `cliOrder` the way presets and extensions both need: 0-based
- * position in `orderedIds` (winner-first from the CLI's own list output),
+ * position in `orderedIds` (winner-first in the CLI's JSON array),
  * or `null` when the item isn't installed or the CLI didn't ship ordering.
  */
 export function cliOrderFromInstalled(installedId, installed) {

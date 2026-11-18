@@ -300,6 +300,8 @@ an actionable busy error instead of entering a queue. Only the affected catalog
 controls show pending state; unrelated phase Run/retry remains available.
 
 Fresh JSON inventories are read in parallel before and after each mutation.
+Preset and extension JSON list order supplies the Wizard's composition layer
+precedence; missing or invalid post-operation ordering is reported as an error.
 Effective preset/extension changes trigger one bounded SDK skill reload and one
 composition rebuild. Package changes do not start output inference; it runs
 only on a phase Run click or as the Canvas Designer launch fallback.

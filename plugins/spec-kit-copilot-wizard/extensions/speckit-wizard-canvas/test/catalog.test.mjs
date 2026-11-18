@@ -5,7 +5,9 @@ import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
-import { hydrateFromCatalogSources } from "../catalog/shared.mjs";
+import { hydrateFromCatalogSources, parseInstalledPackageList } from "../catalog/shared.mjs";
+import { listInstalledExtensions } from "../catalog/extensions.mjs";
+import { listInstalledPresets } from "../catalog/presets.mjs";
 import { bundleSelectionMembers } from "../catalog/bundles.mjs";
 
 test("bundle selection mirrors preset and extension components without treating steps or workflows as choices", () => {
@@ -51,6 +53,58 @@ test("catalog hydration keeps only string tags for every item kind", async (t) =
         await hydrateFromCatalogSources(inst, [], { kind, dataKey: `${kind}s`, outputField: "items" });
         assert.equal(inst._verifiedCatalogFields.has("items"), false);
     }
+});
+
+test("installed extension inventory uses Specify's JSON resolver order", async () => {
+    const calls = [];
+    const items = [
+        { id: "assess", name: "Assessment", priority: 10, enabled: true },
+        { id: "bug", name: "Bug Triage", priority: 10, enabled: true },
+    ];
+    const installed = await listInstalledExtensions("/ws", async (args, cwd) => {
+        calls.push({ args, cwd });
+        return JSON.stringify(items);
+    });
+    assert.deepEqual(calls, [{ args: ["extension", "list", "--json"], cwd: "/ws" }]);
+    assert.deepEqual(installed.orderedIds, ["assess", "bug"]);
+    assert.equal(installed.ids.has("assess"), true);
+    assert.equal(installed.byName.get("bug triage"), "bug");
+});
+
+test("installed preset inventory uses Specify's JSON resolver order", async () => {
+    const calls = [];
+    const items = [
+        { id: "higher", name: "Higher Priority", priority: 1, enabled: true },
+        { id: "lower", name: "Lower Priority", priority: 10, enabled: true },
+    ];
+    const installed = await listInstalledPresets("/ws", async (args, cwd) => {
+        calls.push({ args, cwd });
+        return JSON.stringify(items);
+    });
+    assert.deepEqual(calls, [{ args: ["preset", "list", "--json"], cwd: "/ws" }]);
+    assert.deepEqual(installed.orderedIds, ["higher", "lower"]);
+    assert.deepEqual([...installed.names], ["higher priority", "lower priority"]);
+});
+
+test("installed package inventory parser rejects malformed and incomplete JSON", () => {
+    assert.throws(() => parseInstalledPackageList("{", "extension"),
+        /Invalid installed extension list from Specify/);
+    assert.throws(() => parseInstalledPackageList('{"items":[]}', "extension"),
+        /Invalid installed extension list from Specify/);
+    assert.throws(() => parseInstalledPackageList(JSON.stringify([{ id: "missing-name" }]), "extension"),
+        /Invalid installed extension entry from Specify/);
+    assert.throws(() => parseInstalledPackageList(JSON.stringify([
+        { id: "duplicate", name: "One", priority: 1, enabled: true },
+        { id: "duplicate", name: "Two", priority: 2, enabled: true },
+    ]), "extension"), /Invalid installed extension entry from Specify/);
+});
+
+test("installed package inventory uses array order without relying on unrelated metadata", () => {
+    const installed = parseInstalledPackageList(JSON.stringify([
+        { id: "winner", name: "Winner" },
+        { id: "next", name: "Next" },
+    ]), "extension");
+    assert.deepEqual(installed.orderedIds, ["winner", "next"]);
 });
 
 describe("preset-loader", () => {

@@ -55,15 +55,13 @@ const VALID_STRATEGIES = new Set(["replace", "wrap", "prepend", "append"]);
 
 /**
  * Return the active subset of `items` in the order the CLI already
- * resolved for us. `cliOrder` is the position in `specify preset list`
- * (0 = first line = winner) — the CLI has already factored in priority
- * and applied its own tiebreak (alphabetical by id at equal priority).
+ * resolved for us. `cliOrder` is the position in the corresponding
+ * preset or extension JSON list (0 = first entry = winner) — the CLI
+ * has already factored in priority and its own tie-break.
  * The wizard MUST NOT re-derive that ordering; doing so risks drifting
  * from the CLI's actual resolution rules.
  *
- * Items missing `cliOrder` (extensions before we wire `specify extension
- * list`, or catalog rows for uninstalled presets that got filtered out
- * upstream anyway) sort to the end in their input order, so we never
+ * Items missing `cliOrder` sort to the end in their input order, so we never
  * mis-attribute a winner based on made-up precedence.
  */
 function orderedActive(items) {
@@ -180,10 +178,9 @@ export async function assembleComposition({ workspaceRoot, presetItems, extensio
 
     // Preserve CLI precedence order (already set by orderedActive above).
     // The CLI resolves priority + ties itself; we must NOT re-sort here.
-    // Extensions have no `specify extension list`-derived cliOrder yet,
-    // so we leave them in input order too. Manifests whose lookup
-    // failed above were already dropped, so index alignment with the
-    // orderedActive lists is preserved.
+    // Both preset and extension layers carry CLI-derived cliOrder when
+    // available. Manifests whose lookup failed above were already dropped,
+    // so index alignment with the orderedActive lists is preserved.
 
     const hooksMap = await readHooksMap(workspaceRoot);
     const coreInventory = await loadCoreInventory();

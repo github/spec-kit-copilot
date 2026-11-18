@@ -23,10 +23,9 @@
 // source (the skill).
 //
 // This module provides:
-//   • parsePresetListOutput(stdout) — the shared parser (also used by
-//     extension.mjs::listInstalledPresets for a DIFFERENT purpose: matching
-//     remote catalog entries to what's installed locally in the Catalogs
-//     tab, which is NOT a precedence question).
+//   • parsePresetListOutput(stdout) — parser for the CLI's human-readable
+//     output. Runtime catalog detection uses the machine-readable `--json`
+//     inventory instead, whose array order is supplied by Specify.
 //   • orderPresetsByCliList(presets, orderedIds) — pure reorder helper the
 //     loader uses to align its enabled-preset list with the skill's order.
 //

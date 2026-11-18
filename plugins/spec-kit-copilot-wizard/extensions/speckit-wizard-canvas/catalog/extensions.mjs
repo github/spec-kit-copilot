@@ -9,49 +9,13 @@
 // stay on the direct CLI path (same pattern as presets.mjs and
 // bundles.mjs).
 
-import { hydrateFromCatalogSources, cliOrderFromInstalled, specifyRun } from "./shared.mjs";
+import { hydrateFromCatalogSources, cliOrderFromInstalled, parseInstalledPackageList, specifyRun } from "./shared.mjs";
 
-// Query `specify extension list` to detect installed extensions. Mirrors
-// listInstalledPresets. The CLI's output format for `extension list` follows
-// the same convention as `preset list`: indented lines like
-// `  <name> (<id>) v<version>`. If the format differs, the parser will simply
-// return an empty set and every extension will render as not-installed —
-// still functional, just missing the "added" badge.
+// Query Specify's JSON inventory to detect installed extensions and preserve
+// resolver order. The human-readable list follows registry order instead.
 export async function listInstalledExtensions(workspacePath, run = specifyRun) {
-    const stdout = await run(["extension", "list"], workspacePath);
-    const ids = new Set();
-    const names = new Set();
-    const byName = new Map();
-    const orderedIds = [];
-    if (stdout == null) return { ids, names, byName, orderedIds };
-    // `specify extension list` prints two-line entries:
-    //     ✓ <Display Name> (v<version>)
-    //        <extension-id>
-    //        <description...>
-    // We parse the header + following non-empty line as the id.
-    const lines = stdout.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-        const header = lines[i].match(/^\s*[✓✗x]\s+(.+?)\s+\(v[^)]+\)\s*$/);
-        if (!header) continue;
-        const name = header[1].trim();
-        // Find the next non-empty line — that's the id.
-        let id = null;
-        for (let j = i + 1; j < lines.length; j++) {
-            const t = lines[j].trim();
-            if (!t) continue;
-            // Stop if we've reached the next header row.
-            if (/^[✓✗x]\s+.+\(v[^)]+\)\s*$/.test(t)) break;
-            id = t.split(/\s+/)[0];
-            break;
-        }
-        if (id) {
-            names.add(name.toLowerCase());
-            ids.add(id);
-            byName.set(name.toLowerCase(), id);
-            orderedIds.push(id);
-        }
-    }
-    return { ids, names, byName, orderedIds };
+    const stdout = await run(["extension", "list", "--json"], workspacePath);
+    return parseInstalledPackageList(stdout, "extension");
 }
 
 // Given extension catalog sources, fetch each source's JSON directly to
@@ -65,8 +29,8 @@ export async function hydrateExtensionsForSources(inst, sources) {
         outputField: "cachedExtensionItems",
         listInstalled: listInstalledExtensions,
         extraFields: (_raw, { installedId, installed }) => ({
-            // CLI precedence position from `specify extension list` (0 = first
-            // line = winner). null when the extension isn't installed. See
+            // CLI precedence position from `specify extension list --json`
+            // (0 = first array entry = winner). null when not installed. See
             // the same field on preset items for the rationale — the wizard
             // MUST NOT compute its own precedence.
             cliOrder: cliOrderFromInstalled(installedId, installed),
