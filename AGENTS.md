@@ -80,18 +80,21 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds Spec Kit presets maintained for Copilot. Guard the
-boundary so contributors never conflate the two toolchains:
+`spec-kit-presets/` holds shipping Spec Kit presets maintained for Copilot.
+Test-only presets live in `tests/fixtures/test-presets/`. Guard the boundary so
+contributors never conflate the two toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
   `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
   Presets are consumed by the **`specify` CLI** (`specify preset add`). They are *not*
   Copilot plugins, skills, canvases, or marketplace entries.
-- **Isolate, don't scatter.** All preset content — including its `catalog.json` — lives
-  **inside** `spec-kit-presets/`. Do **not** put a preset `catalog.json` at the repo
-  root, and do not mix it up with the Copilot marketplace manifest at
-  `.github/plugin/marketplace.json`. Keep the boundary note in
-  `spec-kit-presets/README.md`.
+- **Isolate, don't scatter.** All **shipping** preset content — including its
+  `catalog.json` — lives inside `spec-kit-presets/`. Keep `copilot-*-test`
+  fixtures beside their tests in `tests/fixtures/test-presets/`; each needs a
+  Playwright test installing from that path with `specify preset add --dev`.
+  Do **not** put a preset `catalog.json` at the repo root, and do not mix it up
+  with the Copilot marketplace manifest at `.github/plugin/marketplace.json`.
+  Keep the boundary note in `spec-kit-presets/README.md`.
 - **Naming convention: `copilot-<scope>[-<behavior>]`.** Preset ids (directory,
   `preset.yml` `id`, `catalog.json` key) carry a short **`copilot-`** prefix marking
   them Copilot-specific (e.g. `copilot-sub-agents`, `copilot-assess-ask-questions`),
@@ -173,6 +176,19 @@ Activation requires a coordinated maintainer switch, not just a YAML change:
    Local YAML checks are not evidence of a live scan. Required checks, rulesets,
    fork Actions settings, and other security settings are separate maintainer
    decisions; do not change them as part of this switch.
+## Local development versus releases
+
+- Do not bump plugin, preset, or extension versions, marketplace metadata, or
+  catalog release URLs during routine development. Do not publish or tag a release
+  unless the user explicitly requests it. Test unreleased Canvas Design changes
+  with the Wizard's approved local-source override instead of replacing a
+  published ZIP or pretending that the hosted path contains worktree changes.
+- When a release is requested, update the component's version, matching catalog
+  entry and download URL, and directly related documentation together. Verify
+  the published ZIP against the Wizard's default hosted Generate path before
+  treating that path as release-ready. Keep an incompatible hosted path visible
+  as a release-readiness issue during local development; do not demand a version
+  bump for every development change.
 
 ## When revving the core skills plugin
 

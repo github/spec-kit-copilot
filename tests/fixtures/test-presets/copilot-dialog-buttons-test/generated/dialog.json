@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-dialog-buttons-test",
+  "adapter": "generated-dialog-adapter",
+  "title": "Review this action",
+  "blocks": [
+    {"type": "paragraph", "text": "Confirm before continuing."},
+    {"type": "slot", "name": "phase"}
+  ],
+  "buttons": {"cancel": "Not now", "confirm": "Continue"}
+}

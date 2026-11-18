@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "checklist-progress",
+  "label": "Markdown checklist progress",
+  "description": "The checklist must be current and contain at least one checkbox. The badge shows the number of checked boxes out of the total. A missing or stale checklist shows no progress badge.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "label": "Checklist file"
+    },
+    {
+      "id": "prerequisites",
+      "type": "ordered-artifacts",
+      "scope": "metadata",
+      "before": "artifact",
+      "minItems": 1,
+      "label": "Earlier outputs required for currentness"
+    },
+    {
+      "id": "targetphase",
+      "type": "phase",
+      "label": "Target phase"
+    }
+  ],
+  "textPlaceholders": [
+    "completed",
+    "total",
+    "percent"
+  ],
+  "adapter": "badge-rule-content-adapter"
+}

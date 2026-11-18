@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.dark-surface",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 80,
+  "field": {"id": "canvas.surfaceDark", "type": "string", "control": "stock.text",
+    "label": "Dark surface", "description": "Optional card and header surface color, with or without #. Leave blank for the default."}
+}

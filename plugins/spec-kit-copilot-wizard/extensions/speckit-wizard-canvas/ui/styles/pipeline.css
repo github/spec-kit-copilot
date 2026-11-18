@@ -12,6 +12,36 @@
 .pipeline-banner .panel-header { margin-bottom: 0; flex-wrap: wrap; }
 .pipeline-banner .panel-header > :first-child { flex: 1 1 22rem; min-width: 0; }
 .pipeline-banner .comp-summary { margin: 0.35rem 0 0; }
+.pipeline-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
+.pipeline-refresh-status {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    margin: 0.65rem 0 0;
+    border: 1px solid color-mix(in srgb, var(--accent-color) 35%, var(--border-color-default));
+    border-radius: var(--radius-sm);
+    background: var(--background-color-secondary);
+    color: var(--text-color-default);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+.pipeline-refresh-status[data-progress="incomplete"] {
+    border-color: color-mix(in srgb, var(--warn-color) 55%, var(--border-color-default));
+}
+.pipeline-refresh-spinner {
+    flex: none;
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid var(--border-color-strong);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: pipeline-refresh-spin 0.8s linear infinite;
+}
+@keyframes pipeline-refresh-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .pipeline-refresh-spinner { animation: none; }
+}
 .pipeline-header {
     display: flex;
     align-items: center;

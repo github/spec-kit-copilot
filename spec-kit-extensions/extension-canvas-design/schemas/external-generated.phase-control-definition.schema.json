@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "adapter", "placement", "slots"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"const": "workflow-phases"},
+    "adapter": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "managedRun": {"type": "boolean"},
+    "placement": {"type": "object", "additionalProperties": false, "required": ["page", "slot"],
+      "properties": {"page": {"const": "workflow"}, "slot": {"const": "workflow.phases"}}},
+    "viewLabels": {
+      "type": "object",
+      "maxProperties": 40,
+      "patternProperties": {
+        "^(?:speckit\\.)?[a-z0-9]+(?:[.-][a-z0-9]+)*$": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "\\S"
+        }
+      },
+      "additionalProperties": false
+    },
+    "slots": {"type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["id"], "properties": {"id": {"enum": ["phase.card", "phase.output"]}}}}
+  }
+}

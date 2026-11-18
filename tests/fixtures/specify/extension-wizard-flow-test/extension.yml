@@ -1,0 +1,31 @@
+schema_version: "1.0"
+
+extension:
+  id: "extension-wizard-flow-test"
+  name: "Wizard Flow Test"
+  version: "0.1.0"
+  description: "Test-only novel command and Plan hook for Wizard journeys."
+  category: process
+  author: spec-kit-copilot
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  commands:
+    - name: speckit.extension-wizard-flow-test.review
+      file: commands/review.md
+      description: Review the plan and produce fixture-owned Markdown outputs.
+    - name: speckit.extension-wizard-flow-test.audit
+      file: commands/audit.md
+      description: Run the Plan hook without adding a runnable pipeline step.
+
+hooks:
+  after_plan:
+    command: speckit.extension-wizard-flow-test.audit
+    optional: false
+
+tags:
+  - copilot
+  - test

@@ -1,0 +1,15 @@
+{
+  "$schema": "../../schemas/external-generated.workflow-page-definition.schema.json",
+  "schemaVersion": 2,
+  "id": "workflow",
+  "adapter": "generated-workflow-page-adapter",
+  "badgeDestinations": ["workflow.list", "workflow.summary", "phase.card", "phase.output"],
+  "title": "Workflow",
+  "order": 0,
+  "slots": [
+    {"id": "workflow.phases"},
+    {"id": "workflow.actions"},
+    {"id": "workflow.list"},
+    {"id": "workflow.summary"}
+  ]
+}

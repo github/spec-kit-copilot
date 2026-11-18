@@ -33,6 +33,7 @@ export function deriveLayers({ presets = [], extensions = [] } = {}) {
         if (!name) continue;
         layers.push({
             kind: "extension",
+            id: e.id ?? name,
             name,
             source: typeof e.source === "string" ? e.source : "catalog",
             version: typeof e.version === "string" ? e.version : null,
@@ -45,6 +46,7 @@ export function deriveLayers({ presets = [], extensions = [] } = {}) {
         if (!name) continue;
         layers.push({
             kind: "preset",
+            id: p.id ?? name,
             name,
             source: typeof p.source === "string" ? p.source : "catalog",
             version: typeof p.version === "string" ? p.version : null,
@@ -413,7 +415,7 @@ export function renderFlatLayerTable(layers) {
             ? `
             <button class="btn btn-ghost btn-xs" data-comp-action="view" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">View</button>
             <button class="btn btn-ghost btn-xs" data-comp-action="update" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">Update</button>
-            <button class="btn btn-ghost btn-xs" data-comp-action="remove" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.name)}">Remove</button>`
+            <button class="btn btn-ghost btn-xs" data-comp-action="remove" data-kind="${escapeHtml(l.kind)}" data-name="${escapeHtml(l.id ?? l.name)}">Remove</button>`
             : "";
         return `<tr>
             <td>${escapeHtml(l.kind)}</td>
@@ -562,6 +564,7 @@ export function wireCompositionRefresh() {
     const triggerRefresh = () => {
         if (state.compositionRequested) return;
         state.compositionRequested = true;
+        state.compositionRefreshId = state.snapshot?.refreshId ?? null;
         updateCompositionRefreshButton();
         __renderComposition();
         // First reload skills so the registry reflects freshly scaffolded /
@@ -581,7 +584,19 @@ export function wireCompositionRefresh() {
                 console.error(`skills reload failed: ${err?.message ?? err}`);
             })
             .finally(() => {
-                dispatchKind("composition.refresh", {});
+                dispatchKind("composition.refresh", {}).then((result) => {
+                    if (result?.queued) return;
+                    state.compositionRequested = false;
+                    if (state.snapshot) state.snapshot.refreshStatus = "incomplete";
+                    updateCompositionRefreshButton();
+                    __renderComposition();
+                }).catch((error) => {
+                    console.error(`composition refresh failed: ${error?.message ?? error}`);
+                    state.compositionRequested = false;
+                    if (state.snapshot) state.snapshot.refreshStatus = "incomplete";
+                    updateCompositionRefreshButton();
+                    __renderComposition();
+                });
             });
     };
     document.getElementById("comp-refresh")?.addEventListener("click", triggerRefresh);
@@ -613,12 +628,21 @@ export function wireInfoPopover(btnId, popId) {
 
 export function updateCompositionRefreshButton() {
     const iconBtn = document.getElementById("comp-refresh");
-    const busy = state.compositionRequested;
+    const busy = state.compositionRequested || state.snapshot?.refreshStatus === "refreshing";
     // Icon button: keep glyph, toggle disabled + aria-busy (CSS spins it).
     if (iconBtn) {
         iconBtn.disabled = busy;
         if (busy) iconBtn.setAttribute("aria-busy", "true");
         else iconBtn.removeAttribute("aria-busy");
+    }
+}
+
+export function reconcileCompositionRefresh(snapshot) {
+    if (state.compositionRequested && snapshot?.refreshId
+        && snapshot.refreshId !== state.compositionRefreshId
+        && ["up-to-date", "incomplete"].includes(snapshot.refreshStatus)) {
+        state.compositionRequested = false;
+        state.compositionRefreshId = snapshot.refreshId;
     }
 }
 
@@ -635,6 +659,8 @@ export function setCompositionDeps({ openArtifactViewer }) {
 
 export function renderComposition() {
     if (!state.snapshot) return;
+    updateCompositionRefreshButton();
+    renderCompositionProgress();
     renderCompositionSummary();
     renderCompositionArtifacts();
     renderCompositionPresetSidebar();
@@ -642,3 +668,20 @@ export function renderComposition() {
     renderCompositionCoreSidebar();
 }
 
+export function compositionProgressText(snapshot, refreshing = false) {
+    if (refreshing || snapshot?.refreshStatus === "refreshing") return "Refreshing…";
+    if (snapshot?.refreshStatus === "incomplete") return "Refresh incomplete — retry";
+    if (snapshot?.compositionRefreshing) return "Refreshing…";
+    return snapshot?.refreshStatus === "up-to-date" ? "Up to date" : "Ready";
+}
+
+export function renderCompositionProgress() {
+    const meta = document.getElementById("comp-meta");
+    const label = document.getElementById("comp-meta-text");
+    if (!meta || !label) return;
+    const text = compositionProgressText(state.snapshot, state.compositionRequested);
+    label.textContent = text === "Refreshing…" ? "Updating…"
+        : text === "Refresh incomplete — retry" ? "Update incomplete" : "";
+    meta.dataset.progress = text === "Refreshing…" ? "updating"
+        : text === "Refresh incomplete — retry" ? "incomplete" : "idle";
+}

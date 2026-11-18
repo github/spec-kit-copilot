@@ -1,0 +1,10 @@
+{
+  "repository": "nicolehaugen/spec-kit-copilot",
+  "catalogRef": "staging-canvas",
+  "copilotCatalogName": "spec-kit-staging",
+  "marketplace": {
+    "name": "spec-kit-staging",
+    "ownerName": "Spec Kit Staging",
+    "description": "Staging Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App."
+  }
+}

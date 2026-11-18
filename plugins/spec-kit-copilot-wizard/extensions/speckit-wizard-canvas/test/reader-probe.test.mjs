@@ -82,6 +82,33 @@ test("Wizard legacy artifacts stay readable with clarification controls gated by
     });
 });
 
+test("missing and inaccessible artifacts preserve their distinct viewer states", async () => {
+    await withDom(async (document) => {
+        setViewersDeps({
+            readerMount(element, options) {
+                element.textContent = options.state;
+                return { update(next) { element.textContent = next.state; }, unmount() { element.replaceChildren(); } };
+            },
+        });
+        globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: { code: "artifact_unavailable" } }) });
+        await openArtifactViewer(phase);
+        assert.equal(document.querySelector(".artifact-viewer-body").dataset.reviewState, "missing");
+
+        globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: { code: "forbidden" } }) });
+        await openArtifactViewer(phase);
+        assert.equal(document.querySelector(".artifact-viewer-body").dataset.reviewState, "unsupported");
+
+        const legacy = { ...phase, artifactPath: "specs/new/plan.txt" };
+        globalThis.fetch = async () => ({ ok: false, status: 404 });
+        await openArtifactViewer(legacy);
+        assert.match(document.querySelector(".artifact-viewer-body").textContent, /Output not ready.*Run the phase or check its output folder/);
+
+        globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => "forbidden" });
+        await openArtifactViewer(legacy);
+        assert.match(document.querySelector(".artifact-viewer-body").textContent, /Failed to load artifact: 403 forbidden/);
+    });
+});
+
 test("Wizard reader uses the existing preview body and returns focus without dispatch", async () => {
     await withDom(async (document) => {
         const trigger = document.getElementById("trigger");

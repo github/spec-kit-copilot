@@ -11,7 +11,7 @@
 import { jsonRes, jsonError } from "./http-utils.mjs";
 import { buildNpmDiagnosticPrompt } from "../env/deps-recovery.mjs";
 import { dispatchPromptToSession } from "../canvas-runtime/dispatch.mjs";
-import { checkDeps, installDeps, getExtensionDir } from "../env/deps-check.mjs";
+import { checkDeps, installDeps, getDependencyDir, getExtensionDir } from "../env/deps-check.mjs";
 import { createBootTracker } from "../canvas-runtime/boot-progress.mjs";
 import { snapshot } from "../canvas-runtime/snapshot.mjs";
 
@@ -49,6 +49,7 @@ export async function handleNpmDiagnose(res, body, { broadcast, getInstance }) {
         }
         const prompt = buildNpmDiagnosticPrompt({
             extDir: cached?.extDir ?? getExtensionDir(),
+            packageName: cached?.packageName ?? "js-yaml",
             errorCode,
             stderr: cached?.stderrTail ?? "",
             workspacePath: inst.workspacePath ?? null,
@@ -111,7 +112,8 @@ export async function handleNpmRetry(res, body, { broadcast, getInstance }) {
         const stderrTail = String(installResult.stderr ?? "").split(/\r?\n/).filter(Boolean).slice(-8).join("\n");
         inst.depsError = {
             ...classified,
-            extDir: getExtensionDir(),
+            extDir: installResult.extDir ?? getDependencyDir(recheck.missing[0]),
+            packageName: installResult.packageName ?? recheck.missing[0],
             packages: initial.missing,
             stderrTail,
             timestamp: new Date().toISOString(),

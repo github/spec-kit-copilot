@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "label", "schema", "source", "presentation"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"},
+    "label": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S"},
+    "schema": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["type", "maxLength"],
+        "properties": {"type": {"const": "string"}, "maxLength": {"type": "integer", "minimum": 1, "maximum": 1000}}},
+      {"type": "object", "additionalProperties": false, "required": ["type"],
+        "properties": {"type": {"const": "boolean"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "properties"],
+        "properties": {"type": {"const": "object"}, "properties": {"$ref": "#/$defs/properties"}}}
+    ]},
+    "source": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["kind", "value"],
+        "properties": {"kind": {"const": "constant"}, "value": {}}},
+      {"type": "object", "additionalProperties": false, "required": ["kind", "module"],
+        "properties": {"kind": {"const": "computed"},
+          "module": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}}}
+    ]},
+    "presentation": {"enum": ["stock.readonly", "stock.editable", "processing-only"]},
+    "section": {"type": "object", "additionalProperties": false, "required": ["id", "title"],
+      "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,79}$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S"}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"source": {"properties": {"kind": {"const": "computed"}}}}},
+      "then": {"properties": {"presentation": {"not": {"const": "stock.editable"}}}}},
+    {"if": {"properties": {"schema": {"properties": {"type": {"const": "string"}}},
+            "source": {"properties": {"kind": {"const": "constant"}}}}},
+      "then": {"properties": {"source": {"properties": {"value": {"type": "string", "maxLength": 1000}}}}}},
+    {"if": {"properties": {"schema": {"properties": {"type": {"const": "boolean"}}},
+            "source": {"properties": {"kind": {"const": "constant"}}}}},
+      "then": {"properties": {"source": {"properties": {"value": {"type": "boolean"}}}}}},
+    {"if": {"properties": {"schema": {"properties": {"type": {"const": "object"}}},
+            "source": {"properties": {"kind": {"const": "constant"}}}}},
+      "then": {"properties": {"source": {"properties": {"value": {"type": "object"}}}}}}
+  ],
+  "$defs": {
+    "properties": {"type": "object", "minProperties": 1, "maxProperties": 10,
+      "patternProperties": {"^[a-z][A-Za-z0-9]{0,39}$": {
+        "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true,
+        "items": {"type": "string", "minLength": 1, "maxLength": 80}}},
+      "additionalProperties": false}
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "demo.enabled",
+  "label": "Enabled",
+  "schema": { "type": "boolean" },
+  "source": { "kind": "constant", "value": true },
+  "presentation": "stock.readonly",
+  "section": { "id": "demo", "title": "Demo values" }
+}

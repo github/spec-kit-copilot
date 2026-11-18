@@ -88,11 +88,6 @@ export const PHASES = [
         conversation: true,
         artifact: "specs/<slug>/analysis.md",
     }),
-    canonical("taskstoissues", {
-        tagline: "File the task list as GitHub issues.",
-        artifact: null, // writes GH issues, no on-disk artifact
-        gated: true, // requires a preset that contributes speckit-taskstoissues
-    }),
     canonical("implement", {
         tagline: "Execute all tasks and build according to the plan.",
         artifact: null,
@@ -166,7 +161,8 @@ export const SKILL_BY_KIND = Object.freeze({
     // Payload shape: `{ commands: [{ commandId, skillPath }], origin, token }`.
     // The agent reads each `skillPath`, extracts the `.specify/…/<file>.md`
     // path template from the skill's opening paragraph, and POSTs the
-    // results back to `${origin}/api/artifact-targets?token=${token}`. The
+    // results back to the originating artifactInferenceEndpoint, including
+    // its token and runId query parameters. The
     // wizard scanner then reads `.speckit-wizard/artifact-targets.json`
     // on the next tick and lights up the "Writes to" link on each
     // extension phase card. Skill choice is `speckit-extension` because

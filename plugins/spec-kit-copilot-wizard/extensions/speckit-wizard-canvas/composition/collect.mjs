@@ -91,16 +91,17 @@ async function readPresetManifest(root, id) {
     let doc;
     try { doc = yaml.load(raw); } catch { return { id, error: "yaml-parse" }; }
     if (!doc || typeof doc !== "object") return { id, error: "empty" };
+    const manifest = doc.preset ?? doc;
     return {
         id,
         manifestPath: repoRelative(root, manifestPath),
-        name: doc.name ?? id,
-        description: doc.description ?? "",
-        version: doc.version ?? null,
-        author: doc.author ?? null,
-        priority: typeof doc.priority === "number" ? doc.priority : null,
-        repository: doc.repository ?? null,
-        homepage: doc.homepage ?? null,
+        name: manifest.name ?? id,
+        description: manifest.description ?? "",
+        version: manifest.version ?? null,
+        author: manifest.author ?? null,
+        priority: typeof manifest.priority === "number" ? manifest.priority : null,
+        repository: manifest.repository ?? null,
+        homepage: manifest.homepage ?? null,
         provides: doc.provides ?? {},
         entriesByKind: parseProvidesEntries(doc.provides, root, join(root, ".specify", "presets", id)),
         raw: doc,
@@ -115,18 +116,19 @@ async function readExtensionManifest(root, id) {
     let doc;
     try { doc = yaml.load(raw); } catch { return { id, error: "yaml-parse" }; }
     if (!doc || typeof doc !== "object") return { id, error: "empty" };
+    const manifest = doc.extension ?? doc;
     return {
         id,
         manifestPath: repoRelative(root, manifestPath),
-        name: doc.name ?? id,
-        description: doc.description ?? "",
-        version: doc.version ?? null,
-        author: doc.author ?? null,
-        priority: typeof doc.priority === "number" ? doc.priority : null,
-        category: doc.category ?? null,
-        effect: doc.effect ?? null,
-        repository: doc.repository ?? null,
-        homepage: doc.homepage ?? null,
+        name: manifest.name ?? id,
+        description: manifest.description ?? "",
+        version: manifest.version ?? null,
+        author: manifest.author ?? null,
+        priority: typeof manifest.priority === "number" ? manifest.priority : null,
+        category: manifest.category ?? null,
+        effect: manifest.effect ?? null,
+        repository: manifest.repository ?? null,
+        homepage: manifest.homepage ?? null,
         provides: doc.provides ?? {},
         entriesByKind: parseProvidesEntries(doc.provides, root, join(root, ".specify", "extensions", id)),
         hooks: parseHookDeclarations(doc.hooks),

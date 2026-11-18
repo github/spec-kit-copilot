@@ -114,6 +114,27 @@
         "discovery",
         "interactive"
       ]
+    },
+    "copilot-vertical-phase-control": {
+      "name": "Copilot Vertical Phase Control",
+      "id": "copilot-vertical-phase-control",
+      "version": "1.0.1",
+      "description": "Vertical Workflow phase list with Copilot Autopilot for generated Canvas Design apps.",
+      "author": "spec-kit-copilot",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-vertical-phase-control-v1.0.1/copilot-vertical-phase-control.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-vertical-phase-control/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.7",
+        "extensions": ["extension-canvas-design"]
+      },
+      "provides": {
+        "templates": 2,
+        "commands": 1
+      },
+      "tags": ["copilot", "canvas-design", "autopilot", "vertical"]
     }
   }
 }

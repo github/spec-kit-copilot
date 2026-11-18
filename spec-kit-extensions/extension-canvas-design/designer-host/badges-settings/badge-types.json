@@ -1,0 +1,79 @@
+{
+  "$schema": "../../schemas/external-designer.badges-settings-definition.schema.json",
+  "schemaVersion": 1,
+  "types": [
+    {
+      "id": "value-match",
+      "title": "Value match",
+      "description": "Search an output for ordered text matches and show the first matching badge.",
+      "rule": "value-match",
+      "defaultText": "Value matched",
+      "defaultColor": "amber",
+      "enabled": true
+    },
+    {
+      "id": "artifact-current",
+      "title": "Artifact current",
+      "description": "Show when the selected output is current.",
+      "rule": "artifact-current",
+      "defaultText": "Artifact current",
+      "defaultColor": "green",
+      "enabled": true
+    },
+    {
+      "id": "artifact-stale",
+      "title": "Artifact stale",
+      "description": "Show when an existing output is stale relative to selected earlier outputs.",
+      "rule": "artifact-stale",
+      "defaultText": "Artifact stale",
+      "defaultColor": "amber",
+      "enabled": true
+    },
+    {
+      "id": "markdown-file-count",
+      "title": "Markdown files",
+      "description": "Count Markdown files beside a selected output for each workflow.",
+      "rule": "markdown-file-count",
+      "defaultText": "Files ({count})",
+      "defaultColor": "blue",
+      "enabled": true
+    },
+    {
+      "id": "checklist-progress",
+      "title": "Checklist progress",
+      "description": "Count checked and total items in a current Markdown checklist.",
+      "rule": "checklist-progress",
+      "defaultText": "Checklist: {completed}/{total} complete",
+      "defaultColor": "blue",
+      "enabled": true
+    },
+    {
+      "id": "checklist-complete",
+      "title": "Checklist complete",
+      "description": "Show when every checkbox in a current, nonempty Markdown checklist is checked.",
+      "rule": "checklist-complete",
+      "defaultText": "Checklist complete",
+      "defaultColor": "green",
+      "enabled": true
+    },
+    {
+      "id": "phase-run-complete",
+      "title": "Phase run complete",
+      "description": "Show when the selected phase's latest run completed.",
+      "rule": "phase-run-complete",
+      "defaultText": "Phase run complete",
+      "defaultColor": "blue",
+      "enabled": true
+    },
+    {
+      "id": "phase-artifact-complete",
+      "title": "Phase artifact complete",
+      "description": "Show when the selected output and chosen earlier outputs are current. Among matching phase artifact badges, only the furthest phase appears at each location; summary counts remain cumulative.",
+      "rule": "phase-artifact-complete",
+      "replacementGroup": "phase-completion",
+      "defaultText": "Phase complete",
+      "defaultColor": "green",
+      "enabled": true
+    }
+  ]
+}

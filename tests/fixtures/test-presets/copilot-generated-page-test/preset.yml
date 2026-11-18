@@ -1,0 +1,38 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-generated-page-test"
+  name: "Copilot Generated Page Test"
+  version: "0.1.0"
+  description: "Test-only generated page without a Designer tab."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register a generated-only canvas page."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-generated-overview"
+      file: "generated/pages/overview.json"
+      description: "Generated-host page definition."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-generated-overview-renderer"
+      file: "generated/pages/overview.mjs"
+      description: "Complete generated-host page renderer."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

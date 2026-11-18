@@ -17,6 +17,7 @@ import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../stat
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
 import { activeRunMatches, clearRun, consumeReportableRun, finishRun, hasActiveRun } from "../run-tracker.mjs";
+import { phaseExecutionInputSchema, phaseStatusInputSchema } from "../../contracts/agent-phase.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -74,16 +75,7 @@ export const phaseActions = [
         name: "setPhaseStatus",
         description:
             "Update the status (and optional artifact path) of a single wizard phase after the scaffolded skill finishes.",
-        inputSchema: {
-            type: "object",
-            required: ["phase", "status"],
-            properties: {
-                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
-                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
-                artifactPath: { type: "string" },
-                runId: { type: "string" },
-            },
-        },
+        inputSchema: phaseStatusInputSchema,
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, status, artifactPath, runId } = ctx.input ?? {};
@@ -162,33 +154,7 @@ export const phaseActions = [
         name: "reportExecution",
         description:
             "Report which of the phase's expected templates / scripts / hooks the agent actually invoked, per the tracking preamble's closed list. Call once after setPhaseStatus(status:'done').",
-        inputSchema: {
-            type: "object",
-            required: ["phase", "artifacts", "runId"],
-            properties: {
-                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
-                runId: { type: "string" },
-                artifacts: {
-                    type: "object",
-                    description:
-                        "Per-kind map of bareId → 'executed' | 'omitted'. Use the exact IDs the tracking preamble listed as expected. Do not invent IDs.",
-                    properties: {
-                        templates: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                        scripts: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                        hooks: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                    },
-                },
-            },
-        },
+        inputSchema: phaseExecutionInputSchema,
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, artifacts, runId } = ctx.input ?? {};

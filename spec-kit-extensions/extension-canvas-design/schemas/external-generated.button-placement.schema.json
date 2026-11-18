@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "page", "slot", "order", "control", "label", "presentation", "action", "dialog"],
+  "allOf": [
+    {"if": {"properties": {"page": {"const": "setup"}}},
+      "then": {"properties": {"slot": {"const": "setup.actions"},
+        "control": {"const": "project.setup-button"},
+        "action": {"properties": {"type": {"const": "project.setup"}}}}},
+      "else": {"properties": {"slot": {"const": "workflow.actions"},
+        "control": {"const": "dialog.trigger"},
+        "action": {"properties": {"type": {"const": "dialog.result"}}}}}}
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "page": {"enum": ["setup", "workflow"]},
+    "slot": {"enum": ["setup.actions", "workflow.actions"]},
+    "order": {"type": "integer", "minimum": -100000, "maximum": 100000},
+    "control": {"enum": ["project.setup-button", "dialog.trigger"]},
+    "label": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S"},
+    "presentation": {"enum": ["primary", "secondary"]},
+    "action": {"type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {"type": {"enum": ["project.setup", "dialog.result"]}}},
+    "dialog": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schemas/external-designer.badge-input-binding.schema.json",
+  "schemaVersion": 1,
+  "id": "checklist-complete",
+  "rule": "checklist-complete",
+  "control": "stock.checklist-inputs"
+}

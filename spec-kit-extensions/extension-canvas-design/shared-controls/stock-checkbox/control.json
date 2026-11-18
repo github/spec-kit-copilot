@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schemas/external-shared.control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.checkbox",
+  "value": {"type": "boolean"},
+  "adapters": {
+    "designer": "designer-control-adapter-checkbox"
+  }
+}

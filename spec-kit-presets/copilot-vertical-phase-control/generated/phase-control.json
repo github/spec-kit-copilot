@@ -1,0 +1,9 @@
+{
+  "$schema": "../../../spec-kit-extensions/extension-canvas-design/schemas/external-generated.phase-control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "workflow-phases",
+  "adapter": "generated-phase-adapter",
+  "managedRun": true,
+  "slots": [{"id": "phase.card"}, {"id": "phase.output"}],
+  "placement": {"page": "workflow", "slot": "workflow.phases"}
+}

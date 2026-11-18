@@ -2,7 +2,7 @@
 //
 // runNpmDiagnostics — dispatch a scripted prompt to the parent session so
 // the Copilot agent walks the diagnostic + repair checklist and calls the
-// existing `refreshEnvironment` action when done. Fire-and-forget — the
+// Wizard's Retry control when done. Fire-and-forget — the
 // action returns immediately; the agent's turn shows up in chat.
 //
 // Mirrors the shape of catalog.mjs actions and reuses the shared
@@ -18,7 +18,7 @@ export const depsRecoveryActions = [
     {
         name: "runNpmDiagnostics",
         description:
-            "Ask the Copilot agent to diagnose and repair a failed `npm install` for the wizard canvas's js-yaml dependency. The agent will inspect `~/.npmrc`, ask about the user's org's approved feed / CA / proxy, propose a minimal config change, retry the install, and call `refreshEnvironment` when the install succeeds. Use this when the boot overlay shows a `deps-install` failure.",
+            "Ask the Copilot agent to diagnose and repair a failed Wizard or Designer dependency install. The agent will inspect npm configuration, ask about the user's org's approved feed / CA / proxy, propose a minimal config change, retry the install, and direct the user to click Retry in the Wizard when it succeeds. Use this when the boot overlay shows a `deps-install` failure.",
         inputSchema: {
             type: "object",
             properties: {
@@ -46,6 +46,7 @@ export const depsRecoveryActions = [
                 }
                 const prompt = buildNpmDiagnosticPrompt({
                     extDir: cached?.extDir ?? getExtensionDir(),
+                    packageName: cached?.packageName ?? "js-yaml",
                     errorCode,
                     stderr: cached?.stderrTail ?? "",
                     workspacePath: inst?.workspacePath ?? null,

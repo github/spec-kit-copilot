@@ -1,7 +1,6 @@
 // Unit tests for canvas-runtime/boot-progress.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { createBootTracker, BOOT_STEPS } from "../canvas-runtime/boot-progress.mjs";
 
@@ -42,15 +41,16 @@ test("start() marks step running and broadcasts snapshot", () => {
     assert.equal(events.at(-1).type, "boot.update");
 });
 
-test("ok() marks running step ok with durationMs", async () => {
+test("ok() marks running step ok with durationMs", (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2020-01-01") });
     const { tracker, inst } = harness();
     tracker.start("workspace");
-    await delay(5);
+    t.mock.timers.tick(5);
     tracker.ok("workspace", { path: "/foo" });
     const s = inst.boot.steps.find((x) => x.id === "workspace");
     assert.equal(s.status, "ok");
     assert.ok(s.endedAt);
-    assert.ok(s.durationMs >= 0);
+    assert.equal(s.durationMs, 5);
     assert.deepEqual(s.meta, { path: "/foo" });
 });
 
@@ -106,7 +106,8 @@ test("tick() only records output when the step is running", () => {
     assert.equal(inst.boot.steps.find((s) => s.id === "deps-install").output, "reify:js-yaml");
 });
 
-test("tick() throttles broadcasts but always keeps output current", async () => {
+test("tick() throttles broadcasts but always keeps output current", (t) => {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2020-01-01") });
     const { tracker, inst, events } = harness();
     tracker.start("deps-install");
     const before = events.length;
@@ -117,9 +118,10 @@ test("tick() throttles broadcasts but always keeps output current", async () => 
     // The subsequent ones coalesce into a single delayed emit.
     const s = inst.boot.steps.find((x) => x.id === "deps-install");
     assert.equal(s.output, "line-3");
-    // Wait past the throttle window; delayed emit should have fired.
-    await delay(300);
-    assert.ok(events.length - before >= 1);
+    assert.equal(events.length - before, 1);
+    t.mock.timers.tick(200);
+    assert.equal(events.length - before, 2);
+    assert.equal(events.at(-1).boot.steps.find((x) => x.id === "deps-install").output, "line-3");
 });
 
 test("snapshot() returns a deep clone; mutations do not affect state", () => {

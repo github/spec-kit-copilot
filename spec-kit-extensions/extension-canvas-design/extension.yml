@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: extension-canvas-design
   name: Canvas Design
-  version: "0.1.0"
-  description: Registered settings pages for the Spec Kit Canvas Designer.
+  version: "0.1.21"
+  description: Provides the default layout and behavior for Canvas Designer. Select presets and extensions to override these defaults.
   category: process
   author: spec-kit-copilot
   repository: https://github.com/github/spec-kit-copilot
@@ -17,20 +17,206 @@ provides:
   commands:
     - name: speckit.extension-canvas-design.load-page
       file: commands/load-page.md
-      description: Resolve Designer settings pages and load them into the Canvas Designer.
+      description: Resolve registered Canvas Design templates and open the Designer once.
+    - name: speckit.extension-canvas-design.generate
+      file: commands/generate.md
+      description: Generate a source-owned workflow canvas from frozen Designer Essentials.
+    - name: speckit.extension-canvas-design.open-generated
+      file: commands/open-generated.md
+      description: Register and open an existing generated workflow canvas from a frozen Designer request.
   templates:
-    - name: canvas-settings-setup
-      file: pages/setup.json
+    # Designer tabs: required pages for configuring the generated canvas.
+    - name: designer-essentials
+      file: designer-host/tabs/essentials.json
       description: Essentials fields for canvas identity and workflow naming.
-    - name: canvas-settings-artifacts
-      file: pages/artifacts.json
-      description: Artifacts settings placeholder.
-    - name: canvas-settings-appearance
-      file: pages/appearance.json
-      description: Appearance settings placeholder.
-    - name: canvas-settings-results
-      file: pages/results.json
-      description: Result Badges settings placeholder.
+    - name: designer-badges
+      file: designer-host/tabs/badges.json
+      description: Configure result badges for workflow lists, summaries, and phase cards.
+    - name: designer-appearance
+      file: designer-host/tabs/appearance.json
+      description: Generated canvas logos and per-mode palette colors.
+
+    # Designer settings: fields placed in Designer tab slots.
+    - name: designer-essentials-description
+      file: designer-host/essentials-settings/description.json
+      description: Optional Essentials collection description.
+    - name: designer-essentials-workflow-heading
+      file: designer-host/essentials-settings/workflow-heading.json
+      description: Optional Essentials header text.
+    - name: designer-essentials-workflow-item-name
+      file: designer-host/essentials-settings/workflow-item-name.json
+      description: Optional singular name for a workflow item.
+    - name: designer-essentials-custom-slug
+      file: designer-host/essentials-settings/custom-slug.json
+      description: Default-off option to request a custom workflow artifact folder name.
+    - name: designer-essentials-show-setup
+      file: designer-host/essentials-settings/show-setup.json
+      description: Default-off generated canvas setup view option.
+    - name: designer-essentials-header-logo
+      file: designer-host/essentials-settings/header-logo.json
+      description: Optional image asset for the generated canvas header.
+    - name: designer-essentials-main-page-logo
+      file: designer-host/essentials-settings/main-page-logo.json
+      description: Optional independent larger logo for the generated workflow page.
+    - name: designer-appearance-light-accent
+      file: designer-host/appearance-settings/light-accent.json
+      description: Optional generated canvas light-mode accent color.
+    - name: designer-appearance-light-background
+      file: designer-host/appearance-settings/light-background.json
+      description: Optional generated canvas light-mode page background.
+    - name: designer-appearance-light-surface
+      file: designer-host/appearance-settings/light-surface.json
+      description: Optional generated canvas light-mode card surface.
+    - name: designer-appearance-light-secondary
+      file: designer-host/appearance-settings/light-secondary.json
+      description: Optional generated canvas light-mode secondary surface.
+    - name: designer-appearance-light-text
+      file: designer-host/appearance-settings/light-text.json
+      description: Optional generated canvas light-mode main text color.
+    - name: designer-appearance-dark-accent
+      file: designer-host/appearance-settings/dark-accent.json
+      description: Optional generated canvas dark-mode accent color.
+    - name: designer-appearance-dark-background
+      file: designer-host/appearance-settings/dark-background.json
+      description: Optional generated canvas dark-mode page background.
+    - name: designer-appearance-dark-surface
+      file: designer-host/appearance-settings/dark-surface.json
+      description: Optional generated canvas dark-mode card surface.
+    - name: designer-appearance-dark-secondary
+      file: designer-host/appearance-settings/dark-secondary.json
+      description: Optional generated canvas dark-mode secondary surface.
+    - name: designer-appearance-dark-text
+      file: designer-host/appearance-settings/dark-text.json
+      description: Optional generated canvas dark-mode main text color.
+
+    # Workflow page: page layout and declared contribution slots.
+    - name: generated-workflow
+      file: generated-host/workflow-page/workflow.json
+      description: Required Workflow page definition and declared contribution slots.
+    - name: generated-workflow-page-adapter
+      file: generated-host/workflow-page/generated-workflow-page-adapter.mjs
+      description: Replaceable whole Workflow-page presentation adapter.
+
+    # Phase control: placement, internal slots, and replaceable UI adapter.
+    - name: generated-phase-control
+      file: generated-host/phase-control/phase-control.json
+      description: Workflow phase control identity, placement, and adapter reference.
+    - name: generated-phase-adapter
+      file: generated-host/phase-control/generated-phase-adapter.mjs
+      description: Workflow phase navigation and card adapter.
+    - name: generated-setup-dialog
+      file: generated-host/dialog/setup.json
+      description: Replaceable setup confirmation dialog and required package inventory slot.
+    - name: generated-dialog-adapter
+      file: generated-host/dialog/generated-dialog-adapter.mjs
+      description: Self-contained safe generated dialog renderer.
+    - name: generated-setup-button-control
+      file: generated-host/setup-button-control/control.json
+      description: Host-owned project setup button control definition.
+    - name: generated-setup-button-adapter
+      file: generated-host/setup-button-control/generated-setup-button-adapter.mjs
+      description: Project setup button mounting adapter.
+    - name: generated-setup-button
+      file: generated-host/setup-button-control/setup.json
+      description: Replaceable setup-only button placement.
+
+    # Badges: one replaceable type list, with independently replaceable rules and adapters.
+    - name: badges-settings
+      file: designer-host/badges-settings/badge-types.json
+    - name: badge-rule-value-match
+      file: generated-host/badges/rules/value-match.json
+    - name: badge-rule-artifact-current
+      file: generated-host/badges/rules/artifact-current.json
+    - name: badge-rule-checklist-progress
+      file: generated-host/badges/rules/checklist-progress.json
+    - name: badge-rule-markdown-file-count
+      file: generated-host/badges/rules/markdown-file-count.json
+    - name: badge-rule-checklist-complete
+      file: generated-host/badges/rules/checklist-complete.json
+    - name: badge-rule-phase-run-complete
+      file: generated-host/badges/rules/phase-run-complete.json
+    - name: badge-rule-phase-artifact-complete
+      file: generated-host/badges/rules/phase-artifact-complete.json
+    - name: badge-rule-artifact-stale
+      file: generated-host/badges/rules/artifact-stale.json
+    - name: badge-rule-content-adapter
+      file: generated-host/badges/adapters/content.mjs
+    - name: badge-rule-artifact-state-adapter
+      file: generated-host/badges/adapters/artifact-state.mjs
+    - name: badge-rule-ordered-stale-adapter
+      file: generated-host/badges/adapters/ordered-stale.mjs
+    - name: badge-rule-run-adapter
+      file: generated-host/badges/adapters/run.mjs
+    - name: badge-rule-phase-artifact-complete-adapter
+      file: generated-host/badges/adapters/phase-artifact-complete.mjs
+
+    # Designer-only badge editors: rule bindings do not travel into generated apps.
+    - name: designer-badge-input-stock
+      file: designer-host/badge-input-controls/stock/control.json
+    - name: designer-badge-input-stock-adapter
+      file: designer-host/badge-input-controls/stock/designer.mjs
+    - name: designer-badge-input-value-match
+      file: designer-host/badge-input-controls/value-match/control.json
+    - name: designer-badge-input-value-match-adapter
+      file: designer-host/badge-input-controls/value-match/designer.mjs
+    - name: designer-badge-input-checklist
+      file: designer-host/badge-input-controls/checklist/control.json
+    - name: designer-badge-input-checklist-adapter
+      file: designer-host/badge-input-controls/checklist/designer.mjs
+    - name: designer-badge-input-phase-artifact
+      file: designer-host/badge-input-controls/phase-artifact/control.json
+    - name: designer-badge-input-phase-artifact-adapter
+      file: designer-host/badge-input-controls/phase-artifact/designer.mjs
+    - name: designer-badge-input-ordered-stale
+      file: designer-host/badge-input-controls/ordered-stale/control.json
+    - name: designer-badge-input-ordered-stale-adapter
+      file: designer-host/badge-input-controls/ordered-stale/designer.mjs
+    - name: designer-badge-binding-value-match
+      file: designer-host/badge-input-controls/stock/bindings/value-match.json
+    - name: designer-badge-binding-artifact-current
+      file: designer-host/badge-input-controls/stock/bindings/artifact-current.json
+    - name: designer-badge-binding-artifact-stale
+      file: designer-host/badge-input-controls/stock/bindings/artifact-stale.json
+    - name: designer-badge-binding-markdown-file-count
+      file: designer-host/badge-input-controls/stock/bindings/markdown-file-count.json
+    - name: designer-badge-binding-checklist-progress
+      file: designer-host/badge-input-controls/stock/bindings/checklist-progress.json
+    - name: designer-badge-binding-checklist-complete
+      file: designer-host/badge-input-controls/stock/bindings/checklist-complete.json
+    - name: designer-badge-binding-phase-run-complete
+      file: designer-host/badge-input-controls/stock/bindings/phase-run-complete.json
+    - name: designer-badge-binding-phase-artifact-complete
+      file: designer-host/badge-input-controls/stock/bindings/phase-artifact-complete.json
+
+    # Image control: define accepted image values, edit them in Designer, and render them in generated canvases.
+    - name: shared-controls-image
+      file: shared-controls/stock-image/control.json
+      description: Image value type, size and MIME limits, and adapter registrations.
+    - name: designer-control-adapter-image
+      file: shared-controls/stock-image/designer.mjs
+      description: Image upload, preview, replacement, and removal in Designer.
+    - name: generated-control-adapter-image
+      file: shared-controls/stock-image/generated.mjs
+      description: Image rendering in generated canvases.
+
+    # Text control: define string values, edit them in Designer, and render them in generated canvases.
+    - name: shared-controls-text
+      file: shared-controls/stock-text/control.json
+      description: String value type and adapter registrations.
+    - name: designer-control-adapter-text
+      file: shared-controls/stock-text/designer.mjs
+      description: Text editing in Designer.
+    - name: generated-control-adapter-text
+      file: shared-controls/stock-text/generated.mjs
+      description: Text rendering in generated canvases.
+
+    # Checkbox control: define boolean values and edit them in Designer.
+    - name: shared-controls-checkbox
+      file: shared-controls/stock-checkbox/control.json
+      description: Boolean value type and Designer adapter registration.
+    - name: designer-control-adapter-checkbox
+      file: shared-controls/stock-checkbox/designer.mjs
+      description: Boolean editing in Designer.
 
 tags:
   - copilot

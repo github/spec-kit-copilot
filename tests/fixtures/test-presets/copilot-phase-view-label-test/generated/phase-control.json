@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "workflow-phases",
+  "adapter": "generated-phase-adapter",
+  "placement": {"page": "workflow", "slot": "workflow.phases"},
+  "viewLabels": {
+    "plan": "View Plan"
+  }
+}

@@ -1,0 +1,41 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-canvas-design-test"
+  name: "Copilot Canvas Design Test"
+  version: "0.1.0"
+  description: "Test-only Copilot Designer page with stock text and checkbox contributions."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the test page and contribution."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-settings-pr1-test"
+      file: "designer/tabs/pr1-test.json"
+      description: "Additional Designer-only test page."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-contribution-pr1-test"
+      file: "designer/settings/pr1-test.json"
+      description: "Stock text field for the test page."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-contribution-pr1-toggle"
+      file: "designer/settings/pr1-toggle.json"
+      description: "Stock checkbox field for the test page."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

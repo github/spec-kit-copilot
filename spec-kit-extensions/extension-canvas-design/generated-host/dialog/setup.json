@@ -1,0 +1,12 @@
+{
+  "$schema": "../../schemas/external-generated.dialog-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "generated-setup-dialog",
+  "adapter": "generated-dialog-adapter",
+  "title": "Install workflow packages?",
+  "blocks": [
+    {"type": "paragraph", "text": "Review the packages and where they come from before installing."},
+    {"type": "slot", "name": "pending-packages"}
+  ],
+  "buttons": {"cancel": "Cancel", "confirm": "Install packages"}
+}

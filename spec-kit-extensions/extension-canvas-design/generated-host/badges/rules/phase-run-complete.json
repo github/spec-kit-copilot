@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "phase-run-complete",
+  "label": "Completed phase run",
+  "description": "The latest selected phase run completed.",
+  "inputs": [
+    {
+      "id": "phase",
+      "type": "phase"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-run-adapter"
+}

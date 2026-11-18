@@ -1,0 +1,13 @@
+{
+  "$schema": "../../schemas/external-generated.button-placement.schema.json",
+  "schemaVersion": 1,
+  "id": "generated-setup-button",
+  "page": "setup",
+  "slot": "setup.actions",
+  "order": 0,
+  "control": "project.setup-button",
+  "label": "Set up project",
+  "presentation": "primary",
+  "action": {"type": "project.setup"},
+  "dialog": "generated-setup-dialog"
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "label", "description", "inputs", "textPlaceholders", "adapter"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "label": {"type": "string", "minLength": 1, "maxLength": 120},
+    "description": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "placementPhaseInput": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "inputs": {
+      "type": "array", "maxItems": 10,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "type"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+          "type": {"enum": ["artifact", "artifact-set", "ordered-artifacts", "phase", "text", "badge-selection"]},
+          "scope": {"enum": ["directory", "metadata"]},
+          "before": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+          "minItems": {"type": "integer", "minimum": 1, "maximum": 100},
+          "label": {"type": "string", "minLength": 1, "maxLength": 80}
+        },
+        "allOf": [
+          {"if": {"properties": {"scope": {"const": "directory"}}, "required": ["scope"]},
+            "then": {"properties": {"type": {"const": "artifact"}}}},
+          {"if": {"properties": {"scope": {"const": "metadata"}}, "required": ["scope"]},
+            "then": {"properties": {"type": {"enum": ["artifact", "ordered-artifacts"]}}}},
+          {"if": {"properties": {"type": {"const": "ordered-artifacts"}}, "required": ["type"]},
+            "then": {"required": ["before", "scope"]},
+            "else": {"not": {"anyOf": [{"required": ["before"]}, {"required": ["minItems"]}]}}}
+        ]
+      }
+    },
+    "textPlaceholders": {"type": "array", "maxItems": 10, "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"}},
+    "adapter": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}
+  }
+}

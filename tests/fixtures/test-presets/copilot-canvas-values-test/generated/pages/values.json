@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-generated-values",
+  "title": "Values",
+  "renderer": "canvas-generated-values-renderer",
+  "values": ["demo.processing"]
+}

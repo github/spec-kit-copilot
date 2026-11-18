@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "designer-essentials",
+  "title": "Essentials",
+  "description": "Configure settings for your generated canvas app.",
+  "order": 10,
+  "enabled": true,
+  "fixedControl": "designer.identity",
+  "slots": [{"id": "essentials.options"}],
+  "fields": [
+    {"id": "canvas.id", "label": "Canvas ID", "control": "stock.text", "description": "Use 1–100 characters: lowercase letters (a–z), numbers (0–9), and hyphens (-). Start with a letter or number. Reserved IDs, including Windows device names like con and com1, cannot be used."},
+    {"id": "canvas.displayName", "label": "Title", "control": "stock.text", "description": "Enter a title of 1–120 characters for your canvas."}
+  ]
+}

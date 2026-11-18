@@ -1,0 +1,14 @@
+{
+  "$schema": "../../schemas/external-shared.control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.image",
+  "value": {
+    "type": "image",
+    "maxBytes": 32768,
+    "mimeTypes": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+  },
+  "adapters": {
+    "designer": "designer-control-adapter-image",
+    "generated": "generated-control-adapter-image"
+  }
+}

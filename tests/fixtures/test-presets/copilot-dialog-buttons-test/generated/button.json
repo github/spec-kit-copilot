@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-workflow-button-test",
+  "page": "workflow",
+  "slot": "workflow.actions",
+  "order": 10,
+  "control": "dialog.trigger",
+  "label": "Preview confirmation",
+  "presentation": "secondary",
+  "action": {"type": "dialog.result"},
+  "dialog": "canvas-button-dialog-test"
+}

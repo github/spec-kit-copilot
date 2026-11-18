@@ -12,7 +12,7 @@
 //                              refresh, bundle.*.
 //   prompts/pipeline.mjs     — constitution|specify|plan|checklist|
 //                              tasks|implement, clarify(.answer),
-//                              analyze(.answer), taskstoissues.
+//                              analyze(.answer), converge.
 //   prompts/composition.mjs  — composition.*, extension
 //                              .inferArtifactTargets.
 //
@@ -40,7 +40,7 @@
 //     Copilot fuzzy-matching to pick the right skill
 
 import { ACTION_KINDS, skillForKind } from "./canvas-runtime/wizard-phases.mjs";
-import { EXECUTION_STATES } from "./state/store.mjs";
+import { EXECUTION_STATES } from "./contracts/agent-phase.mjs";
 import { CORE_COMMANDS } from "./pipeline/canonical.mjs";
 import { fmtPayload } from "./prompts/shared.mjs";
 import { SETUP_KINDS, buildSetupPrompt } from "./prompts/setup.mjs";

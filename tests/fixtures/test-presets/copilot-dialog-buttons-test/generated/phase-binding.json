@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-implement-dialog-test",
+  "phase": "speckit.implement",
+  "dialog": "canvas-dialog-buttons-test"
+}

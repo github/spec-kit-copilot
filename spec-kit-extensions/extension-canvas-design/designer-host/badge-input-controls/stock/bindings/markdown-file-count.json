@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schemas/external-designer.badge-input-binding.schema.json",
+  "schemaVersion": 1,
+  "id": "markdown-file-count",
+  "rule": "markdown-file-count",
+  "control": "stock.badge-inputs"
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "risk-rating-designer",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 20,
+  "field": {
+    "id": "risk.rating",
+    "label": "Risk rating",
+    "type": "object",
+    "control": "risk-matrix"
+  },
+  "generatedBinding": {
+    "presentation": "control",
+    "slot": "details.content"
+  }
+}

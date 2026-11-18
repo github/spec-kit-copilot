@@ -23,7 +23,7 @@ skills through the agent.
 1. Register the marketplace and install it (see [Install](#install)):
 
    ```bash
-   copilot plugin marketplace add OWNER/spec-kit-copilot
+   copilot plugin marketplace add https://github.com/github/spec-kit-copilot.git
    copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
    ```
 2. Ask Copilot in chat: **"Open Spec-Driven Development"**.
@@ -138,7 +138,7 @@ are normalized to `[a-z0-9-]`, so the canvas can only trigger core SDD stages.
 **Via marketplace (recommended):**
 
 ```bash
-copilot plugin marketplace add OWNER/spec-kit-copilot
+copilot plugin marketplace add https://github.com/github/spec-kit-copilot.git
 copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
 ```
 

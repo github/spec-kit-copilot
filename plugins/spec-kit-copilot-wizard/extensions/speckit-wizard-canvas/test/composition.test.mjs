@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import {
+    cpSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
 import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
 import { applyComposition, normalizeHookArtifactsInComposition } from "../canvas-runtime/composition-apply.mjs";
 import { fsDeps } from "../canvas-runtime/instances.mjs";
@@ -32,17 +36,20 @@ import {
     observePhaseProgress,
     PHASE_RUN_ACK_MS,
     renderMoreCommandsPanel,
+    renderPipelineBanner,
     resolvePipelineEntry,
     setRunLockDeps,
 } from "../ui/phase-runtime.js";
 import {
     renderPhaseCard,
     renderGraphPhaseCard,
+    wireGraphPhaseCard,
     renderStepper,
     setPhaseCardDeps,
     setGraphPhaseCardDeps,
 } from "../ui/phase-card.js";
-import { buildExecutionReport } from "../ui/phase-contributors.js";
+import { buildExecutionReport, renderOutputRows } from "../ui/phase-contributors.js";
+import { compositionProgressText, reconcileCompositionRefresh, renderCompositionProgress } from "../ui/composition.js";
 import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 
 function makeScannerFs(files) {
@@ -87,6 +94,237 @@ function makeScannerFs(files) {
         },
     };
 }
+
+test("phase outputs link only verified files or real browse folders", () => {
+    const evidence = {
+        primaryIndex: 0,
+        candidates: [
+            { kind: "file", path: "specs/<slug>/spec.md", source: "inference" },
+            { kind: "folder", path: "specs/<slug>/checklists/", source: "inference" },
+            { kind: "file", path: "specs/<slug>/missing.md", source: "inference" },
+        ],
+    };
+    const availability = { candidates: [
+        { resolvedPath: "specs/feature/spec.md", filePath: "specs/feature/spec.md", folderPath: "specs/feature" },
+        { resolvedPath: "specs/feature/checklists/", folderPath: "specs/feature/checklists" },
+        { resolvedPath: "specs/feature/missing.md", browsePath: "specs/feature" },
+    ] };
+    const row = (label, parts) => `${label}: ${parts.join(" ")}`;
+    const rows = renderOutputRows({
+        outputEvidence: evidence, availability, defaultPath: "specs/feature/spec.md",
+        cmdName: "speckit.specify", buildRow: row,
+    });
+    assert.match(rows[0], /DEFAULT:.*data-output-path="specs\/feature\/spec\.md"/);
+    assert.match(rows[0], /\+2 more/);
+    state.expandedArtifactChains.add("speckit.specify|output|outputs");
+    try {
+        const expanded = renderOutputRows({
+            outputEvidence: evidence, availability, defaultPath: "specs/feature/spec.md",
+            cmdName: "speckit.specify", buildRow: row,
+        }).join("\n");
+        assert.match(expanded, /data-folder-path="specs\/feature\/checklists"/);
+        assert.match(expanded, /data-folder-path="specs\/feature"/);
+        assert.doesNotMatch(expanded, /data-output-path="specs\/feature\/missing\.md"/);
+    } finally {
+        state.expandedArtifactChains.delete("speckit.specify|output|outputs");
+    }
+});
+
+test("phase outputs show explicit no-file result without stale default links", () => {
+    const rows = renderOutputRows({
+        outputEvidence: { primaryIndex: null,
+            candidates: [{ kind: "none", source: "inference" }] },
+        defaultPath: "specs/old/spec.md",
+        buildRow: (_label, parts) => parts.join(" "),
+    });
+    assert.match(rows[0], /No file output/);
+    assert.doesNotMatch(rows[0], /specs\/old/);
+});
+
+test("phase outputs describe retrieval without hiding known outputs", () => {
+    const buildRow = (label, parts) => `${label}: ${parts.join(" ")}`;
+    const pending = renderOutputRows({ inferenceStatus: "updating", buildRow });
+    assert.deepEqual(pending, ['Output(s): <span role="status">Retrieving outputs…</span>']);
+
+    const known = renderOutputRows({
+        inferenceStatus: "updating",
+        outputEvidence: { primaryIndex: 0,
+            candidates: [{ kind: "file", path: "specs/feature/spec.md", source: "inference" }] },
+        availability: { candidates: [{ filePath: "specs/feature/spec.md" }] },
+        buildRow,
+    });
+    assert.match(known[0], /data-output-path="specs\/feature\/spec\.md"/);
+    assert.match(known[0], /Retrieving outputs…/);
+
+    const idle = renderOutputRows({ buildRow });
+    assert.match(idle[0], /Not yet identified/);
+    assert.doesNotMatch(idle[0], /Retrieving outputs/);
+});
+
+test("phase card browses project root for an unresolved output directory", () => {
+    const el = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    globalThis.document = { activeElement: null, getElementById: () => null };
+    state.snapshot = {
+        pipeline: [{ id: "specify" }],
+        composition: { artifacts: [] },
+        artifactEvidence: { specify: {
+            primaryIndex: 0,
+            candidates: [{ kind: "file", path: "spec.md", root: { name: "FEATURE_DIR" } }],
+        } },
+        outputAvailability: { specify: { candidates: [{ browsePath: "" }] } },
+    };
+    try {
+        renderGraphPhaseCard(el, {
+            id: "specify", name: "Specify", commandName: "speckit.specify",
+            status: "empty", artifactPath: null, folderPath: null,
+        });
+        assert.match(el.innerHTML, /phase-cust-row-writes[\s\S]*?data-folder-path=""/);
+        assert.match(el.innerHTML, /FEATURE_DIR\/spec\.md/);
+        assert.match(el.innerHTML, /Output\(s\)[\s\S]*?data-folder-path=""/);
+        assert.doesNotMatch(el.innerHTML, /data-output-path=/);
+    } finally {
+        state.snapshot = priorSnapshot;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("phase output links open files in the viewer and browse only existing folders", async () => {
+    const listeners = [];
+    const link = (attribute, value) => ({
+        getAttribute: (key) => key === attribute ? value : null,
+        addEventListener: (_event, callback) => listeners.push(callback),
+    });
+    const opened = [];
+    const browsed = [];
+    const priorDocument = globalThis.document;
+    globalThis.document = { getElementById: () => null };
+    setGraphPhaseCardDeps({
+        postJson: async (_url, body) => { browsed.push(body.sub); },
+        openArtifactViewer: (phase) => { opened.push(phase.artifactPath); },
+    });
+    try {
+        wireGraphPhaseCard({
+            querySelector: () => null,
+            querySelectorAll: (selector) => selector === '[data-phase-action="browse-folder"]'
+                ? [link("data-folder-path", "")] : selector === "[data-output-path]"
+                    ? [link("data-output-path", "specs/feature/spec.md")] : [],
+        }, { id: "specify", commandName: "speckit.specify" });
+        for (const callback of listeners) await callback();
+        assert.deepEqual(browsed, [""]);
+        assert.deepEqual(opened, ["specs/feature/spec.md"]);
+    } finally {
+        setGraphPhaseCardDeps({ postJson: async () => {}, openArtifactViewer: () => {} });
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("refresh UI waits for backend completion and shows retry on failure", () => {
+    const priorRequested = state.compositionRequested;
+    const priorId = state.compositionRefreshId;
+    try {
+        state.compositionRequested = true;
+        state.compositionRefreshId = "previous";
+        reconcileCompositionRefresh({ refreshId: "current", refreshStatus: "refreshing" });
+        assert.equal(state.compositionRequested, true);
+        assert.equal(compositionProgressText({ refreshStatus: "refreshing" }, state.compositionRequested), "Refreshing…");
+        reconcileCompositionRefresh({ refreshId: "current", refreshStatus: "incomplete" });
+        assert.equal(state.compositionRequested, false);
+        assert.equal(compositionProgressText({ refreshStatus: "incomplete" }), "Refresh incomplete — retry");
+        assert.equal(compositionProgressText({ refreshStatus: "up-to-date" }), "Up to date");
+    } finally {
+        state.compositionRequested = priorRequested;
+        state.compositionRefreshId = priorId;
+    }
+});
+
+test("Composition leaves the Refresh button as the only idle label without hiding active progress", () => {
+    const previousDocument = globalThis.document;
+    const previousSnapshot = state.snapshot;
+    const previousRequested = state.compositionRequested;
+    const meta = { dataset: {} };
+    const label = { textContent: "" };
+    globalThis.document = { getElementById: (id) => ({
+        "comp-meta": meta, "comp-meta-text": label,
+    })[id] };
+    state.compositionRequested = false;
+    try {
+        for (const refreshStatus of ["ready", "up-to-date"]) {
+            state.snapshot = { refreshStatus };
+            renderCompositionProgress();
+            assert.equal(label.textContent, "");
+            assert.equal(meta.dataset.progress, "idle");
+        }
+        state.snapshot = { refreshStatus: "refreshing" };
+        renderCompositionProgress();
+        assert.equal(label.textContent, "Updating…");
+        assert.equal(meta.dataset.progress, "updating");
+        state.snapshot = { refreshStatus: "incomplete" };
+        renderCompositionProgress();
+        assert.equal(label.textContent, "Update incomplete");
+        assert.equal(meta.dataset.progress, "incomplete");
+    } finally {
+        state.snapshot = previousSnapshot;
+        state.compositionRequested = previousRequested;
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+    }
+});
+
+test("Phases keeps composition refresh status separate from output inference progress", () => {
+    const previousDocument = globalThis.document;
+    const previousSnapshot = state.snapshot;
+    const previousTab = state.activeTab;
+    const previousRequested = state.compositionRequested;
+    const previousNow = Date.now;
+    let now = 1000;
+    const banner = { hidden: false, innerHTML: "", querySelector: () => null };
+    globalThis.document = { getElementById: (id) => id === "pipeline-banner" ? banner : null };
+    Date.now = () => now;
+    state.activeTab = "phases";
+    state.compositionRequested = false;
+    try {
+        state.snapshot = { refreshStatus: "up-to-date" };
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
+
+        state.snapshot.refreshStatus = "refreshing";
+        renderPipelineBanner();
+        assert.match(banner.innerHTML, /role="status" aria-live="polite" data-progress="updating"/);
+        assert.match(banner.innerHTML, /pipeline-refresh-spinner" aria-hidden="true"/);
+        assert.match(banner.innerHTML, /Refreshing your pipeline from installed presets and extensions…<\/div>/);
+        assert.doesNotMatch(banner.innerHTML, /You can keep building your pipeline while this runs/);
+        assert.doesNotMatch(banner.innerHTML, /large number of commands can take several minutes/);
+        assert.match(banner.innerHTML, /<\/header>\s*<div class="pipeline-refresh-status"/);
+
+        state.snapshot.refreshStatus = "up-to-date";
+        renderPipelineBanner();
+        assert.match(banner.innerHTML, /Pipeline updated/);
+        now += 5001;
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
+
+        state.snapshot.refreshStatus = "incomplete";
+        renderPipelineBanner();
+        assert.match(banner.innerHTML, /data-progress="incomplete".*Retry in Setup/mi);
+        renderPipelineBanner();
+        assert.match(banner.innerHTML, /Refresh incomplete/);
+        state.snapshot.refreshStatus = "ready";
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
+        state.snapshot.outputInferenceProgress = { status: "updating", total: 25, remaining: 12 };
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-refresh-status/);
+    } finally {
+        state.snapshot = previousSnapshot;
+        state.activeTab = previousTab;
+        state.compositionRequested = previousRequested;
+        Date.now = previousNow;
+    }
+});
 
 describe("canonical", () => {
 // Tests for ui/canonical.mjs — small surface of pure predicates and a
@@ -139,7 +377,7 @@ test("canonicalTemplateIds contracts with CORE_CAPABILITIES (specify carries two
     assert.deepEqual(canonicalTemplateIds("checklist"), ["checklist-template"]);
     assert.deepEqual(canonicalTemplateIds("outline"), ["outline-template"]);
 
-    // Empty-template phases (implement, clarify, taskstoissues, analyze)
+    // Empty-template phases (implement, clarify, analyze)
     // carry the empty list from CORE_CAPABILITIES — NOT the fallback.
     assert.deepEqual(canonicalTemplateIds("implement"), []);
     assert.deepEqual(canonicalTemplateIds("clarify"), []);
@@ -207,7 +445,6 @@ test("effectivePipelinePhases falls back to the full canonical spine and filters
         { id: "specify" },
         { id: "clarify" },
         { id: "plan" },
-        { id: "taskstoissues" },
         { id: "analyze" },
         { id: "checklist" },
         { id: "implement" },
@@ -387,14 +624,15 @@ test("resolvePipelineEntry: extension artifact whose active layer isn't extensio
     assert.equal(r.kind, "orphan");
 });
 
-test("client phase running acknowledgement clears after its local duration", async () => {
+test("client phase running acknowledgement clears after its local duration", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     let renders = 0;
     setRunLockDeps({ render: () => { renders += 1; } });
     try {
         markPhaseRunning("speckit.implement", { durationMs: 5 });
         assert.equal(state.phaseRunning.has("speckit.implement"), true);
 
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        t.mock.timers.tick(5);
 
         assert.equal(state.phaseRunning.has("speckit.implement"), false);
         assert.ok(renders >= 2);
@@ -495,6 +733,105 @@ test("renderPhaseCard keeps selected phases runnable when earlier phases are inc
     }
 });
 
+test("renderPhaseCard resolves core and extension phases after the last preset is removed", () => {
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    const priorPhase = state.currentPhase;
+    const card = { innerHTML: "" };
+    let renderedPhase;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? card : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
+    });
+    try {
+        const base = {
+            commands: [],
+            presets: [],
+            setup: {
+                pluginInstalled: true,
+                cliInstalled: true,
+                projectInitialized: true,
+                skillsReloaded: true,
+            },
+            phases: {
+                specify: { status: "done", artifactPath: "specs/feature/spec.md" },
+                "commands/speckit.assess.intake": { status: "empty" },
+            },
+            composition: {
+                presets: [],
+                extensions: [{ id: "assess" }],
+                artifacts: [{
+                    id: "commands/speckit.assess.intake",
+                    kind: "command",
+                    stack: [{ layer: "extension", active: true, presetId: "assess" }],
+                }],
+            },
+        };
+        state.currentPhase = "specify";
+        state.snapshot = base;
+        renderPhaseCard();
+        assert.equal(renderedPhase?.commandName, "speckit.specify");
+        assert.equal(renderedPhase.status, "done");
+        assert.equal(renderedPhase.artifactPath, "specs/feature/spec.md");
+        assert.equal(renderedPhase.locked, false);
+
+        for (const refreshStatus of ["refreshing", "up-to-date"]) {
+            renderedPhase = null;
+            state.currentPhase = "removed-preset-command";
+            state.snapshot = { ...base, refreshStatus,
+                pipeline: [{ id: "speckit.assess.intake" }] };
+            renderPhaseCard();
+            assert.equal(renderedPhase?.commandName, "speckit.assess.intake");
+            assert.equal(renderedPhase.locked, false);
+            assert.equal(state.currentPhase, "speckit.assess.intake");
+            assert.doesNotMatch(card.innerHTML, /No phases available/);
+        }
+
+        state.snapshot = { ...base, setup: { ...base.setup, skillsReloaded: false } };
+        state.currentPhase = "specify";
+        renderPhaseCard();
+        assert.equal(renderedPhase.locked, true);
+    } finally {
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = priorSnapshot;
+        state.currentPhase = priorPhase;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderPhaseCard preserves cleared and orphaned pipelines without preset commands", () => {
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    const priorPhase = state.currentPhase;
+    const card = { innerHTML: "" };
+    let renders = 0;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? card : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: () => { renders += 1; },
+    });
+    try {
+        state.snapshot = { commands: [], pipeline: [], composition: { artifacts: [] } };
+        renderPhaseCard();
+        assert.match(card.innerHTML, /No commands in the pipeline/);
+
+        state.snapshot.pipeline = [{ id: "removed-preset-command" }];
+        renderPhaseCard();
+        assert.match(card.innerHTML, /Pipeline references unknown commands/);
+        assert.equal(renders, 0);
+    } finally {
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = priorSnapshot;
+        state.currentPhase = priorPhase;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
 test("renderPhaseCard ignores earlier optional phase metadata when deciding locks", () => {
     let renderedPhase = null;
     const priorDocument = globalThis.document;
@@ -514,13 +851,13 @@ test("renderPhaseCard ignores earlier optional phase metadata when deciding lock
                 projectInitialized: true,
                 skillsReloaded: true,
             },
-            pipeline: [{ id: "taskstoissues" }, { id: "implement" }],
+            pipeline: [{ id: "speckit.github.taskstoissues" }, { id: "implement" }],
             phases: {
-                taskstoissues: { status: "empty" },
+                "speckit.github.taskstoissues": { status: "empty" },
                 implement: { status: "empty" },
             },
             commands: [
-                { id: "taskstoissues", commandName: "speckit.taskstoissues", status: "empty", optional: false, locked: false },
+                { id: "speckit.github.taskstoissues", commandName: "speckit.github.taskstoissues", status: "empty", optional: false, locked: false },
                 { id: "implement", commandName: "speckit.implement", status: "empty", locked: false },
             ],
             composition: { artifacts: [] },
@@ -826,7 +1163,8 @@ test("renderGraphPhaseCard switches to rerun after local dispatch acknowledgemen
     }
 });
 
-test("renderGraphPhaseCard does not show View artifact from local running acknowledgement alone", () => {
+test("phase buttons temporarily show Running without a separate request notice or unverified artifact", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const el = {
         innerHTML: "",
         querySelector(selector) {
@@ -852,25 +1190,44 @@ test("renderGraphPhaseCard does not show View artifact from local running acknow
         renderStepper: () => {},
     });
     state.snapshot = { pipeline: ["plan"], composition: { artifacts: [] } };
+    const phase = {
+        id: "plan",
+        name: "Plan",
+        status: "empty",
+        optional: false,
+        locked: false,
+        commandName: "speckit.plan",
+        artifact: "specs/<slug>/plan.md",
+        artifactPath: null,
+    };
+    setRunLockDeps({ render: () => renderGraphPhaseCard(el, phase) });
 
     try {
-        markPhaseRunning("speckit.plan", { durationMs: 10_000 });
-        renderGraphPhaseCard(el, {
-            id: "plan",
-            name: "Plan",
-            status: "empty",
-            optional: false,
-            locked: false,
-            commandName: "speckit.plan",
-            artifact: "specs/<slug>/plan.md",
-            artifactPath: null,
-        });
+        markPhaseRunning("speckit.plan");
 
-        assert.match(el.innerHTML, /Running/);
+        assert.match(el.innerHTML, /type="submit" class="btn btn-primary"[^>]*aria-live="polite"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /Request sent/);
+        assert.doesNotMatch(el.innerHTML, /type="submit"[^>]*disabled/);
         assert.match(el.innerHTML, /specs\/&lt;slug&gt;\/plan\.md/);
         assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
-    } finally {
+
+        markPhaseSubmitted("speckit.plan");
+        renderGraphPhaseCard(el, phase);
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /data-phase-action="redo"[^>]*disabled/);
+
+        t.mock.timers.tick(PHASE_RUN_ACK_MS);
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*>Rerun phase<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /Running<\/button>/);
+
+        markPhaseRunning("speckit.plan");
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
         clearPhaseRunning("speckit.plan");
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*>Rerun phase<\/button>/);
+    } finally {
+        setRunLockDeps({ render: () => {} });
+        clearPhaseRunning("speckit.plan");
+        clearPhaseSubmitted("speckit.plan");
         state.snapshot = null;
         setGraphPhaseCardDeps({
             openArtifactViewer: () => {},
@@ -1199,6 +1556,59 @@ function activeLayer(artifact) {
 
 // ---- Cases -----------------------------------------------------------------
 
+test("installed test packages expose nested manifest metadata, layers, and a non-runnable hook", async () => {
+    const root = makeWorkspace();
+    const presetId = "copilot-wizard-layer-test";
+    const extensionId = "extension-wizard-flow-test";
+    const presetSource = fileURLToPath(new URL(
+        `../../../../../tests/fixtures/test-presets/${presetId}/`, import.meta.url));
+    const extensionSource = fileURLToPath(new URL(
+        `../../../../../tests/fixtures/specify/${extensionId}/`, import.meta.url));
+    try {
+        const preset = load(readFileSync(join(presetSource, "preset.yml"), "utf8"));
+        const extension = load(readFileSync(join(extensionSource, "extension.yml"), "utf8"));
+        for (const [source, data, dir, id] of [
+            [presetSource, preset, "presets", presetId],
+            [extensionSource, extension, "extensions", extensionId],
+        ]) {
+            for (const entry of [...data.provides.templates ?? [], ...data.provides.commands ?? []]) {
+                assert.ok(readFileSync(join(source, entry.file)).length, `${id}: ${entry.file}`);
+            }
+            cpSync(source, join(root, ".specify", dir, id), { recursive: true });
+        }
+        writeHooksRegistry(root, {
+            after_plan: [{ extension: extensionId, command: "speckit.extension-wizard-flow-test.audit" }],
+        });
+        const comp = await assembleComposition({
+            workspaceRoot: root,
+            presetItems: [presetItem(presetId)],
+            extensionItems: [extensionItem(extensionId)],
+        });
+        assert.equal(comp.presets[0].version, preset.preset.version);
+        assert.equal(comp.extensions[0].version, extension.extension.version);
+        assert.equal(activeLayer(findArtifact(comp, "commands/speckit.plan")).presetId, presetId);
+        assert.equal(activeLayer(findArtifact(comp, "commands/speckit.specify")).strategy, "prepend");
+        assert.equal(findArtifact(comp, "commands/speckit.extension-wizard-flow-test.review").kind, "command");
+        assert.equal(findArtifact(comp, "commands/speckit.extension-wizard-flow-test.audit").kind, "hook");
+        assert.equal(computeStage2Necessity(comp, comp._presetManifests).needed, true);
+        const disabled = await assembleComposition({
+            workspaceRoot: root,
+            presetItems: [presetItem(presetId, { active: false, enabled: false })],
+            extensionItems: [extensionItem(extensionId)],
+        });
+        assert.notEqual(activeLayer(findArtifact(disabled, "commands/speckit.plan")).presetId, presetId);
+        assert.equal(findArtifact(disabled, "commands/speckit.extension-wizard-flow-test.audit").kind, "hook");
+        rmSync(join(root, ".specify", "presets", presetId), { recursive: true });
+        const removed = await assembleComposition({
+            workspaceRoot: root, presetItems: [], extensionItems: [extensionItem(extensionId)],
+        });
+        assert.equal(removed.presets.length, 0);
+        assert.equal(activeLayer(findArtifact(removed, "commands/speckit.plan")).layer, "core");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("core-only workspace: no presets/extensions, synthesized canonical pipeline", async () => {
     const root = makeWorkspace();
     try {
@@ -1228,6 +1638,28 @@ test("core-only workspace: no presets/extensions, synthesized canonical pipeline
         // Canonical anchors present in synthesized order.
         assert.ok(s2.syntheticPipeline.pipeline.includes("commands/speckit.constitution"));
         assert.ok(s2.syntheticPipeline.pipeline.includes("commands/speckit.implement"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("preset composition chooses the CLI-ordered layer over catalog input order", async () => {
+    const root = makeWorkspace();
+    try {
+        for (const id of ["first", "second"]) {
+            writePreset(root, id, {
+                provides: { templates: [{ name: "plan-template", replaces: "plan-template" }] },
+            });
+        }
+        const comp = await assembleComposition({
+            workspaceRoot: root,
+            presetItems: [presetItem("second", { cliOrder: 1 }), presetItem("first", { cliOrder: 0 })],
+            extensionItems: [],
+        });
+        const artifact = findArtifact(comp, "plan-template");
+        assert.equal(activeLayer(artifact)?.presetId, "first");
+        assert.deepEqual(artifact.stack.filter((layer) => layer.layer === "preset").map((layer) => layer.presetId),
+            ["first", "second"]);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

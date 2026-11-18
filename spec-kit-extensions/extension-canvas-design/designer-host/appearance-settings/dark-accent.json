@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.dark-accent",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 60,
+  "field": {"id": "canvas.accentDark", "type": "string", "control": "stock.text",
+    "label": "Dark mode accent", "description": "Optional six-digit hex color, such as 6EAAFF or #6EAAFF. Leave blank to use the current color."}
+}

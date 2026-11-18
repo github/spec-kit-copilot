@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schemas/external-designer.badge-input-binding.schema.json",
+  "schemaVersion": 1,
+  "id": "phase-artifact-complete",
+  "rule": "phase-artifact-complete",
+  "control": "stock.phase-artifact-inputs"
+}

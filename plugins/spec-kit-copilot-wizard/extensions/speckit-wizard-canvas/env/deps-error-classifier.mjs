@@ -1,6 +1,6 @@
 // Classify an npm install failure into a small, actionable set of codes.
 //
-// The wizard canvas runs `npm install js-yaml` on first open. When that
+// The wizard canvas runs `npm ci --omit=dev` for missing runtime dependencies on first open. When that
 // fails, the raw stderr is unhelpful to end-users (schannel error codes,
 // EPROXY, SELF_SIGNED_CERT_IN_CHAIN, etc). This module reduces the noise
 // to a fixed set of codes + a plain-English title/hint so the UI can:
@@ -71,7 +71,7 @@ export function classifyNpmError(input = {}) {
         return {
             code: "HTTP_403",
             title: "The npm registry rejected the request (HTTP 403)",
-            hint: "Check that your account/token has permission for js-yaml, or switch to your organization's approved feed.",
+            hint: "Check that your account/token has permission for the package, or switch to your organization's approved feed.",
             canRetry: true,
         };
     }

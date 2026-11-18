@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 import { PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 import { _internal as scannerInternal, readMarkdownArtifact, scanWorkspace } from "../project-scanner.mjs";
@@ -172,6 +173,61 @@ test("writeState mkdirs and writes JSON body", async () => {
     assert.ok(renameCalled.to.replace(/\\/g, "/").endsWith(".speckit-wizard/state.json"));
     const parsed = JSON.parse(writeCalled.body);
     assert.equal(parsed.currentPhase, "plan");
+});
+
+test("writeState retries transient Windows EPERM renames before committing", async () => {
+    let attempts = 0;
+    const waits = [];
+    const deps = {
+        platform: "win32",
+        waitForRenameRetry: async (ms) => waits.push(ms),
+        mkdir: async () => {},
+        writeFile: async () => {},
+        rename: async () => {
+            attempts++;
+            if (attempts < 3) throw Object.assign(new Error("file is temporarily locked"), { code: "EPERM" });
+        },
+        unlink: async () => {},
+    };
+
+    await writeState("/proj", normalizeState({}), deps);
+
+    assert.equal(attempts, 3);
+    assert.deepEqual(waits, [50, 100]);
+});
+
+test("writeState stops after bounded Windows EPERM retries and cleans up the temp file", async () => {
+    let attempts = 0;
+    let unlinked = null;
+    const waits = [];
+    const renameError = Object.assign(new Error("file remains locked"), { code: "EPERM" });
+    const deps = {
+        platform: "win32",
+        waitForRenameRetry: async (ms) => waits.push(ms),
+        mkdir: async () => {},
+        writeFile: async () => {},
+        rename: async () => { attempts++; throw renameError; },
+        unlink: async (path) => { unlinked = path; },
+    };
+
+    await assert.rejects(writeState("/proj", normalizeState({}), deps), (error) => error === renameError);
+
+    assert.equal(attempts, 4);
+    assert.deepEqual(waits, [50, 100, 200]);
+    assert.ok(unlinked?.endsWith(".tmp"));
+});
+
+test("writeState does not retry EPERM renames outside Windows", async () => {
+    let attempts = 0;
+    const error = Object.assign(new Error("permission denied"), { code: "EPERM" });
+    await assert.rejects(writeState("/proj", normalizeState({}), {
+        platform: "linux",
+        mkdir: async () => {},
+        writeFile: async () => {},
+        rename: async () => { attempts++; throw error; },
+        unlink: async () => {},
+    }), (caught) => caught === error);
+    assert.equal(attempts, 1);
 });
 
 
@@ -753,6 +809,14 @@ function makeFs(files) {
     };
     return {
         _store: store,
+        readEvidenceCache: async (cwd) => {
+            const value = fileContent(store.get(norm(join(cwd, ".speckit-wizard", "artifact-targets.json"))));
+            if (typeof value !== "string") return { version: 1, entries: {} };
+            try { return JSON.parse(value); } catch { return null; }
+        },
+        writeEvidenceCache: async (cwd, payload) => {
+            store.set(norm(join(cwd, ".speckit-wizard", "artifact-targets.json")), payload);
+        },
         pathExists: async (p) => {
             const np = norm(p);
             return store.has(np) || isDir(np);
@@ -1291,11 +1355,11 @@ test("scanWorkspace ignores malformed cache entries", async () => {
 });
 
 
-test("scanWorkspace prunes orphan cache entries whose extension is no longer installed", async () => {
+test("scanWorkspace retains removed extension cache entries without hydrating them", async () => {
     // Two branches collapsed: (a) extensions dir exists but is empty (user
     // uninstalled everything), (b) extensions dir doesn't exist at all
-    // (never installed). Both must produce the same behavior: every
-    // commands/* entry in the cache is pruned as an orphan.
+    // (never installed). Removed commands are not hydrated, but their cache
+    // entries remain available if the package is restored.
     for (const extDirPresent of [true, false]) {
         const files = {
             "/proj/.specify": "__DIR__",
@@ -1312,10 +1376,14 @@ test("scanWorkspace prunes orphan cache entries whose extension is no longer ins
         const scan = await scanWorkspace("/proj", fs);
         assert.equal(scan.phases["commands/speckit.assess.intake"], undefined, `extDirPresent=${extDirPresent}`);
         assert.equal(scan.phases["commands/speckit.assess.decide"], undefined, `extDirPresent=${extDirPresent}`);
+        const cache = JSON.parse(await fs.readFile("/proj/.speckit-wizard/artifact-targets.json", "utf8"));
+        assert.deepEqual(Object.keys(cache.entries), [
+            "commands/speckit.assess.intake", "commands/speckit.assess.decide",
+        ]);
     }
 });
 
-test("scanWorkspace keeps entries that match installed extension commands, prunes only the rest", async () => {
+test("scanWorkspace hydrates installed commands and retains cache for removed commands", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",
         // Only `intake` is currently installed.
@@ -1332,11 +1400,35 @@ test("scanWorkspace keeps entries that match installed extension commands, prune
     const scan = await scanWorkspace("/proj", fs);
     assert.equal(scan.phases["commands/speckit.assess.intake"]?.artifactPath, ".specify/assessments/<slug>/intake.md");
     assert.equal(scan.phases["commands/speckit.assess.research"], undefined);
+    const cache = JSON.parse(await fs.readFile("/proj/.speckit-wizard/artifact-targets.json", "utf8"));
+    assert.ok(cache.entries["commands/speckit.assess.research"]);
+});
+
+test("scanWorkspace preserves legacy cache entries and hydrates only available skills", async () => {
+    const legacy = { writesTo: "specs/<slug>/review.md", source: "manual",
+        description: "Review the plan", argsHint: "Focus area" };
+    const fs = makeFs({
+        "/proj/.specify": "__DIR__",
+        "/proj/.github/skills/speckit-review/SKILL.md": "# Review",
+        "/proj/.speckit-wizard/artifact-targets.json": JSON.stringify({
+            version: 1, entries: {
+                "commands/speckit.review": legacy,
+                "commands/speckit.orphan": { writesTo: "specs/<slug>/orphan.md" },
+            },
+        }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.equal(scan.phases["commands/speckit.review"]?.artifactPath, legacy.writesTo);
+    assert.deepEqual(JSON.parse(fs._store.get("/proj/.speckit-wizard/artifact-targets.json")).entries, {
+        "commands/speckit.review": legacy,
+        "commands/speckit.orphan": { writesTo: "specs/<slug>/orphan.md" },
+    });
+    assert.equal(scan.phases["commands/speckit.orphan"], undefined);
 });
 
 test("scanWorkspace: empty workspace (no extensions, no cache) doesn't create phase entries or errors", async () => {
     // The "first launch, nothing installed" case — a canary for the trigger
-    // timing. Nothing to hydrate, nothing to prune, no warnings.
+    // timing. Nothing to hydrate and no warnings.
     const fs = makeFs({});
     const scan = await scanWorkspace("/proj", fs);
     // No commands/* keys in phases.

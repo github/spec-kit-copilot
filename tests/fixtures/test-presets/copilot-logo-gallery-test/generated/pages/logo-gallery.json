@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-generated-logo-gallery",
+  "title": "Logo gallery",
+  "renderer": "canvas-generated-logo-gallery-renderer",
+  "slots": [{"id": "hero.logo"}]
+}

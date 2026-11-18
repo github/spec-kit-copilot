@@ -100,7 +100,7 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger bug stages.
 **Via marketplace (recommended):**
 
 ```bash
-copilot plugin marketplace add OWNER/spec-kit-copilot
+copilot plugin marketplace add https://github.com/github/spec-kit-copilot.git
 copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
 ```
 

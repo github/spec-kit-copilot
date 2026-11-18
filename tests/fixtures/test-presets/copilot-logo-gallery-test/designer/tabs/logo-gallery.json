@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-settings-logo-gallery",
+  "title": "Logo gallery",
+  "description": "Upload a Logo for the preset-generated gallery page.",
+  "order": 40,
+  "enabled": true,
+  "slots": [{"id": "gallery.options"}],
+  "fields": []
+}

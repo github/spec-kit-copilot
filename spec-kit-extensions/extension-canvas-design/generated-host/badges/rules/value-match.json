@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "value-match",
+  "label": "Value match",
+  "description": "Search one Markdown output for the first matching entry, ignoring capitalization.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "label": "Output to search"
+    },
+    {
+      "id": "choices",
+      "type": "badge-selection",
+      "label": "Match order"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-content-adapter"
+}

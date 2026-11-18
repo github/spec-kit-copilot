@@ -1,0 +1,8 @@
+{
+    "name": "speckit-canvas-designer",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "es-module-lexer": "^3.0.2"
+    }
+}

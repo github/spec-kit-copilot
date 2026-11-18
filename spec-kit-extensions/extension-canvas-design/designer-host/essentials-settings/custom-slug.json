@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.custom-slug",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 30,
+  "field": {"id": "workflowSlug.userProvided", "type": "boolean", "control": "stock.checkbox",
+    "default": false, "label": "Allow custom artifact directory slug",
+    "description": "Lets users optionally specify the artifact folder name when creating a workflow. Otherwise, Spec Kit chooses the directory."}
+}

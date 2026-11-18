@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-button-dialog-test",
+  "adapter": "generated-dialog-adapter",
+  "title": "Preview confirmation",
+  "blocks": [
+    {"type": "paragraph", "text": "Confirm to display a message on this canvas. No workflow phase will run."}
+  ],
+  "buttons": {"cancel": "Not now", "confirm": "Confirm"}
+}

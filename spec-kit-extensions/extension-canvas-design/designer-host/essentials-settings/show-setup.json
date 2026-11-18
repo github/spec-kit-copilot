@@ -1,0 +1,16 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.show-setup",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 40,
+  "field": {
+    "id": "setup.show",
+    "type": "boolean",
+    "control": "stock.checkbox",
+    "default": false,
+    "label": "Show setup",
+    "description": "Show a setup button for users to review and approve installation of required presets, extensions, and bundles. When off, nothing is installed automatically; install prerequisites another way before running workflows."
+  }
+}

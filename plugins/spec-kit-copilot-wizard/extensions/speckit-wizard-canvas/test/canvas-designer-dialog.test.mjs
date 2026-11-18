@@ -6,6 +6,7 @@ import {
     currentCanvasDesignerSelections,
     freshCanvasDesignerSelections,
     openCanvasDesignerDialog,
+    REQUIRED_DESIGNER_EXTENSION_ID,
     submitDesignerLaunch,
 } from "../ui/canvas-designer-dialog.js";
 import { renderPipelineBanner } from "../ui/phase-runtime.js";
@@ -121,9 +122,9 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
     state.snapshot = { catalog: { presets: [], extensions: [], bundles: [], designerFingerprint: "ready" } };
     try {
         openCanvasDesignerDialog();
-        assert.match(root.innerHTML, /Canvas designer setup/);
+        assert.match(root.innerHTML, /Canvas Designer setup/);
         assert.match(root.innerHTML, /selections will be installed in a separate designer session/);
-        assert.match(root.innerHTML, /leaving the wizard's configuration unchanged/);
+        assert.match(root.innerHTML, /leaving the wizard's environment unchanged/);
         assert.doesNotMatch(root.innerHTML, /leaving this project's workflow configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /settings, appearance, and generation behavior/);
         assert.match(root.innerHTML, /No presets tagged canvas-design are available/);
@@ -151,6 +152,52 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
     }
 });
 
+test("required canvas design extension is force-checked, locked, and always included in selections", () => {
+    const previousDocument = globalThis.document;
+    const previousSnapshot = state.snapshot;
+    const { root, document } = fakeDialogDocument();
+    globalThis.document = document;
+    state.snapshot = { catalog: { presets: [], extensions: [
+        { id: "other-extension", source: "copilot", name: "Other", tags: ["canvas-design"] },
+        { id: REQUIRED_DESIGNER_EXTENSION_ID, source: "copilot", name: "Canvas Design", version: "0.1.3",
+            description: "Older hosted catalog description.",
+            tags: ["canvas-design"] },
+    ], bundles: [], designerFingerprint: "ready" } };
+    try {
+        openCanvasDesignerDialog();
+        assert.ok(root.innerHTML.indexOf("<strong>Canvas Design</strong>")
+            < root.innerHTML.indexOf("<strong>Other</strong>"));
+        assert.match(root.innerHTML, /title="Provides the default layout and behavior for Canvas Designer\. Select presets and extensions to override these defaults\."/);
+        assert.doesNotMatch(root.innerHTML, /Older hosted catalog description/);
+        const requiredInput = root.inputs.find((input) => input.dataset.designerKind === "extensions"
+            && input.dataset.designerIndex === "0");
+        const otherInput = root.inputs.find((input) => input.dataset.designerKind === "extensions"
+            && input.dataset.designerIndex === "1");
+        assert.equal(requiredInput.checked, true);
+        assert.equal(requiredInput.disabled, true);
+        assert.match(root.innerHTML, /data-designer-kind="extensions" data-designer-index="0" data-designer-id="extension-canvas-design" checked disabled title="Provides the default layout and behavior for Canvas Designer\. Select presets and extensions to override these defaults\."/);
+        assert.match(root.innerHTML, /designer-required-badge/);
+        assert.deepEqual(currentCanvasDesignerSelections().extensions,
+            [{ id: REQUIRED_DESIGNER_EXTENSION_ID, source: "copilot", approved: true }]);
+        // A forced change event must not clear the required selection (guarded by input.disabled).
+        requiredInput.checked = false;
+        requiredInput.change();
+        assert.deepEqual(currentCanvasDesignerSelections().extensions,
+            [{ id: REQUIRED_DESIGNER_EXTENSION_ID, source: "copilot", approved: true }]);
+        // Toggling an unrelated extension must not disturb the required entry.
+        otherInput.checked = true;
+        otherInput.change();
+        assert.deepEqual(currentCanvasDesignerSelections().extensions, [
+            { id: REQUIRED_DESIGNER_EXTENSION_ID, source: "copilot", approved: true },
+            { id: "other-extension", source: "copilot", approved: true },
+        ]);
+    } finally {
+        root.replaceChildren();
+        globalThis.document = previousDocument;
+        state.snapshot = previousSnapshot;
+    }
+});
+
 test("launch closes the dialog on acceptance without a queued status", async () => {
     const previousDocument = globalThis.document;
     const previousFetch = globalThis.fetch;
@@ -171,7 +218,7 @@ test("launch closes the dialog on acceptance without a queued status", async () 
         const button = root.querySelector(".designer-submit");
         const pending = button.click();
         assert.equal(button.disabled, true);
-        assert.equal(button.textContent, "Launch designer");
+        assert.equal(button.textContent, "Launching…");
         assert.equal(root.querySelector(".wizard-modal-close").disabled, true);
         await button.click();
         assert.equal(requests.length, 1);
@@ -320,6 +367,10 @@ test("launch submits the dialog's rendered snapshot after a catalog refresh", as
 test("submit rejects an unsuccessful or malformed queue acknowledgment", async () => {
     const snapshot = { pipeline: [], catalog: { designerFingerprint: "ready" } };
     const selections = freshCanvasDesignerSelections();
+    await assert.rejects(submitDesignerLaunch(snapshot, selections, async () =>
+        ({ ok: false, status: 422,
+            text: async () => '{"error":"The Spec Kit extension `extension-canvas-design` has a version mismatch: the Wizard canvas expects v0.1.3, while Canvas Designer requires v0.1.7."}' })),
+    { message: "The Spec Kit extension `extension-canvas-design` has a version mismatch: the Wizard canvas expects v0.1.3, while Canvas Designer requires v0.1.7." });
     await assert.rejects(submitDesignerLaunch(snapshot, selections, async () =>
         ({ ok: true, json: async () => ({ ready: true }) })), /did not queue/);
     await assert.rejects(submitDesignerLaunch(snapshot, selections, async () => {
@@ -634,7 +685,7 @@ test("selection stays local, community confirmation can cancel, and reopen reset
     }
 });
 
-test("Phases header exposes Generate canvas even without steps", () => {
+test("Phases header exposes Generate canvas only when enabled, even without steps", () => {
     const previousDocument = globalThis.document;
     const previousTab = state.activeTab;
     const previousSnapshot = state.snapshot;
@@ -646,6 +697,15 @@ test("Phases header exposes Generate canvas even without steps", () => {
         renderPipelineBanner();
         assert.equal(banner.hidden, false);
         assert.match(banner.innerHTML, /pipeline-generate" aria-label="Generate canvas"[^>]*>Generate canvas<\/button>/);
+        state.snapshot.featureFlags.generateCanvas = false;
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-generate/);
+        delete state.snapshot.featureFlags;
+        renderPipelineBanner();
+        assert.doesNotMatch(banner.innerHTML, /pipeline-generate/);
+        state.snapshot.featureFlags = { generateCanvas: "true" };
+        assert.throws(() => renderPipelineBanner(), /boolean/);
+        delete state.snapshot.featureFlags;
         assert.match(banner.innerHTML, /pipeline-clear" data-action="clear" disabled/);
         assert.match(banner.innerHTML, /pipeline-reset" data-action="reset"/);
         const dialogSource = readFileSync(new URL("../ui/canvas-designer-dialog.js", import.meta.url), "utf8");

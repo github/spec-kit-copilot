@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.light-accent",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 10,
+  "field": {"id": "canvas.accentLight", "type": "string", "control": "stock.text",
+    "label": "Light mode accent", "description": "Optional six-digit hex color, such as 0B6E99 or #0B6E99. Leave blank to use the current color."}
+}

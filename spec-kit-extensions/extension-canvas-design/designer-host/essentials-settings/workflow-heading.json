@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.workflow-heading",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 20,
+  "field": {"id": "canvas.workflowListName", "type": "string", "control": "stock.text",
+    "label": "Header text", "description": "The main header displayed below the canvas title. Leave blank to use ‘Workflows.’"},
+  "generatedBinding": {"presentation": "text", "slot": "workflow.heading"}
+}

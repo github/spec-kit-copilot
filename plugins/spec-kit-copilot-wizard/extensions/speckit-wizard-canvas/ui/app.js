@@ -1,6 +1,7 @@
 // Consolidated app.js entrypoint + log + cwd renderers.
 
 import { parseClarifications } from "../pipeline/canonical.mjs";
+import { readGenerateCanvas } from "../contracts/generate-feature.mjs";
 import {
     state,
     TOKEN,
@@ -48,6 +49,7 @@ import {
     renderComposition,
     setCompositionMetaDeps,
     wireCompositionRefresh,
+    reconcileCompositionRefresh,
 } from "./composition.js";
 import {
     setPhaseCardDeps,
@@ -66,7 +68,6 @@ import {
     setPipelineDeps,
     renderPipelineBanner,
     setExtensionCardDeps,
-    setInferenceDeps,
     observePhaseProgress,
 } from "./phase-runtime.js";
 
@@ -96,7 +97,6 @@ setCompositionDeps({ openArtifactViewer });
 setRunLockDeps({ render });
 setPipelineDeps({ postJson });
 setExtensionCardDeps({ openCommandViewer, renderCommandCardHintsHtml, synthesizeCanonicalPhase });
-setInferenceDeps({ TOKEN });
 setCompositionMetaDeps({ postJson, renderComposition });
 setSetupActionsDeps({ render, postJson });
 setStepperDeps({ renderPhaseCard });
@@ -244,7 +244,9 @@ async function refreshState() {
         const res = await fetch(`/api/state?token=${encodeURIComponent(TOKEN)}`, { headers: HEADERS });
         if (!res.ok) throw new Error(`state ${res.status}`);
         const snap = await res.json();
+        readGenerateCanvas(snap);
         state.snapshot = snap;
+        reconcileCompositionRefresh(snap);
         // Seed boot overlay from initial snapshot so the panel reflects
         // any progress the backend has made between server-start and
         // this first REST fetch (avoids a blank frame before SSE ticks).

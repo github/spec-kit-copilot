@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schemas/external-designer.badge-input-binding.schema.json",
+  "schemaVersion": 1,
+  "id": "artifact-current",
+  "rule": "artifact-current",
+  "control": "stock.badge-inputs"
+}

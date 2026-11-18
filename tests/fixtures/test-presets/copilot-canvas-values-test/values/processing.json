@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "demo.processing",
+  "label": "Processing hint",
+  "schema": { "type": "string", "maxLength": 80 },
+  "source": { "kind": "constant", "value": "private hint" },
+  "presentation": "processing-only"
+}

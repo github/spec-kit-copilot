@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "billing-cost-code",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 10,
+  "field": {
+    "id": "billing.costCode",
+    "label": "Cost code",
+    "description": "A cost code displayed read-only in the generated canvas.",
+    "type": "string",
+    "control": "stock.text",
+    "maxLength": 64
+  },
+  "generatedBinding": {
+    "presentation": "stock.readonly",
+    "section": {"id": "billing", "title": "Billing"}
+  }
+}

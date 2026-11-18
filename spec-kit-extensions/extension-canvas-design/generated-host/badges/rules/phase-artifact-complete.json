@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "phase-artifact-complete",
+  "label": "Phase artifact complete",
+  "description": "The selected output must exist. If earlier outputs are selected, they must also exist, and each later file must be at least as recent as the one before it.",
+  "placementPhaseInput": "target",
+  "inputs": [
+    {
+      "id": "target",
+      "type": "artifact",
+      "scope": "metadata",
+      "label": "Phase and output to check"
+    },
+    {
+      "id": "prerequisites",
+      "type": "ordered-artifacts",
+      "scope": "metadata",
+      "before": "target",
+      "label": "Which earlier outputs must be current?"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-phase-artifact-complete-adapter"
+}

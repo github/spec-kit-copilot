@@ -1,9 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = 4177;
+const port = Number(process.env.SPECKIT_E2E_PORT || 4177);
 
 export default defineConfig({
-    testDir: "./e2e",
+    testDir: "../../../../tests/e2e",
     fullyParallel: true,
     retries: process.env.CI ? 1 : 0,
     reporter: process.env.CI ? "github" : "list",
@@ -13,7 +13,7 @@ export default defineConfig({
         trace: "retain-on-failure",
     },
     webServer: {
-        command: "node ./e2e/server.mjs",
+        command: "node ../../../../tests/e2e/server.mjs",
         url: `http://127.0.0.1:${port}/api/state?token=e2e-token`,
         reuseExistingServer: false,
         timeout: 15_000,

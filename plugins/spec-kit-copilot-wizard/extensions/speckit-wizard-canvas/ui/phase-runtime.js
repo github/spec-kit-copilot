@@ -1,6 +1,7 @@
-// Consolidated phase runtime: pipeline state, run-lock, resolver, inference, extension cards.
+// Consolidated phase runtime: pipeline state, run-lock, resolver, extension cards.
 
-import { escapeHtml, dispatchKind } from "./client.js";
+import { escapeHtml } from "./client.js";
+import { readGenerateCanvas } from "../contracts/generate-feature.mjs";
 import {
     state,
     commands,
@@ -10,7 +11,7 @@ import {
     bareCommandId,
 } from "./state.js";
 import { popoverConfirm } from "./modals.js";
-import { wireInfoPopover } from "./composition.js";
+import { compositionProgressText, wireInfoPopover } from "./composition.js";
 import {
     canonicalDescription,
     canonicalSpine,
@@ -436,14 +437,41 @@ export async function dispatchPipeline(action, extra = {}) {
     }
 }
 
+let pipelineRefreshPending = false;
+let pipelineUpdatedUntil = 0;
+let pipelineUpdatedTimer;
+
 /** Render the top-of-page pipeline toolbar. */
 export function renderPipelineBanner() {
     const el = document.getElementById("pipeline-banner");
     if (!el) return;
+    const refresh = compositionProgressText(state.snapshot, state.compositionRequested);
+    if (refresh === "Refreshing…") {
+        pipelineRefreshPending = true;
+        pipelineUpdatedUntil = 0;
+        clearTimeout(pipelineUpdatedTimer);
+    } else if (refresh === "Up to date" && pipelineRefreshPending) {
+        pipelineRefreshPending = false;
+        pipelineUpdatedUntil = Date.now() + 5000;
+        clearTimeout(pipelineUpdatedTimer);
+        pipelineUpdatedTimer = setTimeout(() => {
+            pipelineUpdatedUntil = 0;
+            renderPipelineBanner();
+        }, 5000);
+    } else if (refresh !== "Up to date") {
+        pipelineRefreshPending = false;
+        pipelineUpdatedUntil = 0;
+        clearTimeout(pipelineUpdatedTimer);
+    }
     const onPhasesTab = state.activeTab === "phases" || !state.activeTab;
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
     const items = pipelineItems();
     const edited = pipelineIsEdited();
+    const refreshLabel = refresh === "Refreshing…" ? "Refreshing your pipeline from installed presets and extensions…"
+        : refresh === "Refresh incomplete — retry" ? "Refresh incomplete — retry in Setup → Composition."
+            : refresh === "Up to date" && Date.now() < pipelineUpdatedUntil ? "Pipeline updated" : "";
+    const refreshState = refresh === "Refreshing…" ? "updating"
+        : refresh === "Refresh incomplete — retry" ? "incomplete" : "idle";
     el.hidden = false;
     // Previously a "Pipeline from <extension name>" hint rendered above
     // the chip strip when the inferred pipeline was extension-standalone.
@@ -452,10 +480,12 @@ export function renderPipelineBanner() {
     el.innerHTML = `
         <header class="panel-header">
             <div>
-                <h2 class="comp-title">
-                    Pipeline
-                    <button type="button" class="comp-info-btn" id="pipeline-info-btn" aria-label="About phases" aria-expanded="false" aria-controls="pipeline-info-popover" title="About phases">i</button>
-                </h2>
+                <div class="pipeline-heading">
+                    <h2 class="comp-title">
+                        Pipeline
+                        <button type="button" class="comp-info-btn" id="pipeline-info-btn" aria-label="About phases" aria-expanded="false" aria-controls="pipeline-info-popover" title="About phases">i</button>
+                    </h2>
+                </div>
                 <p class="comp-subtitle">Start from this suggested pipeline and shape it to your project by adding or removing commands below.</p>
                 <div id="pipeline-info-popover" class="comp-info-popover" role="dialog" aria-label="About phases" hidden>
                     <p>
@@ -472,11 +502,12 @@ export function renderPipelineBanner() {
             <div class="header-actions pipeline-actions">
                 <button type="button" class="btn btn-ghost pipeline-clear" data-action="clear"${items.length ? "" : " disabled"}>Clear</button>
                 <button type="button" class="btn btn-ghost pipeline-reset" data-action="reset"${edited ? "" : " disabled"}>Reset to default</button>
-                ${state.snapshot?.featureFlags?.generateCanvas === true
+                ${readGenerateCanvas(state.snapshot)
                     ? '<button type="button" class="btn btn-ghost pipeline-generate" aria-label="Generate canvas" title="Choose design customizations and launch a new Canvas designer session from this pipeline.">Generate canvas</button>'
                     : ""}
             </div>
         </header>
+        ${refreshLabel ? `<div class="pipeline-refresh-status" role="status" aria-live="polite" data-progress="${refreshState}">${refreshState === "updating" ? '<span class="pipeline-refresh-spinner" aria-hidden="true"></span>' : ""}${refreshLabel}</div>` : ""}
     `;
     wireInfoPopover("pipeline-info-btn", "pipeline-info-popover");
     el.querySelector(".pipeline-generate")?.addEventListener("click", openCanvasDesignerDialog);
@@ -491,64 +522,6 @@ export function renderPipelineBanner() {
     }
     el.querySelector(".pipeline-reset")?.addEventListener("click", async () => {
         await dispatchPipeline("reset");
-    });
-}
-
-
-// -------- Section: phase/inference.js --------
-
-let __TOKEN = "";
-
-export function setInferenceDeps({ TOKEN }) {
-    if (typeof TOKEN === "string") __TOKEN = TOKEN;
-}
-
-export function maybeRequestArtifactInference() {
-    const snap = state.snapshot;
-    if (!snap) return;
-    // Wait until skills have loaded at least once — dispatching before that
-    // produces a prompt the agent can't fulfill. Uses the persisted sticky
-    // flag (not the transient live diagnostic) so a background reload
-    // failure doesn't block inference for a session where skills already
-    // loaded cleanly earlier.
-    if (!snap.setup?.skillsReloaded) return;
-
-    const artifacts = snap.composition?.artifacts ?? [];
-    const phases = snap.phases ?? {};
-    const candidates = [];
-    for (const art of artifacts) {
-        if (art.kind !== "command") continue;
-        const stack = art.stack ?? [];
-        const active = stack.find((l) => l.active) ?? stack[0];
-        if (!active || active.layer !== "extension") continue;
-        const skillPath = active.sourcePath;
-        if (!skillPath) continue;
-        const phaseKey = art.id; // "commands/<full-id>"
-        // Already resolved via cache — skip. Gate on `description` (the
-        // new anchor field) so old cache entries that only carry
-        // `writesTo` re-trigger inference once, backfilling
-        // description/argsHint/argsWhenEmpty. Session-scoped signature
-        // dedupe below prevents loops when the LLM legitimately can't
-        // extract a description from a given skill.
-        if (phases[phaseKey]?.description) continue;
-        candidates.push({ commandId: art.id.replace(/^commands\//, ""), skillPath });
-    }
-    if (!candidates.length) return;
-
-    // Session-scoped dedupe: signature over the sorted skill paths so a
-    // new install re-triggers, but repeat snapshots don't.
-    const signature = candidates.map((c) => c.skillPath).sort().join("|");
-    if (state.artifactInferenceSignature === signature) return;
-    state.artifactInferenceSignature = signature;
-
-    dispatchKind("extension.inferArtifactTargets", {
-        origin: location.origin,
-        token: __TOKEN,
-        commands: candidates,
-    }).catch((err) => {
-        // Reset signature so a manual refresh can retry.
-        state.artifactInferenceSignature = null;
-        console.error(`artifact-target inference dispatch failed: ${err?.message ?? err}`);
     });
 }
 

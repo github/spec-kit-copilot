@@ -237,6 +237,7 @@ export function applyPatch(current, patch) {
 // this file), and the payload is written via a tmp file + rename so a crash
 // mid-write can't leave a truncated state.json on disk.
 const _writeQueues = new Map();
+const _renameRetryDelaysMs = [50, 100, 200];
 
 function _enqueueWrite(workspacePath, task) {
     const prev = _writeQueues.get(workspacePath) ?? Promise.resolve();
@@ -246,7 +247,24 @@ function _enqueueWrite(workspacePath, task) {
     return next;
 }
 
-export async function writeState(workspacePath, state, deps) {
+// Retry only transient Windows EPERM swaps; rerunning the commit callback
+// rechecks ownership before every rename and publishes only after success.
+async function _commitWithRetry(commit, platform, wait) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await commit();
+        } catch (error) {
+            if (platform !== "win32" || error?.code !== "EPERM" || attempt >= _renameRetryDelaysMs.length) {
+                throw error;
+            }
+            await wait(_renameRetryDelaysMs[attempt]);
+        }
+    }
+}
+
+// An owned caller may supply a synchronous commitFile(temp, target) that
+// checks ownership, swaps the prepared file, and publishes without yielding.
+export async function writeState(workspacePath, state, deps, commitFile) {
     const dirPath = join(workspacePath, STATE_DIR);
     const filePath = join(workspacePath, STATE_FILE);
     const normalized = normalizeState(state);
@@ -269,12 +287,16 @@ export async function writeState(workspacePath, state, deps) {
     await _enqueueWrite(workspacePath, async () => {
         await deps.mkdir(dirPath, { recursive: true });
         const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-        await deps.writeFile(tmpPath, payload, "utf8");
         try {
-            await rename(tmpPath, filePath);
+            await deps.writeFile(tmpPath, payload, "utf8");
+            await _commitWithRetry(
+                () => commitFile ? commitFile(tmpPath, filePath) : rename(tmpPath, filePath),
+                deps.platform ?? process.platform,
+                deps.waitForRenameRetry ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+            );
         } catch (err) {
-            // Rename failed (e.g. Windows AV holds the target). Best-effort
-            // cleanup of the tmp file so it doesn't linger, then rethrow.
+            // Preparation or swap failed. Clean up the temporary file and
+            // preserve the destination before surfacing the error.
             try { await unlink(tmpPath); } catch { /* ignore */ }
             throw err;
         }

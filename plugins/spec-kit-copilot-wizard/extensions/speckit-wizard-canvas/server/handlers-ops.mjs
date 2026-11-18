@@ -2,11 +2,29 @@
 // shared runSkillsReload core used by both /api/skills/reload and the
 // extension's canvas action.
 
-import { join } from "node:path";
+import { commandId, effectiveSource, readEvidenceCache, writeEvidenceCache } from "../artifact-evidence.mjs";
+import { normalizeAgentArtifactEntry, validateAgentArtifactEvidence } from "../contracts/agent-artifacts.mjs";
+import { assertReplyRunId, ReplyRunError } from "../contracts/agent-replies.mjs";
+import {
+    failOutputInference,
+    findOutputInferenceWorker,
+    finishOutputInference,
+    releaseSupersededOutputWorker,
+} from "../canvas-runtime/output-inference.mjs";
+import { commitOwnedFile } from "../canvas-runtime/owned-commit.mjs";
 
 import { applyPatch, writeState } from "../state/store.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
+
+const artifactCacheWrites = new WeakMap();
+
+function serializeArtifactCacheWrite(inst, write) {
+    const previous = artifactCacheWrites.get(inst) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(write);
+    artifactCacheWrites.set(inst, current.then(() => {}, () => {}));
+    return current;
+}
 // Pipeline mutation — user-authored spine override.
 //
 // Contract:
@@ -106,13 +124,32 @@ export async function handlePipelineMutation(res, body, { getState, broadcast, g
 //   templates from the opening paragraph →
 //   agent POSTs { entries: {...} } here →
 //   scanner picks up the new cache on the next scan tick.
-export async function handleArtifactTargets(res, body, { broadcast, getInstance }) {
+export async function handleArtifactTargets(res, body, { getInstance, runId,
+    readSource = effectiveSource, readCache = readEvidenceCache, writeCache = writeEvidenceCache }) {
     const inst = getInstance();
     if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
+    const assignment = findOutputInferenceWorker(inst, runId);
+    const inference = assignment?.inference;
+    const worker = assignment?.worker;
+    const requireCurrentReply = () => assertReplyRunId(runId,
+        findOutputInferenceWorker(inst, runId)?.worker === worker ? worker?.id : null);
+    try {
+        requireCurrentReply();
+    } catch (error) {
+        if (!(error instanceof ReplyRunError)) throw error;
+        return jsonError(res, error.status, error.message);
+    }
+    const rejectOutput = (status, message) => {
+        const superseded = [...worker.requests].some(([id, request]) =>
+            inference.pending.get(id)?.fingerprint !== request.fingerprint);
+        if (superseded) releaseSupersededOutputWorker(inst, inference, runId);
+        else failOutputInference(inst, inference, runId, message);
+        return jsonError(res, status, message);
+    };
 
     const incoming = body?.entries;
     if (!incoming || typeof incoming !== "object") {
-        return jsonError(res, 400, "missing entries object");
+        return rejectOutput(400, "missing entries object");
     }
 
     // Normalize + validate. Silently drop anything that isn't a
@@ -121,58 +158,85 @@ export async function handleArtifactTargets(res, body, { broadcast, getInstance 
     // optional but at least one must be present and non-empty.
     const cleaned = {};
     for (const [key, entry] of Object.entries(incoming)) {
-        if (typeof key !== "string" || !key.startsWith("commands/")) continue;
-        const writesTo = typeof entry?.writesTo === "string" ? entry.writesTo.trim() : "";
-        const description = typeof entry?.description === "string" ? entry.description.trim() : "";
-        const argsHint = typeof entry?.argsHint === "string" ? entry.argsHint.trim() : "";
-        const argsWhenEmpty = typeof entry?.argsWhenEmpty === "string" ? entry.argsWhenEmpty.trim() : "";
-        if (!writesTo && !description && !argsHint && !argsWhenEmpty) continue;
-        cleaned[key] = {
-            ...(writesTo ? { writesTo } : {}),
-            ...(description ? { description } : {}),
-            ...(argsHint ? { argsHint } : {}),
-            ...(argsWhenEmpty ? { argsWhenEmpty } : {}),
-            source: typeof entry?.source === "string" ? entry.source : "llm",
-            ...(typeof entry?.skillPath === "string" ? { skillPath: entry.skillPath } : {}),
-            ...(typeof entry?.skillHash === "string" ? { skillHash: entry.skillHash } : {}),
-        };
-    }
-    if (!Object.keys(cleaned).length) {
-        return jsonError(res, 400, "no valid entries");
-    }
-
-    const fsp = await import("node:fs/promises");
-    const cacheDir = join(inst.workspacePath, ".speckit-wizard");
-    const cachePath = join(cacheDir, "artifact-targets.json");
-
-    // Read existing cache (if any) so we merge instead of clobber.
-    let existing = { version: 1, entries: {} };
-    try {
-        const raw = await fsp.readFile(cachePath, "utf8");
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && parsed.entries && typeof parsed.entries === "object") {
-            existing = { version: parsed.version ?? 1, entries: parsed.entries, ...(parsed.notes ? { notes: parsed.notes } : {}) };
+        if (typeof key !== "string" || !/^commands\/(?:speckit\.)?[\w.-]{1,100}$/.test(key)) continue;
+        const id = commandId(key);
+        const expected = worker.requests.get(id);
+        if (!expected) return rejectOutput(400, `Command ${key} was not assigned to this inference worker`);
+        let outputEvidence;
+        if (entry?.outputEvidence !== undefined) {
+            try {
+                const current = await readSource(inst.workspacePath, id);
+                if (!current || current.fingerprint !== expected.fingerprint
+                    || entry.outputEvidence?.fingerprint !== expected.fingerprint) {
+                    return rejectOutput(409, `Artifact evidence fingerprint mismatch for ${key}`);
+                }
+                // The installed skill is authoritative, not the composition's artifact stack.
+                // Contributors are advisory only when explicitly supported by the skill.
+                outputEvidence = validateAgentArtifactEvidence(entry.outputEvidence, current.fingerprint);
+            } catch (error) {
+                if (["Inference must report a result", "Inference must select a primary file or null",
+                    "No-file evidence cannot include file outputs"].includes(error.message)) {
+                    return rejectOutput(400, error.message);
+                }
+                return rejectOutput(400, `Invalid artifact evidence: ${error.message}`);
+            }
         }
-    } catch { /* absent or malformed → start fresh */ }
-
-    const merged = {
-        ...existing,
-        version: 1,
-        entries: { ...existing.entries, ...cleaned },
-        updatedAt: new Date().toISOString(),
-    };
+        const normalized = normalizeAgentArtifactEntry(entry, outputEvidence);
+        if (normalized) cleaned[key] = normalized;
+    }
+    if (!Object.keys(cleaned).length) return rejectOutput(400, "no valid entries");
 
     try {
-        await fsp.mkdir(cacheDir, { recursive: true });
-        await fsp.writeFile(cachePath, JSON.stringify(merged, null, 2) + "\n", "utf8");
+        const requireCurrentAssignment = () => {
+            requireCurrentReply();
+            for (const key of Object.keys(cleaned)) {
+                const id = commandId(key);
+                if (inference.pending.get(id)?.fingerprint !== worker.requests.get(id)?.fingerprint) {
+                    throw new ReplyRunError(409, `Artifact evidence fingerprint mismatch for ${key}; assignment was superseded`);
+                }
+            }
+        };
+        await serializeArtifactCacheWrite(inst, async () => {
+            requireCurrentAssignment();
+            const existing = await readCache(inst.workspacePath);
+            const entries = {};
+            for (const [key, entry] of Object.entries(cleaned)) {
+                const previous = existing.entries[key];
+                entries[key] = { ...previous, ...entry };
+                if (entry.outputEvidence && ["manual", "author"].includes(previous?.source)) {
+                    entries[key].source = previous.source;
+                    if (previous.writesTo) entries[key].writesTo = previous.writesTo;
+                }
+            }
+            const merged = {
+                ...existing,
+                version: 1,
+                entries: { ...existing.entries, ...entries },
+                updatedAt: new Date().toISOString(),
+            };
+            const payload = JSON.stringify(merged, null, 2) + "\n";
+            if (Buffer.byteLength(payload) > 512 * 1024) {
+                throw new Error("Artifact-target cache exceeds its size limit");
+            }
+            await writeCache(inst.workspacePath, payload, undefined, (temp, target) =>
+                commitOwnedFile(temp, target, requireCurrentAssignment, () => {
+                    finishOutputInference(inst, inference, runId,
+                        Object.entries(cleaned).filter(([, entry]) => entry.outputEvidence)
+                            .map(([key]) => commandId(key)));
+                }));
+        });
     } catch (err) {
-        return jsonError(res, 500, `write failed: ${err?.message ?? err}`);
+        if (err instanceof ReplyRunError) {
+            if (findOutputInferenceWorker(inst, runId)?.worker === worker) {
+                releaseSupersededOutputWorker(inst, inference, runId);
+            }
+            return jsonError(res, err.status, err.message);
+        }
+        failOutputInference(inst, inference, runId, err?.message ?? String(err));
+        const status = err?.message === "Artifact-target cache exceeds its size limit" ? 400 : 500;
+        return jsonError(res, status, `Artifact cache was not overwritten: ${err?.message ?? err}`);
     }
-
     const added = Object.keys(cleaned).length;
-    // Nudge the client to re-fetch state so the phase cards pick up the
-    // new artifact paths without waiting for the next tick.
-    broadcast({ type: "invalidate", reason: "artifact-targets updated" });
     return jsonRes(res, 200, { ok: true, merged: added, path: ".speckit-wizard/artifact-targets.json" });
 }
 

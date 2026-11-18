@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "test.phase-choice",
+  "adapter": "designer-badge-test-adapter",
+  "inputTypes": ["phase"]
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "artifact-stale",
+  "label": "Stale artifact",
+  "description": "An existing output is stale when a selected earlier output is missing or the ordered artifact chain is out of date.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "scope": "metadata",
+      "label": "Output to check"
+    },
+    {
+      "id": "prerequisites",
+      "type": "ordered-artifacts",
+      "scope": "metadata",
+      "before": "artifact",
+      "minItems": 1,
+      "label": "Earlier outputs to check"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-ordered-stale-adapter"
+}
