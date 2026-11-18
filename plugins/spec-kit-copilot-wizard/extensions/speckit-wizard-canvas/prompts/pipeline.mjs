@@ -7,11 +7,10 @@
 // natural-language or CLI slash commands. (For the non-skill outliers, see
 // `composition.mjs` and `setup.mjs`.)
 //
-// This module owns the "pipeline" family — the nine canonical Spec-Driven
-// phase kinds plus the issue-conversion phase:
+// This module owns the "pipeline" family — the canonical Spec-Driven
+// phase kinds:
 //   • constitution / specify / clarify / plan / checklist / tasks / analyze
-//     / implement                    → /speckit-<phase>
-//   • taskstoissues                  → /speckit-taskstoissues
+//     / implement / converge         → /speckit-<phase>
 //
 // See `../prompts.mjs` for the top-level dispatcher and family split.
 
@@ -71,21 +70,6 @@ export function buildPipelinePrompt(kind, payload, context, { workspacePath, ski
                 ].join("\n")
             );
         }
-        case "taskstoissues": {
-            return (
-                fmtHeader({
-                    skill,
-                    kind,
-                    workspacePath,
-                    boundary: "File tasks from the most recent `specs/<slug>/tasks.md` as GitHub issues. Do not modify tasks.md.",
-                }) +
-                [
-                    `Payload:\n\`\`\`json\n${fmtPayload(payload)}\n\`\`\``,
-                    "Then briefly summarize the result in chat and update `.speckit-wizard/state.json` for phase `taskstoissues` (status: done, lastRunAt: now).",
-                ].join("\n")
-            );
-        }
-
         default:
             throw new Error(`buildPipelinePrompt: unexpected kind ${kind}`);
     }

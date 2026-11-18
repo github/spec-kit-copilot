@@ -37,7 +37,6 @@ function card(phase, slots) {
         tasks: "Break the plan into actionable work items.",
         analyze: "Check the spec, plan, and tasks for consistency.",
         implement: "Execute the tasks to build the feature.",
-        taskstoissues: "Convert generated task lists into GitHub issues for tracking and execution.",
     };
     const description = phase.description
         ?? legacyDescriptions[phase.id.replace(/^speckit\./, "")];

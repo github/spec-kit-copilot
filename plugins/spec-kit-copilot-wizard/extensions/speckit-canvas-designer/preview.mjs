@@ -1,6 +1,6 @@
 export function previewModel() {
     const phases = ["constitution", "specify", "clarify", "plan", "tasks",
-        "taskstoissues", "analyze", "checklist", "implement"];
+        "analyze", "checklist", "implement"];
     const outputs = {
         constitution: { outputs: [".specify/memory/constitution.md"],
             view: ".specify/memory/constitution.md" },
@@ -9,7 +9,6 @@ export function previewModel() {
         clarify: { outputs: ["specs/<slug>/spec.md"], view: "specs/<slug>/spec.md" },
         plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" },
         tasks: { outputs: ["specs/<slug>/tasks.md"], view: "specs/<slug>/tasks.md" },
-        taskstoissues: { outputs: [], view: null },
         analyze: { outputs: [], view: null },
         checklist: { outputs: [], view: null },
         implement: { outputs: [], view: null },

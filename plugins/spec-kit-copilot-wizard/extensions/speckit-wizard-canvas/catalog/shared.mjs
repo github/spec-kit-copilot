@@ -18,11 +18,66 @@ import { specifySpawnOptions } from "../env/specify-invocation.mjs";
 
 const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] });
 
+export function parseInstalledPackageList(stdout, kind) {
+    const empty = { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
+    if (stdout == null) return empty;
+
+    let items;
+    try {
+        items = JSON.parse(stdout);
+    } catch (cause) {
+        throw new Error(`Invalid installed ${kind} list from Specify: ${cause.message}`, { cause });
+    }
+    // Before init, Specify reports {"error": "Not a Spec Kit project ..."}; nothing is installed yet.
+    if (typeof items?.error === "string" && /^Not a Spec Kit project\b/.test(items.error)) return empty;
+    if (!Array.isArray(items)) throw new Error(`Invalid installed ${kind} list from Specify`);
+
+    const installed = { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
+    for (const item of items) {
+        if (typeof item?.id !== "string" || !item.id
+            || typeof item.name !== "string" || !item.name
+            || installed.ids.has(item.id)) {
+            throw new Error(`Invalid installed ${kind} entry from Specify`);
+        }
+        const name = item.name.toLowerCase();
+        installed.ids.add(item.id);
+        installed.names.add(name);
+        installed.byName.set(name, item.id);
+        installed.orderedIds.push(item.id);
+    }
+    return installed;
+}
+
+export async function hydrateCatalogGroups(groups, afterHydration) {
+    const failures = [];
+    for (const { kind, hydrate } of groups) {
+        try {
+            await hydrate();
+        } catch (error) {
+            failures.push({
+                kind,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    if (afterHydration) {
+        try {
+            await afterHydration();
+        } catch (error) {
+            failures.push({
+                kind: "composition",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    return failures;
+}
+
 /**
- * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule
- * and stdout capture. Resolves with the captured stdout on success/error —
- * NEVER throws. On `spawn` error, resolves with `null` so callers can
- * degrade gracefully to an empty installed set.
+ * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule.
+ * Resolves with stdout, or stderr when stdout is empty, so CLI diagnostics
+ * remain available to parsers — NEVER throws. On `spawn` error, resolves
+ * with `null` so callers can degrade gracefully to an empty installed set.
  *
  * On Windows `specify` is a `.cmd` shim that Node's spawn can only launch
  * through cmd.exe; on macOS/Linux it's a real binary that spawn runs
@@ -31,14 +86,19 @@ const EMPTY_INSTALLED = Object.freeze({ ids: new Set(), names: new Set(), byName
  * PATH is augmented with known SDK / uv / pipx install locations so
  * `specify` resolves even when the user's shell PATH doesn't include them.
  */
-export async function specifyRun(args, cwd) {
-    const options = await specifySpawnOptions(cwd);
+export async function specifyRun(args, cwd, {
+    spawnCommand = spawn,
+    getSpawnOptions = specifySpawnOptions,
+} = {}) {
+    const options = await getSpawnOptions(cwd);
     return new Promise((resolve) => {
-        const child = spawn("specify", args, options);
+        const child = spawnCommand("specify", args, options);
         let stdout = "";
+        let stderr = "";
         child.stdout?.on("data", (d) => { stdout += String(d); });
+        child.stderr?.on("data", (d) => { stderr += String(d); });
         child.on("error", () => resolve(null));
-        child.on("close", () => resolve(stdout));
+        child.on("close", () => resolve(stdout.trim() ? stdout : stderr));
     });
 }
 
@@ -68,6 +128,7 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
     const { kind, dataKey, outputField, listInstalled, extraFields } = cfg;
     if (!Array.isArray(sources) || !sources.length) {
         inst[outputField] = [];
+        inst._verifiedCatalogFields?.delete(outputField);
         return;
     }
     const installed = inst.workspacePath ? await listInstalled(inst.workspacePath) : EMPTY_INSTALLED;
@@ -116,11 +177,13 @@ export async function hydrateFromCatalogSources(inst, sources, cfg) {
         }
     }
     inst[outputField] = items;
+    inst._verifiedCatalogFields ??= new Set();
+    inst._verifiedCatalogFields.add(outputField);
 }
 
 /**
  * Compute `cliOrder` the way presets and extensions both need: 0-based
- * position in `orderedIds` (winner-first from the CLI's own list output),
+ * position in `orderedIds` (winner-first in the CLI's JSON array),
  * or `null` when the item isn't installed or the CLI didn't ship ordering.
  */
 export function cliOrderFromInstalled(installedId, installed) {

@@ -1,11 +1,9 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants, createWriteStream } from "node:fs";
+import { constants } from "node:fs";
 import { access, lstat, mkdtemp, open, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { Transform } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { load, JSON_SCHEMA } from "js-yaml";
@@ -17,16 +15,16 @@ import { specifySpawnOptions } from "../env/specify-invocation.mjs";
 import { runtimeSettings } from "../env/runtime-settings.mjs";
 import { prepareHandoff, preflight, verifyHostedCanvasDesign, verifyLocalInstall } from "./designer-launch-check.mjs";
 import { validateLocalSource } from "./designer-local-sources.mjs";
+import { runSpecify, downloadBundle } from "./specify-command.mjs";
+export { runSpecify } from "./specify-command.mjs";
 
 const exec = promisify(execFile);
-const CLI = process.platform === "win32" ? "specify.exe" : "specify";
 const BASE = "extension-canvas-design";
 const CATALOGS = [
     ["extension", runtimeSettings.catalogs.copilot.extensions],
     ["preset", runtimeSettings.catalogs.copilot.presets],
 ];
 const GROUP = { presets: "preset", extensions: "extension", bundles: "bundle" };
-const WARNING = /(?:^|\n)[^\n]*(?:no base command layer|composition[^\n]*\b(?:warning|incomplete|failed)\b)[^\n]*/i;
 
 function elapsed(start) { return Math.round(performance.now() - start); }
 
@@ -103,29 +101,6 @@ async function materializeDevSkills(project, approvedSource) {
 const directRun = (run) => (binary, args, options) => run(binary, args, {
     ...options, shell: process.platform === "win32" ? false : options.shell,
 });
-
-export async function runSpecify(project, args, run = exec, { confirmApprovedSource = false } = {}) {
-    const options = await specifySpawnOptions(project, {
-        timeout: 120000, maxBuffer: 2 * 1024 * 1024,
-        shell: process.platform === "win32" ? false : undefined,
-    });
-    let output;
-    try {
-        const execution = run(CLI, args, options);
-        // Confirm only a frozen --from URL or a frozen bundle source approved in the handoff.
-        if (args.includes("--from") || confirmApprovedSource) execution.child?.stdin?.end("y\n");
-        output = await execution;
-    }
-    catch (error) {
-        const diagnostics = [error.stdout, error.stderr].filter(Boolean).join("\n") || error.message;
-        throw new Error(`Specify ${args.slice(0, 3).join(" ")} failed: ${diagnostics}`, { cause: error });
-    }
-    const { stdout = "", stderr = "" } = output;
-    if (WARNING.test(`${stdout}\n${stderr}`)) {
-        throw new Error(`Specify ${args.slice(0, 3).join(" ")} reported a composition warning: ${stdout} ${stderr}`);
-    }
-    return stdout;
-}
 
 async function inventory(project, kind, command) {
     let data;
@@ -340,19 +315,6 @@ async function bundleSource(locator, download) {
         await rm(temp, { recursive: true, force: true });
         throw error;
     }
-}
-
-async function downloadBundle(url, path) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(120000) });
-    if (!response.ok || !response.body) throw new Error(`Bundle download failed (${response.status})`);
-    let bytes = 0;
-    const limit = new Transform({
-        transform(chunk, encoding, callback) {
-            bytes += chunk.length;
-            callback(bytes > 50 * 1024 * 1024 ? new Error("Bundle download exceeds 50 MB") : null, chunk);
-        },
-    });
-    await pipeline(response.body, limit, createWriteStream(path));
 }
 
 async function installBundles(project, handoff, command, warnings, download) {

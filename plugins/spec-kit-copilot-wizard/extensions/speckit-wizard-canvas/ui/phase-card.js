@@ -34,7 +34,7 @@ import {
     markPhaseRunning,
     markPhaseSubmitted,
 } from "./phase-runtime.js";
-import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
+import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, performInstallDefaults, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
 import { outputEvidenceForCommand, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
@@ -72,11 +72,7 @@ function wireEnvironmentCard(el) {
             } else if (action === "probe-env") {
                 await performEnvProbe(btn.dataset.probeSource);
             } else if (action === "reinstall-defaults") {
-                installCatalogPreset({
-                    presetId: "copilot-sub-agents",
-                    name: "copilot-sub-agents",
-                    downloadUrl: "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
-                });
+                await performInstallDefaults();
             }
         });
     });
@@ -340,62 +336,48 @@ export function renderPhaseCard() {
     const el = document.getElementById("phase-card");
     if (!el || !state.snapshot) return;
     const all = commands();
-    if (all.length) {
-        // The phase card is now strictly a projection of the pipeline: only
-        // commands that are currently in the pipeline can be viewed here.
-        // The "Commands" panel below is just a picker — clicking a card there
-        // does NOT navigate; only + Add works.
-        const items = pipelineItems();
-        if (!items.length) {
-            el.innerHTML = `<div class="empty phase-empty">
-                <p><strong>No commands in the pipeline.</strong></p>
-                <p class="muted">Click <strong>+ Add</strong> on any command below, or <em>Reset to default</em> above, to start building the pipeline.</p>
-            </div>`;
-            renderMoreCommandsPanel();
-            return;
-        }
-        const inPipeline = new Set(items.map((it) => it.id));
-        const lookup = new Map(all.map((x) => [x.id, x]));
-        // Resolver: prefer commands() entry; fall back to the shared
-        // pipeline-entry resolver (canonical synth OR extension artifact)
-        // when the id isn't in the flat command list. Returns null only for
-        // true orphans.
-        const resolvePhase = (id) => {
-            if (!inPipeline.has(id)) return null;
-            const found = lookup.get(id);
-            if (found) return found;
-            const resolved = resolvePipelineEntry(id, state.snapshot);
-            if (resolved.kind === "core" || resolved.kind === "extension") return resolved.phase;
-            return null;
-        };
-        const setupLocked = !isSetupComplete();
-        let p = resolvePhase(state.currentPhase);
-        if (!p) {
-            // Current phase isn't resolvable — snap to the first pipeline
-            // entry that resolves (commands() hit OR canonical synth).
-            for (const it of items) {
-                const cand = resolvePhase(it.id);
-                if (cand) { p = cand; break; }
-            }
-            if (p) state.currentPhase = p.id;
-        }
-        if (!p) {
-            el.innerHTML = `<div class="empty phase-empty">
-                <p><strong>Pipeline references unknown commands.</strong></p>
-                <p class="muted">All entries are orphaned. Remove them with × in the stepper above, or install a preset that provides them.</p>
-            </div>`;
-            renderMoreCommandsPanel();
-            return;
-        }
-        __renderGraphPhaseCard(el, setupLocked ? { ...p, locked: true } : p);
+    // The card follows the pipeline, even when no preset contributes commands.
+    const items = pipelineItems();
+    if (!items.length) {
+        el.innerHTML = `<div class="empty phase-empty">
+            <p><strong>No commands in the pipeline.</strong></p>
+            <p class="muted">Click <strong>+ Add</strong> on any command below, or <em>Reset to default</em> above, to start building the pipeline.</p>
+        </div>`;
         renderMoreCommandsPanel();
         return;
     }
-    // Snapshot arrived without any graph phases — nothing renderable yet.
-    el.innerHTML = `<div class="empty phase-empty">
-        <p><strong>No phases available.</strong></p>
-        <p class="muted">Install a preset or wait for the pipeline snapshot to arrive.</p>
-    </div>`;
+    const inPipeline = new Set(items.map((it) => it.id));
+    const lookup = new Map(all.map((x) => [x.id, x]));
+    // Prefer preset command metadata, then resolve core/extension commands
+    // independently so removing the last preset cannot hide valid phases.
+    const resolvePhase = (id) => {
+        if (!inPipeline.has(id)) return null;
+        const found = lookup.get(id);
+        if (found) return found;
+        const resolved = resolvePipelineEntry(id, state.snapshot);
+        if (resolved.kind === "core" || resolved.kind === "extension") return resolved.phase;
+        return null;
+    };
+    const setupLocked = !isSetupComplete();
+    let p = resolvePhase(state.currentPhase);
+    if (!p) {
+        // Current phase isn't resolvable — snap to the first pipeline
+        // entry that resolves (commands() hit OR canonical synth).
+        for (const it of items) {
+            const cand = resolvePhase(it.id);
+            if (cand) { p = cand; break; }
+        }
+        if (p) state.currentPhase = p.id;
+    }
+    if (!p) {
+        el.innerHTML = `<div class="empty phase-empty">
+            <p><strong>Pipeline references unknown commands.</strong></p>
+            <p class="muted">All entries are orphaned. Remove them with × in the stepper above, or install a preset that provides them.</p>
+        </div>`;
+        renderMoreCommandsPanel();
+        return;
+    }
+    __renderGraphPhaseCard(el, setupLocked ? { ...p, locked: true } : p);
     renderMoreCommandsPanel();
 }
 
@@ -501,12 +483,13 @@ export function renderGraphPhaseCard(el, p) {
     const canViewArtifact = !!p.artifactPath;
 
     // View follows scanner-confirmed artifacts even after a later rerun fails.
-    // Run/Rerun wording follows either scanner terminal status or local
-    // dispatch acknowledgement so the button flips immediately after submit.
+    // Run/Rerun wording follows scanner terminal status or local dispatch
+    // acknowledgement once the temporary Running label clears.
     let actionRow;
     const running = state.phaseRunning.has(p.commandName);
-    const runningNotice = running
-        ? `<span role="status"><span class="btn-spinner" aria-hidden="true"></span>Request sent</span>` : "";
+    const runLabel = running
+        ? `<span class="btn-spinner" aria-hidden="true"></span>Running`
+        : hasSubmitted ? "Rerun phase" : "Run phase";
     // Pipeline nav data — used by the phase-actions row (Back / Continue)
     // and the header Remove icon. Nav walks the current pipeline (hooks
     // live off-strip), so index math is 1-based over `pipelineItems()`.
@@ -529,11 +512,11 @@ export function renderGraphPhaseCard(el, p) {
     if (hasSubmitted) {
         centerActions = `
               ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}>View artifact</button>` : ""}
-              <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}>Rerun phase</button>${runningNotice}`;
+              <button type="button" class="btn btn-primary" data-phase-action="redo" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     } else {
         centerActions = `
               ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}>View artifact</button>` : ""}
-              <button type="submit" class="btn btn-primary" ${disabledAttr}>Run phase</button>${runningNotice}`;
+              <button type="submit" class="btn btn-primary" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">
         <div class="phase-actions-left">${backBtn}</div>
@@ -562,9 +545,6 @@ export function renderGraphPhaseCard(el, p) {
         },
         analyze: {
             overlayHtml: `<span class="phase-input-overlay-primary">Add a specific concern for analysis to focus on.</span> <em class="phase-input-overlay-hint">If left empty, a full consistency and quality analysis will be performed across spec.md, plan.md, and tasks.md (with constitution.md as governing authority).</em>`,
-        },
-        taskstoissues: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add issue-creation guidance like labels, milestone, and assignees.</span> <em class="phase-input-overlay-hint">If left empty, one GitHub issue per task will be created in tasks.md on the current repo's git remote.</em>`,
         },
     };
     const DEFAULT_PHASE_OVERLAY = {
@@ -623,7 +603,6 @@ export function renderGraphPhaseCard(el, p) {
         tasks: "Break the plan into actionable work items.",
         analyze: "Check the spec, plan, and tasks for consistency.",
         implement: "Execute the tasks to build the feature.",
-        taskstoissues: "Convert generated task lists into GitHub issues for tracking and execution.",
     };
     const phaseTagline = PHASE_TAGLINE_OVERRIDES[p.id] ?? p.description ?? (p.title || p.helpText || "");
 

@@ -20,6 +20,8 @@ import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs"
 import { buildPortableRuntimeSetup, resolveRuntimeInstallLocators } from "../server/runtime-provenance.mjs";
 import { prepareHandoff, preflight, verifyHostedCanvasDesign, verifyLocalInstall } from "../server/designer-launch-check.mjs";
 import { buildAugmentedPath } from "../env/resolve-path.mjs";
+import { attachOutputEvidence } from "../canvas-runtime/output-availability.mjs";
+import { beginOutputInference, createOutputInferenceWorker, failOutputInference } from "../canvas-runtime/output-inference.mjs";
 import releaseCatalog from "../../../../../spec-kit-extensions/catalog.json" with { type: "json" };
 
 // Real, valid manifests in this repo (same fixtures e2e/canvas-designer.spec.mjs
@@ -909,7 +911,7 @@ test("Designer launch waits for complete output inference and rejects changed in
         const launch = fixture({ getState: async () => ({ ...snapshot, ...incomplete }) });
         const response = await launch.post(request());
         assert.equal(response.statusCode, 409);
-        assert.match(response.body.error, /output inference is not ready/);
+        assert.match(response.body.error, /Pipeline preparation did not finish/);
         assert.equal(launch.sent.length, 0);
     }
     const changed = { ...snapshot, artifactEvidence: { plan: {
@@ -934,6 +936,53 @@ test("Designer launch waits for complete output inference and rejects changed in
     assert.equal(response.statusCode, 409);
     assert.match(response.body.error, /inference is incomplete/);
     assert.equal(updating.sent.length, 0);
+});
+
+test("Designer launch ignores a failed command removed from the selected pipeline", async () => {
+    const launch = fixture({ ensureOutputInference: async () => ({ queued: false, requests: [] }) });
+    Object.assign(launch.inst, { url: "http://127.0.0.1:1234", token: "test", broadcast() {} });
+    const removed = { commandId: "speckit.removed", fingerprint: "a".repeat(64) };
+    const inference = beginOutputInference(launch.inst, [removed]);
+    const { worker } = createOutputInferenceWorker(launch.inst, inference, [removed]);
+    failOutputInference(launch.inst, inference, worker.id, "worker failed");
+    const state = { ...snapshot, phases: {}, warnings: [] };
+    await attachOutputEvidence(launch.inst, {}, state, {
+        evidence: {}, requests: [removed], warnings: [], incomplete: false,
+    });
+    launch.setSnapshot(state);
+    const response = await launch.post(request());
+    assert.equal(response.statusCode, 202, response.body.error);
+    assert.equal(launch.sent.length, 1);
+    clearTimeout(inference.timer);
+});
+
+test("Designer launch waits for pipeline preparation, then launches", async () => {
+    let waited = 0;
+    const inference = { id: "prep" };
+    const launch = fixture({
+        ensureOutputInference: async () => ({ queued: true, requests: [{ commandId: "plan" }], inference }),
+        waitForOutputInference: async (_inst, target) => {
+            assert.equal(target, inference);
+            waited++;
+        },
+    });
+    const response = await launch.post(request());
+    assert.equal(response.statusCode, 202, response.body.error);
+    assert.equal(waited, 1);
+    assert.equal(launch.sent.length, 1);
+});
+
+test("Designer launch reports a retry when pipeline preparation does not finish", async () => {
+    const launch = fixture({
+        ensureOutputInference: async () => ({ queued: true, requests: [{ commandId: "plan" }], inference: {} }),
+        waitForOutputInference: async () => {
+            launch.setSnapshot({ ...snapshot, outputInferenceProgress: { status: "incomplete", total: 1, remaining: 0 } });
+        },
+    });
+    const response = await launch.post(request());
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.error, /Pipeline preparation did not finish/);
+    assert.equal(launch.sent.length, 0);
 });
 
 test("consecutive launch requests acknowledge before agent turns finish and have separate handoffs", async () => {

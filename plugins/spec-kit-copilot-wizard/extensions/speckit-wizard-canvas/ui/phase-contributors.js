@@ -525,8 +525,8 @@ export function renderOutputRows({
     fallbackContributor = null,
     inferenceStatus = null,
 }) {
-    const status = inferenceStatus === "updating" ? '<span role="status">Updating outputs…</span>'
-        : inferenceStatus === "incomplete" ? '<span role="status">Output inference did not finish</span>'
+    const status = inferenceStatus === "updating" ? '<span role="status">Retrieving outputs…</span>'
+        : inferenceStatus === "incomplete" ? '<span role="status">Pipeline preparation did not finish</span>'
             : null;
     const candidates = outputEvidence?.candidates ?? [];
     const hasNamedOutput = !!defaultPath || candidates.some(({ kind }) => ["file", "folder"].includes(kind));
@@ -903,7 +903,7 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
     // whose template ID diverges from the `<phase>-template` convention
     // (e.g. specify → spec-template, checklist-template) still find every
     // template artifact they load, and phases with no phase-specific template
-    // (clarify, analyze, implement, taskstoissues) return [] so we can hide
+    // (clarify, analyze, implement) return [] so we can hide
     // the row rather than lie with "Core · unchanged". Source of truth is
     // core-capabilities.mjs — do not maintain a second list here.
     const templateBareIds = canonicalTemplateIds(bareId);

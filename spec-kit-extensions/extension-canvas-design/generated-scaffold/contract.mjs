@@ -10,7 +10,6 @@ const outputs = {
 };
 function phaseLabel(id) {
     const short = id.replace(/^speckit\./, "");
-    if (short === "taskstoissues") return "Create issues";
     return short.split(/[._-]/)
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }

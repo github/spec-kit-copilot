@@ -1,9 +1,11 @@
 import { dirname, join } from "node:path";
-import { artifactPath, commandId, readEvidenceCache } from "../artifact-evidence.mjs";
+import { artifactPath } from "../artifact-evidence.mjs";
 import { displayOutputPath, primaryCandidate, resolveOutputPath } from "../pipeline/output-evidence.mjs";
 import { securePathWithin } from "../project-scanner/fs-helpers.mjs";
 import { fsDeps } from "./instances.mjs";
-import { failRefresh } from "./refresh-status.mjs";
+import { outputInferenceProgress, outputInferenceStatus } from "./output-inference.mjs";
+import { commandId } from "../artifact-evidence.mjs";
+import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
 
 async function existing(cwd, path, kind) {
     if (!path || !artifactPath(path, kind)) return null;
@@ -88,38 +90,18 @@ export async function outputAvailability(cwd, candidate, specsDir, observed = nu
         ...(folderPath ? { folderPath } : {}) };
 }
 
-export async function attachOutputEvidence(inst, scan, snap, outputs, readCache = readEvidenceCache,
-    refresh = inst.refreshStatus) {
+export async function attachOutputEvidence(inst, scan, snap, outputs) {
     snap.artifactEvidence = outputs.evidence;
     snap.artifactInferenceRequests = outputs.requests;
     snap.artifactEvidenceIncomplete = outputs.incomplete;
     snap.warnings.push(...outputs.warnings);
-    if (outputs.incomplete) failRefresh(inst, refresh);
-    if (outputs.requests.length && refresh?.status === "up-to-date") {
-        // A scan started before evidence was accepted may finish afterward.
-        // Recheck the cache before letting that older snapshot demote a completed refresh.
-        let missing = true;
-        try {
-            const current = await readCache(inst.workspacePath);
-            missing = outputs.requests.some(({ commandId: id, fingerprint }) =>
-                !Object.entries(current.entries).some(([key, entry]) =>
-                    commandId(key) === commandId(id) && entry?.outputEvidence?.fingerprint === fingerprint));
-        } catch (error) {
-            snap.warnings.push(error.message);
-        }
-        if (missing && inst.refreshStatus === refresh && refresh.status === "up-to-date") {
-            refresh.status = "ready";
-        }
-    }
     snap.refreshStatus = inst.refreshStatus?.status ?? "ready";
     snap.refreshId = inst.refreshStatus?.id ?? null;
     snap.compositionRefreshing = (inst.compositionRefreshCount ?? 0) > 0;
-    snap.outputInferenceStatus = Object.fromEntries(
-        [...(inst.outputInference?.pending ?? [])].map(([id]) => [id, inst.outputInference.status]));
-    snap.outputInferenceProgress = inst.outputInference ? {
-        status: inst.outputInference.status, total: inst.outputInference.total,
-        remaining: inst.outputInference.pending.size,
-    } : null;
+    snap.outputInferenceStatus = outputInferenceStatus(inst, outputs.evidence);
+    const pipeline = new Set(effectivePipelinePhases(snap).map(({ id }) => commandId(id)));
+    snap.outputInferenceProgress = outputInferenceProgress(inst,
+        outputs.requests.filter((request) => pipeline.has(commandId(request.commandId))));
     snap.outputAvailability = {};
     for (const [id, record] of Object.entries(outputs.evidence)) {
         const primary = primaryCandidate(record);

@@ -5,12 +5,26 @@
 import { commandId, effectiveSource, readEvidenceCache, writeEvidenceCache } from "../artifact-evidence.mjs";
 import { normalizeAgentArtifactEntry, validateAgentArtifactEvidence } from "../contracts/agent-artifacts.mjs";
 import { assertReplyRunId, ReplyRunError } from "../contracts/agent-replies.mjs";
-import { failOutputInference, finishOutputInference } from "../canvas-runtime/output-inference.mjs";
+import {
+    failOutputInference,
+    findOutputInferenceWorker,
+    finishOutputInference,
+    releaseSupersededOutputWorker,
+} from "../canvas-runtime/output-inference.mjs";
 import { commitOwnedFile } from "../canvas-runtime/owned-commit.mjs";
 
 import { applyPatch, writeState } from "../state/store.mjs";
 import { effectivePipelinePhases, stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
+
+const artifactCacheWrites = new WeakMap();
+
+function serializeArtifactCacheWrite(inst, write) {
+    const previous = artifactCacheWrites.get(inst) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(write);
+    artifactCacheWrites.set(inst, current.then(() => {}, () => {}));
+    return current;
+}
 // Pipeline mutation — user-authored spine override.
 //
 // Contract:
@@ -110,28 +124,32 @@ export async function handlePipelineMutation(res, body, { getState, broadcast, g
 //   templates from the opening paragraph →
 //   agent POSTs { entries: {...} } here →
 //   scanner picks up the new cache on the next scan tick.
-export async function handleArtifactTargets(res, body, { broadcast, getInstance, runId,
+export async function handleArtifactTargets(res, body, { getInstance, runId,
     readSource = effectiveSource, readCache = readEvidenceCache, writeCache = writeEvidenceCache }) {
     const inst = getInstance();
     if (!inst?.workspacePath) return jsonError(res, 400, "workspace path unavailable");
-    const inference = inst.outputInference;
+    const assignment = findOutputInferenceWorker(inst, runId);
+    const inference = assignment?.inference;
+    const worker = assignment?.worker;
     const requireCurrentReply = () => assertReplyRunId(runId,
-        inst.outputInference === inference && inference?.status === "updating"
-            && inst.refreshStatus === inference.refresh ? inference.id : null);
+        findOutputInferenceWorker(inst, runId)?.worker === worker ? worker?.id : null);
     try {
         requireCurrentReply();
     } catch (error) {
         if (!(error instanceof ReplyRunError)) throw error;
         return jsonError(res, error.status, error.message);
     }
-    const rejectOutput = (key, status, message) => {
-        if (inference?.pending.has(commandId(key))) failOutputInference(inst, inference);
+    const rejectOutput = (status, message) => {
+        const superseded = [...worker.requests].some(([id, request]) =>
+            inference.pending.get(id)?.fingerprint !== request.fingerprint);
+        if (superseded) releaseSupersededOutputWorker(inst, inference, runId);
+        else failOutputInference(inst, inference, runId, message);
         return jsonError(res, status, message);
     };
 
     const incoming = body?.entries;
     if (!incoming || typeof incoming !== "object") {
-        return jsonError(res, 400, "missing entries object");
+        return rejectOutput(400, "missing entries object");
     }
 
     // Normalize + validate. Silently drop anything that isn't a
@@ -141,12 +159,16 @@ export async function handleArtifactTargets(res, body, { broadcast, getInstance,
     const cleaned = {};
     for (const [key, entry] of Object.entries(incoming)) {
         if (typeof key !== "string" || !/^commands\/(?:speckit\.)?[\w.-]{1,100}$/.test(key)) continue;
+        const id = commandId(key);
+        const expected = worker.requests.get(id);
+        if (!expected) return rejectOutput(400, `Command ${key} was not assigned to this inference worker`);
         let outputEvidence;
         if (entry?.outputEvidence !== undefined) {
             try {
-                const current = await readSource(inst.workspacePath, commandId(key));
-                if (!current || entry.outputEvidence?.fingerprint !== current.fingerprint) {
-                    return rejectOutput(key, 409, `Artifact evidence fingerprint mismatch for ${key}`);
+                const current = await readSource(inst.workspacePath, id);
+                if (!current || current.fingerprint !== expected.fingerprint
+                    || entry.outputEvidence?.fingerprint !== expected.fingerprint) {
+                    return rejectOutput(409, `Artifact evidence fingerprint mismatch for ${key}`);
                 }
                 // The installed skill is authoritative, not the composition's artifact stack.
                 // Contributors are advisory only when explicitly supported by the skill.
@@ -154,62 +176,65 @@ export async function handleArtifactTargets(res, body, { broadcast, getInstance,
             } catch (error) {
                 if (["Inference must report a result", "Inference must select a primary file or null",
                     "No-file evidence cannot include file outputs"].includes(error.message)) {
-                    return rejectOutput(key, 400, error.message);
+                    return rejectOutput(400, error.message);
                 }
-                return rejectOutput(key, 400, `Invalid artifact evidence: ${error.message}`);
+                return rejectOutput(400, `Invalid artifact evidence: ${error.message}`);
             }
         }
         const normalized = normalizeAgentArtifactEntry(entry, outputEvidence);
         if (normalized) cleaned[key] = normalized;
     }
-    if (!Object.keys(cleaned).length) {
-        if (inference?.status === "updating") failOutputInference(inst, inference);
-        return jsonError(res, 400, "no valid entries");
-    }
-
-    // Read existing cache (if any) so we merge instead of clobber.
-    let existing;
-    try {
-        existing = await readCache(inst.workspacePath);
-    } catch (error) {
-        if (inference?.status === "updating") failOutputInference(inst, inference);
-        return jsonError(res, 500, `Artifact cache was not overwritten: ${error.message}`);
-    }
-    for (const [key, entry] of Object.entries(cleaned)) {
-        const previous = existing.entries[key];
-        cleaned[key] = { ...previous, ...entry };
-        if (entry.outputEvidence && ["manual", "author"].includes(previous?.source)) {
-            cleaned[key].source = previous.source;
-            if (previous.writesTo) cleaned[key].writesTo = previous.writesTo;
-        }
-    }
-
-    const merged = {
-        ...existing,
-        version: 1,
-        entries: { ...existing.entries, ...cleaned },
-        updatedAt: new Date().toISOString(),
-    };
-    const payload = JSON.stringify(merged, null, 2) + "\n";
-    if (Buffer.byteLength(payload) > 512 * 1024) {
-        if (inference?.status === "updating") failOutputInference(inst, inference);
-        return jsonError(res, 400, "Artifact-target cache exceeds its size limit");
-    }
+    if (!Object.keys(cleaned).length) return rejectOutput(400, "no valid entries");
 
     try {
-        requireCurrentReply();
-        await writeCache(inst.workspacePath, payload, undefined, (temp, target) =>
-            commitOwnedFile(temp, target, requireCurrentReply, () => {
-                finishOutputInference(inst, inference,
-                    Object.keys(cleaned).filter((key) => cleaned[key].outputEvidence));
-                if (inst.outputInferenceOwner === inference && inst.refreshStatus === inference.refresh) {
-                    broadcast({ type: "invalidate", reason: "artifact-targets updated" });
+        const requireCurrentAssignment = () => {
+            requireCurrentReply();
+            for (const key of Object.keys(cleaned)) {
+                const id = commandId(key);
+                if (inference.pending.get(id)?.fingerprint !== worker.requests.get(id)?.fingerprint) {
+                    throw new ReplyRunError(409, `Artifact evidence fingerprint mismatch for ${key}; assignment was superseded`);
                 }
-            }));
+            }
+        };
+        await serializeArtifactCacheWrite(inst, async () => {
+            requireCurrentAssignment();
+            const existing = await readCache(inst.workspacePath);
+            const entries = {};
+            for (const [key, entry] of Object.entries(cleaned)) {
+                const previous = existing.entries[key];
+                entries[key] = { ...previous, ...entry };
+                if (entry.outputEvidence && ["manual", "author"].includes(previous?.source)) {
+                    entries[key].source = previous.source;
+                    if (previous.writesTo) entries[key].writesTo = previous.writesTo;
+                }
+            }
+            const merged = {
+                ...existing,
+                version: 1,
+                entries: { ...existing.entries, ...entries },
+                updatedAt: new Date().toISOString(),
+            };
+            const payload = JSON.stringify(merged, null, 2) + "\n";
+            if (Buffer.byteLength(payload) > 512 * 1024) {
+                throw new Error("Artifact-target cache exceeds its size limit");
+            }
+            await writeCache(inst.workspacePath, payload, undefined, (temp, target) =>
+                commitOwnedFile(temp, target, requireCurrentAssignment, () => {
+                    finishOutputInference(inst, inference, runId,
+                        Object.entries(cleaned).filter(([, entry]) => entry.outputEvidence)
+                            .map(([key]) => commandId(key)));
+                }));
+        });
     } catch (err) {
-        if (err instanceof ReplyRunError) return jsonError(res, err.status, err.message);
-        if (inference?.status === "updating") failOutputInference(inst, inference);
-        return jsonError(res, 500, `write failed: ${err?.message ?? err}`);
+        if (err instanceof ReplyRunError) {
+            if (findOutputInferenceWorker(inst, runId)?.worker === worker) {
+                releaseSupersededOutputWorker(inst, inference, runId);
+            }
+            return jsonError(res, err.status, err.message);
+        }
+        failOutputInference(inst, inference, runId, err?.message ?? String(err));
+        const status = err?.message === "Artifact-target cache exceeds its size limit" ? 400 : 500;
+        return jsonError(res, status, `Artifact cache was not overwritten: ${err?.message ?? err}`);
     }
     const added = Object.keys(cleaned).length;
     return jsonRes(res, 200, { ok: true, merged: added, path: ".speckit-wizard/artifact-targets.json" });

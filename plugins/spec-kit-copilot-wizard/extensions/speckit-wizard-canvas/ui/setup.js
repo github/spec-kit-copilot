@@ -1,7 +1,7 @@
 // Consolidated Setup tab: state helpers, actions, and rendering.
 
 import { state, SETUP_STEPS, SETUP_TAB_PHASE_KEYS } from "./state.js";
-import { escapeHtml, dispatchKind, waitForSnapshot } from "./client.js";
+import { escapeHtml, dispatchKind, runCatalogAction, waitForSnapshot } from "./client.js";
 
 // -------- Section: setup/state.js --------
 
@@ -167,14 +167,22 @@ export async function runSetupAutoChain() {
     // Install default preset (row 4), then reload skills (row 5).
     const catalogPresets = state.snapshot?.catalog?.presets ?? [];
     const already = catalogPresets.find((p) => (p?.id ?? p?.name) === "copilot-sub-agents")?.active;
+    let installed;
     if (!already) {
         state.setupRowRunning = "installDefaults";
         __render();
-        await performInstallDefaults();
+        installed = await performInstallDefaults();
+        if (!installed?.ok) {
+            state.setupRowRunning = null;
+            __render();
+            return;
+        }
     }
-    state.setupRowRunning = "reload";
-    __render();
-    await performReload();
+    if (!installed?.skillsReloaded) {
+        state.setupRowRunning = "reload";
+        __render();
+        await performReload();
+    }
     state.setupRowRunning = null;
     __render();
 }
@@ -216,53 +224,25 @@ export async function performEnvProbe(sourceKey) {
     }
 }
 
-// Shared preset-install helper — used by both the Presets catalog "Add"
-// button (line ~4534) and the Setup row 4 "Install / Re-install" button.
-// Same code path, same broadcast handling, same 90s safety timeout.
-//
-// Fire-and-forget: returns after queueing the prompt; the
-// `preset-catalog` broadcast flips `p.active` and clears the pending
-// marker. Callers that need to await installation (e.g. runInit's
-// auto-chain) should follow this with `waitForSnapshot(...)`.
-export function installCatalogPreset({ presetId, name, downloadUrl }) {
-    if (state.pendingPresetActions?.[presetId]) return;
+// Setup and catalog installs await the same verified provider result.
+export function installCatalogPreset({ presetId, name, downloadUrl, source, confirmed, priority }) {
     state.pendingPresetActions ??= {};
-    state.pendingPresetActions[presetId] = "install";
-    __render();
-    // Safety timeout — clear pending after 90s so the user is never
-    // permanently locked out if a broadcast is missed. Same value the
-    // catalog button uses.
-    setTimeout(() => {
-        if (state.pendingPresetActions?.[presetId] === "install") {
-            delete state.pendingPresetActions[presetId];
-            __render();
-        }
-    }, 90000);
-    dispatchKind("preset.install", { name, downloadUrl });
+    return runCatalogAction("preset.install", { name, downloadUrl, source, confirmed, priority },
+        { pending: state.pendingPresetActions, id: presetId, render: __render });
 }
 
-// Default preset auto-install (used by runInit's chain). Uses the
-// shared installCatalogPreset() so it flows through the identical
-// dispatch + broadcast pipeline as the Presets tab. Then waits up to
-// 10 min for the catalog broadcast to reflect active=true so the
-// chain can proceed to the skills-reload step.
 export async function performInstallDefaults() {
     const DEFAULT_PRESET_ID = "copilot-sub-agents";
-    const DEFAULT_PRESET_DOWNLOAD_URL =
-        "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip";
     try {
-        installCatalogPreset({
+        const selected = (state.snapshot?.catalog?.presets ?? [])
+            .find((item) => item.id === DEFAULT_PRESET_ID && item.installAllowed !== false);
+        return await installCatalogPreset({
             presetId: DEFAULT_PRESET_ID,
             name: DEFAULT_PRESET_ID,
-            downloadUrl: DEFAULT_PRESET_DOWNLOAD_URL,
+            downloadUrl: selected?.downloadUrl,
+            source: selected?.source,
+            priority: 1,
         });
-        await waitForSnapshot(
-            (s) => {
-                const items = s?.catalog?.presets ?? [];
-                return !!items.find((p) => (p?.id ?? p?.name) === DEFAULT_PRESET_ID)?.active;
-            },
-            { timeoutMs: 10 * 60 * 1000 },
-        );
     } catch (err) {
         console.error(`default preset install failed: ${err?.message ?? err}`);
     }
@@ -284,8 +264,6 @@ export function renderSetupBody(_p) {
     // are reflected without a sticky flag.
     const DEFAULT_PRESET_ID = "copilot-sub-agents";
     const DEFAULT_PRESET_DISPLAY = "Copilot Sub-Agent Delegation";
-    const DEFAULT_PRESET_DOWNLOAD_URL =
-        "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip";
     const catalogPresets = state.snapshot?.catalog?.presets ?? [];
     const defaultPreset = catalogPresets.find(
         (p) => (p?.id ?? p?.name) === DEFAULT_PRESET_ID,

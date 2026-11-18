@@ -27,7 +27,9 @@ import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { activeArtifactsForCommand } from "../pipeline/active-artifacts.mjs";
 import { runFastComposition } from "./composition-apply.mjs";
 import { snapshot } from "./snapshot.mjs";
-import { beginOutputInference, failOutputInference } from "./output-inference.mjs";
+import { ensurePipelineOutputInference } from "./output-inference-dispatch.mjs";
+import { buildArtifactInferencePrompt } from "./artifact-inference-prompt.mjs";
+import { cancelBackgroundInference, startBackgroundInference } from "./background-inference.mjs";
 import { startRefresh, setRefreshWork, failRefresh, isCurrentRefresh } from "./refresh-status.mjs";
 import {
     buildPrompt,
@@ -93,7 +95,9 @@ async function probeInstalledCounts(workspacePath) {
 // 400 vs. `{ ok: false, error }` action result).
 export async function dispatchKindPrompt(inst, kind, payload, {
     compose = runFastComposition, getSnapshot = snapshot, getInstalledCounts = probeInstalledCounts,
-    send = (request) => sessionAdapter().send(request),
+    sendInference,
+    startInferenceTask = startBackgroundInference,
+    buildInferencePrompt = buildArtifactInferencePrompt,
 } = {}) {
     const workspacePath = inst?.workspacePath ?? null;
 
@@ -110,50 +114,55 @@ export async function dispatchKindPrompt(inst, kind, payload, {
     // the LLM Stage 2 prompt when the assembler reports Stage 2 is needed
     // (novel commands, wraps/prepends/appends directives, etc.).
     const outputsOnly = kind === "extension.inferArtifactTargets";
-    if (kind === "composition.refresh" || kind === "composition.inferPipeline" || outputsOnly) {
-        const refresh = outputsOnly ? inst.refreshStatus : startRefresh(inst);
-        let inference = inst.outputInferenceOwner ?? null;
-        const ownsWork = () => isCurrentRefresh(inst, refresh)
-            && (inst.outputInferenceOwner ?? null) === inference;
+    if (outputsOnly) {
+        await ensurePipelineOutputInference(inst, {
+            getSnapshot: (target) => getSnapshot(target),
+            session: sessionAdapter(),
+            buildPrompt: buildInferencePrompt,
+            startWorker: sendInference
+                ? (target, request, workerSession, isCurrent, workerId) =>
+                    sendInference(request, workerSession, isCurrent, workerId, target)
+                : undefined,
+        });
+        return { kind, fastComposition: true };
+    }
+    if (kind === "composition.refresh" || kind === "composition.inferPipeline") {
+        if (inst.pipelineInferenceTaskKey) {
+            cancelBackgroundInference(inst, inst.pipelineInferenceTaskKey);
+            delete inst.pipelineInferenceTaskKey;
+        }
+        const refresh = startRefresh(inst);
+        const ownsWork = () => isCurrentRefresh(inst, refresh);
         const ensureCurrent = () => {
             if (!ownsWork()) throw new Error("Composition refresh superseded by newer refresh work");
         };
-        const failWork = () => {
-            if (!ownsWork()) return;
-            failOutputInference(inst, inference);
-            failRefresh(inst, refresh);
-        };
+        const failWork = () => { if (ownsWork()) failRefresh(inst, refresh); };
         try {
-            const fast = outputsOnly ? { ok: true, stage2Needed: false }
-                : await compose(inst, { reason: "refresh-button" });
+            const fast = await compose(inst, { reason: "refresh-button" });
             ensureCurrent();
             if (!fast?.ok) throw new Error(`Composition refresh failed: ${fast?.reason ?? "unknown error"}`);
-            const requests = (await getSnapshot(inst)).artifactInferenceRequests ?? [];
-            ensureCurrent();
-            const endpoint = beginOutputInference(inst, requests, refresh);
-            inference = inst.outputInference;
-            if (!outputsOnly) setRefreshWork(inst, { pipeline: fast.stage2Needed, outputs: !!endpoint }, refresh);
-            if (!fast.stage2Needed && !endpoint) return { kind, fastComposition: true };
+            setRefreshWork(inst, { pipeline: fast.stage2Needed, outputs: false }, refresh);
+            if (!fast.stage2Needed) return { kind, fastComposition: true };
             const counts = await getInstalledCounts(workspacePath);
             ensureCurrent();
             const context = { workspacePath, preset: inst?.state?.preset,
                 composition: inst?.state?.composition, ...counts };
-            const prompts = [];
-            if (fast.stage2Needed) prompts.push(buildPrompt(kind, { runId: refresh.id }, context));
-            if (endpoint) prompts.push(buildPrompt("extension.inferArtifactTargets", {
-                commands: requests, endpoint: endpoint.toString(),
-            }, context));
-            const prompt = prompts.join("\n\n---\n\n");
-            await dispatchPromptToSession({
-                prompt,
-                send: (request) => {
-                    ensureCurrent();
-                    return send(request);
-                },
-                onError: (error) => {
-                    failWork();
-                    void sessionAdapter().log(`Composition refresh: ${error.message}`, "warn");
-                },
+            const prompt = buildPrompt(kind, { runId: refresh.id }, context);
+            const taskKey = `pipeline:${refresh.id}`;
+            inst.pipelineInferenceTaskKey = taskKey;
+            setImmediate(() => {
+                if (!ownsWork()) return;
+                void Promise.resolve().then(() => startInferenceTask(
+                    inst, { prompt }, sessionAdapter(), ownsWork, taskKey,
+                )).catch((error) => {
+                    if (inst.pipelineInferenceTaskKey === taskKey) {
+                        delete inst.pipelineInferenceTaskKey;
+                    }
+                    if (ownsWork()) {
+                        failWork();
+                        void sessionAdapter().log(`Composition refresh: ${error.message}`, "warning");
+                    }
+                });
             });
             return { prompt, kind };
         } catch (error) {
@@ -220,5 +229,10 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
             if (run) clearRun(inst?.instanceId, commandName, run.runId);
         },
     });
+    if (track) {
+        void ensurePipelineOutputInference(inst).catch((error) => {
+            void sessionAdapter().log(`Output inference: ${error.message}`, "warning");
+        });
+    }
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }

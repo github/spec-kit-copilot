@@ -521,6 +521,7 @@ export async function parseCommandFile(raw, warnings = [], presetId = "?", comma
     }
 
     if (typeof frontmatter.description === "string") out.description = frontmatter.description.trim();
+    if (typeof frontmatter.metadata?.source === "string") out.source = frontmatter.metadata.source;
     if (typeof frontmatter.artifact === "string") out.artifact = frontmatter.artifact.trim();
     if (typeof frontmatter.optional === "boolean") out.optional = frontmatter.optional;
     if (Array.isArray(frontmatter.handoffs)) out.handoffs = normalizeHandoffs(frontmatter.handoffs);

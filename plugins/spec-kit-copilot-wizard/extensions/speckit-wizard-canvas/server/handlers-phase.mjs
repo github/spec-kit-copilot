@@ -1,23 +1,30 @@
 // HTTP handlers for phase-family endpoints: /api/prompt, /api/phase/submit.
 //
 // These are thin wrappers that parse the HTTP body and delegate to the
-// shared dispatch helpers in `canvas-runtime/dispatch.mjs`. The same
-// helpers are called from the agent-facing canvas actions (runPhase,
-// addPreset, addExtension), so a UI click and an agent NL invocation
-// produce byte-identical prompts.
+// shared phase dispatch helpers and direct package-operation service. UI
+// clicks and agent-facing canvas actions use the same underlying operation.
 
 import { UnknownActionKindError } from "../prompts.mjs";
 import { ACTION_KINDS, PHASE_BY_ID } from "../canvas-runtime/wizard-phases.mjs";
 import { dispatchKindPrompt, dispatchPhaseCommand } from "../canvas-runtime/dispatch.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
+import { catalogOperationKind } from "../contracts/catalog-operation.mjs";
+import { catalogFailure, runCatalogOperation } from "../canvas-runtime/catalog-operations.mjs";
 
-export async function handlePrompt(res, body, { log, getInstance }) {
+export async function handlePrompt(res, body, { log, getInstance, catalogOperation = runCatalogOperation }) {
     const kind = body?.kind;
     const payload = body?.payload ?? {};
     if (!kind) return jsonError(res, 400, "missing kind");
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
 
     const inst = getInstance();
+    if (catalogOperationKind(kind)) {
+        try {
+            return jsonRes(res, 200, await catalogOperation(inst, kind, payload));
+        } catch (error) {
+            return jsonRes(res, error.status ?? 500, catalogFailure(error));
+        }
+    }
     try {
         await dispatchKindPrompt(inst, kind, payload);
     } catch (err) {
