@@ -56,6 +56,11 @@ Spec Kit from the wizard, from chat, or from the `specify` CLI.
 **Setup → Environment** — verifies prerequisites (plugin, CLI, project init,
 default presets, skills reload) and lights up each step as it completes.
 
+The Wizard's state and artifact watchers also watch the workspace root. If
+`.speckit-wizard/`, `.specify/`, or `specs/` is replaced, for example by a
+local reset that moves them into a backup, the watchers reattach without
+reopening the Wizard.
+
 ![Setup → Environment page](../../../../docs/images/wizard-environment.png)
 
 **Setup → Catalogs** — browse Built-in, Copilot, and Community catalogs of
@@ -150,6 +155,10 @@ The agent opens the wizard in a side panel. See
   execute — customize the commands in the pipeline, provide input to
   execute them, and view each artifact produced.
 
+Removing the last preset does not hide core or installed extension phases.
+Phase cards resolve the current pipeline independently of preset-provided
+commands; an explicitly cleared pipeline remains empty.
+
 Phase cards list the Markdown files and folders their commands produce,
 including multiple outputs when the installed skill identifies them. Outputs
 with the same named root and filename remain distinct when their root paths
@@ -178,6 +187,11 @@ the launch starts the same pipeline-scoped inference, waits for it to finish
 When composition refresh needs LLM pipeline-order inference, it runs as a
 background task and applies its result through the existing run-correlated
 `showInferredPipeline` callback.
+Phase Run and Rerun buttons temporarily show **Running** with a spinner instead
+of a separate request-status message. This local acknowledgement lasts 15 seconds,
+survives snapshot updates, and does not disable retry. Chat owns execution progress;
+the button returns to **Rerun phase** after an accepted request, without implying
+that execution has finished.
 Fingerprint-matched cached outputs are reused. One background worker handles
 all currently missing outputs at a time; refreshes, pipeline edits, and package
 removal do not cancel useful work or delete cached results. Removing a command,

@@ -295,8 +295,9 @@ test("Phases keeps composition refresh status separate from output inference pro
         renderPipelineBanner();
         assert.match(banner.innerHTML, /role="status" aria-live="polite" data-progress="updating"/);
         assert.match(banner.innerHTML, /pipeline-refresh-spinner" aria-hidden="true"/);
-        assert.match(banner.innerHTML, /Updating the pipeline to reflect your installed presets and extensions/);
-        assert.match(banner.innerHTML, /large number of commands can take several minutes/);
+        assert.match(banner.innerHTML, /Refreshing your pipeline from installed presets and extensions…<\/div>/);
+        assert.doesNotMatch(banner.innerHTML, /You can keep building your pipeline while this runs/);
+        assert.doesNotMatch(banner.innerHTML, /large number of commands can take several minutes/);
         assert.match(banner.innerHTML, /<\/header>\s*<div class="pipeline-refresh-status"/);
 
         state.snapshot.refreshStatus = "up-to-date";
@@ -732,6 +733,105 @@ test("renderPhaseCard keeps selected phases runnable when earlier phases are inc
     }
 });
 
+test("renderPhaseCard resolves core and extension phases after the last preset is removed", () => {
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    const priorPhase = state.currentPhase;
+    const card = { innerHTML: "" };
+    let renderedPhase;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? card : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: (_el, p) => { renderedPhase = p; },
+    });
+    try {
+        const base = {
+            commands: [],
+            presets: [],
+            setup: {
+                pluginInstalled: true,
+                cliInstalled: true,
+                projectInitialized: true,
+                skillsReloaded: true,
+            },
+            phases: {
+                specify: { status: "done", artifactPath: "specs/feature/spec.md" },
+                "commands/speckit.assess.intake": { status: "empty" },
+            },
+            composition: {
+                presets: [],
+                extensions: [{ id: "assess" }],
+                artifacts: [{
+                    id: "commands/speckit.assess.intake",
+                    kind: "command",
+                    stack: [{ layer: "extension", active: true, presetId: "assess" }],
+                }],
+            },
+        };
+        state.currentPhase = "specify";
+        state.snapshot = base;
+        renderPhaseCard();
+        assert.equal(renderedPhase?.commandName, "speckit.specify");
+        assert.equal(renderedPhase.status, "done");
+        assert.equal(renderedPhase.artifactPath, "specs/feature/spec.md");
+        assert.equal(renderedPhase.locked, false);
+
+        for (const refreshStatus of ["refreshing", "up-to-date"]) {
+            renderedPhase = null;
+            state.currentPhase = "removed-preset-command";
+            state.snapshot = { ...base, refreshStatus,
+                pipeline: [{ id: "speckit.assess.intake" }] };
+            renderPhaseCard();
+            assert.equal(renderedPhase?.commandName, "speckit.assess.intake");
+            assert.equal(renderedPhase.locked, false);
+            assert.equal(state.currentPhase, "speckit.assess.intake");
+            assert.doesNotMatch(card.innerHTML, /No phases available/);
+        }
+
+        state.snapshot = { ...base, setup: { ...base.setup, skillsReloaded: false } };
+        state.currentPhase = "specify";
+        renderPhaseCard();
+        assert.equal(renderedPhase.locked, true);
+    } finally {
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = priorSnapshot;
+        state.currentPhase = priorPhase;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
+test("renderPhaseCard preserves cleared and orphaned pipelines without preset commands", () => {
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    const priorPhase = state.currentPhase;
+    const card = { innerHTML: "" };
+    let renders = 0;
+    globalThis.document = {
+        getElementById: (id) => id === "phase-card" ? card : null,
+    };
+    setPhaseCardDeps({
+        renderGraphPhaseCard: () => { renders += 1; },
+    });
+    try {
+        state.snapshot = { commands: [], pipeline: [], composition: { artifacts: [] } };
+        renderPhaseCard();
+        assert.match(card.innerHTML, /No commands in the pipeline/);
+
+        state.snapshot.pipeline = [{ id: "removed-preset-command" }];
+        renderPhaseCard();
+        assert.match(card.innerHTML, /Pipeline references unknown commands/);
+        assert.equal(renders, 0);
+    } finally {
+        setPhaseCardDeps({ renderGraphPhaseCard: () => {} });
+        state.snapshot = priorSnapshot;
+        state.currentPhase = priorPhase;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
+});
+
 test("renderPhaseCard ignores earlier optional phase metadata when deciding locks", () => {
     let renderedPhase = null;
     const priorDocument = globalThis.document;
@@ -1063,7 +1163,8 @@ test("renderGraphPhaseCard switches to rerun after local dispatch acknowledgemen
     }
 });
 
-test("renderGraphPhaseCard does not show View artifact from local running acknowledgement alone", () => {
+test("phase buttons temporarily show Running without a separate request notice or unverified artifact", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const el = {
         innerHTML: "",
         querySelector(selector) {
@@ -1089,27 +1190,44 @@ test("renderGraphPhaseCard does not show View artifact from local running acknow
         renderStepper: () => {},
     });
     state.snapshot = { pipeline: ["plan"], composition: { artifacts: [] } };
+    const phase = {
+        id: "plan",
+        name: "Plan",
+        status: "empty",
+        optional: false,
+        locked: false,
+        commandName: "speckit.plan",
+        artifact: "specs/<slug>/plan.md",
+        artifactPath: null,
+    };
+    setRunLockDeps({ render: () => renderGraphPhaseCard(el, phase) });
 
     try {
-        markPhaseRunning("speckit.plan", { durationMs: 10_000 });
-        renderGraphPhaseCard(el, {
-            id: "plan",
-            name: "Plan",
-            status: "empty",
-            optional: false,
-            locked: false,
-            commandName: "speckit.plan",
-            artifact: "specs/<slug>/plan.md",
-            artifactPath: null,
-        });
+        markPhaseRunning("speckit.plan");
 
-        assert.match(el.innerHTML, /Request sent/);
-        assert.match(el.innerHTML, /type="submit" class="btn btn-primary"[^>]*>Run phase<\/button>/);
+        assert.match(el.innerHTML, /type="submit" class="btn btn-primary"[^>]*aria-live="polite"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /Request sent/);
         assert.doesNotMatch(el.innerHTML, /type="submit"[^>]*disabled/);
         assert.match(el.innerHTML, /specs\/&lt;slug&gt;\/plan\.md/);
         assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
-    } finally {
+
+        markPhaseSubmitted("speckit.plan");
+        renderGraphPhaseCard(el, phase);
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /data-phase-action="redo"[^>]*disabled/);
+
+        t.mock.timers.tick(PHASE_RUN_ACK_MS);
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*>Rerun phase<\/button>/);
+        assert.doesNotMatch(el.innerHTML, /Running<\/button>/);
+
+        markPhaseRunning("speckit.plan");
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*><span class="btn-spinner" aria-hidden="true"><\/span>Running<\/button>/);
         clearPhaseRunning("speckit.plan");
+        assert.match(el.innerHTML, /data-phase-action="redo"[^>]*>Rerun phase<\/button>/);
+    } finally {
+        setRunLockDeps({ render: () => {} });
+        clearPhaseRunning("speckit.plan");
+        clearPhaseSubmitted("speckit.plan");
         state.snapshot = null;
         setGraphPhaseCardDeps({
             openArtifactViewer: () => {},

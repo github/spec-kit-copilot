@@ -586,15 +586,18 @@ test("phase can be rerun while the first agent turn is unanswered", async ({ pag
     await withWizardCheckout(page, async ({ prompts, inst }) => {
         await page.getByRole("tab", { name: "Phases" }).click();
         await page.locator("#stepper .step").first().click();
+        await page.clock.install();
         const submit = page.waitForResponse((res) => res.url().includes("/api/phase/submit")
             && res.request().method() === "POST");
         await page.locator("#phase-card").getByRole("button", { name: "Run phase" }).click();
         const { runId } = await (await submit).json();
         await expect.poll(() => prompts.length).toBe(1);
-        await expect(page.locator("#phase-card").getByRole("status")).toHaveText("Request sent");
+        await expect(page.locator("#phase-card").getByRole("button", { name: "Running", exact: true })).toBeEnabled();
+        await expect(page.locator("#phase-card")).not.toContainText("Request sent");
         expect(inst.state.phases?.constitution?.status).not.toBe("done");
 
-        const rerun = page.locator("#phase-card").getByRole("button", { name: "Rerun phase" });
+        const rerun = page.locator('#phase-card [data-phase-action="redo"]');
+        await expect(rerun).toHaveText("Running");
         await expect(rerun).toBeEnabled();
         const retry = page.waitForResponse((res) => res.url().includes("/api/phase/submit")
             && res.request().method() === "POST");
@@ -606,6 +609,9 @@ test("phase can be rerun while the first agent turn is unanswered", async ({ pag
         expect(prompts[1]).toContain("speckit-constitution");
         expect(prompts[1]).toContain(`runId: "${retryRunId}"`);
         expect(inst.state.phases?.constitution?.status).not.toBe("done");
+        await page.clock.fastForward(15_000);
+        await expect(rerun).toHaveText("Rerun phase");
+        await expect(rerun).toBeEnabled();
     });
 });
 
@@ -841,8 +847,8 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await expect(progress).toHaveText("Updating…");
         await expect(refresh).toHaveAttribute("aria-busy", "true");
         await page.getByRole("tab", { name: "Phases" }).click();
-        await expect(page.locator("#pipeline-banner")).toContainText("Updating the pipeline to reflect your installed presets and extensions");
-        await expect(page.locator("#pipeline-banner")).toContainText("large number of commands can take several minutes");
+        await expect(page.locator("#pipeline-banner .pipeline-refresh-status"))
+            .toHaveText("Refreshing your pipeline from installed presets and extensions…");
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await page.locator('#more-commands [data-command-id="converge"]').click();
         await expect(page.locator("#stepper")).toContainText("Converge");
@@ -903,8 +909,8 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
             .filter({ hasText: "more" }).click();
         await expect(page.locator("#phase-card")).toContainText("specs/<slug>/reviews/checklist.md");
         expect(prompts.some((prompt) => prompt.includes("speckit-extension-wizard-flow-test-review"))).toBe(true);
-        await expect(page.locator("#phase-card").getByRole("status")).toHaveText("Request sent");
-        await expect(page.locator("#phase-card").getByRole("button", { name: "Rerun phase" })).toBeEnabled();
+        await expect(page.locator("#phase-card").getByRole("button", { name: "Running", exact: true })).toBeEnabled();
+        await expect(page.locator("#phase-card")).not.toContainText("Request sent");
         expect(inst.cachedComposition.artifacts.some((artifact) =>
             artifact.id === `commands/${review}` && artifact.kind === "command")).toBe(true);
         expect(inst.cachedComposition.artifacts.some((artifact) =>

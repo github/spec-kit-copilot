@@ -107,7 +107,24 @@ async function onOpen(ctx) {
 
     // Start watching .speckit-wizard/state.json so external edits push
     // fresh state to the UI immediately.
-    startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }).catch(() => { /* best-effort */ });
+    startStateWatcher(inst, {
+        snapshot,
+        normalizeHookArtifactsInComposition,
+        onProjectInitialized: async () => {
+            try {
+                await inst.bootPromise;
+                await hydrateCatalogs(inst);
+                await runFastComposition(inst, { reason: "project initialized" });
+                const snap = await snapshot(inst);
+                inst.broadcast({ type: "state", data: snap });
+            } catch (err) {
+                await sessionAdapter().log?.(
+                    `catalog refresh after project initialization failed: ${err?.message ?? err}`,
+                    "error",
+                );
+            }
+        },
+    }).catch(() => { /* best-effort */ });
     startArtifactWatcher(inst, { snapshot }).catch(() => { /* best-effort */ });
     return {
         title: "Spec Kit Wizard",
@@ -277,8 +294,8 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedCatalogSources = bootstrap;
-        await hydratePresetsForSources(inst, bootstrap).catch(() => {});
     }
+    await hydratePresetsForSources(inst, inst.cachedCatalogSources);
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
             {
@@ -307,8 +324,8 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
-        await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
     }
+    await hydrateExtensionsForSources(inst, inst.cachedExtensionCatalogSources);
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
             {
@@ -329,8 +346,8 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
-        await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
     }
+    await hydrateBundlesForSources(inst, inst.cachedBundleCatalogSources);
 }
 
 // Legacy hydrateOnce removed — bootAsync in this file supersedes it. The

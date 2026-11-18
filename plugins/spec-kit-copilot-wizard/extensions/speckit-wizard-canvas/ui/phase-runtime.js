@@ -374,7 +374,7 @@ export function renderPipelineBanner() {
     if (!onPhasesTab) { el.hidden = true; el.innerHTML = ""; return; }
     const items = pipelineItems();
     const edited = pipelineIsEdited();
-    const refreshLabel = refresh === "Refreshing…" ? "Updating the pipeline to reflect your installed presets and extensions. Installing a large number of commands can take several minutes."
+    const refreshLabel = refresh === "Refreshing…" ? "Refreshing your pipeline from installed presets and extensions…"
         : refresh === "Refresh incomplete — retry" ? "Refresh incomplete — retry in Setup → Composition."
             : refresh === "Up to date" && Date.now() < pipelineUpdatedUntil ? "Pipeline updated" : "";
     const refreshState = refresh === "Refreshing…" ? "updating"

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { describe, test } from "node:test";
 import { emptyPhaseSlice, isOptional } from "../canvas-runtime/wizard-phases.mjs";
 import { loadPresetGraph, parseCommandFile } from "../composition/preset-loader.mjs";
 import { orderPresetsByCliList, parsePresetListOutput } from "../composition/preset-order.mjs";
 import { resolveHooksForCommand } from "../pipeline/active-artifacts.mjs";
 import { parseClarifications } from "../pipeline/canonical.mjs";
-import { hydrateFromCatalogSources, parseInstalledPackageList } from "../catalog/shared.mjs";
+import { hydrateFromCatalogSources, parseInstalledPackageList, specifyRun } from "../catalog/shared.mjs";
 import { listInstalledExtensions } from "../catalog/extensions.mjs";
 import { listInstalledPresets } from "../catalog/presets.mjs";
 import { bundleSelectionMembers } from "../catalog/bundles.mjs";
@@ -97,6 +99,58 @@ test("installed package inventory parser rejects malformed and incomplete JSON",
         { id: "duplicate", name: "One", priority: 1, enabled: true },
         { id: "duplicate", name: "Two", priority: 2, enabled: true },
     ]), "extension"), /Invalid installed extension entry from Specify/);
+});
+
+test("installed package inventory treats an uninitialized project as empty", () => {
+    const installed = parseInstalledPackageList(
+        '{"error": "Not a Spec Kit project (no .specify/ directory)"}', "preset");
+    assert.equal(installed.ids.size, 0);
+    assert.deepEqual(installed.orderedIds, []);
+    assert.throws(() => parseInstalledPackageList('{"error": "boom"}', "preset"),
+        /Invalid installed preset list from Specify/);
+});
+
+test("catalog still hydrates when Specify reports an uninitialized project on stderr", async (t) => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    t.mock.method(globalThis, "fetch", async () => ({
+        ok: true,
+        json: async () => ({ presets: { "copilot-sub-agents": {
+            name: "Copilot Sub-Agents",
+            download_url: "https://example.test/copilot-sub-agents.zip",
+        } } }),
+    }));
+    const inst = { workspacePath: "/ws" };
+    await hydrateFromCatalogSources(inst, [{
+        name: "default",
+        url: "https://example.test/catalog.json",
+    }], {
+        kind: "preset",
+        dataKey: "presets",
+        outputField: "catalog",
+        listInstalled: async (cwd) => {
+            const stdout = await specifyRun(["preset", "list", "--json"], cwd, {
+                getSpawnOptions: async () => ({ cwd }),
+                spawnCommand: () => {
+                    queueMicrotask(() => {
+                        child.stderr.end('{"error": "Not a Spec Kit project (no .specify/ directory)"}');
+                        child.emit("close", 1, null);
+                    });
+                    return child;
+                },
+            });
+            return parseInstalledPackageList(stdout, "preset");
+        },
+    });
+    assert.deepEqual(inst.catalog.map(({ id, source, downloadUrl, active }) =>
+        ({ id, source, downloadUrl, active })), [{
+        id: "copilot-sub-agents",
+        source: "default",
+        downloadUrl: "https://example.test/copilot-sub-agents.zip",
+        active: false,
+    }]);
+    assert.equal(inst._verifiedCatalogFields.has("catalog"), true);
 });
 
 test("installed package inventory uses array order without relying on unrelated metadata", () => {

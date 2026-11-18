@@ -47,7 +47,7 @@ export const state = {
     // handleServerMessage's "state" case; see waitForSnapshot().
     snapshotWaiters: [],
     // Per-phase local dispatch acknowledgement. Populated when the user clicks
-    // Run phase or Rerun phase; consulted in the render pass so "Running…"
+    // Run phase or Rerun phase; consulted in the render pass so "Running"
     // survives SSE-driven re-renders until its short acknowledgement timer
     // clears.
     phaseRunning: new Set(),

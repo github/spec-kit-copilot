@@ -28,6 +28,8 @@ export function parseInstalledPackageList(stdout, kind) {
     } catch (cause) {
         throw new Error(`Invalid installed ${kind} list from Specify: ${cause.message}`, { cause });
     }
+    // Before init, Specify reports {"error": "Not a Spec Kit project ..."}; nothing is installed yet.
+    if (typeof items?.error === "string" && /^Not a Spec Kit project\b/.test(items.error)) return empty;
     if (!Array.isArray(items)) throw new Error(`Invalid installed ${kind} list from Specify`);
 
     const installed = { ids: new Set(), names: new Set(), byName: new Map(), orderedIds: [] };
@@ -47,10 +49,10 @@ export function parseInstalledPackageList(stdout, kind) {
 }
 
 /**
- * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule
- * and stdout capture. Resolves with the captured stdout on success/error —
- * NEVER throws. On `spawn` error, resolves with `null` so callers can
- * degrade gracefully to an empty installed set.
+ * Spawn `specify <args...>` with the standard Windows-vs-POSIX shell rule.
+ * Resolves with stdout, or stderr when stdout is empty, so CLI diagnostics
+ * remain available to parsers — NEVER throws. On `spawn` error, resolves
+ * with `null` so callers can degrade gracefully to an empty installed set.
  *
  * On Windows `specify` is a `.cmd` shim that Node's spawn can only launch
  * through cmd.exe; on macOS/Linux it's a real binary that spawn runs
@@ -59,14 +61,19 @@ export function parseInstalledPackageList(stdout, kind) {
  * PATH is augmented with known SDK / uv / pipx install locations so
  * `specify` resolves even when the user's shell PATH doesn't include them.
  */
-export async function specifyRun(args, cwd) {
-    const options = await specifySpawnOptions(cwd);
+export async function specifyRun(args, cwd, {
+    spawnCommand = spawn,
+    getSpawnOptions = specifySpawnOptions,
+} = {}) {
+    const options = await getSpawnOptions(cwd);
     return new Promise((resolve) => {
-        const child = spawn("specify", args, options);
+        const child = spawnCommand("specify", args, options);
         let stdout = "";
+        let stderr = "";
         child.stdout?.on("data", (d) => { stdout += String(d); });
+        child.stderr?.on("data", (d) => { stderr += String(d); });
         child.on("error", () => resolve(null));
-        child.on("close", () => resolve(stdout));
+        child.on("close", () => resolve(stdout.trim() ? stdout : stderr));
     });
 }
 
