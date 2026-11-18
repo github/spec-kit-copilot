@@ -11,35 +11,23 @@ import {
     unassignedOutputRequests,
 } from "./output-inference.mjs";
 
-const MAX_BACKGROUND_WORKERS = 3;
-
-function splitRequests(requests, count) {
-    const chunkSize = Math.ceil(requests.length / count);
-    return Array.from({ length: count }, (_, index) =>
-        requests.slice(index * chunkSize, (index + 1) * chunkSize)).filter((chunk) => chunk.length);
-}
-
 function scheduleWorkers(inst, inference) {
-    if (inst.outputInference !== inference || inference.status !== "updating") return;
-    const slots = MAX_BACKGROUND_WORKERS - inference.workers.size;
-    if (slots < 1) return;
+    if (inst.outputInference !== inference || inference.status !== "updating"
+        || inference.workers.size > 0) return;
     const requests = unassignedOutputRequests(inference);
     if (!requests.length) return;
-    const batches = splitRequests(requests, Math.min(slots, requests.length));
-    for (const commands of batches) {
-        const { worker, endpoint } = createOutputInferenceWorker(inst, inference, commands);
-        const isCurrent = () => inst.outputInference === inference
-            && inference.workers.get(worker.id) === worker;
-        void Promise.resolve().then(() => inference.buildPrompt({
-            workspacePath: inst.workspacePath,
-            commands,
-            endpoint: endpoint.toString(),
-        })).then((prompt) => inference.startWorker(inst, { prompt },
-            inference.session, isCurrent, worker.id)).catch((error) => {
-            failOutputInference(inst, inference, worker.id,
-                `Output inference dispatch failed: ${error.message}`);
-        });
-    }
+    const { worker, endpoint } = createOutputInferenceWorker(inst, inference, requests);
+    const isCurrent = () => inst.outputInference === inference
+        && inference.workers.get(worker.id) === worker;
+    void Promise.resolve().then(() => inference.buildPrompt({
+        workspacePath: inst.workspacePath,
+        commands: requests,
+        endpoint: endpoint.toString(),
+    })).then((prompt) => inference.startWorker(inst, { prompt },
+        inference.session, isCurrent, worker.id)).catch((error) => {
+        failOutputInference(inst, inference, worker.id,
+            `Output inference dispatch failed: ${error.message}`);
+    });
 }
 
 export async function ensurePipelineOutputInference(inst, {

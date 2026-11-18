@@ -29,6 +29,7 @@ import { runFastComposition } from "./composition-apply.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { ensurePipelineOutputInference } from "./output-inference-dispatch.mjs";
 import { buildArtifactInferencePrompt } from "./artifact-inference-prompt.mjs";
+import { cancelBackgroundInference, startBackgroundInference } from "./background-inference.mjs";
 import { startRefresh, setRefreshWork, failRefresh, isCurrentRefresh } from "./refresh-status.mjs";
 import {
     buildPrompt,
@@ -94,8 +95,8 @@ async function probeInstalledCounts(workspacePath) {
 // 400 vs. `{ ok: false, error }` action result).
 export async function dispatchKindPrompt(inst, kind, payload, {
     compose = runFastComposition, getSnapshot = snapshot, getInstalledCounts = probeInstalledCounts,
-    send = (request) => sessionAdapter().send(request),
     sendInference,
+    startInferenceTask = startBackgroundInference,
     buildInferencePrompt = buildArtifactInferencePrompt,
 } = {}) {
     const workspacePath = inst?.workspacePath ?? null;
@@ -126,6 +127,10 @@ export async function dispatchKindPrompt(inst, kind, payload, {
         return { kind, fastComposition: true };
     }
     if (kind === "composition.refresh" || kind === "composition.inferPipeline") {
+        if (inst.pipelineInferenceTaskKey) {
+            cancelBackgroundInference(inst, inst.pipelineInferenceTaskKey);
+            delete inst.pipelineInferenceTaskKey;
+        }
         const refresh = startRefresh(inst);
         const ownsWork = () => isCurrentRefresh(inst, refresh);
         const ensureCurrent = () => {
@@ -142,19 +147,22 @@ export async function dispatchKindPrompt(inst, kind, payload, {
             ensureCurrent();
             const context = { workspacePath, preset: inst?.state?.preset,
                 composition: inst?.state?.composition, ...counts };
-            const prompts = [];
-            if (fast.stage2Needed) prompts.push(buildPrompt(kind, { runId: refresh.id }, context));
-            const prompt = prompts.join("\n\n---\n\n");
-            await dispatchPromptToSession({
-                prompt,
-                send: (request) => {
-                    ensureCurrent();
-                    return send ? send(request) : sessionAdapter().send(request);
-                },
-                onError: (error) => {
-                    failWork();
-                    void sessionAdapter().log(`Composition refresh: ${error.message}`, "warning");
-                },
+            const prompt = buildPrompt(kind, { runId: refresh.id }, context);
+            const taskKey = `pipeline:${refresh.id}`;
+            inst.pipelineInferenceTaskKey = taskKey;
+            setImmediate(() => {
+                if (!ownsWork()) return;
+                void Promise.resolve().then(() => startInferenceTask(
+                    inst, { prompt }, sessionAdapter(), ownsWork, taskKey,
+                )).catch((error) => {
+                    if (inst.pipelineInferenceTaskKey === taskKey) {
+                        delete inst.pipelineInferenceTaskKey;
+                    }
+                    if (ownsWork()) {
+                        failWork();
+                        void sessionAdapter().log(`Composition refresh: ${error.message}`, "warning");
+                    }
+                });
             });
             return { prompt, kind };
         } catch (error) {

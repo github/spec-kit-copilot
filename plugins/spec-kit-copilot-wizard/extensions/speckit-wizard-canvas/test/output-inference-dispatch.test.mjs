@@ -4,7 +4,9 @@ import {
     beginOutputInference,
     createOutputInferenceWorker,
     failOutputInference,
+    finishOutputInference,
     outputInferenceProgress,
+    unassignedOutputRequests,
 } from "../canvas-runtime/output-inference.mjs";
 import { ensurePipelineOutputInference, waitForOutputInference } from "../canvas-runtime/output-inference-dispatch.mjs";
 import { attachOutputEvidence } from "../canvas-runtime/output-availability.mjs";
@@ -21,7 +23,7 @@ function fixture() {
     return inst;
 }
 
-test("inference dispatch is pipeline-scoped and uses at most three workers", async (t) => {
+test("inference dispatch batches current pipeline requests into one worker", async (t) => {
     const inst = fixture();
     t.after(() => clearTimeout(inst.outputInference?.timer));
     const requests = ["plan", "tasks", "review", "test", "deploy", "docs", "outside"].map(request);
@@ -42,12 +44,12 @@ test("inference dispatch is pipeline-scoped and uses at most three workers", asy
     await new Promise(setImmediate);
     assert.equal(result.queued, true);
     assert.equal(result.requests.length, 6);
-    assert.equal(dispatched.length, 3);
-    assert.equal(inst.outputInference.workers.size, 3);
+    assert.equal(dispatched.length, 1);
+    assert.equal(inst.outputInference.workers.size, 1);
     assert.deepEqual(dispatched.flatMap(({ commands }) => commands).sort(),
         ["speckit.plan", "speckit.tasks", "speckit.review", "speckit.test",
             "speckit.deploy", "speckit.docs"].sort());
-    assert.ok(dispatched.every(({ commands }) => commands.length <= 3));
+    assert.equal(dispatched[0].commands.length, 6);
 });
 
 test("new pipeline checks share active inference without cancelling useful workers", async (t) => {
@@ -69,11 +71,16 @@ test("new pipeline checks share active inference without cancelling useful worke
     await ensurePipelineOutputInference(inst, dependencies([{ id: "tasks" }], [request("tasks")]));
     await new Promise(setImmediate);
     assert.equal(inst.outputInference, firstInference);
-    assert.equal(firstInference.workers.size, 2);
-    assert.equal(dispatched.length, 2);
-    assert.deepEqual(new Set(dispatched.map(({ prompt }) => prompt)),
-        new Set(["speckit.plan", "speckit.tasks"]));
+    assert.equal(firstInference.workers.size, 1);
+    assert.equal(dispatched.length, 1);
+    assert.deepEqual(unassignedOutputRequests(firstInference).map(({ commandId }) => commandId),
+        ["speckit.tasks"]);
     assert.ok(firstInference.workers.has(firstWorker));
+    finishOutputInference(inst, firstInference, firstWorker, ["speckit.plan"]);
+    await new Promise(setImmediate);
+    assert.equal(firstInference.workers.size, 1);
+    assert.equal(dispatched.length, 2);
+    assert.equal(dispatched[1].prompt, "speckit.tasks");
 });
 
 test("progress ignores failed work outside the current pipeline request set", (t) => {

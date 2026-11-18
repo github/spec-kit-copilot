@@ -40,6 +40,7 @@ test("background task inherits runtime configuration and is cancellable without 
     assert.equal(f.calls[0].agentType, "general-purpose");
     assert.match(f.calls[0].prompt, /C:\\\\project/);
     assert.match(f.calls[0].prompt, /Do not install packages, edit project files, or delegate/);
+    assert.match(f.calls[0].prompt, /After the Wizard callback accepts your result.*only `Done\.`/);
     assert.match(f.calls[0].prompt, /Infer only these commands/);
     assert.equal(Object.hasOwn(f.calls[0], "model"), false);
     cancelBackgroundInference(f.inst);
@@ -62,6 +63,49 @@ test("supersession before dispatch starts no task and supersession during admiss
     await new Promise(setImmediate);
     assert.deepEqual(f.cancellations, ["late-worker"]);
     assert.equal(f.inst.backgroundInference, newer);
+});
+
+test("composition pipeline inference runs in one background task through its existing callback", async () => {
+    const f = fixture();
+    setSession(f.session);
+    try {
+        await dispatchKindPrompt(f.inst, "composition.refresh", {}, {
+            compose: async () => ({ ok: true, stage2Needed: true }),
+            getInstalledCounts: async () => ({}),
+        });
+        await new Promise(setImmediate);
+        assert.equal(f.calls.length, 1);
+        const runId = f.inst.refreshStatus.id;
+        assert.ok(f.calls[0].prompt.includes(`showInferredPipeline({ runId: "${runId}"`));
+        assert.equal(f.inst.pipelineInferenceTaskKey, `pipeline:${runId}`);
+        assert.equal(f.inst.refreshStatus.pipelinePending, true);
+    } finally {
+        setSession(null);
+        cancelBackgroundInference(f.inst);
+        clearTimeout(f.inst.refreshStatus?.timer);
+    }
+});
+
+test("a newer composition refresh cancels its superseded background task", async () => {
+    const f = fixture();
+    setSession(f.session);
+    try {
+        const deps = {
+            compose: async () => ({ ok: true, stage2Needed: true }),
+            getInstalledCounts: async () => ({}),
+        };
+        await dispatchKindPrompt(f.inst, "composition.refresh", {}, deps);
+        await new Promise(setImmediate);
+        await dispatchKindPrompt(f.inst, "composition.refresh", {}, deps);
+        await new Promise(setImmediate);
+        assert.equal(f.calls.length, 2);
+        assert.deepEqual(f.cancellations, ["worker-1"]);
+        assert.equal(f.inst.refreshStatus.pipelinePending, true);
+    } finally {
+        setSession(null);
+        cancelBackgroundInference(f.inst);
+        clearTimeout(f.inst.refreshStatus?.timer);
+    }
 });
 
 for (const reason of ["replacement refresh", "replacement inference", "failure"]) {

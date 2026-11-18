@@ -14,6 +14,7 @@
 import { withInstance } from "../instances.mjs";
 import { applyComposition } from "../composition-apply.mjs";
 import { finishRefreshPart } from "../refresh-status.mjs";
+import { releaseBackgroundInference } from "../background-inference.mjs";
 import { inferredPipelineInputSchema } from "../../contracts/agent-pipeline.mjs";
 import { assertReplyRunId, ReplyRunError } from "../../contracts/agent-replies.mjs";
 
@@ -34,6 +35,13 @@ export const compositionActions = [
                     const result = await applyComposition(inst, { inferredPipeline: ctx.input.inferredPipeline },
                         { assertCurrent, isCurrent,
                             onCommitted: () => finishRefreshPart(inst, "pipeline", refresh) });
+                    if (result.inferredPipelineStatus.accepted) {
+                        const taskKey = `pipeline:${refresh.id}`;
+                        releaseBackgroundInference(inst, taskKey);
+                        if (inst.pipelineInferenceTaskKey === taskKey) {
+                            delete inst.pipelineInferenceTaskKey;
+                        }
+                    }
                     return { ok: true, inferredPipelineStatus: result.inferredPipelineStatus };
                 } catch (error) {
                     if (!(error instanceof ReplyRunError)) throw error;

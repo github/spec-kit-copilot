@@ -471,21 +471,50 @@ test("pipeline prompt requires the captured runId and artifact prompts retain th
     assert.match(outputs, /Never reconstruct it or substitute a newer endpoint/);
 });
 
+test("accepted pipeline callback releases its background task", async () => {
+    await actionFixture(async (inst) => {
+        const pipeline = ["commands/speckit.specify", "commands/speckit.plan", "commands/speckit.tasks"];
+        inst.cachedComposition = { artifacts: pipeline.map((id) => ({ id, kind: "command" })) };
+        const refresh = startRefresh(inst);
+        const taskKey = `pipeline:${refresh.id}`;
+        inst.pipelineInferenceTaskKey = taskKey;
+        inst.backgroundInferences = new Map([[taskKey, { cancel() {} }]]);
+        const result = await compositionActions[0].handler({ instanceId: inst.instanceId, input: {
+            runId: refresh.id,
+            inferredPipeline: { shape: "standalone", pipeline, unplaced: [], rationale: "Specify, plan, then tasks" },
+        } });
+        assert.equal(result.inferredPipelineStatus.accepted, true);
+        assert.equal(inst.backgroundInferences.has(taskKey), false);
+        assert.equal(inst.pipelineInferenceTaskKey, undefined);
+        assert.equal(refresh.status, "up-to-date");
+    });
+});
+
 for (const kind of ["composition.refresh", "composition.inferPipeline", "extension.inferArtifactTargets"]) {
-    test(`${kind} dispatch issues its own correlated prompt rather than trusting caller run IDs`, async () => {
+    test(`${kind} dispatch uses its own correlated background task or callback rather than caller run IDs`, async () => {
         const inst = instance();
         const sent = [];
+        const tasks = [];
         try {
+            const deps = dispatchDeps((message) => sent.push(message));
+            deps.startInferenceTask = async (_inst, { prompt }, _session, isCurrent, taskKey) => {
+                assert.equal(isCurrent(), true);
+                tasks.push({ prompt, taskKey });
+            };
             const result = await dispatchKindPrompt(inst, kind, { runId: randomUUID(), endpoint: "caller-endpoint" },
-                dispatchDeps((message) => sent.push(message)));
+                deps);
             await new Promise(setImmediate);
-            assert.equal(sent.length, 1);
-            const prompt = sent[0].prompt;
-            assert.ok(!prompt.includes("caller-endpoint"));
             if (kind !== "extension.inferArtifactTargets") {
+                assert.equal(sent.length, 0);
+                assert.equal(tasks.length, 1);
+                const prompt = tasks[0].prompt;
                 assert.ok(prompt.includes(`runId: "${inst.refreshStatus.id}"`));
                 assert.ok(!prompt.includes("/api/artifact-targets?"));
+                assert.equal(tasks[0].taskKey, `pipeline:${inst.refreshStatus.id}`);
             } else {
+                assert.equal(tasks.length, 0);
+                assert.equal(sent.length, 1);
+                const prompt = sent[0].prompt;
                 const match = prompt.match(/http:\/\/127\.0\.0\.1:1234\/api\/artifact-targets\?[^ )]+/);
                 assert.ok(match);
                 const runId = new URL(match[0]).searchParams.get("runId");
@@ -493,6 +522,7 @@ for (const kind of ["composition.refresh", "composition.inferPipeline", "extensi
                 assert.equal(inst.refreshStatus, undefined);
                 assert.equal(result.fastComposition, true);
             }
+            assert.ok(![...sent, ...tasks].some((item) => item.prompt?.includes("caller-endpoint")));
         } finally {
             clearTimeout(inst.refreshStatus?.timer);
             clearTimeout(inst.outputInference?.timer);
@@ -723,14 +753,16 @@ for (const [stage, value, failure] of [
     });
 }
 
-test("a queued refresh send is skipped if a newer refresh starts before the deferred send", async () => {
+test("a queued refresh task is skipped if a newer refresh starts before dispatch", async () => {
     const inst = instance();
-    const sent = [];
+    const tasks = [];
     try {
-        await dispatchKindPrompt(inst, "composition.refresh", {}, dispatchDeps((message) => sent.push(message)));
+        const deps = dispatchDeps(() => assert.fail("pipeline inference must not enter chat"));
+        deps.startInferenceTask = async (...args) => { tasks.push(args); };
+        await dispatchKindPrompt(inst, "composition.refresh", {}, deps);
         startRefresh(inst);
         await new Promise(setImmediate);
-        assert.deepEqual(sent, []);
+        assert.deepEqual(tasks, []);
         assert.equal(inst.refreshStatus.status, "refreshing");
         assert.equal(inst.refreshStatus.pipelinePending, true);
         assert.equal(inst.refreshStatus.outputsPending, false);
@@ -741,15 +773,17 @@ test("a queued refresh send is skipped if a newer refresh starts before the defe
 });
 
 for (const retry of [null, "refresh", "inference"]) {
-    test(`deferred transport failure after ${retry ?? "no replacement"} affects only its owning work`, async () => {
+    test(`background task admission failure after ${retry ?? "no replacement"} affects only its owning work`, async () => {
         const inst = instance();
         const entered = deferred();
         const transport = deferred();
         try {
-            await dispatchKindPrompt(inst, "composition.refresh", {}, dispatchDeps(() => {
+            const deps = dispatchDeps(() => assert.fail("pipeline inference must not enter chat"));
+            deps.startInferenceTask = () => {
                 entered.resolve();
                 return transport.promise;
-            }));
+            };
+            await dispatchKindPrompt(inst, "composition.refresh", {}, deps);
             await entered.promise;
             if (retry === "refresh") {
                 startRefresh(inst);

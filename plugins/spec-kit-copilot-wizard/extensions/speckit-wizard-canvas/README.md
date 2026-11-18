@@ -175,8 +175,11 @@ while the phase runs. The Output(s) row shows "Retrieving outputs…" while thos
 details are pending. If Canvas Designer is launched before a phase has been run,
 the launch starts the same pipeline-scoped inference, waits for it to finish
 (the button reads "Launching…"), and then opens the Designer session.
-Fingerprint-matched cached outputs are reused. Output inference uses up to
-three concurrent background workers; refreshes, pipeline edits, and package
+When composition refresh needs LLM pipeline-order inference, it runs as a
+background task and applies its result through the existing run-correlated
+`showInferredPipeline` callback.
+Fingerprint-matched cached outputs are reused. One background worker handles
+all currently missing outputs at a time; refreshes, pipeline edits, and package
 removal do not cancel useful work or delete cached results. Removing a command,
 preset, or extension leaves its cache available if it is later restored.
 Before dispatch, the host reads requested effective `SKILL.md` files

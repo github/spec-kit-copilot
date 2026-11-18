@@ -38,11 +38,12 @@ export async function startBackgroundInference(inst, { prompt }, session, isCurr
     try {
         const result = await tasks.startAgent({
             agentType: "general-purpose",
-            name: "Wizard output inference",
-            description: "Infer output details for installed commands",
+            name: "Wizard inference",
+            description: "Infer metadata for the active Wizard pipeline",
             prompt: [
                 `Work only in this Wizard checkout: ${JSON.stringify(inst.workspacePath)}.`,
                 "This is a background metadata task, not a phase run. Do not install packages, edit project files, or delegate further work.",
+                "After the Wizard callback accepts your result, stop and return only `Done.` as your final response. Do not repeat results or provide progress in the conversation.",
                 prompt,
             ].join("\n\n"),
         });
