@@ -137,7 +137,9 @@ export function failOutputInference(inst, inference, workerId, reason = "output 
             inference.failures.set(id, { fingerprint: request.fingerprint, reason });
         }
         inference.pending.clear();
-        cancelBackgroundInference(inst);
+        for (const workerId of inference.workers.keys()) {
+            cancelBackgroundInference(inst, workerId);
+        }
         inference.workers.clear();
     }
     finishIfIdle(inst, inference);

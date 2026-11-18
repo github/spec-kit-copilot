@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { startBackgroundInference, cancelBackgroundInference } from "../canvas-runtime/background-inference.mjs";
 import { inferenceTaskApi, inferenceTaskId } from "../contracts/background-inference.mjs";
-import { beginOutputInference, failOutputInference } from "../canvas-runtime/output-inference.mjs";
+import {
+    beginOutputInference,
+    createOutputInferenceWorker,
+    failOutputInference,
+} from "../canvas-runtime/output-inference.mjs";
 import { startRefresh } from "../canvas-runtime/refresh-status.mjs";
 import { dispatchKindPrompt } from "../canvas-runtime/dispatch.mjs";
 import { setSession } from "../canvas-runtime/instances.mjs";
@@ -112,18 +116,19 @@ for (const reason of ["replacement refresh", "replacement inference", "failure"]
     test(`${reason} ${reason === "failure" ? "cancels" : "preserves"} the background worker`, async () => {
         const f = fixture();
         const request = { commandId: "speckit.example", fingerprint: "a".repeat(64) };
-        beginOutputInference(f.inst, [request], f.inst.refreshStatus);
-        const inference = f.inst.outputInference;
-        const workerId = "worker-1";
+        const inference = beginOutputInference(f.inst, [request], f.inst.refreshStatus);
+        const { worker } = createOutputInferenceWorker(f.inst, inference, [request]);
+        const workerKey = worker.id;
+        const agentId = "worker-1";
         try {
-            await startBackgroundInference(f.inst, { prompt: "infer" }, f.session, () => true, workerId);
+            await startBackgroundInference(f.inst, { prompt: "infer" }, f.session, () => true, workerKey);
             if (reason === "replacement refresh") startRefresh(f.inst);
             else if (reason === "replacement inference") beginOutputInference(f.inst, [request], f.inst.refreshStatus);
             else failOutputInference(f.inst, inference);
             await new Promise(setImmediate);
-            assert.deepEqual(f.cancellations, reason === "failure" ? [workerId] : []);
+            assert.deepEqual(f.cancellations, reason === "failure" ? [agentId] : []);
             if (reason !== "failure") {
-                assert.equal(f.inst.backgroundInferences.get(workerId)?.agentId, workerId);
+                assert.equal(f.inst.backgroundInferences.get(workerKey)?.agentId, agentId);
             }
         } finally {
             clearTimeout(inference.timer);

@@ -882,6 +882,32 @@ test("output inference failure does not mark refresh incomplete", () => {
     assert.equal(inst.refreshStatus.outputsPending, false);
 });
 
+test("output inference timeout cancels its workers without cancelling pipeline inference", () => {
+    const inst = { ...instance(), broadcast() {} };
+    const refresh = startRefresh(inst);
+    const endpoint = beginOutputInference(inst, [request], refresh);
+    const inference = inst.outputInference;
+    const outputWorkerId = endpoint.searchParams.get("runId");
+    const pipelineTaskKey = `pipeline:${refresh.id}`;
+    const cancelled = [];
+    inst.backgroundInferences = new Map([
+        [outputWorkerId, { cancel: () => cancelled.push(outputWorkerId) }],
+        [pipelineTaskKey, { cancel: () => cancelled.push(pipelineTaskKey) }],
+    ]);
+
+    try {
+        failInferenceWorker(inst, inference, undefined, "output inference timed out");
+
+        assert.deepEqual(cancelled, [outputWorkerId]);
+        assert.equal(inst.backgroundInferences.has(outputWorkerId), false);
+        assert.equal(inst.backgroundInferences.has(pipelineTaskKey), true);
+        assert.equal(refresh.status, "refreshing");
+    } finally {
+        clearTimeout(inference.timer);
+        clearTimeout(refresh.timer);
+    }
+});
+
 test("catalog changes do not request output inference, including removal", () => {
     for (const kind of ["preset.install", "preset.remove", "extension.install",
         "extension.remove", "bundle.install", "bundle.remove"]) {

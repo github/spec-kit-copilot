@@ -646,13 +646,14 @@ test("failed composition inference exposes retry and starts a new refresh", asyn
             });
         }
         const failedId = inst.refreshStatus.id;
+        await expect.poll(() => attempts).toBe(1);
         await refresh.click();
         await expect.poll(() => inst.refreshStatus.id).not.toBe(failedId);
         await expect(refresh).toHaveAttribute("aria-busy", "true");
         await expect.poll(() => prompts.length).toBe(2);
         expect(attempts).toBe(2);
     }, {
-        send: () => (++attempts === 1 ? Promise.reject(new Error("fixture inference failed"))
+        startInference: () => (++attempts === 1 ? Promise.reject(new Error("fixture inference failed"))
             : new Promise(() => {})),
     });
 });
@@ -696,6 +697,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
     let server;
     const prompts = [];
     const finishTurns = [];
+    const backgroundTasks = [];
     let foregroundTurns = 0;
     const setup = { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true };
     try {
@@ -732,6 +734,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
                 skills: { reload: async () => ({ errors: [], warnings: [] }) },
                 tasks: {
                     startAgent: async ({ prompt }) => {
+                        backgroundTasks.push(prompt);
                         prompts.push(prompt);
                         return { agentId: randomUUID() };
                     },
@@ -859,13 +862,15 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await expect(progress).toHaveText("");
         await expect(refresh).not.toHaveAttribute("aria-busy", "true");
         expect(inst.refreshStatus.status).toBe("up-to-date");
-        expect(foregroundTurns).toBe(2);
-        for (const finish of finishTurns.splice(0)) finish();
+        expect(foregroundTurns).toBe(0);
+        expect(backgroundTasks).toHaveLength(2);
         await page.getByRole("tab", { name: "Phases" }).click();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await page.locator("#phase-card").getByRole("button", { name: "Run phase" }).click();
-        await expect.poll(() => prompts.some((prompt) => prompt.includes("POST http://"))).toBe(true);
-        const outputPrompt = prompts.find((prompt) => prompt.includes("POST http://"));
+        await expect.poll(() => backgroundTasks.some((prompt) => prompt.includes("POST http://"))).toBe(true);
+        expect(foregroundTurns).toBe(1);
+        expect(backgroundTasks).toHaveLength(3);
+        const outputPrompt = backgroundTasks.find((prompt) => prompt.includes("POST http://"));
         const artifactEndpoint = outputPrompt.match(/POST (http:\/\/\S+) with JSON/)?.[1];
         expect(new URL(artifactEndpoint).searchParams.get("runId")).toBeTruthy();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
@@ -886,7 +891,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         const completed = await getState();
         expect(completed.artifactInferenceRequests.map((request) => request.commandId)).toEqual([]);
         expect(completed.refreshStatus).toBe("up-to-date");
-        expect(foregroundTurns).toBe(3);
+        expect(foregroundTurns).toBe(1);
         await expect(page.locator("#pipeline-banner")).toContainText("Pipeline updated");
         await expect(page.locator("#stepper")).toContainText(/review/i);
         await expect(page.locator("#stepper")).toContainText("Converge");
