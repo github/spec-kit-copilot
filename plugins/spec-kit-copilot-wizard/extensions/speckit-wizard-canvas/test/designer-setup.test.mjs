@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -23,8 +23,8 @@ const empty = { presets: [], extensions: [], bundles: [] };
 
 async function fixture(t, { installed = empty, selections = empty,
     localSelections, locators = empty, verifier = true } = {}) {
-    const project = await mkdtemp(join(tmpdir(), "designer-setup-child-"));
-    const root = await mkdtemp(join(tmpdir(), "designer-setup-session-"));
+    const project = await realpath(await mkdtemp(join(tmpdir(), "designer-setup-child-")));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "designer-setup-session-")));
     t.after(() => Promise.all([rm(project, { recursive: true, force: true }),
         rm(root, { recursive: true, force: true })]));
     await mkdir(join(project, ".specify"));
@@ -279,7 +279,7 @@ test("only frozen URL installs receive the Specify untrusted-source confirmation
 });
 
 test("approved local override supersedes the frozen runtime source and retains state", async (t) => {
-    const source = await mkdtemp(join(tmpdir(), "designer-local-preset-"));
+    const source = await realpath(await mkdtemp(join(tmpdir(), "designer-local-preset-")));
     t.after(() => rm(source, { recursive: true, force: true }));
     await writeFile(join(source, "preset.yml"),
         "preset:\n  id: pirate-full\n  name: Local override\n  version: 1.1.0\n");
@@ -488,7 +488,7 @@ test("catalog configuration is bounded and cannot be a symlink", async (t) => {
 });
 
 test("local dev-linked skills are detached before presets regenerate them", async (t) => {
-    const source = await mkdtemp(join(tmpdir(), "designer-linked-base-"));
+    const source = await realpath(await mkdtemp(join(tmpdir(), "designer-linked-base-")));
     t.after(() => rm(source, { recursive: true, force: true }));
     await writeFile(join(source, "extension.yml"),
         "extension:\n  id: extension-canvas-design\n  name: Local\n  version: 1.0.0\n");
@@ -530,8 +530,8 @@ test("local dev-linked skills are detached before presets regenerate them", asyn
 });
 
 test("append registration accepts an approved dev-linked preset but not another target", async (t) => {
-    const source = await mkdtemp(join(tmpdir(), "designer-linked-preset-"));
-    const other = await mkdtemp(join(tmpdir(), "designer-unapproved-preset-"));
+    const source = await realpath(await mkdtemp(join(tmpdir(), "designer-linked-preset-")));
+    const other = await realpath(await mkdtemp(join(tmpdir(), "designer-unapproved-preset-")));
     t.after(() => Promise.all([source, other].map((path) =>
         rm(path, { recursive: true, force: true }))));
     const manifest = "preset:\n  id: pirate-full\n  name: Test\n  version: 1.1.0\n"
@@ -616,8 +616,8 @@ test("bundle install failure cleans up its temporary download", async (t) => {
 test("real Specify composes commands and resolves templates in a fresh child", {
     skip: process.env.SPECIFY_E2E !== "1",
 }, async (t) => {
-    const project = await mkdtemp(join(tmpdir(), "designer-real-child-"));
-    const root = await mkdtemp(join(tmpdir(), "designer-real-session-"));
+    const project = await realpath(await mkdtemp(join(tmpdir(), "designer-real-child-")));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "designer-real-session-")));
     t.after(() => Promise.all([rm(project, { recursive: true, force: true }),
         rm(root, { recursive: true, force: true })]));
     const source = fileURLToPath(new URL("../../../../../spec-kit-extensions/extension-canvas-design/", import.meta.url))

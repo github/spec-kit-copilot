@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appendFile, link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { artifactPath, collectArtifactEvidence, commandId, effectiveSource, readEvidenceCache, writeEvidenceCache, validateCandidates,
@@ -645,7 +645,7 @@ test("cache reads reject a parent replaced by a link after validation", async ()
 test("cache writes replace a swapped destination link without changing its target", async () => {
     await fixture(async ({ root, write }) => {
         await write(".speckit-wizard/artifact-targets.json", '{"version":1,"entries":{}}');
-        const outside = await mkdtemp(join(tmpdir(), "evidence-write-"));
+        const outside = await mkdtemp(join(dirname(root), ".evidence-write-"));
         const external = join(outside, "unrelated.json");
         const payload = '{"version":1,"entries":{"commands/speckit.plan":{}}}\n';
         try {
@@ -721,7 +721,7 @@ test("scanner hydration never writes through a swapped cache link", async () => 
             },
         }));
         const cachePath = join(root, ".speckit-wizard", "artifact-targets.json");
-        const outside = await mkdtemp(join(tmpdir(), "evidence-scanner-write-"));
+        const outside = await mkdtemp(join(dirname(root), ".evidence-scanner-write-"));
         const external = join(outside, "unrelated.json");
         try {
             await writeFile(external, "leave untouched");

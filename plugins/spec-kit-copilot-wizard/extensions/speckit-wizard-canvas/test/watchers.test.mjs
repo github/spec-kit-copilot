@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -161,6 +162,59 @@ test("artifact watcher reports changes in the .github tree", async (t) => {
                 .then(() => { throw new Error(".github change was not observed"); }),
         ]);
         assert.deepEqual(message, { type: "state", data: {}, review: { kind: "artifact-set" } });
+    } finally {
+        timeoutController.abort();
+    }
+});
+
+test("Windows short-path workspaces retain state and artifact watchers", {
+    skip: process.platform !== "win32",
+}, async (t) => {
+    const workspacePath = await realpath(await mkdtemp(join(tmpdir(), "wizard-watch-short-")));
+    const inst = newInstance("short-path-watchers");
+    t.after(async () => {
+        stopStateWatcher(inst);
+        stopArtifactWatcher(inst);
+        await rm(workspacePath, { recursive: true, force: true });
+    });
+    const shortPath = execFileSync(process.env.ComSpec || "cmd.exe",
+        ["/d", "/c", 'for %I in ("%WIZARD_TEST_ROOT%") do @echo %~sI'], {
+            encoding: "utf8", windowsVerbatimArguments: true,
+            env: { ...process.env, WIZARD_TEST_ROOT: workspacePath },
+        }).trim();
+    assert.equal((await realpath(shortPath)).toLowerCase(), workspacePath.toLowerCase());
+    if (shortPath.toLowerCase() === workspacePath.toLowerCase()) {
+        t.skip("Windows short paths are unavailable on this volume");
+        return;
+    }
+    const stateDir = join(shortPath, ".speckit-wizard");
+    const githubDir = join(shortPath, ".github");
+    await mkdir(stateDir);
+    await mkdir(githubDir);
+    const statePath = join(stateDir, "state.json");
+    await writeFile(statePath, JSON.stringify({ setup: { projectInitialized: false } }));
+    inst.workspacePath = shortPath;
+    inst.state = (await readState(shortPath, fsDeps)).state;
+    const initialized = Promise.withResolvers();
+    const artifactChanged = Promise.withResolvers();
+    inst.broadcast = (message) => {
+        if (message.review?.kind === "artifact-set") artifactChanged.resolve();
+    };
+    await startStateWatcher(inst, {
+        snapshot: async () => ({}),
+        normalizeHookArtifactsInComposition: (composition) => composition,
+        onProjectInitialized: () => initialized.resolve(),
+    });
+    await startArtifactWatcher(inst, { snapshot: async () => ({}) });
+    await writeFile(statePath, JSON.stringify({ setup: { projectInitialized: true } }));
+    await writeFile(join(githubDir, "new.md"), "# Change");
+    const timeoutController = new AbortController();
+    try {
+        await Promise.race([
+            Promise.all([initialized.promise, artifactChanged.promise]),
+            delay(5000, undefined, { signal: timeoutController.signal })
+                .then(() => { throw new Error("short-path watcher changes were not observed"); }),
+        ]);
     } finally {
         timeoutController.abort();
     }

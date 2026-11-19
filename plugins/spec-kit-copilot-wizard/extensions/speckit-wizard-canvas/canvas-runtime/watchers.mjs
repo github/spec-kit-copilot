@@ -12,7 +12,7 @@
 // circular-import risk that a static import of `snapshot` would create.
 
 import { mkdir, stat } from "node:fs/promises";
-import { watch as fsWatch } from "node:fs";
+import { realpathSync, watch as fsWatch } from "node:fs";
 import { joinIfPossible } from "../env/workspace.mjs";
 import { readState } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
@@ -38,9 +38,13 @@ export async function startStateWatcher(inst, {
     if (!inst?.workspacePath) return;
     // Reopens can follow a reset that moved the watched directory to a backup.
     stopStateWatcher(inst);
-    const dir = joinIfPossible(inst.workspacePath, ".speckit-wizard");
-    if (!dir) return;
-    try { await mkdir(dir, { recursive: true }); } catch { /* best-effort */ }
+    const stateDir = joinIfPossible(inst.workspacePath, ".speckit-wizard");
+    if (!stateDir) return;
+    try { await mkdir(stateDir, { recursive: true }); } catch { /* best-effort */ }
+    // Windows fs.watch can abort the process for an 8.3 short-path alias.
+    const workspacePath = process.platform === "win32"
+        ? realpathSync.native(inst.workspacePath) : inst.workspacePath;
+    const dir = joinIfPossible(workspacePath, ".speckit-wizard");
     const scheduleRead = () => {
         if (inst._stateWatchDebounce) clearTimeout(inst._stateWatchDebounce);
         inst._stateWatchDebounce = setTimeout(async () => {
@@ -104,7 +108,7 @@ export async function startStateWatcher(inst, {
     };
     attachDirWatcher();
     try {
-        const rootWatcher = fsWatch(inst.workspacePath, { persistent: false }, (_event, filename) => {
+        const rootWatcher = fsWatch(workspacePath, { persistent: false }, (_event, filename) => {
             if (filename !== ".speckit-wizard") return;
             attachDirWatcher();
             inst._stateWatchLastMtimeMs = null;
@@ -142,10 +146,12 @@ export function stopStateWatcher(inst) {
 export async function startArtifactWatcher(inst, { snapshot }) {
     if (!inst?.workspacePath) return;
     stopArtifactWatcher(inst);
+    const workspacePath = process.platform === "win32"
+        ? realpathSync.native(inst.workspacePath) : inst.workspacePath;
     const roots = [
-        joinIfPossible(inst.workspacePath, ".specify"),
-        joinIfPossible(inst.workspacePath, "specs"),
-        joinIfPossible(inst.workspacePath, ".github"),
+        joinIfPossible(workspacePath, ".specify"),
+        joinIfPossible(workspacePath, "specs"),
+        joinIfPossible(workspacePath, ".github"),
     ].filter(Boolean);
 
     const scheduleRescan = () => {
@@ -191,9 +197,9 @@ export async function startArtifactWatcher(inst, { snapshot }) {
     // `specs`, or `.github` is created or replaced while the provider runs
     // (fs.watch follows a moved directory on Windows), and reattach.
     try {
-        const rootWatcher = fsWatch(inst.workspacePath, { persistent: false }, (_event, filename) => {
+        const rootWatcher = fsWatch(workspacePath, { persistent: false }, (_event, filename) => {
             if (typeof filename !== "string" || !filename) return;
-            const target = joinIfPossible(inst.workspacePath, filename);
+            const target = joinIfPossible(workspacePath, filename);
             if (!roots.includes(target)) return;
             attachRootWatcher(target);
             scheduleRescan();

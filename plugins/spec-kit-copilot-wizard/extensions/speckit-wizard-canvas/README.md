@@ -48,9 +48,8 @@ CLI) and gives you three complementary ways to work with them:
    the artifact via the matching `speckit-*` skill. Phase submissions require
    the plugin, CLI, project initialization, and skills reload to be complete;
    the server rejects submissions with incomplete setup. Review-bound
-   submissions require an available review service and are revalidated
-   against the current source before dispatch; the current viewer does not
-   provide a review service.
+   submissions use the Markdown viewer's review service, which revalidates
+   the current source and checks the dispatched clarification answers.
 
 Everything under the hood routes through the `spec-kit-copilot` plugin's
 skills, so the same guardrails and behaviors apply whether you drive
@@ -64,9 +63,11 @@ default presets, skills reload) and lights up each step as it completes.
 The Wizard's state and artifact watchers also watch the workspace root. If
 `.speckit-wizard/`, `.specify/`, `specs/`, or `.github/` is replaced, for example by a
 local reset that moves them into a backup, the watchers reattach without
-reopening the Wizard. Artifact watcher state events carry a nonvisual
-`review: { kind: "artifact-set" }` notice: it signals a possible change, not
-the identity of an artifact, and does not change the existing viewer.
+reopening the Wizard. On Windows, watch roots are resolved to canonical paths
+so short-path aliases remain usable. Artifact watcher state events carry a
+nonvisual `review: { kind: "artifact-set" }` notice: it signals a possible change, not
+the identity of an artifact. The reader refreshes available artifacts and
+flags changed content.
 
 ![Setup → Environment page](../../../../docs/images/wizard-environment.png)
 
