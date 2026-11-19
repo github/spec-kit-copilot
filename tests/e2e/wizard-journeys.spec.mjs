@@ -562,9 +562,12 @@ test("phase status and execution report reach the stepper, then verified output 
         await page.locator("#stepper .step").first().click();
         await expect(page.locator("#phase-card").getByRole("button", { name: "Rerun phase" })).toBeVisible();
         await page.locator("#phase-card").getByRole("button", { name: "View artifact" }).click();
-        await expect(page.locator("#phase-artifact-viewer .artifact-viewer-md")).toContainText("A verified output.");
-        await page.locator("#phase-artifact-viewer").getByRole("button", { name: /Wizard/ }).click();
-        await expect(page.locator("#phase-artifact-viewer")).toBeHidden();
+        const viewer = page.locator("#phase-artifact-viewer");
+        const article = viewer.getByRole("article");
+        await expect(article.getByRole("heading", { name: "Controlled constitution" })).toBeVisible();
+        await expect(article).toContainText("A verified output.");
+        await viewer.getByRole("button", { name: /Wizard/ }).click();
+        await expect(viewer).toBeHidden();
         await expect(page.locator("#phase-card").getByRole("button", { name: "View artifact" })).toBeVisible();
         const retry = page.waitForResponse((res) => res.url().includes("/api/phase/submit")
             && res.request().method() === "POST");
