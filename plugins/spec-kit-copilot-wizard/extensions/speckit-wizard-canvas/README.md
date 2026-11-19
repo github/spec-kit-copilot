@@ -45,7 +45,12 @@ CLI) and gives you three complementary ways to work with them:
    ```
 3. **Execute the lifecycle.** Drive every phase from the **Phases** tab —
    click a phase in the pipeline, fill its form, watch the agent produce
-   the artifact via the matching `speckit-*` skill.
+   the artifact via the matching `speckit-*` skill. Phase submissions require
+   the plugin, CLI, project initialization, and skills reload to be complete;
+   the server rejects submissions with incomplete setup. Review-bound
+   submissions require an available review service and are revalidated
+   against the current source before dispatch; the current viewer does not
+   provide a review service.
 
 Everything under the hood routes through the `spec-kit-copilot` plugin's
 skills, so the same guardrails and behaviors apply whether you drive
@@ -57,9 +62,11 @@ Spec Kit from the wizard, from chat, or from the `specify` CLI.
 default presets, skills reload) and lights up each step as it completes.
 
 The Wizard's state and artifact watchers also watch the workspace root. If
-`.speckit-wizard/`, `.specify/`, or `specs/` is replaced, for example by a
+`.speckit-wizard/`, `.specify/`, `specs/`, or `.github/` is replaced, for example by a
 local reset that moves them into a backup, the watchers reattach without
-reopening the Wizard.
+reopening the Wizard. Artifact watcher state events carry a nonvisual
+`review: { kind: "artifact-set" }` notice: it signals a possible change, not
+the identity of an artifact, and does not change the existing viewer.
 
 ![Setup → Environment page](../../../../docs/images/wizard-environment.png)
 

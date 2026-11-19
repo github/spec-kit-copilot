@@ -6,7 +6,12 @@ Please note that this project is released with a [Contributor Code of Conduct](C
 
 ## About this repository
 
-This repository is a [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli) **skills plugin**. It does not contain application code — it is a set of Markdown skill files that teach the Copilot agent how and when to drive the Spec Kit [`specify`](https://github.com/github/spec-kit) CLI. Its layout is:
+This repository is the **Copilot integration hub for Spec Kit**. Its core
+[GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli)
+skills plugin teaches Copilot how and when to drive the Spec Kit
+[`specify`](https://github.com/github/spec-kit) CLI. It also hosts independently
+maintained plugins, presets, extensions, and other integration surfaces. The core
+plugin's layout is:
 
 - `plugin.json` — the plugin manifest (required).
 - `skills/<name>/SKILL.md` — one skill per `specify` command group (YAML frontmatter + Markdown body).

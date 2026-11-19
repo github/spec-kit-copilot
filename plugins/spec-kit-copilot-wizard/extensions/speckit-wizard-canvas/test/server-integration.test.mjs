@@ -116,7 +116,7 @@ function baseDeps(overrides = {}) {
         getState: async () => ({
             workspacePath: "/proj",
             currentPhase: "setup",
-            setup: { cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
             preset: "core",
             phases: {},
             slug: null,
@@ -321,6 +321,119 @@ test("POST /api/phase/submit with unknown phase returns 400", async () => {
     const res = mockRes();
     await h(req, res);
     assert.equal(res.statusCode, 400);
+});
+
+test("POST /api/phase/submit rejects incomplete setup for both dispatch paths", async () => {
+    const ready = { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true };
+    for (const missing of Object.keys(ready)) {
+        for (const body of [{ commandName: "speckit.constitution" }, { phase: "constitution" }]) {
+            const deps = baseDeps({ getState: async () => ({ setup: { ...ready, [missing]: false } }) });
+            const res = mockRes();
+            await createHandler(deps)(mockReq({
+                method: "POST",
+                url: "/api/phase/submit?token=secret-token",
+                body: JSON.stringify(body),
+            }), res);
+            assert.equal(res.statusCode, 409, `${missing}: ${JSON.stringify(body)}`);
+            assert.match(JSON.parse(res.body).error, /Complete setup/);
+            assert.deepEqual(deps._sessionCalls, []);
+        }
+    }
+});
+
+test("POST /api/phase/submit accepts live environment readiness and rejects unavailable review data", async () => {
+    const deps = baseDeps({
+        getState: async () => ({
+            environment: { pluginInstalled: true, cliInstalled: true },
+            projectInitialized: true,
+            setup: { skillsReloaded: true },
+        }),
+    });
+    const handler = createHandler(deps);
+    for (const [body, expected] of [
+        [{ phase: "constitution" }, 202],
+        [{ commandName: "speckit.constitution", review: { contextId: "unavailable" } }, 409],
+    ]) {
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST",
+            url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify(body),
+        }), res);
+        assert.equal(res.statusCode, expected, res.body);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(deps._sessionCalls.length, 1);
+});
+
+test("review-bound submissions validate the source again after setup is checked", async () => {
+    const calls = [];
+    let failure;
+    const reviewService = {
+        async validateClarifications(...args) {
+            calls.push(args);
+            if (failure && calls.length === failure.call) {
+                throw Object.assign(new Error("Review rejected"), { code: failure.code });
+            }
+        },
+    };
+    const deps = baseDeps({
+        getInstance: () => ({ workspacePath: "/proj", state: {}, reviewService }),
+    });
+    const handler = createHandler(deps);
+    const review = {
+        contextId: "context", artifactId: "artifact", expectedRevision: "revision",
+        answers: [{ questionId: "question", question: "Why?", answer: "Because" }],
+    };
+    async function submit() {
+        const res = mockRes();
+        await handler(mockReq({
+            method: "POST",
+            url: "/api/phase/submit?token=secret-token",
+            body: JSON.stringify({ commandName: "speckit.constitution", review }),
+        }), res);
+        return res;
+    }
+
+    assert.equal((await submit()).statusCode, 202);
+    assert.deepEqual(calls, Array(2).fill([
+        review.contextId, review.artifactId, review.expectedRevision, review.answers, "speckit.constitution",
+    ]));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(deps._sessionCalls.length, 1);
+
+    for (const [code, call, expected] of [
+        ["invalid_request", 1, 400], ["changed_source", 2, 409], ["read_failed", 1, 500],
+    ]) {
+        calls.length = 0;
+        failure = { code, call };
+        assert.equal((await submit()).statusCode, expected);
+        assert.equal(calls.length, call);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(deps._sessionCalls.length, 1);
+    }
+});
+
+test("review-bound submissions reject a replaced review service", async () => {
+    const inst = {
+        workspacePath: "/proj", state: {},
+        reviewService: { validateClarifications: async () => {} },
+    };
+    const deps = baseDeps({
+        getInstance: () => inst,
+        getState: async () => {
+            inst.reviewService = { validateClarifications: async () => {} };
+            return { setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true } };
+        },
+    });
+    const res = mockRes();
+    await createHandler(deps)(mockReq({
+        method: "POST",
+        url: "/api/phase/submit?token=secret-token",
+        body: JSON.stringify({ commandName: "speckit.constitution", review: { contextId: "old" } }),
+    }), res);
+    assert.equal(res.statusCode, 409);
+    assert.deepEqual(deps._sessionCalls, []);
 });
 
 test("GET /api/artifact requires ?p=", async () => {
@@ -601,7 +714,11 @@ function baseDeps({ workspacePath, extras = {} } = {}) {
         _sessionCalls: sessionCalls,
         session,
         log: async () => {},
-        getState: async () => ({ workspacePath, currentPhase: "setup", setup: {}, preset: "core", phases: {}, slug: null }),
+        getState: async () => ({
+            workspacePath, currentPhase: "setup",
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+            preset: "core", phases: {}, slug: null,
+        }),
         getInstance: () => ({ instanceId: "test-instance", workspacePath, state: {} }),
         broadcast: () => {},
         registerSse: () => {},

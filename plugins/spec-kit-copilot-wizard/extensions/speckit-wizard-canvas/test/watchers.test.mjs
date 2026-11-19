@@ -131,7 +131,36 @@ test("a live project reset still observes replacement artifact directories", asy
             delay(3000, undefined, { signal: timeoutController.signal })
                 .then(() => { throw new Error("replacement artifact directory was not observed"); }),
         ]);
-        assert.deepEqual(message, { type: "state", data: { artifact: "# Initialized project" } });
+        assert.deepEqual(message, {
+            type: "state", data: { artifact: "# Initialized project" }, review: { kind: "artifact-set" },
+        });
+    } finally {
+        timeoutController.abort();
+    }
+});
+
+test("artifact watcher reports changes in the .github tree", async (t) => {
+    const workspacePath = await mkdtemp(join(tmpdir(), "wizard-artifact-github-"));
+    const githubDir = join(workspacePath, ".github");
+    await mkdir(githubDir);
+    const inst = newInstance("artifact-github");
+    inst.workspacePath = workspacePath;
+    t.after(async () => {
+        stopArtifactWatcher(inst);
+        await rm(workspacePath, { recursive: true, force: true });
+    });
+    const updated = Promise.withResolvers();
+    inst.broadcast = (message) => updated.resolve(message);
+    await startArtifactWatcher(inst, { snapshot: async () => ({}) });
+    await writeFile(join(githubDir, "new.md"), "# Change");
+    const timeoutController = new AbortController();
+    try {
+        const message = await Promise.race([
+            updated.promise,
+            delay(3000, undefined, { signal: timeoutController.signal })
+                .then(() => { throw new Error(".github change was not observed"); }),
+        ]);
+        assert.deepEqual(message, { type: "state", data: {}, review: { kind: "artifact-set" } });
     } finally {
         timeoutController.abort();
     }

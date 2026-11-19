@@ -338,7 +338,7 @@ export function createHandler(deps) {
                 const postRoutes = {
                     "/api/prompt": () => handlePrompt(res, body, { session, log, broadcast, getInstance,
                         catalogOperation: deps.catalogOperation }),
-                    "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance }),
+                    "/api/phase/submit": () => handlePhaseSubmit(res, body, { session, log, broadcast, getInstance, getState }),
                     "/api/pipeline": () => handlePipelineMutation(res, body, { getState, broadcast, getInstance }),
                     "/api/artifact-targets": () => handleArtifactTargets(res, body,
                         { broadcast, getInstance, runId: url.searchParams.get("runId") }),
@@ -382,7 +382,7 @@ export function createHandler(deps) {
                     },
                 };
                 const route = postRoutes[url.pathname];
-                if (route) return route();
+                if (route) return await route();
             }
 
             return jsonError(res, 404, "not found");

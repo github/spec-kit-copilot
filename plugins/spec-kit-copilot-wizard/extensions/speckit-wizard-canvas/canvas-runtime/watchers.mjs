@@ -2,7 +2,7 @@
 //
 // `startStateWatcher` observes `.speckit-wizard/state.json` so external
 // edits (agent tools, human editors) reflect in the UI immediately.
-// `startArtifactWatcher` observes `.specify/` and `specs/` (recursively
+// `startArtifactWatcher` observes `.specify/`, `specs/`, and `.github/` (recursively
 // where supported) so artifact changes trigger a re-scan without waiting
 // for the next canvas action.
 //
@@ -16,6 +16,7 @@ import { watch as fsWatch } from "node:fs";
 import { joinIfPossible } from "../env/workspace.mjs";
 import { readState } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
+import { artifactSetNotice } from "../contracts/artifact-notice.mjs";
 
 // --------------------------- state.json file watcher ------------------------
 // Watches `.speckit-wizard/state.json` for external edits (agent tools,
@@ -132,7 +133,7 @@ export function stopStateWatcher(inst) {
 }
 
 // --------------------------- artifact file watcher --------------------------
-// Watches `.specify/` and `specs/` (recursive where the OS supports it) so
+// Watches `.specify/`, `specs/`, and `.github/` (recursive where supported) so
 // that when a skill writes constitution.md, spec.md, plan.md, tasks.md, etc.
 // — or the user edits them by hand — the wizard rescans and re-broadcasts
 // without waiting for the next canvas action. Complements the state.json
@@ -144,6 +145,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
     const roots = [
         joinIfPossible(inst.workspacePath, ".specify"),
         joinIfPossible(inst.workspacePath, "specs"),
+        joinIfPossible(inst.workspacePath, ".github"),
     ].filter(Boolean);
 
     const scheduleRescan = () => {
@@ -152,7 +154,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
             inst._artifactWatchDebounce = null;
             try {
                 const snap = await snapshot(inst);
-                inst.broadcast({ type: "state", data: snap });
+                inst.broadcast({ type: "state", data: snap, review: artifactSetNotice() });
             } catch {
                 // best-effort watcher; UI will pick up state on next event
             }
@@ -186,7 +188,7 @@ export async function startArtifactWatcher(inst, { snapshot }) {
     for (const root of roots) attachRootWatcher(root);
 
     // Watch the workspace root (non-recursive) so we notice when `.specify`
-    // or `specs` is created, or replaced by a reset while the provider runs
+    // `specs`, or `.github` is created or replaced while the provider runs
     // (fs.watch follows a moved directory on Windows), and reattach.
     try {
         const rootWatcher = fsWatch(inst.workspacePath, { persistent: false }, (_event, filename) => {

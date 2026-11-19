@@ -1,6 +1,6 @@
 ---
 name: speckit-bundle
-description: 'Discover, install, and author Spec Kit bundles via `specify bundle`. USE FOR: searching/showing/listing bundles, installing/updating/removing a bundle (a curated set of extensions/presets/integrations/workflows), validating a bundle manifest, building a distributable bundle artifact, initializing a project and installing a bundle, managing bundle catalog sources. DO NOT USE FOR: individual extensions/presets/integrations/workflows (use their respective skills).'
+description: 'Discover, install, and author Spec Kit bundles via `specify bundle`. USE FOR: searching/showing/listing bundles, installing/updating/removing a bundle (a curated set of extensions/presets/integrations/workflows), validating a bundle manifest, building a distributable bundle artifact, initializing a project and installing a bundle, managing bundle catalog sources. DO NOT USE FOR: individual extensions/presets/workflows (use their respective skills), or individual integrations.'
 argument-hint: '<search|info|list|install|update|remove|validate|build|init|catalog> [bundle id or path]'
 ---
 

@@ -2,6 +2,7 @@
 
 import { state, SETUP_STEPS, SETUP_TAB_PHASE_KEYS } from "./state.js";
 import { escapeHtml, dispatchKind, runCatalogAction, waitForSnapshot } from "./client.js";
+import { isPhaseSetupReady } from "../contracts/setup-readiness.mjs";
 
 // -------- Section: setup/state.js --------
 
@@ -70,15 +71,7 @@ export function isSetupComplete() {
     // Phases/Catalogs/Composition tabs stay locked (state.json's
     // `setup.pluginInstalled` / `setup.cliInstalled` are never written by
     // any flow — the env probe result is cached in-memory only).
-    const setup = state.snapshot?.setup ?? {};
-    const env = state.snapshot?.environment ?? {};
-    const pluginOk = !!env.pluginInstalled || !!setup.pluginInstalled;
-    const cliOk = !!env.cliInstalled || !!setup.cliInstalled;
-    return pluginOk &&
-        cliOk &&
-        (!!state.snapshot?.projectInitialized || !!setup.projectInitialized) &&
-        !!setup.skillsReloaded &&
-        !state.setupRowRunning;
+    return isPhaseSetupReady(state.snapshot) && !state.setupRowRunning;
 }
 
 export function refreshTabLock() {
