@@ -61,7 +61,8 @@ and a matching entry in this directory's `catalog.json`; no workflow edit is
 needed when adding another extension.
 
 Packaging rejects missing or non-file assets declared under `provides`,
-including command files, templates, and configuration templates. The ZIP is
+including command files, templates, and configuration templates, as well as
+symlinks in the package root or contents. The ZIP is
 verified against the complete package file inventory before a tag is created.
 
 Direct pushes of `extension-<name>-vX.Y.Z` tags run the same publisher
@@ -76,5 +77,6 @@ original Actions run to retry the same commit. An existing tag is reused only
 if it points to that commit; a tag pointing elsewhere is rejected and never
 moved. Publication uses the same single `gh release create` command as preset
 releases; existing releases are not overwritten or repaired automatically.
+Release notes use the extension's changelog when available.
 If a code fix is needed after tagging, release a new version instead of moving
 the old tag.

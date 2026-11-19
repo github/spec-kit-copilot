@@ -18,6 +18,23 @@ plugin's layout is:
 - `.github/plugin/marketplace.json` — the marketplace manifest used for distribution.
 - `AGENTS.md` — maintainer guidance and the design decisions behind the plugin. **Read this before adding, removing, or regenerating skills.**
 
+## Scope and package placement
+
+Maintainers decide where a contribution belongs based on its purpose, audience,
+ownership, maintenance burden, and duplication of existing functionality:
+
+- **This repository** hosts integrations and packages maintained for the Copilot
+  experience. Shipping presets and Specify extensions must depend on Copilot-specific
+  tools or mechanisms.
+- **Core Spec Kit** is the natural home for shared capabilities and agent-neutral
+  behavior intended for the common product.
+- **External repositories** can host independently maintained or specialized
+  packages that neither project needs to own.
+
+Portability alone neither qualifies nor disqualifies other contributions.
+Discuss uncertain placement with the maintainers before implementing it; avoid
+importing unrelated generic packages simply to expand the catalog.
+
 ## Prerequisites
 
 1. Install the [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/about-copilot-cli).

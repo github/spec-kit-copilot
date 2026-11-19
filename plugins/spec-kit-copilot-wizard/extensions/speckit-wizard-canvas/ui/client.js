@@ -350,6 +350,7 @@ export function handleServerMessage(msg) {
                     delete state.snapshot.composition.executionReports;
                 }
             }
+            if (document.body.classList.contains("artifact-review-open")) break;
             renderComposition();
             // The pipeline stepper and active phase card read from
             // composition.inferredPipeline via pipelineItems(); refresh

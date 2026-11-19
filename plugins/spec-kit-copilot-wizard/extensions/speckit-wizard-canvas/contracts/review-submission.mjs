@@ -10,3 +10,12 @@ export async function validateReviewSubmission(service, review, commandName) {
         review.contextId, review.artifactId, review.expectedRevision, review.answers, commandName,
     );
 }
+
+export function formatReviewAnswers(answers) {
+    return answers.map(({ question, answer }) => `Clarification - ${question}\nAnswer: ${answer.trim()}`).join("\n\n");
+}
+
+export function reviewAnswersMatchArguments(args, answers) {
+    const suffix = formatReviewAnswers(answers);
+    return args === suffix || args.endsWith(`\n\n${suffix}`);
+}

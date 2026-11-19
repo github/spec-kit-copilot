@@ -58,6 +58,9 @@ The agent opens the dashboard in a side panel. See
 - **Rendered artifact preview** — view `spec.md`, `plan.md`, `tasks.md`, and the
   constitution as formatted headings, lists, code, blockquotes, and tables in a
   dedicated full-width canvas view with a **Back to dashboard** control.
+  The preview also includes a heading outline, related-artifact selection,
+  history, and revision-aware refresh. See
+  [Markdown Artifact Review](../../../../docs/markdown-artifact-review.md).
 - **Targeted clarification** — `[NEEDS CLARIFICATION: …]` markers in a spec render
   a **Clarify** action. The canvas requires an answer in a confirmation dialog
   before it sends a validated `clarify` run for that feature to the agent.

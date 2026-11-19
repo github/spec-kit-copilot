@@ -13,8 +13,7 @@ on:
         type: string
   push:
     tags:
-      - '*-v[0-9]+.[0-9]+.[0-9]+'
-      - '!extension-*'
+      - 'copilot-*-v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   release:
@@ -50,9 +49,20 @@ jobs:
             exit 1
           fi
 
+          if [[ -L "spec-kit-presets" || -L "spec-kit-presets/$PRESET_ID" ]]; then
+            echo "Error: Preset package path must not be a symlink" >&2
+            exit 1
+          fi
+
           # Validate preset directory exists
           if [[ ! -d "spec-kit-presets/$PRESET_ID" ]]; then
             echo "Error: Preset directory 'spec-kit-presets/$PRESET_ID' not found" >&2
+            exit 1
+          fi
+
+          SYMLINK=$(find -P "spec-kit-presets/$PRESET_ID" -type l -print -quit)
+          if [[ -n "$SYMLINK" ]]; then
+            echo "Error: Cannot release package containing symlink '$SYMLINK'" >&2
             exit 1
           fi
 
@@ -95,40 +105,36 @@ jobs:
           fi
 
       - name: Generate release notes
-        id: notes
+        env:
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          VERSION="${{ steps.parse.outputs.version }}"
           CHANGELOG="spec-kit-presets/$PRESET_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
 
-          {
-            echo 'body<<EOF'
-            if [[ -f "$CHANGELOG" ]]; then
-              # Extract the section for this version from CHANGELOG.md
-              awk -v ver="$VERSION" '
-                /^## \[/ {
-                  if (found) exit
-                  if (index($0, ver)) found=1
-                }
-                found { print }
-              ' "$CHANGELOG"
-            else
-              echo "Release $PRESET_ID v$VERSION"
-            fi
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          if [[ -f "$CHANGELOG" ]]; then
+            # Extract the section for this version from CHANGELOG.md
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Release $PRESET_ID v$VERSION" > "$NOTES"
+          fi
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRESET_ID: ${{ steps.parse.outputs.preset_id }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          VERSION: ${{ steps.parse.outputs.version }}
         run: |
-          PRESET_ID="${{ steps.parse.outputs.preset_id }}"
-          TAG="${{ steps.parse.outputs.tag }}"
-          VERSION="${{ steps.parse.outputs.version }}"
-
           gh release create "$TAG" \
             "$PRESET_ID.zip" \
             --verify-tag \
             --latest=false \
             --title "$PRESET_ID v$VERSION" \
-            --notes "${{ steps.notes.outputs.body }}"
+            --notes-file "$RUNNER_TEMP/release-notes.md"

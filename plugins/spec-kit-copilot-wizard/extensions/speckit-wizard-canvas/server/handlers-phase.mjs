@@ -11,7 +11,7 @@ import { jsonError, jsonRes } from "./http-utils.mjs";
 import { catalogOperationKind } from "../contracts/catalog-operation.mjs";
 import { catalogFailure, runCatalogOperation } from "../canvas-runtime/catalog-operations.mjs";
 import { isPhaseSetupReady } from "../contracts/setup-readiness.mjs";
-import { validateReviewSubmission } from "../contracts/review-submission.mjs";
+import { reviewAnswersMatchArguments, validateReviewSubmission } from "../contracts/review-submission.mjs";
 
 export async function handlePrompt(res, body, { log, getInstance, catalogOperation = runCatalogOperation }) {
     const kind = body?.kind;
@@ -117,9 +117,13 @@ export async function handlePhaseSubmit(res, body, deps) {
         if (body.review && deps.getInstance?.()?.reviewService !== service) {
             return jsonError(res, 409, "Review context is not available.");
         }
+        const args = typeof body.args === "string" ? body.args : "";
+        if (body.review && !reviewAnswersMatchArguments(args, body.review.answers)) {
+            return jsonError(res, 400, "Dispatched arguments must include the validated clarification answers.");
+        }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
-            args: typeof body.args === "string" ? body.args : "",
+            args,
             allowEmpty: body.allowEmpty !== false,
             track: true,
         }, deps);
