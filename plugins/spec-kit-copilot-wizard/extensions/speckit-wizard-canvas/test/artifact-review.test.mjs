@@ -438,6 +438,28 @@ test("Wizard source entry points accept only scoped folder files and current com
     await assert.rejects(service.open({ source: ".specify/templates/unlisted.md" }), { code: "artifact_unavailable" });
 }));
 
+test("Wizard discovers and opens installed nested command skills", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const artifact = { id: "commands/speckit.assess.intake", kind: "command", stack: [] };
+    const source = ".github/skills/speckit-assess-intake/SKILL.md";
+    assert.equal(artifactSourcePath(artifact, null), source);
+    assert.equal(artifactSourcePath({ id: "commands/speckit.plan", kind: "command" }, null),
+        ".github/skills/speckit-plan/SKILL.md");
+    await fs.mkdir(join(root, ".github/skills/speckit-assess-intake"), { recursive: true });
+    await fs.writeFile(join(root, source), "# Assess intake skill\n");
+    snapshot.composition.artifacts = [artifact];
+
+    const opened = await service.open({ stage: "specify" });
+    const page = await service.list(opened.contextId);
+    const skill = page.items.find((item) => item.relativePath === source);
+    assert.ok(skill);
+    assert.equal(skill.role, "command");
+    assert.equal(skill.owningCommand, "speckit.assess.intake");
+    assert.equal((await service.content(opened.contextId, skill.id)).content, "# Assess intake skill\n");
+
+    const direct = await service.open({ source });
+    assert.equal((await service.content(direct.contextId, direct.primaryArtifactId)).content, "# Assess intake skill\n");
+}));
+
 test("Wizard retains the composition UI's conventional template source previews", () => serviceFixture(async ({ root, snapshot, service }) => {
     const artifact = { id: "templates/spec-template", kind: "template", stack: [] };
     const source = artifactSourcePath(artifact, null);

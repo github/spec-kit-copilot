@@ -462,7 +462,7 @@ export function wizardPrimaryScope(snapshot, selection, workspacePath) {
         if (artifact.kind !== "command") continue;
         const name = String(artifact.id).replace(/^commands\//, "");
         if (!/^speckit\.[a-z0-9.-]+$/i.test(name)) continue;
-        const relativePath = `.github/skills/${name.replace(/^speckit\./, "speckit-")}/SKILL.md`;
+        const relativePath = `.github/skills/${name.replaceAll(".", "-")}/SKILL.md`;
         candidates.push({ relativePath, label: name, role: "command", owningCommand: name });
     }
     let stage = selection.stage?.replace(/^commands\//, "").replace(/^speckit[.-]/, "");

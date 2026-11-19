@@ -13,7 +13,9 @@ preview has room and a keyboard-accessible drawer in narrower containers.
 
 The artifact selector includes the selected feature's supporting documents,
 contracts, checklists, and available project constitution. Wizard also
-supports command and template sources already known to its composition.
+supports command and template sources already known to its composition. Nested
+commands follow Copilot skill naming: for example, `speckit.assess.intake` maps
+to `.github/skills/speckit-assess-intake/SKILL.md`.
 Relative Markdown links open scoped documents in the same reader. Back and
 forward arrows select the previous or next available Markdown document in the
 current folder, in natural filename order, without requiring prior visits.
