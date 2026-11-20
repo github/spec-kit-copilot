@@ -856,11 +856,21 @@ class CopilotBehaviorTests(unittest.TestCase):
                     f"{plan_detail}\n",
                     encoding="utf-8",
                 )
-                verify_tasks = f"tasks.startswith({before!r})" if mixed else f"tasks == {before!r}"
-                (project / "convergence-hook.py").write_text(
+                remediation = r"^- \[ \] T006 (?=.*label\.txt)(?=.*\b(?:FR-002|T005)\b)"
+                if mixed:
+                    verify_tasks = (
+                        f"assert tasks.startswith({before!r})\n"
+                        f"assert re.search({remediation!r}, tasks[{len(before)}:].decode(), re.M), "
+                        "'T006 remediation must be appended before after_converge'\n"
+                    )
+                else:
+                    verify_tasks = f"assert tasks == {before!r}\n"
+                hook_script = project / "convergence-hook.py"
+                hook_script.write_text(
                     "from pathlib import Path\n"
+                    "import re\n"
                     "tasks = Path('specs/fixture/tasks.md').read_bytes()\n"
-                    f"assert {verify_tasks}\n"
+                    f"{verify_tasks}"
                     "with Path('convergence-hook.log').open('a') as output:\n"
                     "    output.write('after_converge\\n')\n"
                     "print('AFTER_CONVERGE_COMPLETED')\n", encoding="utf-8",
@@ -880,6 +890,14 @@ class CopilotBehaviorTests(unittest.TestCase):
                 if blocked:
                     (feature / "spec.md").unlink()
                 hook_log = project / "convergence-hook.log"
+                if mixed:
+                    premature = subprocess.run(
+                        ["python3", str(hook_script)], cwd=project, text=True,
+                        capture_output=True, timeout=30,
+                    )
+                    self.assertNotEqual(premature.returncode, 0)
+                    self.assertIn("T006 remediation must be appended before after_converge", premature.stderr)
+                    self.assertFalse(hook_log.exists())
                 for run in range(1, (2 if mixed else 1) + 1):
                     result = subprocess.run(
                         [
@@ -911,8 +929,7 @@ class CopilotBehaviorTests(unittest.TestCase):
                         self.assertEqual(re.findall(r"^## .+", addition, re.M), ["## Phase 3: Convergence"])
                         appended = re.findall(r"^- \[.\] .+", addition, re.M)
                         self.assertEqual(len(appended), 1)
-                        self.assertRegex(appended[0], r"^- \[ \] T006 .*label\.txt")
-                        self.assertRegex(appended[0], r"\b(?:FR-002|T005)\b")
+                        self.assertRegex(appended[0], remediation)
                         before = after
                     else:
                         self.assertEqual(after, before, "Existing open work must not be duplicated or rewritten")
