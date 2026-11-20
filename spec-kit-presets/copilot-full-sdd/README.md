@@ -7,11 +7,14 @@ Source: [GitHub Spec Kit core commands](https://github.com/github/spec-kit/tree/
 at revision `27d14e20c187c1f2916540ea201ecbdc9f8ed588`.
 Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
-The upstream commands are imported with only extension lifecycle-hook dispatch,
-its separators, and dependent branch/report/checklist references deleted. No
-instructions are added or rewritten; questioning, execution, and validation
-instructions otherwise remain identical to the pinned core sources. Script metadata
-and portable command references remain for Specify to render for the project.
+The upstream commands omit extension lifecycle-hook dispatch,
+its separators, and dependent branch/report/checklist references. The only other
+deviation is in `specify`: it rejects missing or whitespace-only descriptions
+before writing files, uses the resolved template only for new specs, preserves
+unrelated content in an explicitly selected existing spec, and sets the active
+feature only after saving the spec. Its quality checklist and validation flow
+remain unchanged. Script metadata and portable command references remain for
+Specify to render for the project.
 This is a Specify preset, not a `copilot plugin` package.
 
 ## Installation and prerequisites
@@ -49,7 +52,7 @@ prerequisites. They are supplied by `specify init`, not bundled again here.
 | Command | Required context | Output / safeguards |
 | --- | --- | --- |
 | `constitution` | Resolved constitution template, project context, principles | `.specify/memory/constitution.md`; governance-only scope, version/date/placeholder validation, Sync Impact Report |
-| `specify` | Feature description, resolved spec template; constitution if present | `<feature>/spec.md`, `feature.json`, `checklists/requirements.md`; testable requirements, measurable success criteria, bounded clarification and validation iterations |
+| `specify` | Nonblank feature description; resolved spec template for a new spec or `SPECIFY_FEATURE_DIRECTORY` for an existing spec; constitution if present | Creates or edits `<feature>/spec.md` before setting `.specify/feature.json`; retains unrelated authored content on updates; writes `checklists/requirements.md` with bounded clarification and validation iterations |
 | `clarify` | Active `spec.md`; constitution if present | Up to five targeted questions; incremental spec updates, coverage report, built-in quality checklist revalidation |
 | `plan` | `spec.md`, constitution, resolved plan template | `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, interface `contracts/` where applicable; resolve unknowns and evaluate constitution gates before/after design |
 | `tasks` | `spec.md`, `plan.md`, resolved tasks template; available design artifacts | `tasks.md`; user-story phases, dependency graph, file paths, task IDs, parallel markers and independent test criteria; test tasks only when requested |
@@ -91,9 +94,11 @@ each preset with its own compatible CLI. Leaving `FULL_SPECIFY_BIN` unset skips
 only Full's real-CLI checks, even when `SPECIFY_BIN` is set for Lean.
 Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
 Set `FULL_CORE_SOURCE` to a checkout of the pinned Spec Kit source for
-authenticated source comparison: every command must exactly match core with
-only the enumerated hook-related deletions, with no added bytes after normalizing
-CRLF line endings to LF. Digest, source, and archive comparisons use the same
+source comparison against pinned Git blob IDs. Eight commands must exactly match
+core with only the enumerated hook-related deletions and no added bytes. For
+`specify`, the tests verify both the hook-stripped upstream baseline and the
+reviewed downstream version, including an exact match for the quality workflow.
+Digest, source, and archive comparisons use the same CRLF-to-LF
 normalization so checkout line-ending conversion does not change their results.
 These checks cover package and instruction contracts, not model compliance or
 runtime guarantees.
