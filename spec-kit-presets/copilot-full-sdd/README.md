@@ -54,6 +54,7 @@ catalog install, then run the same resolution check:
 
 ```bash
 specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-full-sdd
+specify preset resolve speckit.plan
 ```
 
 See the shared [release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution)
