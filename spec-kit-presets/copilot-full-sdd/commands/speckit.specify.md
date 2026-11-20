@@ -22,6 +22,8 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 The text the user typed after `__SPECKIT_COMMAND_SPECIFY__` in the triggering message **is** the feature description. Assume you always have it available in this conversation even if `{ARGS}` appears literally below. Do not ask the user to repeat it unless they provided an empty command.
 
+Trim whitespace from the feature description. If it is absent or whitespace-only, report ERROR "No feature description provided" and stop before creating directories or writing any files, including `.specify/feature.json`.
+
 Given that feature description, do this:
 
 1. **Generate a concise short name** (2-4 words) for the feature:
@@ -36,7 +38,7 @@ Given that feature description, do this:
      - "Create a dashboard for analytics" → "analytics-dashboard"
      - "Fix payment processing timeout bug" → "fix-payment-timeout"
 
-3. **Create the spec feature directory**:
+2. **Resolve the spec feature directory**:
 
    Specs live under the default `specs/` directory unless the user explicitly provides `SPECIFY_FEATURE_DIRECTORY`.
 
@@ -50,11 +52,46 @@ Given that feature description, do this:
       - Set `SPECIFY_FEATURE_DIRECTORY` to `specs/<directory-name>`
       - If `branch_numbering` was used (and `feature_numbering` was absent), emit a one-line warning: "⚠️ `branch_numbering` in init-options.json is deprecated. Rename to `feature_numbering`."
 
-   **Create the directory and spec file**:
-   - `mkdir -p SPECIFY_FEATURE_DIRECTORY`
-   - Resolve the active `spec-template` through the Spec Kit preset/template resolution stack (equivalent to `specify preset resolve spec-template`)
-   - Copy the resolved `spec-template` file to `SPECIFY_FEATURE_DIRECTORY/spec.md` as the starting point
-   - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`
+   **IMPORTANT**:
+   - You must only create one feature per `__SPECKIT_COMMAND_SPECIFY__` invocation
+   - The spec directory name and the git branch name are independent — they may be the same but that is the user's choice
+
+3. **Choose the specification's starting content**:
+   - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`.
+   - If the directory was explicitly selected and `SPEC_FILE` exists, read it and use it as the starting point. Apply targeted edits for the requested change, preserving unrelated authored sections, requirements, identifiers, and decisions. Do not resolve or copy a template for an existing spec.
+   - If an auto-generated directory already exists, report the collision and stop without changing it or the active feature pointer. An existing spec may only be updated by explicitly selecting its directory.
+   - If `SPEC_FILE` does not exist, resolve the active `spec-template` through the Spec Kit preset/template resolution stack (equivalent to `specify preset resolve spec-template`) and use its contents as the draft structure. Do not write the template to `SPEC_FILE` as an intermediate step.
+
+4. **IF EXISTS**: Load `/memory/constitution.md` for project principles and governance constraints.
+
+5. Follow this execution flow for the new specification or the sections affected by the requested change:
+    1. Extract key concepts from description
+       Identify: actors, actions, data, constraints
+    2. For unclear aspects:
+       - Make informed guesses based on context and industry standards
+       - Only mark with [NEEDS CLARIFICATION: specific question] if:
+         - The choice significantly impacts feature scope or user experience
+         - Multiple reasonable interpretations exist with different implications
+         - No reasonable default exists
+       - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
+       - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
+    3. Fill User Scenarios & Testing section
+       If no clear user flow: ERROR "Cannot determine user scenarios"
+    4. Generate Functional Requirements
+       Each requirement must be testable
+       Use reasonable defaults for unspecified details (document assumptions in Assumptions section)
+    5. Define Success Criteria
+       Create measurable, technology-agnostic outcomes
+       Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
+       Each criterion must be verifiable without implementation details
+    6. Identify Key Entities (if data involved)
+
+6. **Save the specification**:
+   - For a new spec, create the feature directory if needed and write the completed draft to `SPEC_FILE`, replacing template placeholders with concrete details while preserving template section order and headings. Do not overwrite a spec that appeared after the initial check.
+   - For an existing spec, save only the targeted edits to `SPEC_FILE`. Keep unrelated authored content intact, including during checklist-driven revisions and clarification.
+   - If drafting or saving the spec fails, report the error and stop without changing `.specify/feature.json`.
+
+7. **Set the active feature only after successfully saving `SPEC_FILE`**:
    - Persist the resolved path to `.specify/feature.json`:
      ```json
      {
@@ -63,42 +100,7 @@ Given that feature description, do this:
      ```
      Write the actual resolved directory path value (for example, `specs/003-user-auth`), not the literal string `SPECIFY_FEATURE_DIRECTORY`.
      This allows downstream commands (`__SPECKIT_COMMAND_PLAN__`, `__SPECKIT_COMMAND_TASKS__`, etc.) to locate the feature directory without relying on git branch name conventions.
-
-   **IMPORTANT**:
-   - You must only create one feature per `__SPECKIT_COMMAND_SPECIFY__` invocation
-   - The spec directory name and the git branch name are independent — they may be the same but that is the user's choice
-   - The spec directory and file are always created by this command
-
-4. Load the resolved active `spec-template` file to understand required sections.
-
-5. **IF EXISTS**: Load `/memory/constitution.md` for project principles and governance constraints.
-
-6. Follow this execution flow:
-    1. Parse user description from arguments
-       If empty: ERROR "No feature description provided"
-    2. Extract key concepts from description
-       Identify: actors, actions, data, constraints
-    3. For unclear aspects:
-       - Make informed guesses based on context and industry standards
-       - Only mark with [NEEDS CLARIFICATION: specific question] if:
-         - The choice significantly impacts feature scope or user experience
-         - Multiple reasonable interpretations exist with different implications
-         - No reasonable default exists
-       - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
-       - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
-    4. Fill User Scenarios & Testing section
-       If no clear user flow: ERROR "Cannot determine user scenarios"
-    5. Generate Functional Requirements
-       Each requirement must be testable
-       Use reasonable defaults for unspecified details (document assumptions in Assumptions section)
-    6. Define Success Criteria
-       Create measurable, technology-agnostic outcomes
-       Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
-       Each criterion must be verifiable without implementation details
-    7. Identify Key Entities (if data involved)
-    8. Return: SUCCESS (spec ready for planning)
-
-7. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
+   - If saving the pointer fails, report that `SPEC_FILE` was saved but the active feature could not be set. Do not report the feature as ready for downstream commands.
 
 8. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
 
@@ -200,8 +202,6 @@ Report completion to the user with:
 - Checklist results summary
 - Readiness for the next phase (`__SPECKIT_COMMAND_CLARIFY__` or `__SPECKIT_COMMAND_PLAN__`)
 
-**NOTE:** Spec directory and file creation are always handled by this core command.
-
 ## Quick Guidelines
 
 - Focus on **WHAT** users need and **WHY**.
@@ -213,7 +213,7 @@ Report completion to the user with:
 
 - **Mandatory sections**: Must be completed for every feature
 - **Optional sections**: Include only when relevant to the feature
-- When a section doesn't apply, remove it entirely (don't leave as "N/A")
+- For new specs, omit sections that don't apply (don't leave them as "N/A"). When editing an existing spec, keep unrelated authored sections.
 
 ### For AI Generation
 
@@ -266,4 +266,5 @@ Success criteria must be:
 ## Done When
 
 - [ ] Specification written to `SPEC_FILE` and validated against quality checklist
+- [ ] `.specify/feature.json` points to the saved feature directory
 - [ ] Completion reported to user with feature directory, spec file path, and checklist results

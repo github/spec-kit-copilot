@@ -27,10 +27,10 @@ FORBIDDEN = (
     "hooks.before_", "hooks.after_", "Extension Hooks",
     "Mandatory Post-Execution Hooks", "before_specify",
 )
-# Pinned core imports with only hook-related deletions.
-IMPORT_SHA256 = {
+# Reviewed command bodies: hook-stripped core, plus the specify write safeguards.
+REVIEWED_SHA256 = {
     "constitution": "775a220b62d7d59b8740df9f01b36465478cea511e619d21ae3d558599946143",
-    "specify": "090c4af532316e6529373e722d7957bec2f27cd74b3f18d525fdbeeaa1aae320",
+    "specify": "bb1543d4527e9edf336fca129277eeb40c76a52ee2980a5ce0366ae131cb76ce",
     "clarify": "dcae481e2a2934576ee9ba8278c37b6d911d423b2087fbd456b48d8619ba21c6",
     "plan": "018293a3440991384ff13b7c5b1bc328d652296fa6304db8c5ad93f9df31605f",
     "tasks": "acd75ba6d4a46704cd2fea7a05bb7578533a9e0b283b14c6140a28c8cd0a22a6",
@@ -39,6 +39,7 @@ IMPORT_SHA256 = {
     "implement": "7658bcbfff7a78bfb8f6e3ae29b50b7f327f9e6da1e0cf1f57fcc27c5d4e1b55",
     "converge": "2a3cbec425ccf205e7d048f0629584f0d3242d2b92402da196a0c3022198c79e",
 }
+HOOK_STRIPPED_SPECIFY_SHA256 = "090c4af532316e6529373e722d7957bec2f27cd74b3f18d525fdbeeaa1aae320"
 CORE_GIT_BLOBS = {
     "analyze": "7de2d28f0da797998e5e30d6323b7316a74e60ff",
     "checklist": "6e33f5d4225c539fa1c3860e5409f098a6a8d827",
@@ -106,8 +107,9 @@ class FullPackageTests(unittest.TestCase):
         self.assertIn("27d14e20c187c1f2916540ea201ecbdc9f8ed588/templates/commands", readme)
         self.assertIn(f"**{self.manifest['preset']['version']}**", readme)
 
-    def test_reviewed_full_imports_remain_intact(self):
-        for name, digest in IMPORT_SHA256.items():
+    def test_reviewed_full_commands_remain_intact(self):
+        self.assertEqual(REVIEWED_SHA256.keys(), COMMANDS)
+        for name, digest in REVIEWED_SHA256.items():
             with self.subTest(command=name):
                 content = lf_bytes((PACKAGE / f"commands/speckit.{name}.md").read_bytes())
                 for ending in (b"\n", b"\r\n"):
@@ -122,7 +124,7 @@ class FullPackageTests(unittest.TestCase):
         self.assertNotEqual(lf_bytes(content + b" "), content)
 
     @unittest.skipUnless(os.environ.get("FULL_CORE_SOURCE"), "Set FULL_CORE_SOURCE for authenticated core comparison")
-    def test_only_hook_deletions_from_authenticated_core(self):
+    def test_authenticated_core_comparison(self):
         source = Path(os.environ["FULL_CORE_SOURCE"]) / "templates/commands"
         for name in sorted(COMMANDS):
             with self.subTest(command=name):
@@ -154,9 +156,21 @@ class FullPackageTests(unittest.TestCase):
                     )
                 expected = expected.rstrip("\n") + "\n"
                 actual = lf_bytes((PACKAGE / f"commands/speckit.{name}.md").read_bytes())
-                self.assertEqual(actual, expected.encode(), "Non-hook instructions must match after LF normalization")
+                if name == "specify":
+                    self.assertEqual(hashlib.sha256(expected.encode()).hexdigest(), HOOK_STRIPPED_SPECIFY_SHA256)
+                    self.assertEqual(hashlib.sha256(actual).hexdigest(), REVIEWED_SHA256[name])
+                    quality_blocks = []
+                    for text in (expected, actual.decode()):
+                        _, start, rest = text.partition("\n8. **Specification Quality Validation**")
+                        quality, end, _ = rest.partition("\n## Completion Report")
+                        self.assertTrue(start and end, "Quality workflow must be present")
+                        quality_blocks.append(quality)
+                    self.assertEqual(*quality_blocks, "Specify quality workflow must match core exactly")
+                else:
+                    self.assertEqual(actual, expected.encode(), "Non-hook instructions must match after LF normalization")
                 source_iterator = iter(original)
-                self.assertTrue(all(byte in source_iterator for byte in actual), "No added bytes allowed")
+                hook_stripped = expected.encode() if name == "specify" else actual
+                self.assertTrue(all(byte in source_iterator for byte in hook_stripped), "No added bytes allowed")
 
     def test_no_lifecycle_dispatch_and_preserved_script_metadata(self):
         for name, text in self.commands.items():
