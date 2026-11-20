@@ -1,5 +1,5 @@
 ---
-description: Assess the current codebase against the feature's spec, plan, and tasks, then append any remaining unbuilt work as new tasks to tasks.md so implement can complete it.
+description: Assess the current codebase against the feature's spec, plan, and tasks, then append only remaining work not already covered by open tasks.
 scripts:
   sh: scripts/bash/check-prerequisites.sh --json --require-spec --require-tasks --include-tasks
   ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireSpec -RequireTasks -IncludeTasks
@@ -20,17 +20,20 @@ Close the gap between what a feature's specification, plan, and tasks call for a
 codebase currently implements. Read `spec.md`, `plan.md`, and `tasks.md` as the **sole
 source of intent** (with the constitution as governing constraints), assess the current
 state of the code, determine which requirements, acceptance criteria, plan decisions, and
-existing tasks are unmet, incomplete, or only partially satisfied, and **append each piece
-of remaining work as a new, traceable task** at the bottom of `tasks.md` so that
+existing tasks are unmet, incomplete, or only partially satisfied, and **append only
+remaining work not already covered by open tasks** at the bottom of `tasks.md` so that
 `__SPECKIT_COMMAND_IMPLEMENT__` can complete it. This command MUST run only after
-`__SPECKIT_COMMAND_IMPLEMENT__` has run on the current `tasks.md`, and after `__SPECKIT_COMMAND_TASKS__` has produced a complete `tasks.md`.
+`__SPECKIT_COMMAND_TASKS__` has produced a complete `tasks.md` and
+`__SPECKIT_COMMAND_IMPLEMENT__` has attempted implementation for the feature.
+A repeat assessment does not require another implementation pass on tasks appended
+by an earlier Convergence run.
 
 This is **not** a diff tool and does **not** track changes. It assesses the present state
 of the code relative to the feature's artifacts — no git, no branch comparison, no history.
 
 ## Operating Constraints
 
-**APPEND-ONLY, NEVER REWRITE**: The command's **only** write is appending a new
+**APPEND-ONLY, NEVER REWRITE**: The command's **only permitted write** is appending a new
 `## Phase N: Convergence` section to `tasks.md`. It MUST NOT:
 
 - modify `spec.md` or `plan.md` in any way;
@@ -39,13 +42,14 @@ of the code relative to the feature's artifacts — no git, no branch comparison
 - modify, create, or delete any application code — completing the appended tasks is the
   job of `__SPECKIT_COMMAND_IMPLEMENT__`.
 
-When the codebase already satisfies everything, the command MUST leave `tasks.md`
-**byte-for-byte unchanged** (no empty Convergence header) and report a clean result.
+When no new tasks are needed, the command MUST leave `tasks.md`
+**byte-for-byte unchanged** (no empty Convergence header). Report a clean result only
+when the assessment finds no remaining work.
 
 **Constitution Authority**: The project constitution (`/memory/constitution.md`) is
 **non-negotiable**. Code that violates a MUST principle is the highest-severity finding and
-produces a corresponding remediation task. If the constitution is an unfilled template,
-skip constitution checks gracefully rather than failing.
+requires a corresponding remediation task unless already covered by an open task. If the
+constitution is an unfilled template, skip constitution checks gracefully rather than failing.
 
 ## Execution Steps
 
@@ -84,7 +88,7 @@ Load only the minimal necessary context from each artifact:
 **From tasks.md:**
 
 - Task IDs (to compute the next ID and next phase number)
-- Descriptions, phase grouping, and referenced file paths
+- Checkbox states, descriptions, phase grouping, source references, and referenced file paths
 
 **From constitution (if not an unfilled template):**
 
@@ -125,6 +129,14 @@ For each item in the intent inventory, inspect the current code in scope and pro
 Each `Finding` records: a stable id, the `source-ref` it traces to, the `gap-type`, a
 severity, and a short human-readable description with the evidence (the file/area observed).
 
+For every actionable finding, compare the concrete remaining work with unchecked
+tasks (`- [ ]`) across all phases, including prior Convergence phases. If open tasks
+already cover the work, mark the finding **already tracked** and record the covering
+task IDs. Match by the work those tasks would complete, not by exact wording or a
+shared source reference alone. If open tasks cover only part of the work, report
+the tracked portion and append only the uncovered remainder. A checked task alone
+does not cover a still-unmet finding; that finding remains eligible for a new task.
+
 **Edge cases:**
 
 - **Little or no code yet**: treat the entire specified scope as `missing` remaining work
@@ -147,9 +159,12 @@ Before appending anything, output a compact, severity-graded summary (no file wr
 
 ## Convergence Findings
 
-| ID | Gap Type | Severity | Source | Evidence | Remaining Work |
-|----|----------|----------|--------|----------|----------------|
-| F1 | missing  | HIGH     | FR-008 | Example: no append-only guard detected in path/to/module.py when writing tasks.md | Add append-only enforcement |
+| ID | Gap Type | Severity | Source | Evidence | Remaining Work | Tracking |
+|----|----------|----------|--------|----------|----------------|----------|
+| F1 | missing  | HIGH     | FR-008 | Example: no append-only guard detected in path/to/module.py when writing tasks.md | Add append-only enforcement | Already tracked by T041 |
+
+Report already-tracked findings alongside uncovered findings. Cite the open task IDs
+for tracked work and distinguish any uncovered remainder that needs a new task.
 
 **Summary metrics:**
 
@@ -159,17 +174,18 @@ Before appending anything, output a compact, severity-graded summary (no file wr
 - Findings by gap type (missing / partial / contradicts / unrequested)
 - Findings by severity
 
-### 7. Append Convergence Tasks (or report converged)
+### 7. Append Convergence Tasks (or report without changes)
 
-**If there are one or more actionable findings** (`tasks_appended` outcome):
+**If there is any uncovered actionable work** (`tasks_appended` outcome):
 
 Append to the **end** of `tasks.md`, per the append contract:
 
 1. Scan all existing task IDs; let `M` be the maximum. Determine the next phase number `N`
    (highest existing phase + 1).
 2. Write a single new section header `## Phase N: Convergence`.
-3. Emit one checklist item per actionable finding, ordered CRITICAL/HIGH first, assigning
-   zero-padded IDs `T{M+1:03d}, T{M+2:03d}, …`:
+3. Emit one checklist item per actionable finding with uncovered work, describing only
+   that uncovered work. Order CRITICAL/HIGH first, assigning zero-padded IDs
+   `T{M+1:03d}, T{M+2:03d}, …`:
 
    ```markdown
    - [ ] T042 <imperative description> per <source-ref> (<gap-type>)
@@ -185,7 +201,13 @@ Append to the **end** of `tasks.md`, per the append contract:
 4. Never reuse or renumber existing IDs. If a prior Convergence phase exists, add a new,
    separately-numbered one below it — do not touch the old one.
 
-**If there are no actionable findings** (`converged` outcome):
+**If all remaining work is already tracked by open tasks**:
+
+- Do **not** modify `tasks.md` at all.
+- Report that work remains, cite the covering task IDs, and state that no new tasks
+  were appended. Do not report `converged` or `tasks_appended`.
+
+**If a completed assessment finds no remaining work** (`converged` outcome):
 
 - Do **not** modify `tasks.md` at all — no empty phase header.
 - Report: **"✅ Converged — the implementation satisfies the spec, plan, and tasks."**
@@ -194,7 +216,9 @@ Append to the **end** of `tasks.md`, per the append contract:
 ### 8. Provide Next Actions (Handoff)
 
 - On `tasks_appended`: state how many tasks were appended under which phase, and recommend
-  running `__SPECKIT_COMMAND_IMPLEMENT__` to complete them; note that a follow-up converge
-  run will find fewer or no remaining items.
+  running `__SPECKIT_COMMAND_IMPLEMENT__` to complete them and any already-tracked work
+  identified above.
+- When remaining work is already tracked and nothing was appended, recommend running
+  `__SPECKIT_COMMAND_IMPLEMENT__` on the cited open tasks before assessing again.
 - On `converged`: recommend proceeding to review / opening a PR. No further implement pass
   is needed for this feature's specified scope.

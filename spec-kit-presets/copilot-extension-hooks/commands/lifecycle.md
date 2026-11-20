@@ -26,7 +26,7 @@ Apply these checkpoints exactly once per invocation:
      its summary.
    - For `analyze`, after the analysis report and remediation offer.
    - For `converge`, after producing and reporting `converged` or `tasks_appended`
-     in-session, before listing hooks. A completed Lean assessment that reports
+     in-session, before listing hooks. A completed Lean or Full assessment that reports
      remaining work already covered by existing open tasks also reaches this
      checkpoint, even when nothing is appended. This is not convergence and must
      not be reported as such. Blocked or unverified assessments do not reach it.
