@@ -25,24 +25,39 @@ mode** and its installed core templates and workflow scripts from that release.
 The preset is pinned to this released CLI version, independently of the command
 source revision above. No extensions are required.
 
-**Initial release pending.** The catalog reserves the normal release URL; no
-tag, release, or asset is created by adding this source. For local development
-in a disposable project:
+Install the published [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-full-sdd-v1.0.0)
+by preset ID from the registered catalog. For a new project, install the required
+CLI and initialize the project in Copilot skills mode:
 
 ```bash
 uv tool install "specify-cli==1.2.3"
 specify init /path/to/full-project --integration copilot --integration-options="--skills" --non-interactive
 cd /path/to/full-project
-specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-full-sdd
+```
+
+From the project directory, register the catalog once with installs allowed, then
+add the preset and verify command resolution:
+
+```bash
+specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+  --name spec-kit-copilot --install-allowed
+specify preset add copilot-full-sdd
 specify preset resolve speckit.plan
 ```
 
-After publication, register the [preset catalog](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#installing-a-preset)
-and run `specify preset add copilot-full-sdd`. See the shared
-[release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution) for distribution.
 Installation generates `.github/skills/speckit-<command>/SKILL.md`.
 Run `/skills reload` after generated skills change in the current Copilot
 session; new sessions discover them automatically.
+
+For local development in a disposable project, use this command instead of the
+catalog install, then run the same resolution check:
+
+```bash
+specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-full-sdd
+```
+
+See the shared [release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution)
+for distribution.
 
 ## Full artifact and command contract
 
