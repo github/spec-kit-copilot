@@ -1,0 +1,38 @@
+name: Preset validation
+
+on:
+  pull_request:
+    paths:
+      - 'spec-kit-presets/**'
+      - '.github/workflows/preset-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Preset unit and CLI smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Run preset tests with released Specify CLIs
+        shell: bash
+        run: |
+          lean="$RUNNER_TEMP/specify-lean"
+          full="$RUNNER_TEMP/specify-full"
+          python -m venv "$lean"
+          python -m venv "$full"
+          "$lean/bin/python" -m pip install 'specify-cli==1.0.8'
+          "$full/bin/python" -m pip install 'specify-cli==1.2.3' -r spec-kit-presets/tests/requirements.txt
+
+          export SPECIFY_BIN="$lean/bin/specify"
+          export FULL_SPECIFY_BIN="$full/bin/specify"
+          "$SPECIFY_BIN" --version
+          "$FULL_SPECIFY_BIN" --version
+          "$full/bin/python" -m unittest discover -s spec-kit-presets/tests -v
