@@ -107,6 +107,21 @@ spec-kit-presets/
     └── commands/
 ```
 
+## Validation
+
+The [Preset validation workflow](../.github/workflows/preset-validation.yml)
+runs on pull requests that touch this directory or the workflow itself. It runs
+the unit suite and installs and renders both SDD presets with released Specify
+CLIs: 1.0.8 for Lean (its minimum supported version) and 1.2.3 for Full (its
+required version). The CLIs use separate Python virtual environments.
+
+To run the suite locally from the repository root, install the dependencies in
+`spec-kit-presets/tests/requirements.txt` and run
+`python -m unittest discover -s spec-kit-presets/tests -v`. To include both CLI
+smoke tests, set `SPECIFY_BIN` and `FULL_SPECIFY_BIN` to the absolute paths of
+the respective `specify` executables. The release-archive checks, Full upstream
+source comparison, and extension hook CLI and Copilot exercises remain opt-in.
+
 ## Versioning & distribution
 
 Presets are versioned and released **independently** of the Copilot plugins in this
