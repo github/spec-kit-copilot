@@ -45,7 +45,11 @@ CLI) and gives you three complementary ways to work with them:
    ```
 3. **Execute the lifecycle.** Drive every phase from the **Phases** tab —
    click a phase in the pipeline, fill its form, watch the agent produce
-   the artifact via the matching `speckit-*` skill.
+   the artifact via the matching `speckit-*` skill. Phase submissions require
+   the plugin, CLI, project initialization, and skills reload to be complete;
+   the server rejects submissions with incomplete setup. Review-bound
+   submissions use the Markdown viewer's review service, which revalidates
+   the current source and checks the dispatched clarification answers.
 
 Everything under the hood routes through the `spec-kit-copilot` plugin's
 skills, so the same guardrails and behaviors apply whether you drive
@@ -57,9 +61,13 @@ Spec Kit from the wizard, from chat, or from the `specify` CLI.
 default presets, skills reload) and lights up each step as it completes.
 
 The Wizard's state and artifact watchers also watch the workspace root. If
-`.speckit-wizard/`, `.specify/`, or `specs/` is replaced, for example by a
+`.speckit-wizard/`, `.specify/`, `specs/`, or `.github/` is replaced, for example by a
 local reset that moves them into a backup, the watchers reattach without
-reopening the Wizard.
+reopening the Wizard. On Windows, watch roots are resolved to canonical paths
+so short-path aliases remain usable. Artifact watcher state events carry a
+nonvisual `review: { kind: "artifact-set" }` notice: it signals a possible change, not
+the identity of an artifact. The reader refreshes available artifacts and
+flags changed content.
 
 ![Setup → Environment page](../../../../docs/images/wizard-environment.png)
 
@@ -79,7 +87,19 @@ artifacts, provide input, and run the matching `speckit-*` skill.
 
 ![Phases page](../../../../docs/images/wizard-phases.png)
 
-### Browser tests
+### Tests
+
+From this extension directory, run `npm ci` followed by `npm test` for the unit,
+HTTP service, UI, and regression suites. The extension declares its own test
+dependencies; installing the nested Markdown reader package is not required for
+this command. Use Node 24.19.0 / npm 11.17.0 for the reader's pinned validation
+toolchain.
+
+Regenerate dependency lockfiles against `https://registry.npmjs.org/`, preserving
+public HTTPS tarball URLs and SHA-512 integrity. The Markdown reader package's
+contract tests enforce this for both package lockfiles.
+
+For browser tests:
 
 Install the Specify CLI separately (`uv tool install specify-cli` or
 `pipx install specify-cli`) and ensure `specify` is on `PATH`:
@@ -154,6 +174,10 @@ The agent opens the wizard in a side panel. See
   phase in your lifecycle. Each phase corresponds to a command you
   execute — customize the commands in the pipeline, provide input to
   execute them, and view each artifact produced.
+- **Markdown artifact review** — the existing preview includes a heading
+  outline, related-artifact selection, history, and revision-aware refresh.
+  See [Markdown Artifact Review](../../../../docs/markdown-artifact-review.md)
+  for behavior, safety boundaries, and maintainer checks.
 
 Removing the last preset does not hide core or installed extension phases.
 Phase cards resolve the current pipeline independently of preset-provided
@@ -730,6 +754,6 @@ npm reconfiguration.
 | `env/` | Environment probe + PATH resolution: `probe.mjs`, `probe-cache.mjs`, `resolve-path.mjs` (locates `copilot`/`specify` binaries when the SDK dir isn't on `PATH`), `deps-check.mjs`, `workspace.mjs`. |
 | `state/` | `.speckit-wizard/state.json` read / write / normalize: `store.mjs`, `normalize.mjs`, `execution-reports.mjs`. |
 | `ui/` | Dashboard UI served to the canvas iframe: `index.html`, `app.js`, `client.js`, plus per-page modules (`setup.js`, `catalog.js`, `composition.js`, `composition-artifacts.js`, `phase-card.js`, `phase-contributors.js`, `phase-runtime.js`, `state.js`, `modals.js`). |
-| `test/` | 5 consolidated `node --test` files (`composition`, `catalog`, `env`, `state-and-scanner`, `server-integration`) — zero SDK, zero network, zero real subprocess spawns. |
+| `test/` | Unit, HTTP service, UI, scanner, and regression suites using mocked host sessions and owned synthetic workspaces. Run with `npm test` after installing this package's development dependencies. |
 | `copilot-extension.json` | Manifest for gist share/install. |
-| `package.json`, `package-lock.json` | `js-yaml` runtime dependency; Wizard setup also checks the sibling Designer's lockfile. |
+| `package.json`, `package-lock.json` | `js-yaml` runtime dependency and Playwright/jsdom test dependencies; Wizard setup also checks the sibling Designer's lockfile. |

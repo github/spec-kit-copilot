@@ -3,6 +3,46 @@
   "updated_at": "2026-10-11T23:30:07Z",
   "catalog_url": "https://raw.githubusercontent.com/nicolehaugen/spec-kit-copilot/staging-canvas/spec-kit-presets/catalog.json",
   "presets": {
+    "copilot-extension-hooks": {
+      "name": "Copilot Extension Hooks",
+      "id": "copilot-extension-hooks",
+      "version": "1.0.0",
+      "description": "Opt-in Specify extension lifecycle-hook dispatch around either Copilot SDD baseline in Copilot skills mode.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-extension-hooks-v1.0.0/copilot-extension-hooks.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-extension-hooks/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": "==1.2.3"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 9
+      },
+      "tags": ["copilot", "extension-hooks", "sdd"]
+    },
+    "copilot-lean-sdd": {
+      "name": "Copilot Lean SDD",
+      "id": "copilot-lean-sdd",
+      "version": "1.0.0",
+      "description": "Copilot skills-mode Lean SDD baseline: nine self-contained core commands, minimal artifacts, and no embedded extension lifecycle-hook dispatch.",
+      "author": "mnriem",
+      "repository": "https://github.com/github/spec-kit-copilot",
+      "download_url": "https://github.com/github/spec-kit-copilot/releases/download/copilot-lean-sdd-v1.0.0/copilot-lean-sdd.zip",
+      "homepage": "https://github.com/github/spec-kit-copilot",
+      "documentation": "https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/copilot-lean-sdd/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.8"
+      },
+      "provides": {
+        "templates": 0,
+        "commands": 9
+      },
+      "tags": ["copilot", "lean", "sdd", "baseline"]
+    },
     "copilot-sub-agents": {
       "name": "Copilot Sub-Agent Delegation",
       "id": "copilot-sub-agents",

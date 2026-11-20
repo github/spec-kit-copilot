@@ -1,7 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createClient, handleServerMessage, setMessagesDeps } from "../ui/client.js";
+import { isSetupComplete } from "../ui/setup.js";
 import { state } from "../ui/state.js";
+
+test("UI readiness uses the shared setup contract and respects a running setup step", t => {
+    const previousSnapshot = state.snapshot;
+    const previousRunning = state.setupRowRunning;
+    t.after(() => {
+        state.snapshot = previousSnapshot;
+        state.setupRowRunning = previousRunning;
+    });
+    state.setupRowRunning = false;
+    state.snapshot = {
+        environment: { pluginInstalled: true, cliInstalled: true },
+        projectInitialized: true,
+        setup: { skillsReloaded: true },
+    };
+    assert.equal(isSetupComplete(), true);
+    state.setupRowRunning = true;
+    assert.equal(isSetupComplete(), false);
+    state.setupRowRunning = false;
+    state.snapshot.setup.skillsReloaded = false;
+    assert.equal(isSetupComplete(), false);
+});
 
 test("live snapshots validate Generate flags before updating state and report incompatible exchanges", t => {
     const previousDocument = globalThis.document;
@@ -29,7 +51,7 @@ test("live snapshots validate Generate flags before updating state and report in
         onError: (path, error) => errors.push({ path, error }),
     }).connectSse();
     t.after(() => connection.close());
-    const send = data => source.onmessage({ data: JSON.stringify({ type: "state", data }) });
+    const send = (data, review) => source.onmessage({ data: JSON.stringify({ type: "state", data, review }) });
     for (const snapshot of [
         { featureFlags: { generateCanvas: true } },
         { featureFlags: { generateCanvas: false } },
@@ -54,4 +76,13 @@ test("live snapshots validate Generate flags before updating state and report in
     send({ featureFlags: { generateCanvas: true } });
     assert.equal(state.snapshot.featureFlags.generateCanvas, true);
     assert.equal(renders, 4);
+    send({ featureFlags: { generateCanvas: false } }, { kind: "artifact-set" });
+    assert.equal(state.snapshot.featureFlags.generateCanvas, false);
+    const acceptedNotice = state.snapshot;
+    for (const notice of [null, {}, { kind: "other" }, { kind: "artifact-set", path: "spec.md" }]) {
+        send({ featureFlags: { generateCanvas: true } }, notice);
+        assert.equal(state.snapshot, acceptedNotice);
+    }
+    assert.equal(errors.length, 9);
+    assert.match(errors.at(-1).error.message, /artifact review notice/);
 });

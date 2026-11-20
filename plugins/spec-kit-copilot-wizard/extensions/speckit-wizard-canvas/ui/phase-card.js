@@ -196,7 +196,8 @@ export function renderStepper() {
         const li = document.createElement("li");
         li.className = "step";
         if (id === state.currentPhase && !orphan) li.classList.add("active");
-        if (p.locked) li.classList.add("locked");
+        const canReview = Boolean(p.artifactPath || state.snapshot.phases?.[id]?.artifactPath || lookup.get(id)?.artifactPath);
+        if (p.locked && !canReview) li.classList.add("locked");
         if (p.optional) li.classList.add("is-optional");
         if (orphan) li.classList.add("orphan");
         if (synthesized) li.classList.add("is-canonical-fallback");
@@ -283,7 +284,7 @@ export function renderStepper() {
         `;
         li.addEventListener("click", (ev) => {
             if (ev.target?.closest?.('[data-action="pipeline-remove"]')) return;
-            if (p.locked || orphan) return;
+            if (orphan || (p.locked && !canReview)) return;
             state.currentPhase = id;
             __stepperRenderPhaseCard();
             renderStepper();
@@ -511,11 +512,11 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (hasSubmitted) {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}>View artifact</button>` : ""}
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
               <button type="button" class="btn btn-primary" data-phase-action="redo" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     } else {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view" ${disabledAttr}>View artifact</button>` : ""}
+              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
               <button type="submit" class="btn btn-primary" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">

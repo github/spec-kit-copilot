@@ -10,6 +10,8 @@ import { dispatchKindPrompt, dispatchPhaseCommand } from "../canvas-runtime/disp
 import { jsonError, jsonRes } from "./http-utils.mjs";
 import { catalogOperationKind } from "../contracts/catalog-operation.mjs";
 import { catalogFailure, runCatalogOperation } from "../canvas-runtime/catalog-operations.mjs";
+import { isPhaseSetupReady } from "../contracts/setup-readiness.mjs";
+import { reviewAnswersMatchArguments, validateReviewSubmission } from "../contracts/review-submission.mjs";
 
 export async function handlePrompt(res, body, { log, getInstance, catalogOperation = runCatalogOperation }) {
     const kind = body?.kind;
@@ -74,6 +76,25 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
     }
 }
 
+async function validateReviewedClarifications(res, body, service) {
+    try {
+        await validateReviewSubmission(service, body.review, body.commandName);
+        return true;
+    } catch (error) {
+        if (error?.code === "review_unavailable") {
+            jsonError(res, 409, "Review context is not available.");
+        } else if (error?.code === "changed_source") {
+            jsonError(res, 409, "Clarification source changed. Refresh before submitting.");
+        } else if (["invalid_request", "invalid_context", "artifact_unavailable", "artifact_too_large",
+            "unsupported_artifact", "invalid_encoding"].includes(error?.code)) {
+            jsonError(res, 400, "Clarification answers are invalid or exceed the review submission limit.");
+        } else {
+            throw error;
+        }
+        return false;
+    }
+}
+
 export async function handlePhaseSubmit(res, body, deps) {
     // New (v2) dispatch path: when the client sends `commandName` (e.g.
     // "speckit.constitution") we dispatch a literal Copilot Chat slash
@@ -84,9 +105,25 @@ export async function handlePhaseSubmit(res, body, deps) {
     // reports a terminal phase status, and opens a witness window so the
     // extension records which artifacts actually fired on successful runs.
     if (typeof body?.commandName === "string") {
+        const service = body.review ? deps.getInstance?.()?.reviewService : null;
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
+        if (!isPhaseSetupReady(await deps.getState())) {
+            return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
+        }
+        if (body.review && deps.getInstance?.()?.reviewService !== service) {
+            return jsonError(res, 409, "Review context is not available.");
+        }
+        if (body.review && !await validateReviewedClarifications(res, body, service)) return;
+        if (body.review && deps.getInstance?.()?.reviewService !== service) {
+            return jsonError(res, 409, "Review context is not available.");
+        }
+        const args = typeof body.args === "string" ? body.args : "";
+        if (body.review && !reviewAnswersMatchArguments(args, body.review.answers)) {
+            return jsonError(res, 400, "Dispatched arguments must include the validated clarification answers.");
+        }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
-            args: typeof body.args === "string" ? body.args : "",
+            args,
             allowEmpty: body.allowEmpty !== false,
             track: true,
         }, deps);
@@ -97,5 +134,8 @@ export async function handlePhaseSubmit(res, body, deps) {
     const kind = body?.kind || phaseSubmitKind(phase);
     if (!kind) return jsonError(res, 400, `no dispatch kind for phase ${phase}`);
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
+    if (!isPhaseSetupReady(await deps.getState())) {
+        return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
+    }
     return handlePrompt(res, { kind, payload: body?.values ?? {} }, deps);
 }

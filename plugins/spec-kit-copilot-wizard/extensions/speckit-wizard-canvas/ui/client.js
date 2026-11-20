@@ -11,6 +11,7 @@ import {
 } from "./state.js";
 import { readGenerateCanvas } from "../contracts/generate-feature.mjs";
 import { catalogOperationKind, validateCatalogRequest, validateCatalogResult } from "../contracts/catalog-operation.mjs";
+import { readArtifactNotice } from "../contracts/artifact-notice.mjs";
 // The message router touches every renderer. Everything below is imported
 // lazily-safe (used only inside handleServerMessage bodies at SSE-event
 // time, not at module load) so the circular edges between client.js and
@@ -284,6 +285,7 @@ export function handleServerMessage(msg) {
             // without a usable snapshot. Never replace a valid UI state with
             // undefined; the next valid broadcast or refresh will repair it.
             if (!msg.data || typeof msg.data !== "object") break;
+            readArtifactNotice(msg.review);
             readGenerateCanvas(msg.data);
             state.snapshot = msg.data;
             reconcileCompositionRefresh(msg.data);
@@ -348,6 +350,7 @@ export function handleServerMessage(msg) {
                     delete state.snapshot.composition.executionReports;
                 }
             }
+            if (document.body.classList.contains("artifact-review-open")) break;
             renderComposition();
             // The pipeline stepper and active phase card read from
             // composition.inferredPipeline via pipelineItems(); refresh

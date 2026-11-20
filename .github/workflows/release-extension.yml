@@ -60,6 +60,8 @@ jobs:
           import yaml
 
           root = Path("spec-kit-extensions")
+          if root.is_symlink():
+              raise SystemExit("Extension package root must not be a symlink")
           ref = os.environ["GITHUB_REF"]
           selected_id = ""
           requested_version = None
@@ -87,6 +89,9 @@ jobs:
               package = root / extension_id
               if package.is_symlink() or not (package / "extension.yml").is_file():
                   raise SystemExit(f"Extension directory must contain extension.yml: {extension_id}")
+              for path in package.rglob("*"):
+                  if path.is_symlink():
+                      raise SystemExit(f"Cannot package symlink: {path}")
               with open(package / "extension.yml") as source:
                   manifest = yaml.safe_load(source)
               extension = manifest["extension"]
@@ -119,7 +124,7 @@ jobs:
               if entry["requires"] != manifest["requires"]:
                   raise SystemExit("Catalog requirements must match extension.yml requirements")
               tag = f"{extension_id}-v{version}"
-              download_url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{extension_id}.zip"
+              download_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/{extension_id}.zip"
               if entry["download_url"] != download_url:
                   raise SystemExit("Catalog download URL must match the release asset")
               if ref.startswith("refs/tags/") and ref != f"refs/tags/{tag}":
@@ -247,6 +252,27 @@ jobs:
             exit 1
           fi
 
+      - name: Generate release notes
+        env:
+          EXTENSION_ID: ${{ needs.package.outputs.extension_id }}
+          TAG: ${{ needs.package.outputs.tag }}
+          EXTENSION_NAME: ${{ needs.package.outputs.extension_name }}
+        run: |
+          VERSION="${TAG##*-v}"
+          CHANGELOG="spec-kit-extensions/$EXTENSION_ID/CHANGELOG.md"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          if [[ -f "$CHANGELOG" ]]; then
+            awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if (index($0, ver)) found=1
+              }
+              found { print }
+            ' "$CHANGELOG" > "$NOTES"
+          else
+            echo "Specify CLI extension: $EXTENSION_NAME. See spec-kit-extensions/$EXTENSION_ID/README.md for installation and requirements." > "$NOTES"
+          fi
+
       - name: Publish validated extension
         env:
           GH_TOKEN: ${{ github.token }}
@@ -258,4 +284,4 @@ jobs:
             --verify-tag \
             --latest=false \
             --title "$EXTENSION_ID ${TAG##*-}" \
-            --notes "Specify CLI extension: $EXTENSION_NAME. See spec-kit-extensions/$EXTENSION_ID/README.md for installation and requirements."
+            --notes-file "$RUNNER_TEMP/release-notes.md"

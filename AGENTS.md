@@ -121,8 +121,8 @@ never conflate the two toolchains:
 
 This directory and its `catalog.json` hold **Copilot-specific Specify CLI
 extensions**, parallel to the preset catalog. Entries must depend on Copilot
-tools or providers; do not import general-purpose extensions or add these packages
-to the Copilot plugin marketplace. Keep each catalog entry's version, requirements,
+tools or providers; do not import general-purpose extensions or add these packages to the
+Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
 Package IDs, directory names, catalog keys, and ZIP basenames use
 `extension-<name>` (for example, `extension-canvas-design`). Release tags use
@@ -144,6 +144,35 @@ the package identity. Standard manifest filenames remain `extension.yml`.
   treating that path as release-ready. Keep an incompatible hosted path visible
   as a release-readiness issue during local development; do not demand a version
   bump for every development change.
+
+Release publishers validate package IDs, versions, catalog URLs, and symlinks
+before packaging. Manual triggers call the publishers directly so a
+`GITHUB_TOKEN` tag push does not need to start a separate workflow.
+
+## Advanced CodeQL scanning
+
+`.github/workflows/codeql.yml` follows Spec Kit's advanced workflow, retaining
+this repository's `actions` and `javascript-typescript` languages and default
+query suite. It scans pushes and pull requests targeting `main`, without path
+filters or fork exclusions. Use `pull_request`, never `pull_request_target` with
+untrusted code; GitHub's fork-contributor workflow approval policies still apply.
+The Tuesday 04:23 UTC schedule deliberately preserves default setup's weekly
+coverage, beyond Spec Kit's unscheduled workflow. Keep actions SHA-pinned and
+the analysis job limited to `contents: read` and `security-events: write`.
+No dependency installation or build step is needed for these languages.
+
+Activation requires a coordinated maintainer switch, not just a YAML change:
+
+1. Review and merge the replacement workflow while default setup remains enabled.
+   Default setup rejects advanced CodeQL SARIF uploads while both are present.
+2. Once the approved workflow is on `main`, an authorized maintainer must disable
+   default setup in the target repository's code-scanning settings and re-run the
+   merge-triggered CodeQL workflow. Do not disable default setup prematurely.
+3. Verify successful uploads for both `/language:actions` and
+   `/language:javascript-typescript` on `main` and an approved fork PR run.
+   Local YAML checks are not evidence of a live scan. Required checks, rulesets,
+   fork Actions settings, and other security settings are separate maintainer
+   decisions; do not change them as part of this switch.
 
 ## When revving the core skills plugin
 

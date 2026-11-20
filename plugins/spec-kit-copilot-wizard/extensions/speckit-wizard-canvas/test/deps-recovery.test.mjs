@@ -1,9 +1,12 @@
 // Unit tests for env/deps-recovery.mjs.
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
+import { syncBuiltinESMExports } from "node:module";
 
 import { buildNpmDiagnosticPrompt } from "../env/deps-recovery.mjs";
-import { getDependencyDir, getExtensionDir } from "../env/deps-check.mjs";
+import { getDependencyDir, getExtensionDir, installDeps } from "../env/deps-check.mjs";
 import { join } from "node:path";
 
 test("Wizard setup tracks both runtime dependencies in their own extensions", () => {
@@ -11,6 +14,39 @@ test("Wizard setup tracks both runtime dependencies in their own extensions", ()
     assert.equal(getDependencyDir("es-module-lexer"),
         join(getExtensionDir(), "..", "speckit-canvas-designer"));
     assert.throws(() => getDependencyDir("unknown"), /Unknown Wizard dependency/);
+});
+
+test("runtime bootstrap omits development dependencies in quiet and progress modes", async () => {
+    const calls = [];
+    const progress = [];
+    const guard = mock.method(childProcess, "spawn", (command, args, options) => {
+        calls.push({ command, args, options });
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        process.nextTick(() => {
+            child.stdout.emit("data", Buffer.from("runtime ready\n"));
+            child.emit("close", 0);
+        });
+        return child;
+    });
+    syncBuiltinESMExports();
+    try {
+        for (const opts of [{}, { onProgress: (line) => progress.push(line) }]) {
+            const result = await installDeps(["js-yaml"], opts);
+            assert.equal(result.ok, true);
+            const call = calls.at(-1);
+            assert.equal(call.command, process.platform === "win32" ? "npm.cmd" : "npm");
+            assert.equal(call.args[0], "ci");
+            assert.ok(call.args.includes("--omit=dev"));
+            assert.equal(call.options.cwd, getExtensionDir());
+            assert.equal(call.options.shell, true);
+        }
+        assert.deepEqual(progress, ["runtime ready"]);
+    } finally {
+        guard.mock.restore();
+        syncBuiltinESMExports();
+    }
 });
 
 test("throws when extDir is missing", () => {

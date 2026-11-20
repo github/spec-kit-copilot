@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -673,7 +673,7 @@ test("runtime bundles reuse Wizard catalog locators and reject missing or ambigu
 });
 
 test("live CLI inventory is read from the Wizard checkout, including priorities", async () => {
-    const path = await mkdtemp(join(tmpdir(), "designer-inventory-"));
+    const path = await realpath(await mkdtemp(join(tmpdir(), "designer-inventory-")));
     try {
         const presetPath = join(path, ".specify", "presets", "preset");
         await mkdir(presetPath, { recursive: true });
@@ -1283,7 +1283,7 @@ test("buildDesignerLaunchPrompt documents local-wins precedence, including the e
 });
 
 test("read-only preflight pins handoff bytes and checks local installation identity", async (t) => {
-    const root = await mkdtemp(join(tmpdir(), "designer-launch-check-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "designer-launch-check-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     const project = join(root, "project");
     const source = join(root, "approved-extension");
@@ -1348,7 +1348,7 @@ test("read-only preflight pins handoff bytes and checks local installation ident
 });
 
 test("handoff preparation removes only a matching single line ending before strict preflight", async (t) => {
-    const root = await mkdtemp(join(tmpdir(), "designer-prepare-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "designer-prepare-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     const project = join(root, "project");
     await mkdir(join(project, ".specify"), { recursive: true });
@@ -1387,7 +1387,7 @@ test("handoff preparation removes only a matching single line ending before stri
 });
 
 test("Designer launch-check prepare CLI normalizes only matching handoff bytes", async (t) => {
-    const root = await mkdtemp(join(tmpdir(), "designer-prepare-cli-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "designer-prepare-cli-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     const project = join(root, "project");
     await mkdir(project);
@@ -1460,7 +1460,7 @@ test("handleDesignerLaunch rejects an invalid localSelections payload without di
 });
 
 test("handleDesignerLaunch revalidates localSelections at the final pre-dispatch checkpoint and rejects drift", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "designer-local-"));
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "designer-local-")));
     await writeFile(join(dir, "preset.yml"),
         "preset:\n  id: drift-preset\n  name: Drift Preset\n  version: 1.0.0\n");
     const provider = { id: DESIGNER_EXTENSION_ID, source: "plugin", status: "running" };

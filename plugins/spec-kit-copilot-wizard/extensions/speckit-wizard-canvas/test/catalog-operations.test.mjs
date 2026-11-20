@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
@@ -20,7 +20,7 @@ const item = (id = "sample", source = "default") => ({
 const empty = () => ({ preset: [], extension: [], bundle: [] });
 
 async function fixture(t, { source = "default", downloadUrl, bundleYml, allowed = true } = {}) {
-    const root = await mkdtemp(join(tmpdir(), "wizard-package-"));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "wizard-package-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     const inv = empty(), calls = [], events = [];
     const inst = { workspacePath: root, state: {}, url: "http://127.0.0.1:1234", token: "test",

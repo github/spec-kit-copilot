@@ -683,6 +683,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                 with self.subTest(ref=ref):
                     env = dict(os.environ, GITHUB_REF=ref, GITHUB_EVENT_NAME="push",
                                GITHUB_REPOSITORY="nicolehaugen/spec-kit-copilot",
+                               GITHUB_SERVER_URL="https://github.com",
                                GITHUB_OUTPUT=str(Path(temporary) / "output"))
                     result = subprocess.run(
                         [sys.executable, "-c", self.workflow_python("Validate release version")],
@@ -710,7 +711,9 @@ class CanvasDesignPackageTests(unittest.TestCase):
         )["run"]
         self.assertIn('gh release create "$TAG" "$EXTENSION_ID.zip"', publish)
         self.assertIn("--verify-tag", publish)
-        self.assertIn('git push origin "refs/tags/$TAG"', release["steps"][-2]["run"])
+        self.assertIn("--notes-file", publish)
+        tag_step = next(step for step in release["steps"] if step.get("name") == "Create or verify release tag")
+        self.assertIn('git push origin "refs/tags/$TAG"', tag_step["run"])
 
     def test_release_rejects_catalog_drift(self):
         version = self.manifest["extension"]["version"]
@@ -743,6 +746,7 @@ class CanvasDesignPackageTests(unittest.TestCase):
                         env=dict(os.environ, GITHUB_REF=f"refs/tags/{EXTENSION_ID}-v{version}",
                                  GITHUB_EVENT_NAME="push",
                                  GITHUB_REPOSITORY="nicolehaugen/spec-kit-copilot",
+                                 GITHUB_SERVER_URL="https://github.com",
                                  GITHUB_OUTPUT=str(root / "output")),
                         capture_output=True, text=True,
                     )

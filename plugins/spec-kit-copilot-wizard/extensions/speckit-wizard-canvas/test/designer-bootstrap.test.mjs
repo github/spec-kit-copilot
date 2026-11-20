@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, open, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -20,7 +20,7 @@ const catalog = { ...empty, extensions: [{ id: "extension-canvas-design", source
     version: "1.0.0", downloadUrl: "https://example.org/canvas.zip", tags: ["canvas-design"] }] };
 
 async function fixture(t, options = {}) {
-    const folder = await mkdtemp(join(tmpdir(), "designer-bootstrap-"));
+    const folder = await realpath(await mkdtemp(join(tmpdir(), "designer-bootstrap-")));
     t.after(() => rm(folder, { recursive: true, force: true }));
     const sourceId = randomUUID();
     const childId = randomUUID();

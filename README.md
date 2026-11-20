@@ -182,15 +182,18 @@ isolated subtree (with their own `catalog.json`) so Spec Kit plumbing is never
 confused with Copilot plugin/marketplace plumbing. Test-only presets live in
 [`tests/fixtures/test-presets/`](tests/fixtures/test-presets/) instead.
 
-| Preset | Requires | Why it is Copilot-specific |
+| Preset | Requires | Copilot purpose |
 | --- | --- | --- |
+| [`copilot-lean-sdd`](spec-kit-presets/copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream-derived minimal SDD baseline with Copilot skill invocation and interactive `ask_user`; nine hook-free command replacements. Initial release pending; use the documented local-development install. |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
 | [`copilot-vertical-phase-control`](spec-kit-presets/copilot-vertical-phase-control) | Spec Kit `>= 1.0.7`, `extension-canvas-design` | Replaces the generated phase control with the Copilot Autopilot workflow |
+| [`copilot-extension-hooks`](spec-kit-presets/copilot-extension-hooks) | Specify `==1.2.3`, one compatible SDD baseline | Opt-in Specify extension lifecycle dispatch through Copilot skills; not native Copilot hooks |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
-boundary, install commands, and versioning. Only Copilot-specific presets are hosted
-here; agent-agnostic presets do not belong in this Copilot integration hub.
+boundary, install commands, and versioning. Shipping presets and extensions must
+depend on Copilot-specific mechanisms. See
+[contribution scope and placement](CONTRIBUTING.md#scope-and-package-placement).
 
 ## Core skills plugin
 
