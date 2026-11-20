@@ -433,6 +433,7 @@ class HookPackageTests(unittest.TestCase):
             "do not invoke it twice", "not a persistent lock",
             "before** the baseline Completion Report",
             "after producing and reporting `converged` or `tasks_appended`",
+            "A completed Lean or Full assessment",
             "remaining work already covered by existing open tasks",
             "Blocked or unverified assessments do not reach it",
             "To execute: `{invocation}`", "Command: `{command}`",
@@ -812,32 +813,64 @@ class CopilotBehaviorTests(unittest.TestCase):
                             ["speckit.fixture.optional", "speckit.fixture.optional-default"],
                         )
 
-    def test_lean_convergence_with_existing_open_work_and_blocked_assessment(self):
-        for blocked in (False, True):
-            with self.subTest(blocked=blocked), tempfile.TemporaryDirectory() as temp:
+    def test_convergence_reports_open_work_before_hooks_and_skips_hooks_when_blocked(self):
+        cases = [
+            ("lean", "open-work"), ("lean", "blocked"),
+            ("full", "open-work"), ("full", "blocked"), ("full", "mixed"),
+        ]
+        for baseline, case in cases:
+            with self.subTest(baseline=baseline, case=case), tempfile.TemporaryDirectory() as temp:
+                blocked, mixed = case == "blocked", case == "mixed"
                 root = Path(temp)
-                project = self.make_project(root, "copilot-lean-sdd", "success")
+                project = self.make_project(root, f"copilot-{baseline}-sdd", "success")
                 feature = project / "specs/fixture"
                 tasks = feature / "tasks.md"
+                checked_task = "- [x] T005 Set label.txt to ready per FR-002.\n" if mixed else ""
+                prior_phase = "\n## Phase 2: Convergence\n\n" if baseline == "full" else ""
                 tasks.write_text(
                     "# Tasks\n\n## Phase 1: Marker\n\n"
                     "- [x] T000 [US1] Initial implementation of result.txt was attempted.\n"
+                    f"{checked_task}{prior_phase}"
                     "- [ ] T001 [US1] Fix result.txt to contain exactly done and a newline; "
                     "verify with `python3 fixture.py verify`.\n", encoding="utf-8",
                 )
                 before = tasks.read_bytes()
                 (project / "result.txt").write_bytes(b"pending\n")
+                if mixed:
+                    spec = feature / "spec.md"
+                    spec.write_text(
+                        spec.read_text(encoding="utf-8")
+                        + "\nFR-002: label.txt contains exactly `ready` and a newline.\n",
+                        encoding="utf-8",
+                    )
+                    (project / "label.txt").write_bytes(b"pending\n")
+                plan_detail = {
+                    "lean": "An assertion failure is remaining implementation work already covered "
+                            "by T001, not a missing validation prerequisite.\n",
+                    "full": "Set label.txt to ready and a newline as required by FR-002.\n" if mixed else "",
+                }[baseline]
                 (feature / "plan.md").write_text(
                     "# Plan\n\nresult.txt must contain exactly done and a newline. "
                     "The implementation has been attempted but remains incomplete. "
                     "The documented local validation is `python3 fixture.py verify`. "
-                    "An assertion failure is remaining implementation work already covered "
-                    "by T001, not a missing validation prerequisite.\n", encoding="utf-8",
+                    f"{plan_detail}\n",
+                    encoding="utf-8",
                 )
-                digest = hashlib.sha256(before).hexdigest()
-                (project / "convergence-hook.py").write_text(
-                    "import hashlib\nfrom pathlib import Path\n"
-                    f"assert hashlib.sha256(Path('specs/fixture/tasks.md').read_bytes()).hexdigest() == {digest!r}\n"
+                remediation = r"^- \[ \] T006 (?=.*label\.txt)(?=.*\b(?:FR-002|T005)\b)"
+                if mixed:
+                    verify_tasks = (
+                        f"assert tasks.startswith({before!r})\n"
+                        f"assert re.search({remediation!r}, tasks[{len(before)}:].decode(), re.M), "
+                        "'T006 remediation must be appended before after_converge'\n"
+                    )
+                else:
+                    verify_tasks = f"assert tasks == {before!r}\n"
+                hook_script = project / "convergence-hook.py"
+                hook_script.write_text(
+                    "from pathlib import Path\n"
+                    "import re\n"
+                    "tasks = Path('specs/fixture/tasks.md').read_bytes()\n"
+                    f"{verify_tasks}"
                     "with Path('convergence-hook.log').open('a') as output:\n"
                     "    output.write('after_converge\\n')\n"
                     "print('AFTER_CONVERGE_COMPLETED')\n", encoding="utf-8",
@@ -856,56 +889,79 @@ class CopilotBehaviorTests(unittest.TestCase):
                 }), encoding="utf-8")
                 if blocked:
                     (feature / "spec.md").unlink()
-                result = subprocess.run(
-                    [
-                        str(Path(COPILOT).resolve()), "-C", str(project), "-p",
-                        "Run the installed speckit-converge skill for the active feature and report "
-                        "the actual assessment outcome. Follow the selected baseline and lifecycle "
-                        "rules. Use local files only; do not implement remaining work, change fixture "
-                        "scripts, skills, extensions.yml, global configuration, or spawn agents.",
-                        "--trust-folder", "--allow-all-tools", "--disable-builtin-mcps",
-                        "--available-tools=bash,view,rg,glob,skill,apply_patch",
-                        "--deny-tool=shell(gh:*)", "--deny-tool=shell(curl:*)",
-                        "--log-dir", str(root / "host-logs"), "--output-format", "json",
-                    ],
-                    text=True, encoding="utf-8", capture_output=True, timeout=300,
-                )
                 hook_log = project / "convergence-hook.log"
-                evidence = os.environ.get("HOOKS_EVIDENCE_DIR")
-                if evidence:
-                    folder = Path(evidence) / ("lean-converge-blocked" if blocked else "lean-converge-open-work")
-                    folder.mkdir(parents=True, exist_ok=True)
-                    (folder / "host.jsonl").write_text(result.stdout, encoding="utf-8")
-                    (folder / "stderr.txt").write_text(result.stderr, encoding="utf-8")
-                    (folder / "tasks.md").write_bytes(tasks.read_bytes())
-                    (folder / "hook.log").write_text(hook_log.read_text() if hook_log.exists() else "")
-                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-                self.assertEqual(tasks.read_bytes(), before, "Existing open work must not be duplicated or rewritten")
-                events = [json.loads(line) for line in result.stdout.splitlines()]
-                messages = [event["data"] for event in events if event["type"] == "assistant.message"]
-                finals = [m["content"] for m in messages if m.get("phase") == "final_answer"]
-                self.assertTrue(finals)
-                if blocked:
+                if mixed:
+                    premature = subprocess.run(
+                        ["python3", str(hook_script)], cwd=project, text=True,
+                        capture_output=True, timeout=30,
+                    )
+                    self.assertNotEqual(premature.returncode, 0)
+                    self.assertIn("T006 remediation must be appended before after_converge", premature.stderr)
                     self.assertFalse(hook_log.exists())
-                    self.assertRegex(finals[-1].lower(), r"missing|blocked|unverified|stopped")
-                else:
-                    self.assertEqual(hook_log.read_text(), "after_converge\n")
-                    self.assertRegex(finals[-1], r"T001")
-                    self.assertRegex(finals[-1].lower(), r"remaining|incomplete|not converged|open")
-                    hook_index = next(
-                        index for index, event in enumerate(events) if event["type"] == "assistant.message"
-                        and any(
-                            request.get("name") == "skill"
-                            and request.get("arguments", {}).get("skill") == "speckit-fixture-convergence"
-                            for request in event["data"].get("toolRequests", [])
+                for run in range(1, (2 if mixed else 1) + 1):
+                    result = subprocess.run(
+                        [
+                            str(Path(COPILOT).resolve()), "-C", str(project), "-p",
+                            "Run the installed speckit-converge skill for the active feature and report "
+                            "the actual assessment outcome. Follow the selected baseline and lifecycle "
+                            "rules. Use local files only; do not implement remaining work, change fixture "
+                            "scripts, skills, extensions.yml, global configuration, or spawn agents.",
+                            "--trust-folder", "--allow-all-tools", "--disable-builtin-mcps",
+                            "--available-tools=bash,view,rg,glob,skill,apply_patch",
+                            "--deny-tool=shell(gh:*)", "--deny-tool=shell(curl:*)",
+                            "--log-dir", str(root / "host-logs"), "--output-format", "json",
+                        ],
+                        text=True, encoding="utf-8", capture_output=True, timeout=300,
+                    )
+                    after = tasks.read_bytes()
+                    evidence = os.environ.get("HOOKS_EVIDENCE_DIR")
+                    if evidence:
+                        folder = Path(evidence) / f"{baseline}-converge-{case}-{run}"
+                        folder.mkdir(parents=True, exist_ok=True)
+                        (folder / "host.jsonl").write_text(result.stdout, encoding="utf-8")
+                        (folder / "stderr.txt").write_text(result.stderr, encoding="utf-8")
+                        (folder / "tasks.md").write_bytes(after)
+                        (folder / "hook.log").write_text(hook_log.read_text() if hook_log.exists() else "")
+                    self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+                    if mixed and run == 1:
+                        self.assertTrue(after.startswith(before), "Existing tasks must not be rewritten")
+                        addition = after[len(before):].decode()
+                        self.assertEqual(re.findall(r"^## .+", addition, re.M), ["## Phase 3: Convergence"])
+                        appended = re.findall(r"^- \[.\] .+", addition, re.M)
+                        self.assertEqual(len(appended), 1)
+                        self.assertRegex(appended[0], remediation)
+                        before = after
+                    else:
+                        self.assertEqual(after, before, "Existing open work must not be duplicated or rewritten")
+                    events = [json.loads(line) for line in result.stdout.splitlines()]
+                    messages = [event["data"] for event in events if event["type"] == "assistant.message"]
+                    finals = [m["content"] for m in messages if m.get("phase") == "final_answer"]
+                    self.assertTrue(finals)
+                    if blocked:
+                        self.assertFalse(hook_log.exists())
+                        self.assertRegex(finals[-1].lower(), r"missing|blocked|unverified|stopped")
+                    else:
+                        self.assertEqual(hook_log.read_text(), "after_converge\n" * run)
+                        self.assertIn("T001", finals[-1])
+                        self.assertRegex(finals[-1].lower(), r"remaining|incomplete|not converged|open|tracked")
+                        self.assertNotIn("the implementation satisfies the spec", finals[-1].lower())
+                        hook_index = next(
+                            index for index, event in enumerate(events) if event["type"] == "assistant.message"
+                            and any(
+                                request.get("name") == "skill"
+                                and request.get("arguments", {}).get("skill") == "speckit-fixture-convergence"
+                                for request in event["data"].get("toolRequests", [])
+                            )
                         )
-                    )
-                    before_hook = "\n".join(
-                        event["data"].get("content", "") for event in events[:hook_index]
-                        if event["type"] == "assistant.message"
-                    )
-                    self.assertIn("T001", before_hook)
-                    self.assertRegex(before_hook.lower(), r"remaining|incomplete|not converged|open")
+                        before_hook = "\n".join(
+                            event["data"].get("content", "") for event in events[:hook_index]
+                            if event["type"] == "assistant.message"
+                        )
+                        self.assertIn("T001", before_hook)
+                        self.assertRegex(before_hook.lower(), r"remaining|incomplete|not converged|open|tracked")
+                        if mixed and run == 2:
+                            self.assertIn("T006", finals[-1])
+                            self.assertIn("T006", before_hook)
 
     @unittest.skipUnless(os.environ.get("HOOKS_SPECIFY_SOURCE"), "Set HOOKS_SPECIFY_SOURCE for installed Git extension exercises")
     def test_installed_git_extension_registers_and_executes_before_specify(self):

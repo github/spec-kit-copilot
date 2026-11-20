@@ -82,7 +82,7 @@ hooks could not be checked, then the workflow continues, as in core.
 An unavailable, denied, or failed mandatory invocation instead stops the
 invocation and reports failure. Completion post-hooks do not run after a
 baseline prerequisite/gate/validation stop. The wrapper preserves each command's
-checkpoint, including a completed Lean convergence assessment that leaves
+checkpoint, including a completed Lean or Full convergence assessment that leaves
 existing open tasks unchanged: its reported remaining work is not convergence,
 but it still reaches `after_converge`. Blocked assessments do not.
 It keeps an invocation-local dispatch record to avoid
@@ -155,7 +155,8 @@ command, and also checks that baseline execution was not attempted.
 Reporting checks inspect final assistant responses for mandatory-hook failures
 and assistant-authored warnings for malformed YAML, not matching tool output.
 Negative transcript cases reject tool-only evidence and contradictory success.
-Separate Lean convergence cases cover existing open work and blocked assessment.
+Separate Lean and Full convergence cases cover existing open work and blocked
+assessment. The Full case also covers a mixed set of findings and a repeat run.
 The marker-hook cases seed registrations and command skills directly; they do
 not exercise extension installation.
 

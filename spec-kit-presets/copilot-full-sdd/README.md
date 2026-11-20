@@ -8,13 +8,14 @@ at revision `27d14e20c187c1f2916540ea201ecbdc9f8ed588`.
 Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 
 The upstream commands omit extension lifecycle-hook dispatch,
-its separators, and dependent branch/report/checklist references. The only other
-deviation is in `specify`: it rejects missing or whitespace-only descriptions
+its separators, and dependent branch/report/checklist references. The `specify`
+command also rejects missing or whitespace-only descriptions
 before writing files, uses the resolved template only for new specs, preserves
 unrelated content in an explicitly selected existing spec, and sets the active
 feature only after saving the spec. Its quality checklist and validation flow
-remain unchanged. Script metadata and portable command references remain for
-Specify to render for the project.
+remain unchanged. The `converge` command also avoids appending work already
+covered by unchecked tasks. Script metadata and portable command references
+remain for Specify to render for the project.
 This is a Specify preset, not a `copilot plugin` package.
 
 ## Installation and prerequisites
@@ -59,7 +60,12 @@ prerequisites. They are supplied by `specify init`, not bundled again here.
 | `analyze` | `spec.md`, `plan.md`, complete `tasks.md`, constitution | Read-only consistency/coverage report; constitution violations are CRITICAL; edits require separate approval |
 | `checklist` | Active feature, `spec.md`, nonempty `plan.md`, resolved checklist template; `tasks.md` if present | Append-only `checklists/<domain>.md`; requirements-quality questions, not implementation tests; new items unchecked and reviewer-owned |
 | `implement` | `plan.md`, complete `tasks.md`, existing checklists and available design artifacts | Code, validation and task progress; checklist approval gate, phase/dependency ordering, failure reporting and completion checks |
-| `converge` | `spec.md`, `plan.md`, complete `tasks.md`, implementation already attempted; constitution | Only append traceable remediation tasks; no code/spec/plan edits, no existing-task rewriting; leave tasks byte-identical when converged |
+| `converge` | `spec.md`, `plan.md`, complete `tasks.md`, implementation already attempted; constitution | Report open tasks that already cover findings; append only uncovered remediation; leave tasks byte-identical when nothing is appended; no code/spec/plan edits or existing-task rewrites |
+
+`converge` checks actual behavior even for checked tasks. An unmet finding
+covered only by checked tasks can still get a new task. Work already tracked
+by an unchecked task in any phase, including a prior Convergence phase, is
+reported with its task ID and does not count as convergence.
 
 `clarify` normally runs after specify and before plan. `analyze` requires tasks;
 `checklist` requires a nonempty `plan.md` through the Spec Kit 1.2.3 setup script;
@@ -94,10 +100,11 @@ each preset with its own compatible CLI. Leaving `FULL_SPECIFY_BIN` unset skips
 only Full's real-CLI checks, even when `SPECIFY_BIN` is set for Lean.
 Set `FULL_PRESET_ARCHIVE` to a local release zip for archive verification.
 Set `FULL_CORE_SOURCE` to a checkout of the pinned Spec Kit source for
-source comparison against pinned Git blob IDs. Eight commands must exactly match
+source comparison against pinned Git blob IDs. Seven commands must exactly match
 core with only the enumerated hook-related deletions and no added bytes. For
-`specify`, the tests verify both the hook-stripped upstream baseline and the
-reviewed downstream version, including an exact match for the quality workflow.
+`specify` and `converge`, the tests verify both the hook-stripped upstream
+baseline and the reviewed downstream version. The `specify` quality workflow
+must still match core exactly.
 Digest, source, and archive comparisons use the same CRLF-to-LF
 normalization so checkout line-ending conversion does not change their results.
 These checks cover package and instruction contracts, not model compliance or

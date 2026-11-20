@@ -27,7 +27,7 @@ FORBIDDEN = (
     "hooks.before_", "hooks.after_", "Extension Hooks",
     "Mandatory Post-Execution Hooks", "before_specify",
 )
-# Reviewed command bodies: hook-stripped core, plus the specify write safeguards.
+# Reviewed command bodies: hook-stripped core, plus the specify and converge safeguards.
 REVIEWED_SHA256 = {
     "constitution": "775a220b62d7d59b8740df9f01b36465478cea511e619d21ae3d558599946143",
     "specify": "bb1543d4527e9edf336fca129277eeb40c76a52ee2980a5ce0366ae131cb76ce",
@@ -37,9 +37,12 @@ REVIEWED_SHA256 = {
     "analyze": "e03e7c94a7253d2537fab197e5f2365a7ed9b9cdc6ef8fbec9d3c2663a7c9588",
     "checklist": "cca87df5a8586b0681ef3b0a3e6baca063748eed9546c52775d2f342abcaa143",
     "implement": "7658bcbfff7a78bfb8f6e3ae29b50b7f327f9e6da1e0cf1f57fcc27c5d4e1b55",
+    "converge": "68948b28e9ee57861e1c052bb30a4fdc9846fa40f97b621d6ed31e01984a4a98",
+}
+HOOK_STRIPPED_BASELINE_SHA256 = {
+    "specify": "090c4af532316e6529373e722d7957bec2f27cd74b3f18d525fdbeeaa1aae320",
     "converge": "2a3cbec425ccf205e7d048f0629584f0d3242d2b92402da196a0c3022198c79e",
 }
-HOOK_STRIPPED_SPECIFY_SHA256 = "090c4af532316e6529373e722d7957bec2f27cd74b3f18d525fdbeeaa1aae320"
 CORE_GIT_BLOBS = {
     "analyze": "7de2d28f0da797998e5e30d6323b7316a74e60ff",
     "checklist": "6e33f5d4225c539fa1c3860e5409f098a6a8d827",
@@ -156,9 +159,14 @@ class FullPackageTests(unittest.TestCase):
                     )
                 expected = expected.rstrip("\n") + "\n"
                 actual = lf_bytes((PACKAGE / f"commands/speckit.{name}.md").read_bytes())
-                if name == "specify":
-                    self.assertEqual(hashlib.sha256(expected.encode()).hexdigest(), HOOK_STRIPPED_SPECIFY_SHA256)
+                if name in HOOK_STRIPPED_BASELINE_SHA256:
+                    self.assertEqual(
+                        hashlib.sha256(expected.encode()).hexdigest(), HOOK_STRIPPED_BASELINE_SHA256[name],
+                    )
                     self.assertEqual(hashlib.sha256(actual).hexdigest(), REVIEWED_SHA256[name])
+                else:
+                    self.assertEqual(actual, expected.encode(), "Non-hook instructions must match after LF normalization")
+                if name == "specify":
                     quality_blocks = []
                     for text in (expected, actual.decode()):
                         _, start, rest = text.partition("\n8. **Specification Quality Validation**")
@@ -166,10 +174,8 @@ class FullPackageTests(unittest.TestCase):
                         self.assertTrue(start and end, "Quality workflow must be present")
                         quality_blocks.append(quality)
                     self.assertEqual(*quality_blocks, "Specify quality workflow must match core exactly")
-                else:
-                    self.assertEqual(actual, expected.encode(), "Non-hook instructions must match after LF normalization")
                 source_iterator = iter(original)
-                hook_stripped = expected.encode() if name == "specify" else actual
+                hook_stripped = expected.encode() if name in HOOK_STRIPPED_BASELINE_SHA256 else actual
                 self.assertTrue(all(byte in source_iterator for byte in hook_stripped), "No added bytes allowed")
 
     def test_no_lifecycle_dispatch_and_preserved_script_metadata(self):
@@ -235,6 +241,9 @@ class FullPackageTests(unittest.TestCase):
                 "byte-for-byte unchanged", "completion claims are not evidence",
                 "Never reuse or renumber existing IDs", "Constitution-violation tasks MUST",
                 "MUST run only after",
+                "prior Convergence phases", "append only the uncovered remainder",
+                "does not cover a still-unmet finding", "Do not report `converged` or `tasks_appended`",
+                "A repeat assessment does not require another implementation pass",
             ],
         }
         for name, contracts in expected.items():
