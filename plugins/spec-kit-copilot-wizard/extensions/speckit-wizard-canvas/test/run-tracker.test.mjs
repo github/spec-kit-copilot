@@ -6,6 +6,17 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { phaseActions } from "../canvas-runtime/actions/phase.mjs";
+import { completeCommandRun } from "../canvas-runtime/actions/phase.mjs";
+import {
+    commandCompletionInputSchema,
+    validateCommandCompletionInput,
+} from "../contracts/agent-command.mjs";
+import {
+    beginCommandRun,
+    clearCommandRunsForInstance,
+    currentCommandRunMatches,
+    __resetCommandRunsForTests,
+} from "../canvas-runtime/command-run-tracker.mjs";
 import {
     activeRunMatches,
     beginRun,
@@ -16,9 +27,11 @@ const INSTANCE = "inst-1";
 const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
 const runPhase = phaseActions.find((action) => action.name === "runPhase");
 const reportExecution = phaseActions.find((action) => action.name === "reportExecution");
+const reportCommandComplete = phaseActions.find((action) => action.name === "reportCommandComplete");
 
 afterEach(() => {
     __resetRunTrackerForTests();
+    __resetCommandRunsForTests();
     setSession(null);
 });
 
@@ -32,6 +45,95 @@ test("active run tokens keep only the latest overlapping run", () => {
 
     assert.equal(activeRunMatches(INSTANCE, "speckit.plan", first.runId), false);
     assert.equal(activeRunMatches(INSTANCE, "speckit.plan", second.runId), true);
+});
+
+test("command completion infers only once for its matching command run", async () => {
+    const run = beginCommandRun(INSTANCE, "speckit.assess.intake");
+    const calls = [];
+    const infer = async (_inst, options) => {
+        calls.push(options);
+        assert.deepEqual(options.commandIds, ["speckit.assess.intake"]);
+        assert.equal(options.isCurrent(), true);
+        return { queued: true };
+    };
+    const inst = { instanceId: INSTANCE };
+    const result = await completeCommandRun(inst, {
+        commandId: "speckit.assess.intake",
+        runId: run.runId,
+        status: "done",
+    }, { infer });
+    assert.deepEqual(result, { ok: true, queued: true });
+
+    const duplicate = await completeCommandRun(inst, {
+        commandId: "speckit.assess.intake",
+        runId: run.runId,
+        status: "done",
+    }, { infer });
+    assert.deepEqual(duplicate, { ok: false, error: "stale command run" });
+    assert.equal(calls.length, 1);
+});
+
+test("command completion rejects mismatched and superseded tokens", async () => {
+    const first = beginCommandRun(INSTANCE, "speckit.plan");
+    const second = beginCommandRun(INSTANCE, "speckit.plan");
+    const otherCommand = beginCommandRun(INSTANCE, "speckit.tasks");
+    const infer = async () => ({ queued: true });
+    const inst = { instanceId: INSTANCE };
+
+    assert.deepEqual(await completeCommandRun(inst, {
+        commandId: "speckit.tasks",
+        runId: first.runId,
+        status: "done",
+    }, { infer }), { ok: false, error: "stale command run" });
+    assert.deepEqual(await completeCommandRun(inst, {
+        commandId: "speckit.plan",
+        runId: first.runId,
+        status: "done",
+    }, { infer }), { ok: false, error: "stale command run" });
+    assert.deepEqual(await completeCommandRun({ instanceId: "other-instance" }, {
+        commandId: "speckit.tasks",
+        runId: otherCommand.runId,
+        status: "done",
+    }, { infer }), { ok: false, error: "stale command run" });
+    assert.deepEqual(await completeCommandRun(inst, {
+        commandId: "speckit.tasks",
+        runId: otherCommand.runId,
+        status: "skipped",
+    }, { infer }), { ok: true, queued: false });
+    assert.equal(currentCommandRunMatches(INSTANCE, "speckit.plan", second.runId), false);
+});
+
+test("command completion rejects invalid input and clears instance-owned tokens", async () => {
+    const run = beginCommandRun(INSTANCE, "speckit.plan");
+    let inferenceCalls = 0;
+    const infer = async () => { inferenceCalls++; return { queued: true }; };
+    const invalid = await completeCommandRun({ instanceId: INSTANCE }, {
+        commandId: "speckit.plan",
+        runId: run.runId,
+        status: "pending",
+    }, { infer });
+    assert.deepEqual(invalid, { ok: false, error: "invalid status" });
+
+    clearCommandRunsForInstance(INSTANCE);
+    const stale = await completeCommandRun({ instanceId: INSTANCE }, {
+        commandId: "speckit.plan",
+        runId: run.runId,
+        status: "done",
+    }, { infer });
+    assert.deepEqual(stale, { ok: false, error: "stale command run" });
+    assert.equal(inferenceCalls, 0);
+});
+
+test("reportCommandComplete exposes a closed, validated action contract", () => {
+    assert.deepEqual(commandCompletionInputSchema.required, ["commandId", "runId", "status"]);
+    assert.equal(commandCompletionInputSchema.properties.status.enum.join(","), "done,skipped,error");
+    assert.equal(reportCommandComplete.inputSchema, commandCompletionInputSchema);
+    assert.deepEqual(validateCommandCompletionInput({
+        commandId: "speckit.plan", runId: "run-1", status: "done",
+    }), { ok: true, value: { commandId: "speckit.plan", runId: "run-1", status: "done" } });
+    assert.deepEqual(validateCommandCompletionInput({
+        commandId: "speckit.plan", runId: "run-1", status: "done", extra: true,
+    }), { ok: false, error: "invalid command completion" });
 });
 
 test("runPhase schema and runtime reject meta phases", async () => {

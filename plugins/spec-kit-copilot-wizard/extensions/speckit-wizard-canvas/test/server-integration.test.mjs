@@ -33,6 +33,10 @@ import { createHandler } from "../server.mjs";
 import { formatReviewAnswers } from "../contracts/review-submission.mjs";
 import { activeRunMatches, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 import {
+    commandRunMatches,
+    __resetCommandRunsForTests,
+} from "../canvas-runtime/command-run-tracker.mjs";
+import {
     applyPatch,
     EXECUTION_STATES,
     normalizeExecutionReports,
@@ -41,6 +45,7 @@ import {
 
 afterEach(() => {
     __resetRunTrackerForTests();
+    __resetCommandRunsForTests();
     setSession(null);
     for (const timer of outputTimers.splice(0)) clearTimeout(timer);
 });
@@ -785,6 +790,8 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
 
         // Every canonical dispatch must begin with the slash command.
         assert.ok(prompt.startsWith("/speckit-constitution"), `prompt must lead with slash: ${prompt.slice(0, 60)}`);
+        assert.match(prompt, /reportCommandComplete\(/,
+            "Run prompt must request output inference only after command completion");
 
         // Extract the setPhaseStatus({...}) invocation and parse fields
         // by name — resilient to reordering / whitespace / new fields.
@@ -836,9 +843,11 @@ test("POST /api/phase/submit acknowledges before session.send completion and cle
         const body = JSON.parse(res.body);
         assert.equal(body.queued, true);
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), true);
+        assert.equal(commandRunMatches("inst-fail", "speckit.constitution", body.runId), true);
 
         await new Promise((r) => setImmediate(r));
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
+        assert.equal(commandRunMatches("inst-fail", "speckit.constitution", body.runId), false);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -1012,11 +1021,10 @@ test("POST /api/phase/submit revalidates the artifact after the awaited state sc
     }
 });
 
-test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus call", async () => {
+test("S3×S2: extension-namespaced commands get completion tracking without phase-status calls", async () => {
     // Extension commands aren't tracked by the wizard's canonical stepper;
-    // wrapping them with a tracking preamble would ask the agent to write
-    // to a phase id that doesn't exist. This test ensures no `setPhaseStatus`
-    // instruction leaks into the extension-command dispatch.
+    // Phase-status and witness reporting target canonical phases only. The
+    // completion callback is generic and lets extension outputs be inferred.
     const ws = tmpWorkspace();
     try {
         const deps = baseDeps({ workspacePath: ws });
@@ -1033,6 +1041,10 @@ test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus ca
         await new Promise((r) => setImmediate(r));
         const prompt = deps._sessionCalls[0].prompt;
         assert.ok(prompt.startsWith("/speckit-assess-intake"), "dispatch must slash-normalize");
+        assert.match(prompt, /Invoke the `skill` tool with name `speckit-assess-intake`/,
+            "extension prompt must explicitly invoke its mapped skill");
+        assert.match(prompt, /reportCommandComplete\(/,
+            "extension prompt must request command completion");
         assert.equal(
             /setPhaseStatus/.test(prompt),
             false,
@@ -1450,6 +1462,8 @@ test("S2: tracking preamble requires terminal status for success, skips, and blo
     const preamble = buildWorkflowTrackingPreamble({
         commandName: "speckit.implement",
         artifactPath: null,
+        expectedArtifacts: { templates: ["tasks-template"], scripts: [], hooks: [] },
+        runId: "run-test",
     });
 
     assert.ok(preamble.includes('status: "done"'), "success must report done");
@@ -1459,6 +1473,11 @@ test("S2: tracking preamble requires terminal status for success, skips, and blo
     assert.match(preamble, /cancellation/);
     assert.match(preamble, /skill\/tool failure/);
     assert.match(preamble, /Before you return, call `setPhaseStatus` exactly once/);
+    assert.ok(
+        preamble.indexOf("reportCommandComplete(") > preamble.indexOf("reportExecution({"),
+        "command completion must follow phase status and witness reporting",
+    );
+    assert.match(preamble, /commandId: "speckit\.implement".*run-test/);
 });
 
 // ---------- Full-state JSON round-trip ----------

@@ -339,11 +339,10 @@ export function renderPhaseCard() {
     const all = commands();
     // The card follows the pipeline, even when no preset contributes commands.
     const items = pipelineItems();
+    // The stepper already explains an empty pipeline, so omit the card.
+    el.hidden = !items.length;
     if (!items.length) {
-        el.innerHTML = `<div class="empty phase-empty">
-            <p><strong>No commands in the pipeline.</strong></p>
-            <p class="muted">Click <strong>+ Add</strong> on any command below, or <em>Reset to default</em> above, to start building the pipeline.</p>
-        </div>`;
+        el.innerHTML = "";
         renderMoreCommandsPanel();
         return;
     }

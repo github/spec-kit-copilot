@@ -817,10 +817,12 @@ test("renderPhaseCard preserves cleared and orphaned pipelines without preset co
     try {
         state.snapshot = { commands: [], pipeline: [], composition: { artifacts: [] } };
         renderPhaseCard();
-        assert.match(card.innerHTML, /No commands in the pipeline/);
+        assert.equal(card.hidden, true);
+        assert.equal(card.innerHTML, "");
 
         state.snapshot.pipeline = [{ id: "removed-preset-command" }];
         renderPhaseCard();
+        assert.equal(card.hidden, false);
         assert.match(card.innerHTML, /Pipeline references unknown commands/);
         assert.equal(renders, 0);
     } finally {

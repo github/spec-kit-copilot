@@ -52,6 +52,46 @@ test("inference dispatch batches current pipeline requests into one worker", asy
     assert.equal(dispatched[0].commands.length, 6);
 });
 
+test("inference dispatch can add only the selected command's request", async (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const dispatched = [];
+    const result = await ensurePipelineOutputInference(inst, {
+        getSnapshot: async () => ({
+            pipeline: [{ id: "plan" }, { id: "tasks" }],
+            artifactInferenceRequests: [request("plan"), request("tasks")],
+        }),
+        commandIds: ["speckit.plan"],
+        session: {},
+        buildPrompt: async ({ commands }) => commands.map(({ commandId }) => commandId).join(","),
+        startWorker: async (_target, { prompt }) => dispatched.push(prompt),
+    });
+    await new Promise(setImmediate);
+    assert.deepEqual(result.requests.map(({ commandId }) => commandId), ["speckit.plan"]);
+    assert.deepEqual(dispatched, ["speckit.plan"]);
+});
+
+test("scoped inference does not enqueue a stale completion after snapshot work", async () => {
+    const inst = fixture();
+    let resolveSnapshot;
+    let current = true;
+    const pending = ensurePipelineOutputInference(inst, {
+        getSnapshot: () => new Promise((resolve) => { resolveSnapshot = resolve; }),
+        commandIds: ["speckit.plan"],
+        isCurrent: () => current,
+        session: {},
+        buildPrompt: async () => "prompt",
+        startWorker: async () => assert.fail("stale completion must not start a worker"),
+    });
+    current = false;
+    resolveSnapshot({
+        pipeline: [{ id: "plan" }],
+        artifactInferenceRequests: [request("plan")],
+    });
+    assert.deepEqual(await pending, { queued: false, requests: [] });
+    assert.equal(inst.outputInference, undefined);
+});
+
 test("new pipeline checks share active inference without cancelling useful workers", async (t) => {
     const inst = fixture();
     t.after(() => clearTimeout(inst.outputInference?.timer));

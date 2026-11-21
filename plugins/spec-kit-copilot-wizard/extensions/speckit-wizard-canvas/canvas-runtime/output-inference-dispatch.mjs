@@ -36,14 +36,20 @@ export async function ensurePipelineOutputInference(inst, {
     buildPrompt = defaultBuildPrompt,
     startWorker = (target, request, workerSession, isCurrent, workerId) =>
         startBackgroundInference(target, request, workerSession, isCurrent, workerId),
+    commandIds,
+    isCurrent = () => true,
 } = {}) {
-    if (inst.closed) return { queued: false, requests: [] };
+    if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
     const current = await getSnapshot(inst);
-    if (inst.closed) return { queued: false, requests: [] };
+    if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
     const pipelineCommands = new Set(effectivePipelinePhases(current)
         .map(({ id }) => commandId(id)));
+    const selectedCommands = commandIds == null
+        ? null
+        : new Set(commandIds.map(commandId));
     const requests = (current?.artifactInferenceRequests ?? [])
-        .filter(({ commandId: id }) => pipelineCommands.has(commandId(id)));
+        .filter(({ commandId: id }) => pipelineCommands.has(commandId(id))
+            && (!selectedCommands || selectedCommands.has(commandId(id))));
     if (!requests.length) return { queued: false, requests: [] };
     const inference = beginOutputInference(inst, requests);
     if (!inference) return { queued: false, requests: [] };

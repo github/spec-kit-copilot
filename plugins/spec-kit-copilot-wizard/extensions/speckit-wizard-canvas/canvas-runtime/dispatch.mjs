@@ -35,12 +35,14 @@ import {
     buildPrompt,
     buildWorkflowSlashCommand,
     buildWorkflowTrackingPreamble,
+    buildCommandCompletionPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
 import {
     beginRun,
     clearRun,
 } from "./run-tracker.mjs";
+import { beginCommandRun, clearCommandRun } from "./command-run-tracker.mjs";
 
 // -------- Section: deferred send --------
 // Defer the actual SDK send so callers acknowledge the enqueue immediately
@@ -185,16 +187,16 @@ export async function dispatchKindPrompt(inst, kind, payload, {
 
 // -------- Section: dispatchPhaseCommand --------
 // Build a raw `/speckit-<phase>` slash command (optionally wrapped with the
-// tracking preamble that instructs the agent to report a terminal phase status
-// and, on success, `reportExecution`) and dispatch it. Used for Run phase /
+// tracking preamble that instructs the agent to report a terminal phase status,
+// `reportExecution`, and command completion) and dispatch it. Used for Run phase /
 // Rerun phase clicks in the UI AND the agent's `runPhase` canvas action.
 //
 // When `track: true`, the wizard prepends a small tracking preamble that
 // opens a witness capture window and lists the expected artifacts. When
 // false (handoff-style calls), neither the preamble nor the witness are
 // engaged. `buildWorkflowTrackingPreamble` returns null for
-// extension-namespaced commands (e.g. `speckit.assess.intake`), leaving
-// those dispatches unwrapped so extension skills stay preset-agnostic.
+// extension-namespaced commands (e.g. `speckit.assess.intake`), which get a
+// completion-only preamble without phase-status or witness reporting.
 export async function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
     let phaseId = null;
@@ -214,6 +216,9 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
     // Only canonical phases get a status token for stale callback rejection.
     // Extension artifact availability is scanner-driven; chat owns progress.
     const run = phaseId ? beginRun(inst?.instanceId, commandName) : null;
+    const completionRun = track
+        ? beginCommandRun(inst?.instanceId, commandName, run?.runId)
+        : null;
     if (phaseId) {
         const preamble = buildWorkflowTrackingPreamble({
             commandName,
@@ -222,17 +227,15 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
             runId: run?.runId,
         });
         if (preamble) prompt = `${prompt}\n${preamble}`;
+    } else if (completionRun) {
+        prompt = `${prompt}\n${buildCommandCompletionPreamble(commandName, completionRun.runId)}`;
     }
     await dispatchPromptToSession({
         prompt,
         onError: () => {
             if (run) clearRun(inst?.instanceId, commandName, run.runId);
+            if (completionRun) clearCommandRun(inst?.instanceId, commandName, completionRun.runId);
         },
     });
-    if (track) {
-        void ensurePipelineOutputInference(inst).catch((error) => {
-            void sessionAdapter().log(`Output inference: ${error.message}`, "warning");
-        });
-    }
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };
 }

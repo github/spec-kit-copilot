@@ -202,12 +202,18 @@ Opening an expected output in the viewer before it exists shows an
 The **Composition** button reads **Refresh** when idle, whether or not the latest
 data is up to date; its progress and retry messages describe composition refresh
 only. Opening the Phases tab and changing installed packages do not start output
-inference. After a phase Run click, the Wizard checks missing or stale outputs
-for the current user-visible pipeline and dispatches inference in the background
-while the phase runs. The Output(s) row shows "Retrieving outputs…" while those
-details are pending. If Canvas Designer is launched before a phase has been run,
-the launch starts the same pipeline-scoped inference, waits for it to finish
-(the button reads "Launching…"), and then opens the Designer session.
+inference. A Run dispatch sends the selected command without starting output
+inference. After the agent finishes the skill's normal work and calls
+`reportCommandComplete`, the Wizard checks only that command for missing or
+stale outputs and dispatches inference in the background. The Output(s) row
+shows "Retrieving outputs…" while those details are pending. A skipped command
+does not start inference; completed and failed commands do, because inference
+predicts expected outputs from the skill rather than verifying that files were
+created. If the agent omits the completion callback, that Run does not trigger
+inference; ordinary Refresh does not retry it. If Canvas Designer is launched
+before a phase has been run, the launch starts the pipeline-scoped inference,
+waits for it to finish (the button reads "Launching…"), and then opens the
+Designer session.
 When composition refresh needs LLM pipeline-order inference, it runs as a
 background task and applies its result through the existing run-correlated
 `showInferredPipeline` callback.

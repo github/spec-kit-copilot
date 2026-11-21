@@ -41,6 +41,7 @@ import { snapshot } from "./canvas-runtime/snapshot.mjs";
 import { cancelBackgroundInference } from "./canvas-runtime/background-inference.mjs";
 import { runFastComposition, normalizeHookArtifactsInComposition } from "./canvas-runtime/composition-apply.mjs";
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
+import { clearCommandRunsForInstance } from "./canvas-runtime/command-run-tracker.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
 import { pipelineActions } from "./canvas-runtime/actions/pipeline.mjs";
@@ -371,6 +372,7 @@ async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);
     if (!inst) return;
     inst.closed = true;
+    clearCommandRunsForInstance(ctx.instanceId);
     cancelBackgroundInference(inst);
     clearTimeout(inst.outputInference?.timer);
     clearTimeout(inst.refreshStatus?.timer);
