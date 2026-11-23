@@ -399,6 +399,10 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
     function runFor(step, item, view = state) {
         return view.runs.findLast((run) => run.phase === step.id && run.item === (step.project ? "project" : item));
     }
+    function reportedArtifactFor(step, item, view = state) {
+        return view.runs.findLast((run) => run.phase === step.id &&
+            run.item === (step.project ? "project" : item) && run.artifact);
+    }
     function authorizeReport(step, path, item) {
         safePath(path);
         if (!path.endsWith(".md")) throw new UserError("Reported artifact must be Markdown.");
@@ -422,7 +426,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
         }
     }
     async function outputPath(step, item, view = state, entries, directory = false) {
-        const run = runFor(step, item, view);
+        const run = reportedArtifactFor(step, item, view);
         if (!step.configuredArtifacts && run?.artifact) {
             authorizeReport(step, run.artifact, run.item);
             return directory ? posix.dirname(run.artifact) : run.artifact;

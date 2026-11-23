@@ -43,6 +43,7 @@ describe("wizard modals", () => {
         const viewer = {
             hidden: true,
             innerHTML: "",
+            setAttribute: () => {},
             querySelector: (selector) => selector === ".artifact-viewer-body" ? body : null,
         };
         globalThis.document = {

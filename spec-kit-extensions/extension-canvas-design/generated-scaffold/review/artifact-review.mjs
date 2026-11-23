@@ -260,7 +260,7 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
         const reference = references.get(context.id)?.get(relativePath);
         if (reference) {
             await readArtifact(workspacePath, reference.originPath, { expectedRevision: reference.originRevision });
-            return hydrate(reference);
+            if (!candidate.owningCommand || candidate.role === "reference") return hydrate(reference);
         }
         return hydrate(candidate);
     }

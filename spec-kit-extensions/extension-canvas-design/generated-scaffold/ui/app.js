@@ -1260,6 +1260,7 @@ async function closeArtifact() {
     const root = $("phase-artifact-viewer");
     root.hidden = true;
     root.replaceChildren();
+    root.onkeydown = null;
     document.body.classList.remove("artifact-review-open");
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (generation === viewerGeneration && root.hidden) {

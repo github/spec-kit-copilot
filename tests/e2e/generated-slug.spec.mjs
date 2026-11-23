@@ -66,7 +66,15 @@ test("vertical phase adapter keeps the numbered step list and manual retry acces
         await page.locator('.vertical-phase-list [data-phase-index="1"]').click();
         await expect(page.locator(".vertical-phase-detail h2")).toHaveText("Plan");
         await page.locator('[data-action="view-row"][data-index="1"]').click();
-        await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/plan.md");
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer).toHaveAttribute("role", "dialog");
+        await expect(viewer).toHaveAttribute("aria-modal", "true");
+        await expect(viewer).toHaveAttribute("aria-labelledby", "artifact-viewer-title");
+        await expect(viewer.locator(".artifact-viewer-back")).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(viewer).toBeHidden();
+        await page.locator('[data-action="view-row"][data-index="1"]').click();
+        await expect(viewer.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/plan.md");
         await page.locator(".artifact-viewer-back").click();
         await expect(page.locator('[data-action="start"]').first()).toBeEnabled();
         await page.locator('[data-action="previous"]').click();
@@ -1690,7 +1698,8 @@ test("generated artifact review preserves stale drafts and reruns the owning pha
         const markdown = "# Sample feature\n\n[Details](notes.md#details)\n\n[NEEDS CLARIFICATION: Which scope?]\n\n[NEEDS CLARIFICATION: Which tests?]\n";
         await mkdir(folder, { recursive: true });
         await writeFile(artifact, markdown);
-        await writeFile(join(folder, "notes.md"), "# Details\n\nNotes for this feature.");
+        await writeFile(join(folder, "notes.md"),
+            "# Details\n\nNotes for this feature.\n\n[Back to specification](spec.md#scope)");
         await mkdir(join(canvas.root, ".github", "skills", "speckit-specify"), { recursive: true });
         await writeFile(join(canvas.root, ".github", "skills", "speckit-specify", "SKILL.md"),
             "---\nname: speckit-specify\ndescription: Fixture skill.\n---\n");
@@ -1718,7 +1727,8 @@ test("generated artifact review preserves stale drafts and reruns the owning pha
         assert.equal(canvas.sent.length, 0);
         await viewer.getByRole("link", { name: "Details" }).click();
         await expect(viewer.locator(".md-reader__article h1")).toHaveText("Details");
-        await navigation.getByRole("combobox", { name: "Artifacts" }).selectOption({ label: "Specify" });
+        await viewer.getByRole("link", { name: "Back to specification" }).click();
+        await expect(viewer.locator(".md-reader__article h1")).toHaveText("Sample feature");
         await viewer.getByRole("button", { name: "Clarify: Which scope?" }).click();
         await page.getByRole("textbox", { name: "Your answer" }).fill("Only this feature.");
         await page.getByRole("button", { name: "Save answer", exact: true }).click();
@@ -1736,6 +1746,48 @@ test("generated artifact review preserves stale drafts and reruns the owning pha
         assert.equal(canvas.sent.length, 1);
         assert.match(canvas.sent[0].prompt, /^\/speckit-specify/);
         assert.match(canvas.sent[0].prompt, /Clarification - Which scope\?\\nAnswer: Only this feature\./);
+    } finally { await canvas.close(); }
+});
+
+test("reported primary artifacts remain selected while clarification reruns are dispatched", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    try {
+        const folder = join(canvas.root, "specs", "sample-feature");
+        const artifact = join(folder, "custom-spec.md");
+        await mkdir(folder, { recursive: true });
+        await writeFile(artifact,
+            "# Sample feature\n\n[NEEDS CLARIFICATION: Which scope?]\n\n[NEEDS CLARIFICATION: Which tests?]\n");
+        await mkdir(join(canvas.root, ".specify", "memory"), { recursive: true });
+        await writeFile(join(canvas.root, ".specify", "memory", "constitution.md"), "# Principles\n");
+        const skill = join(canvas.root, ".github", "skills", "speckit-specify");
+        await mkdir(skill, { recursive: true });
+        await writeFile(join(skill, "SKILL.md"), "---\nname: speckit-specify\n---\n");
+        const beforeRun = await canvas.runtime.snapshot();
+        await canvas.runtime.save({ revision: beforeRun.revision, selected: "specs/sample-feature" });
+
+        const firstRun = await canvas.runtime.run({
+            phase: "specify", itemId: "specs/sample-feature", args: "Initial feature request",
+        }, "generated-review-test");
+        await canvas.runtime.report({
+            phaseRunId: firstRun.runId, path: "specs/sample-feature/custom-spec.md",
+        }, "generated-review-test");
+        assert.equal((await canvas.runtime.snapshot()).statuses.specify.output,
+            "specs/sample-feature/custom-spec.md");
+
+        await page.goto(canvas.url);
+        await page.getByRole("button", { name: "sample-feature", exact: true }).click();
+        await page.locator("#view-artifact").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer.locator(".artifact-viewer-title code"))
+            .toHaveText("specs/sample-feature/custom-spec.md");
+        await viewer.getByRole("button", { name: "Clarify: Which scope?" }).click();
+        await page.getByRole("textbox", { name: "Your answer" }).fill("Only this feature.");
+        await page.getByRole("button", { name: "Save answer", exact: true }).click();
+        await viewer.getByRole("button", { name: "Apply and Rerun" }).click();
+        await expect(viewer).toBeHidden();
+        assert.equal(canvas.sent.length, 2);
+        assert.match(canvas.sent.at(-1).prompt, /^\/speckit-specify/);
+        assert.match(canvas.sent.at(-1).prompt, /Clarification - Which scope\?\\nAnswer: Only this feature\./);
     } finally { await canvas.close(); }
 });
 

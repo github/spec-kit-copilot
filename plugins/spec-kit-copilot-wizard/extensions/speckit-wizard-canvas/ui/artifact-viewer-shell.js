@@ -6,7 +6,7 @@ export function mountArtifactViewerShell(root, { label, path, returnLabel, onRet
         <div class="artifact-viewer-header">
             <button type="button" class="btn btn-ghost btn-sm artifact-viewer-back"></button>
             <div class="artifact-viewer-title">
-                <h2></h2>
+                <h2 id="artifact-viewer-title"></h2>
                 <code class="muted"></code>
             </div>
         </div>
@@ -15,10 +15,19 @@ export function mountArtifactViewerShell(root, { label, path, returnLabel, onRet
             <p class="muted">Loading…</p>
         </div>
     `;
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "artifact-viewer-title");
+    root.onkeydown = (event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        event.preventDefault();
+        onReturn();
+    };
     const back = root.querySelector(".artifact-viewer-back");
     if (back) {
         back.textContent = `← ${returnLabel}`;
         back.addEventListener("click", onReturn);
+        back.focus({ preventScroll: true });
     }
 
     const title = root.querySelector(".artifact-viewer-title h2");

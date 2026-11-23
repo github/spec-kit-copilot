@@ -332,7 +332,7 @@ test("Browse resolves the parent of a run-reported artifact", async (t) => {
     const end = runtimeSource.indexOf("    async function artifact(", start);
     assert.ok(start >= 0 && end > start);
     const outputPath = runInNewContext(`${runtimeSource.slice(start, end)}\noutputPath`, {
-        state: {}, runFor: () => ({ item: "specs/demo", artifact: "specs/demo/spec.md" }),
+        state: {}, reportedArtifactFor: () => ({ item: "specs/demo", artifact: "specs/demo/spec.md" }),
         authorizeReport() {}, posix,
     });
     const step = { configuredArtifacts: false, output: "specs/<slug>/spec.md" };

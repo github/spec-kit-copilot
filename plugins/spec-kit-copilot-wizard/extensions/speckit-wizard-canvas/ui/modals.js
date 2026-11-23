@@ -652,6 +652,7 @@ export async function closeArtifactViewer() {
     if (root) {
         root.hidden = true;
         root.innerHTML = "";
+        root.onkeydown = null;
     }
     document.body.classList.remove("artifact-review-open");
     onArtifactReturn();
