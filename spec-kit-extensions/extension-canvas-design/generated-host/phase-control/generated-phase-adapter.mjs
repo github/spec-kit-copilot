@@ -151,15 +151,16 @@ export function mount({ root, definition, state, actions }) {
                 ? badgesForTarget(next.badgeModels ?? [], phase.id, phase.output) : []);
             viewBadges.hidden = needsSlug;
         }
-        const unresolved = !next.output || next.output.includes("<slug>");
+        const unresolved = Boolean(next.output?.includes("<slug>"));
         browse.disabled = unresolved;
         browse.title = unresolved
             ? (next.slugEditable ? "Enter an artifact folder name (slug) to resolve this path"
                 : "Run the phase to resolve this path")
-            : `Open ${output.slice(0, output.lastIndexOf("/")) || "."} in file explorer`;
+            : next.output ? `Open ${output.slice(0, output.lastIndexOf("/")) || "."} in file explorer`
+                : "Open the project folder in file explorer";
         const artifact = $("#phase-artifact-status");
         const available = next.output === status?.output && status?.artifactAvailability === "available";
-        $("#view-artifact").hidden = !available;
+        $("#view-artifact").hidden = next.workflow === "__new__";
         $("#view-artifact").textContent = Object.hasOwn(definition.viewLabels, phase.id)
             ? definition.viewLabels[phase.id] : "View output";
         artifact.textContent = next.workflow === "__new__" || available ? "" : (status?.artifactError

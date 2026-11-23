@@ -995,6 +995,12 @@ dialog, or page rather than in dismissible notifications. When a declared
 Markdown output does not exist yet, its link opens the nearest existing
 directory inside the checkout instead of showing an empty viewer. This is
 host/runtime behavior, not a phase data-contract requirement.
+View artifact and the constitution view remain visible after a workflow
+starts, even before output is found. When the artifact is missing, the host
+opens the viewer with a "No output found yet" message, reveals the output
+folder (or the project root when no output path is known), and refreshes.
+Reveal is disabled only for unresolved `<slug>` paths. Generated canvases do
+not run output inference; they use the outputs Designer passes in.
 A minimal phase list:
 
 The catalog-listed `copilot-vertical-phase-control` preset replaces the

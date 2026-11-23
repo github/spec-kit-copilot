@@ -1375,8 +1375,7 @@ User input follows as JSON data for the skill:\n${JSON.stringify(input.args)}`;
         const selected = input.output === undefined ? step
             : { ...step, output: input.output, configuredArtifacts: true };
         const path = await outputPath(selected, input.itemId, state, undefined, true);
-        if (!path) throw new UserError("No output folder is available. Select a workflow or run the phase first.");
-        const folder = await existingOutputFolder(cwd, path);
+        const folder = path ? await existingOutputFolder(cwd, path) : cwd;
         const [command, args] = process.platform === "win32" ? ["explorer.exe", [folder]]
             : process.platform === "darwin" ? ["open", [folder]] : ["xdg-open", [folder]];
         await new Promise((resolve, reject) => {

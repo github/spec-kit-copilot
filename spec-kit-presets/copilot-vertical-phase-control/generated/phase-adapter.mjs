@@ -102,7 +102,7 @@ function render(state, definition) {
                 </div>
                 <div class="vertical-phase-actions">
                     <button class="btn btn-secondary" type="button" data-action="view-row" data-index="${index}"
-                        ${ready ? "" : `disabled title="No verified artifact is available yet"`}>${label}</button>
+                        ${ready ? "" : `title="No verified artifact yet; opens the output folder"`}>${label}</button>
                     <button class="btn btn-primary" type="button" data-action="start" data-index="${index}"
                         ${state.setupPending ? 'disabled title="Available after setup"' : ""}>Start Step ${index}</button>
                 </div>
@@ -118,7 +118,7 @@ function render(state, definition) {
             <p class="tagline">${escapeHtml(phase.id.startsWith("speckit.") ? phase.id : `speckit.${phase.id}`)}</p>
         </div></header>
         <dl class="phase-facts"><dt>View target</dt><dd><button class="phase-artifact-link" data-action="reveal" type="button"
-            title="Open the viewer target's folder" ${!output || output.includes("<slug>") ? "disabled" : ""}><code>${escapeHtml(output || "No declared output")}</code></button>
+            title="${output ? "Open the viewer target's folder" : "Open the project folder"}" ${output?.includes("<slug>") ? "disabled" : ""}><code>${escapeHtml(output || "No declared output")}</code></button>
             ${badgeSlots.has("phase.output") ? `<span class="canvas-badges" data-phase-badge-slot="phase.output">${badgeMarkup(phase.output
                 && !state.outputLinks.some((link) => link.template === phase.output) ? badgesForTarget(
                 state.badgeModels ?? [], phase.id, phase.output) : [])}</span>` : ""}</dd></dl>

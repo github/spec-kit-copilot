@@ -1439,7 +1439,7 @@ test("one workflow header, compact constitution and legible narrow phase navigat
             return navigation.top - heading.bottom;
         })).toBeLessThanOrEqual(28);
         await expect(page.locator("#workflow-action-error")).toBeHidden();
-        await expect(page.locator("#view-constitution")).toBeHidden();
+        await expect(page.locator("#view-constitution")).toBeVisible();
         await expect(page.locator("#mobile-phase-select")).toBeHidden();
         await expect(page.locator("#workflow-slug")).toBeVisible();
         await expect(page.locator("#workflow-slug")).toHaveValue("");
@@ -1527,7 +1527,7 @@ test("confirmed phase outputs disclose extra files and View output opens the sel
         await expect(page.locator("#artifact-path")).toHaveText("specs/sample-feature/research.md");
         await page.locator("#close-artifact").click();
         await page.locator("#next-phase").click();
-        await expect(page.locator("#view-artifact")).toBeHidden();
+        await expect(page.locator("#view-artifact")).toBeVisible();
         await expect(page.locator("#phase-output-toggle")).toBeHidden();
         await expect(page.locator("#phase-other-outputs [data-output]")).toHaveCount(0);
     } finally { await canvas.close(); }
@@ -1546,7 +1546,7 @@ test("a phase with no default viewer still links its declared output file", asyn
         await page.goto(canvas.url);
         await page.getByRole("button", { name: "sample-feature", exact: true }).click();
         await page.locator("#next-phase").click();
-        await expect(page.locator("#view-artifact")).toBeHidden();
+        await expect(page.locator("#view-artifact")).toBeVisible();
         await expect(page.locator("#phase-output-toggle")).toHaveText(/\+1 more/);
         await page.locator("#phase-output-toggle").click();
         await page.locator('#phase-other-outputs [data-output="specs/<slug>/notes.md"]').click();

@@ -911,6 +911,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await retrievalRequest;
         const missingViewer = page.locator("#phase-artifact-viewer");
         await expect(missingViewer).toContainText("No output found yet. Output retrieval was requested again");
+        await expect(missingViewer.getByRole("button", { name: "Open output folder" })).toBeVisible();
         await missingViewer.getByRole("button", { name: /Wizard/ }).click();
         await expect(missingViewer).toBeHidden();
         expect(foregroundTurns).toBe(1);

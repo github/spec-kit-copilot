@@ -36,7 +36,7 @@ import {
 } from "./phase-runtime.js";
 import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, performInstallDefaults, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
-import { outputEvidenceForCommand, renderPhaseCustomizations } from "./phase-contributors.js";
+import { outputEvidenceForCommand, projectFolderLink, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
 import { displayOutputPath, primaryCandidate } from "../pipeline/output-evidence.mjs";
 
@@ -468,12 +468,11 @@ export function renderGraphPhaseCard(el, p) {
         : (primary?.root ? null : p.folderPath) ?? (outputPath ? parentDirOf(outputPath) : null));
     if (folder != null && expectedPath) {
         artifact = `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(folder)}" title="Open ${escapeHtml(folder || "project folder")} in file explorer"><code>${escapeHtml(expectedPath)}</code></button>`;
-    } else if (displayFolder) {
-        artifact = `<code class="muted">${escapeHtml(displayFolder)}/</code>`;
-    } else if (p.artifact) {
-        artifact = `<code class="muted">${escapeHtml(p.artifact)}</code>`;
     } else {
-        artifact = "<em>no artifact</em>";
+        // No confirmed folder: still let the user explore from the project root.
+        const label = displayFolder ? `<code class="muted">${escapeHtml(displayFolder)}/</code>`
+            : p.artifact ? `<code class="muted">${escapeHtml(p.artifact)}</code>` : "<em>no artifact</em>";
+        artifact = projectFolderLink(label);
     }
 
     const cached = getPhaseDraft(p.commandName);
@@ -719,6 +718,9 @@ export function wireGraphPhaseCard(el, p) {
             missingMessage: retry
                 ? "No output found yet. Output retrieval was requested again; the artifact will appear on this phase once it is found."
                 : "No output found for this phase yet. Run the phase to produce one.",
+            // Same folder as the Writes-to link: known existing folder, else the project root ("").
+            outputFolder: el.querySelector('.phase-cust-row-writes [data-phase-action="browse-folder"]')
+                ?.getAttribute("data-folder-path") ?? "",
         });
     });
     // Writes-to path in the phase-facts row: opens the parent folder in

@@ -138,7 +138,13 @@ test("phase outputs show explicit no-file result without stale default links", (
         buildRow: (_label, parts) => parts.join(" "),
     });
     assert.match(rows[0], /No file output/);
+    assert.match(rows[0], /data-phase-action="browse-folder" data-folder-path=""/);
     assert.doesNotMatch(rows[0], /specs\/old/);
+    const unspecified = renderOutputRows({
+        outputEvidence: { primaryIndex: null, candidates: [{ kind: "unknown", source: "inference" }] },
+        buildRow: (_label, parts) => parts.join(" "),
+    });
+    assert.match(unspecified[0], /data-folder-path=""[^>]*>Output not specified/);
 });
 
 test("phase outputs describe retrieval without hiding known outputs", () => {
@@ -157,8 +163,27 @@ test("phase outputs describe retrieval without hiding known outputs", () => {
     assert.match(known[0], /Retrieving outputs…/);
 
     const idle = renderOutputRows({ buildRow });
-    assert.match(idle[0], /Not yet identified/);
+    assert.match(idle[0], /data-folder-path=""[^>]*><span class="phase-cust-unchanged">Not yet identified/);
     assert.doesNotMatch(idle[0], /Retrieving outputs/);
+});
+
+test("phase card links Writes to the project root without output evidence", () => {
+    const el = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    globalThis.document = { activeElement: null, getElementById: () => null };
+    state.snapshot = { pipeline: [{ id: "plan" }], composition: { artifacts: [] } };
+    try {
+        renderGraphPhaseCard(el, {
+            id: "plan", name: "Plan", commandName: "speckit.plan",
+            status: "empty", artifactPath: null, folderPath: null,
+        });
+        assert.match(el.innerHTML, /phase-cust-row-writes[\s\S]*?data-folder-path=""[^>]*><em>no artifact<\/em>/);
+    } finally {
+        state.snapshot = priorSnapshot;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
 });
 
 test("phase card browses project root for an unresolved output directory", () => {

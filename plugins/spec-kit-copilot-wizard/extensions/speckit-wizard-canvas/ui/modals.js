@@ -735,7 +735,7 @@ export async function flushClarifications(p) {
     return flush;
 }
 
-export async function openArtifactViewer(p, { missingMessage } = {}) {
+export async function openArtifactViewer(p, { missingMessage, outputFolder } = {}) {
     const root = document.getElementById("phase-artifact-viewer");
     if (!root || !p) return;
     if (reviewSubmissionPending()) { renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before switching."); return false; }
@@ -764,8 +764,16 @@ export async function openArtifactViewer(p, { missingMessage } = {}) {
 
     if (!p.artifactPath) {
         const body = root.querySelector(".artifact-viewer-body");
-        if (body) body.innerHTML = `<p class="wizard-modal-error" role="status">${escapeHtml(missingMessage
-            || "No output found for this phase yet. Run the phase, or check its output folder.")}</p>`;
+        if (!body) return;
+        const folder = typeof outputFolder === "string" ? outputFolder : "";
+        body.innerHTML = `<p class="wizard-modal-error" role="status">${escapeHtml(missingMessage
+            || "No output found for this phase yet. Run the phase, or check its output folder.")}</p>
+            <p><button type="button" class="btn btn-secondary btn-sm artifact-viewer-open-folder" title="Open ${escapeHtml(folder || "project folder")} in file explorer">Open output folder</button></p>`;
+        body.querySelector(".artifact-viewer-open-folder")?.addEventListener("click", () => {
+            void Promise.resolve(__postJson("/api/reveal", { sub: folder })).catch((err) => {
+                console.error(`reveal failed: ${err?.message ?? err}`);
+            });
+        });
         return;
     }
 

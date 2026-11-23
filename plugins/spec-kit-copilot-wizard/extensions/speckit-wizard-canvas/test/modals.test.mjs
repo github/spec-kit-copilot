@@ -67,6 +67,38 @@ describe("wizard modals", () => {
         }
     });
 
+    test("missing output viewer opens the known folder or the project root", async () => {
+        const previousDocument = globalThis.document;
+        let click;
+        const button = { addEventListener: (_event, callback) => { click = callback; } };
+        const body = { innerHTML: "",
+            querySelector: (selector) => selector === ".artifact-viewer-open-folder" ? button : null };
+        const viewer = { hidden: true, innerHTML: "",
+            querySelector: (selector) => selector === ".artifact-viewer-body" ? body : null };
+        globalThis.document = {
+            body: { classList: { add() {}, remove() {} } },
+            getElementById: (id) => id === "phase-artifact-viewer" ? viewer : null,
+        };
+        const reveals = [];
+        setViewersDeps({ postJson: async (url, payload) => { reveals.push([url, payload]); return { ok: true }; } });
+        try {
+            await openArtifactViewer({ id: "plan" }, { missingMessage: "No output found yet.", outputFolder: "specs/feature" });
+            assert.match(body.innerHTML, /No output found yet\./);
+            assert.match(body.innerHTML, /Open output folder/);
+            click();
+            await openArtifactViewer({ id: "plan" });
+            click();
+            await Promise.resolve();
+            assert.deepEqual(reveals, [
+                ["/api/reveal", { sub: "specs/feature" }],
+                ["/api/reveal", { sub: "" }],
+            ]);
+        } finally {
+            await closeArtifactViewer();
+            globalThis.document = previousDocument;
+        }
+    });
+
     test("community warning preserves Catalogs install copy and supports designer selection", () => {
         const previousDocument = globalThis.document;
         const previousWindow = globalThis.window;

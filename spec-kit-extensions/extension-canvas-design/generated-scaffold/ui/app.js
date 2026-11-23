@@ -790,7 +790,7 @@ function renderStatus() {
     }
     function artifactAction(buttonId, noticeId, status) {
         const button = $(buttonId), notice = $(noticeId);
-        if (button) button.hidden = status?.artifactAvailability !== "available";
+        if (button) button.hidden = false;
         if (notice) {
             notice.textContent = status?.artifactError ?? (status?.artifactAvailability === "available" ? ""
                 : status?.output ? `${status.output} is not available yet. Run the phase, then refresh to check again.`
@@ -1235,13 +1235,12 @@ async function openArtifact(step, output) {
     const query = new URLSearchParams({ phase: step.id, itemId,
         ...(output !== undefined ? { output } : {}) });
     let result;
+    let missing = false;
     try {
         result = await api(`/api/artifact?${query}`);
     } catch (error) {
         if (error.status !== 404) throw error;
-        await api("/api/reveal", { phase: step.id, itemId,
-            ...(output !== undefined ? { output } : {}) });
-        return;
+        missing = true;
     }
     viewer = { phase: step.id, itemId, ...(output !== undefined ? { output } : {}), loaded: false };
     $("artifact-title").textContent = step.project ? "Constitution" : step.label;
@@ -1249,7 +1248,14 @@ async function openArtifact(step, output) {
     $("artifact-content").replaceChildren();
     $("artifact-viewer").showModal();
     $("close-artifact").focus();
-    await refreshArtifact(result);
+    if (!missing) return refreshArtifact(result);
+    let note = "No output found yet. Opened the output folder so you can look for it.";
+    try {
+        await api("/api/reveal", { phase: step.id, itemId, ...(output !== undefined ? { output } : {}) });
+    } catch (error) { note = `No output found yet. Could not open the output folder: ${error.message}`; }
+    message(note, "artifact-message");
+    try { await refresh(); }
+    catch (error) { message(`Could not refresh artifact availability: ${error.message}`, "artifact-message", true); }
 }
 document.addEventListener("input", (event) => {
     if (!model) return;
