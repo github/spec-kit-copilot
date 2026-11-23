@@ -300,7 +300,7 @@ test("current hosted Canvas Design launches without a local override", async () 
 });
 
 test("hosted Canvas Design handoff verifies the installed package", async (t) => {
-    const root = join(process.cwd(), `.designer-hosted-${randomUUID()}`);
+    const root = await mkdtemp(join(tmpdir(), "designer-hosted-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const path = join(root, ".specify", "extensions", "extension-canvas-design");
     await mkdir(join(root, ".specify", "extensions"), { recursive: true });

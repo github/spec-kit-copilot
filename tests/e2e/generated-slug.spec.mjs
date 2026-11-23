@@ -1104,6 +1104,51 @@ test("first visit auto-creates a numbered pending row without making a directory
     }
 });
 
+test("phase run waits for initial and explicit workflow creation before targeting the selected row", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    const started = [], gates = [];
+    for (let index = 0; index < 2; index++) {
+        let notifyStarted, release;
+        started.push(new Promise((resolve) => { notifyStarted = resolve; }));
+        const promise = new Promise((resolve) => { release = resolve; });
+        gates.push({ promise, release, notifyStarted });
+    }
+    let createCount = 0;
+    await page.route("**/api/workflow/new", async (route) => {
+        const index = createCount++;
+        if (index >= gates.length) return route.continue();
+        const response = await route.fetch();
+        gates[index].notifyStarted();
+        await gates[index].promise;
+        await route.fulfill({ response });
+    });
+    const navigation = page.goto(canvas.url);
+    try {
+        await started[0];
+        const create = page.locator("#new-workflow").click();
+        expect(createCount).toBe(1);
+        gates[0].release();
+        await started[1];
+        expect(createCount).toBe(2);
+
+        const runRequest = page.waitForRequest((request) =>
+            request.url().endsWith("/api/run") && request.method() === "POST");
+        await page.locator("#run-phase").click();
+        gates[1].release();
+
+        await navigation;
+        await create;
+        const request = await runRequest;
+        const snapshot = await canvas.runtime.snapshot();
+        expect(snapshot.items).toHaveLength(2);
+        expect(snapshot.selected).toBe("__new__:2");
+        expect(request.postDataJSON().itemId).toBe(snapshot.selected);
+    } finally {
+        gates.forEach((gate) => gate.release());
+        await canvas.close();
+    }
+});
+
 test("sending a phase keeps the navigation free of run states and clears the dispatch notice", async ({ page }) => {
     const canvas = await openGeneratedCanvas(false);
     try {

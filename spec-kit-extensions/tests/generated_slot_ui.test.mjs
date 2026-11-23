@@ -59,10 +59,12 @@ test("a timed-out Run clears the in-flight guard without automatically resubmitt
     const messages = [];
     const actions = runInNewContext(`let sending = false;
         ${section("async function api(", "async function retryRevision(")}
+        ${section("async function waitForWorkflowCreation()", "async function createWorkflow(")}
         ${section("async function send(", "let viewerConnected")}
         ({ send, pending: () => Boolean(sending) })`, {
         token: "test", model: { constitutionReady: true, userProvidesSlug: false,
             selected: "specs/demo", statuses: {} },
+        workflowCreation: Promise.resolve(),
         selectedPending: () => false, renderStatus() {}, flush: async () => {},
         refresh: async () => {}, message: (text) => messages.push(text),
         AbortSignal: { timeout() {
@@ -171,6 +173,7 @@ test("first open uses the existing workflow endpoint and selects the new pending
     const calls = [];
     const context = {
         model: null, workflowQuery: "", slugTouched: false, current: 0,
+        workflowCreation: Promise.resolve(),
         flush: async () => {},
         refresh: async () => {
             context.model = { revision: calls.length, phases: [{ id: "specify", project: false }],
@@ -198,6 +201,7 @@ test("first-open workflow creation does not duplicate one created by another pan
     const calls = [];
     const context = {
         model: { revision: 0, items: [] },
+        workflowCreation: Promise.resolve(),
         flush: async () => {},
         api: async (path, input) => {
             calls.push({ path, revision: input.revision });
@@ -501,12 +505,15 @@ test("rerunning a phase or Constitution requires overwrite confirmation, but fir
     let confirmations = 0, submissions = 0, approved = false;
     const context = {
         model, sending: false, window: { confirm: () => { confirmations++; return approved; } },
+        workflowCreation: Promise.resolve(),
         selectedPending: () => false, slugError: () => null,
         message: () => {}, renderStatus: () => {}, flush: async () => {},
         api: async () => { submissions++; }, refresh: async () => {},
         $: () => null, AbortSignal: { timeout: () => new AbortController().signal },
     };
-    const send = runInNewContext(`${section("async function send(", "let viewerConnected")}
+    const send = runInNewContext(`
+        ${section("async function waitForWorkflowCreation()", "async function createWorkflow(")}
+        ${section("async function send(", "let viewerConnected")}
         send`, context);
     const phase = { id: "specify", project: false };
     const constitution = { id: "constitution", project: true };

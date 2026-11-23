@@ -215,6 +215,7 @@ const drafts = new Map();
 const failedValueDrafts = new Map();
 const failedPatches = new Map();
 let model, current = 0, sending = false, saving = Promise.resolve(), refreshSequence = 0;
+let workflowCreation = Promise.resolve();
 let viewer = null, timer, constitutionTimer, constitutionDraft, saveFailure = null,
     pendingValueSaves = 0, workflowQuery = "", previousBadgeRows, slugTouched = false;
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -1114,17 +1115,31 @@ async function selectFeature(value) {
     await persist({ selected: value });
     await refresh();
 }
+async function waitForWorkflowCreation() {
+    while (true) {
+        const pending = workflowCreation;
+        await pending;
+        if (pending === workflowCreation) return;
+    }
+}
 async function createWorkflow(initial = false) {
-    await flush();
-    if (initial && model.items.length) return;
-    const created = await retryRevision("/api/workflow/new", {},
-        initial ? () => !model.items.length : undefined);
-    if (!created) return;
-    message("", "workflow-action-error");
-    workflowQuery = "";
-    slugTouched = false;
-    current = 0;
-    await refresh();
+    const operation = workflowCreation.catch(() => {}).then(async () => {
+        await flush();
+        if (initial && model.items.length) return;
+        const created = await retryRevision("/api/workflow/new", {},
+            initial ? () => !model.items.length : undefined);
+        if (!created) return;
+        message("", "workflow-action-error");
+        workflowQuery = "";
+        slugTouched = false;
+        current = 0;
+        await refresh();
+    });
+    workflowCreation = operation;
+    try { return await operation; }
+    finally {
+        if (workflowCreation === operation) workflowCreation = Promise.resolve();
+    }
 }
 async function deleteFeature(itemId) {
     const item = model.items.find((entry) => entry.id === itemId);
@@ -1162,6 +1177,12 @@ async function deleteFeature(itemId) {
     message(`Deleted ${item.label} and its directory.`);
 }
 async function send(step, value, target = "phase-action-error") {
+    const requestedItem = step.project ? "project" : model.selected;
+    if (!step.project) await waitForWorkflowCreation();
+    if (!step.project && model.selected !== requestedItem) {
+        const key = JSON.stringify([model.selected, step.id]);
+        value = drafts.get(key) ?? model.drafts[key] ?? "";
+    }
     if (step.project && !model.constitutionReady && !value.trim()) {
         message("Enter project principles before creating the constitution.", target, true);
         $("constitution-args")?.focus();
@@ -1181,15 +1202,19 @@ async function send(step, value, target = "phase-action-error") {
     if ((previous?.artifactAvailability === "available"
         || ["Completed", "Failed"].includes(previous?.status))
         && !window.confirm("Rerun will overwrite the artifact, with valid content preserved. Proceed?")) return;
-    sending = { phase: step.id, item: step.project ? "project" : model.selected };
+    const itemId = step.project ? null : model.selected;
+    sending = { phase: step.id, item: itemId ?? "project" };
     renderStatus();
     let accepted = false;
     let runSignal;
     try {
         await flush();
+        if (!step.project && model.selected !== itemId) {
+            throw new Error("Selected workflow changed before the run was sent. Select the phase and retry.");
+        }
         runSignal = AbortSignal.timeout(30_000);
         await api("/api/run", { phase: step.id, args: value,
-            ...(!step.project ? { itemId: model.selected,
+            ...(!step.project ? { itemId,
                 ...(selectedPending() && model.name?.trim() ? { name: model.name.trim() } : {}),
                 ...(selectedPending() && model.userProvidesSlug && model.slug ? { slug: model.slug } : {}) } : {}) },
         { signal: runSignal });
