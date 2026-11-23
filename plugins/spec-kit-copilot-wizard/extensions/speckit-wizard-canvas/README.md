@@ -209,11 +209,12 @@ stale outputs and dispatches inference in the background. The Output(s) row
 shows "Retrieving outputs…" while those details are pending. A skipped command
 does not start inference; completed and failed commands do, because inference
 predicts expected outputs from the skill rather than verifying that files were
-created. If the agent omits the completion callback, that Run does not trigger
-inference; ordinary Refresh does not retry it. If Canvas Designer is launched
-before a phase has been run, the launch starts the pipeline-scoped inference,
-waits for it to finish (the button reads "Launching…"), and then opens the
-Designer session.
+created. Dispatch aliases share the same completion identity; ambiguous aliases
+do not select multiple commands for inference. If the agent omits the completion
+callback, that Run does not trigger inference; ordinary Refresh does not retry
+it. If Canvas Designer is launched before a phase has been run, the launch starts
+the pipeline-scoped inference, waits for it to finish (the button reads
+"Launching…"), and then opens the Designer session.
 When composition refresh needs LLM pipeline-order inference, it runs as a
 background task and applies its result through the existing run-correlated
 `showInferredPipeline` callback.

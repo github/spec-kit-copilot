@@ -210,7 +210,8 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
         // uses to draw pill rows, so the witness ask and the pill display
         // can never diverge.
         try {
-            expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
+            expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition,
+                phaseId ? `speckit.${phaseId}` : commandName);
         } catch { /* best-effort */ }
     }
     // Only canonical phases get a status token for stale callback rejection.
@@ -221,14 +222,14 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
         : null;
     if (phaseId) {
         const preamble = buildWorkflowTrackingPreamble({
-            commandName,
+            commandName: completionRun?.commandId ?? commandName,
             artifactPath,
             expectedArtifacts,
             runId: run?.runId,
         });
         if (preamble) prompt = `${prompt}\n${preamble}`;
     } else if (completionRun) {
-        prompt = `${prompt}\n${buildCommandCompletionPreamble(commandName, completionRun.runId)}`;
+        prompt = `${prompt}\n${buildCommandCompletionPreamble(completionRun.commandId, completionRun.runId)}`;
     }
     await dispatchPromptToSession({
         prompt,

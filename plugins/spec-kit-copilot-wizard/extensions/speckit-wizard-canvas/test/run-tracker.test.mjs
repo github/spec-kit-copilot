@@ -103,6 +103,42 @@ test("command completion rejects mismatched and superseded tokens", async () => 
     assert.equal(currentCommandRunMatches(INSTANCE, "speckit.plan", second.runId), false);
 });
 
+for (const [dotted, hyphenated] of [
+    ["speckit.plan", "speckit-plan"],
+    ["speckit.extension-wizard-flow-test.review", "speckit-extension-wizard-flow-test-review"],
+]) {
+    test(`command completion supersedes aliases of ${dotted}`, async () => {
+        const first = beginCommandRun(INSTANCE, dotted);
+        const other = beginCommandRun(INSTANCE, "speckit.tasks");
+        const latest = beginCommandRun(INSTANCE, `/${hyphenated}`);
+        const calls = [];
+        const infer = async (_inst, options) => {
+            calls.push(options.commandIds);
+            return { queued: true };
+        };
+        const inst = { instanceId: INSTANCE };
+
+        assert.equal(first.commandId, hyphenated);
+        assert.equal(latest.commandId, hyphenated);
+        assert.deepEqual(await completeCommandRun(inst, {
+            commandId: dotted, runId: first.runId, status: "done",
+        }, { infer }), { ok: false, error: "stale command run" });
+        assert.deepEqual(await completeCommandRun(inst, {
+            commandId: "speckit.tasks", runId: latest.runId, status: "done",
+        }, { infer }), { ok: false, error: "stale command run" });
+        assert.deepEqual(await completeCommandRun(inst, {
+            commandId: hyphenated, runId: latest.runId, status: "error",
+        }, { infer }), { ok: true, queued: true });
+        assert.deepEqual(calls, [[hyphenated]]);
+        assert.deepEqual(await completeCommandRun(inst, {
+            commandId: dotted, runId: latest.runId, status: "done",
+        }, { infer }), { ok: false, error: "stale command run" });
+        assert.deepEqual(await completeCommandRun(inst, {
+            commandId: "speckit.tasks", runId: other.runId, status: "skipped",
+        }, { infer }), { ok: true, queued: false });
+    });
+}
+
 test("command completion rejects invalid input and clears instance-owned tokens", async () => {
     const run = beginCommandRun(INSTANCE, "speckit.plan");
     let inferenceCalls = 0;

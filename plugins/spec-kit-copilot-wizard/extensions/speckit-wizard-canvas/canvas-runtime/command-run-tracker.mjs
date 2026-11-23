@@ -1,10 +1,7 @@
+import { commandAliasKey } from "../pipeline/effective-phases.mjs";
+
 const commandRuns = new Map();
 let sequence = 0;
-
-function normalizeCommandId(value) {
-    if (typeof value !== "string") return "";
-    return value.replace(/^\/+/, "").replace(/^commands\//, "");
-}
 
 function runsFor(instanceId, create = false) {
     let runs = commandRuns.get(instanceId);
@@ -16,16 +13,17 @@ function runsFor(instanceId, create = false) {
 }
 
 export function beginCommandRun(instanceId, commandId, runId = null) {
-    const normalized = normalizeCommandId(commandId);
+    const normalized = commandAliasKey(commandId);
     if (!instanceId || !normalized) return null;
     const id = runId ?? `command-run-${++sequence}`;
-    const run = { commandId: normalized, runId: id, consumed: false };
+    const sourceCommandId = commandId.replace(/^\/+/, "").replace(/^commands\//, "");
+    const run = { commandId: normalized, sourceCommandId, runId: id, consumed: false };
     runsFor(instanceId, true).set(normalized, run);
     return { ...run };
 }
 
 export function clearCommandRun(instanceId, commandId, runId) {
-    const normalized = normalizeCommandId(commandId);
+    const normalized = commandAliasKey(commandId);
     const runs = runsFor(instanceId);
     const run = runs?.get(normalized);
     if (!run || run.runId !== runId) return false;
@@ -35,21 +33,21 @@ export function clearCommandRun(instanceId, commandId, runId) {
 }
 
 export function consumeCommandRun(instanceId, commandId, runId) {
-    const normalized = normalizeCommandId(commandId);
+    const normalized = commandAliasKey(commandId);
     const run = runsFor(instanceId)?.get(normalized);
     if (!run || run.runId !== runId || run.consumed) return false;
     run.consumed = true;
-    return true;
+    return { ...run };
 }
 
 export function currentCommandRunMatches(instanceId, commandId, runId) {
-    const normalized = normalizeCommandId(commandId);
+    const normalized = commandAliasKey(commandId);
     const run = runsFor(instanceId)?.get(normalized);
     return Boolean(run && run.runId === runId && run.consumed);
 }
 
 export function commandRunMatches(instanceId, commandId, runId) {
-    const normalized = normalizeCommandId(commandId);
+    const normalized = commandAliasKey(commandId);
     return runsFor(instanceId)?.get(normalized)?.runId === runId;
 }
 

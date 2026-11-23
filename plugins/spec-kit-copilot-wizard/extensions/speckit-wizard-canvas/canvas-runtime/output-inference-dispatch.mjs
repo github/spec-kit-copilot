@@ -1,5 +1,5 @@
 import { commandId } from "../artifact-evidence.mjs";
-import { effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { commandAliasKey, effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { sessionAdapter } from "./instances.mjs";
 import { buildArtifactInferencePrompt as defaultBuildPrompt } from "./artifact-inference-prompt.mjs";
@@ -30,6 +30,22 @@ function scheduleWorkers(inst, inference) {
     });
 }
 
+function selectedPipelineCommands(commandIds, pipelineCommands) {
+    const selected = new Set();
+    for (const raw of commandIds) {
+        const id = commandId(typeof raw === "string" ? raw.replace(/^\/+/, "") : raw);
+        if (pipelineCommands.has(id)) {
+            selected.add(id);
+            continue;
+        }
+        const alias = commandAliasKey(raw);
+        const matches = [...pipelineCommands].filter((candidate) => commandAliasKey(candidate) === alias);
+        if (matches.length > 1) throw new Error(`Ambiguous command alias: ${raw}`);
+        if (matches.length === 1) selected.add(matches[0]);
+    }
+    return selected;
+}
+
 export async function ensurePipelineOutputInference(inst, {
     getSnapshot = snapshot,
     session = sessionAdapter(),
@@ -46,7 +62,7 @@ export async function ensurePipelineOutputInference(inst, {
         .map(({ id }) => commandId(id)));
     const selectedCommands = commandIds == null
         ? null
-        : new Set(commandIds.map(commandId));
+        : selectedPipelineCommands(commandIds, pipelineCommands);
     const requests = (current?.artifactInferenceRequests ?? [])
         .filter(({ commandId: id }) => pipelineCommands.has(commandId(id))
             && (!selectedCommands || selectedCommands.has(commandId(id))));

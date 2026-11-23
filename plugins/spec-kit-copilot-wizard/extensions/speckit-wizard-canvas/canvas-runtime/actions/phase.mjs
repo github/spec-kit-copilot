@@ -81,13 +81,14 @@ export async function completeCommandRun(inst, input, {
     const parsed = validateCommandCompletionInput(input);
     if (!parsed.ok) return parsed;
     const { commandId, runId, status } = parsed.value;
-    if (!consumeCommandRun(inst.instanceId, commandId, runId)) {
+    const run = consumeCommandRun(inst.instanceId, commandId, runId);
+    if (!run) {
         return { ok: false, error: "stale command run" };
     }
     if (status === "skipped") return { ok: true, queued: false };
     const isCurrent = () => currentCommandRunMatches(inst.instanceId, commandId, runId);
     try {
-        const result = await infer(inst, { commandIds: [commandId], isCurrent });
+        const result = await infer(inst, { commandIds: [run.sourceCommandId], isCurrent });
         if (!isCurrent()) return { ok: false, error: "stale command run" };
         return { ok: true, queued: result.queued };
     } catch (error) {

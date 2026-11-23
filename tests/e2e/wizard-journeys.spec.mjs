@@ -24,6 +24,9 @@ const preset = await validateLocalSource("presets", presetPath);
 const extension = await validateLocalSource("extensions", extensionPath);
 const review = "speckit.extension-wizard-flow-test.review";
 const run = promisify(execFile);
+const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
+const reportExecution = phaseActions.find((action) => action.name === "reportExecution");
+const reportCommandComplete = phaseActions.find((action) => action.name === "reportCommandComplete");
 
 async function withWizardCheckout(page, run, {
     setup: setupOverrides = {}, environment: environmentOverrides = {},
@@ -550,10 +553,10 @@ test("phase status and execution report reach the stepper, then verified output 
         await mkdir(join(root, ".specify", "memory"), { recursive: true });
         const artifactPath = ".specify/memory/constitution.md";
         await writeFile(join(root, artifactPath), "# Controlled constitution\n\nA verified output.\n");
-        expect(await phaseActions[0].handler({ instanceId: id, input: {
+        expect(await setPhaseStatus.handler({ instanceId: id, input: {
             phase: "constitution", status: "done", artifactPath, runId,
         } })).toEqual({ ok: true });
-        expect(await phaseActions[2].handler({ instanceId: id, input: {
+        expect(await reportExecution.handler({ instanceId: id, input: {
             phase: "constitution", runId, artifacts: { templates: {}, scripts: {}, hooks: {} },
         } })).toMatchObject({ ok: true });
         expect(inst.cachedComposition.executionReports["commands/speckit.constitution"]).toBeTruthy();
@@ -575,7 +578,7 @@ test("phase status and execution report reach the stepper, then verified output 
         await page.getByRole("dialog").getByRole("button", { name: "Yes" }).click();
         const { runId: retryRunId } = await (await retry).json();
         await expect.poll(() => prompts.length).toBe(2);
-        expect(await phaseActions[0].handler({ instanceId: id, input: {
+        expect(await setPhaseStatus.handler({ instanceId: id, input: {
             phase: "constitution", status: "error", artifactPath, runId: retryRunId,
         } })).toEqual({ ok: true });
         await page.reload();
@@ -708,6 +711,8 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
     const finishTurns = [];
     const backgroundTasks = [];
     let foregroundTurns = 0;
+    let commandCompletionStarted = false;
+    let outputBeforeCompletion = false;
     const setup = { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true };
     try {
         inst.workspacePath = root;
@@ -743,6 +748,9 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
                 skills: { reload: async () => ({ errors: [], warnings: [] }) },
                 tasks: {
                     startAgent: async ({ prompt }) => {
+                        if (prompt.includes("POST http://") && !commandCompletionStarted) {
+                            outputBeforeCompletion = true;
+                        }
                         backgroundTasks.push(prompt);
                         prompts.push(prompt);
                         return { agentId: randomUUID() };
@@ -876,9 +884,22 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await page.getByRole("tab", { name: "Phases" }).click();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await page.locator("#phase-card").getByRole("button", { name: "Run phase" }).click();
+        await expect.poll(() => foregroundTurns).toBe(1);
+        expect(backgroundTasks.some((prompt) => prompt.includes("POST http://"))).toBe(false);
+        const commandPrompt = prompts.find((prompt) => prompt.startsWith("/speckit-extension-wizard-flow-test-review"));
+        const completion = commandPrompt?.match(
+            /reportCommandComplete\(\{ commandId: "([^"]+)", runId: "([^"]+)", status/);
+        expect(completion).toBeTruthy();
+        commandCompletionStarted = true;
+        expect(await reportCommandComplete.handler({ instanceId: id, input: {
+            commandId: completion[1], runId: completion[2], status: "done",
+        } })).toEqual({ ok: true, queued: true });
         await expect.poll(() => backgroundTasks.some((prompt) => prompt.includes("POST http://"))).toBe(true);
+        expect(outputBeforeCompletion).toBe(false);
         expect(foregroundTurns).toBe(1);
         expect(backgroundTasks).toHaveLength(3);
+        const [outputWorker] = inst.outputInference.workers.values();
+        expect([...outputWorker.requests.keys()]).toEqual([review]);
         const outputPrompt = backgroundTasks.find((prompt) => prompt.includes("POST http://"));
         const artifactEndpoint = outputPrompt.match(/POST (http:\/\/\S+) with JSON/)?.[1];
         expect(new URL(artifactEndpoint).searchParams.get("runId")).toBeTruthy();

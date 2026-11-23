@@ -71,6 +71,63 @@ test("inference dispatch can add only the selected command's request", async (t)
     assert.deepEqual(dispatched, ["speckit.plan"]);
 });
 
+test("scoped inference resolves supported aliases without changing evidence IDs", async (t) => {
+    const review = "speckit.extension-wizard-flow-test.review";
+    const other = "speckit.extension-wizard-flow-test.audit";
+    const requests = [request("plan"), request("tasks"),
+        { commandId: review, fingerprint: "a".repeat(64) },
+        { commandId: other, fingerprint: "b".repeat(64) }];
+    const pipeline = [{ id: "plan" }, { id: "tasks" }, { id: review }, { id: other }];
+    for (const [alias, expected] of [
+        ["speckit.plan", "speckit.plan"],
+        ["speckit-plan", "speckit.plan"],
+        ["/speckit-plan", "speckit.plan"],
+        [review, review],
+        ["speckit-extension-wizard-flow-test-review", review],
+        ["/speckit-extension-wizard-flow-test-review", review],
+    ]) {
+        const inst = fixture();
+        t.after(() => clearTimeout(inst.outputInference?.timer));
+        const dispatched = [];
+        const result = await ensurePipelineOutputInference(inst, {
+            getSnapshot: async () => ({ pipeline, artifactInferenceRequests: requests }),
+            commandIds: [alias],
+            session: {},
+            buildPrompt: async ({ commands }) => commands.map(({ commandId }) => commandId).join(","),
+            startWorker: async (_target, { prompt }) => dispatched.push(prompt),
+        });
+        await new Promise(setImmediate);
+        assert.deepEqual(result.requests.map(({ commandId }) => commandId), [expected], alias);
+        assert.deepEqual(dispatched, [expected], alias);
+    }
+});
+
+test("scoped inference rejects ambiguous aliases but respects an exact command ID", async (t) => {
+    const first = "speckit.example-one.review";
+    const second = "speckit.example.one-review";
+    const pipeline = [{ id: first }, { id: second }];
+    const requests = [
+        { commandId: first, fingerprint: "a".repeat(64) },
+        { commandId: second, fingerprint: "b".repeat(64) },
+    ];
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const dependencies = {
+        getSnapshot: async () => ({ pipeline, artifactInferenceRequests: requests }),
+        session: {},
+        buildPrompt: async () => "prompt",
+        startWorker: async () => {},
+    };
+    await assert.rejects(ensurePipelineOutputInference(inst, {
+        ...dependencies, commandIds: ["speckit-example-one-review"],
+    }), /ambiguous command alias/i);
+    assert.equal(inst.outputInference, undefined);
+    const exact = await ensurePipelineOutputInference(inst, {
+        ...dependencies, commandIds: [first],
+    });
+    assert.deepEqual(exact.requests.map(({ commandId }) => commandId), [first]);
+});
+
 test("scoped inference does not enqueue a stale completion after snapshot work", async () => {
     const inst = fixture();
     let resolveSnapshot;
