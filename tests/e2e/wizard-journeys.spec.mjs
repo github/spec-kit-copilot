@@ -905,6 +905,17 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         expect(new URL(artifactEndpoint).searchParams.get("runId")).toBeTruthy();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await expect(page.locator("#phase-card")).toContainText("Retrieving outputs");
+        const retrievalRequest = page.waitForRequest((req) => req.url().includes("/api/prompt")
+            && req.method() === "POST" && req.postDataJSON()?.kind === "extension.inferArtifactTargets");
+        await page.locator("#phase-card").getByRole("button", { name: "View artifact" }).click();
+        await retrievalRequest;
+        const missingViewer = page.locator("#phase-artifact-viewer");
+        await expect(missingViewer).toContainText("No output found yet. Output retrieval was requested again");
+        await missingViewer.getByRole("button", { name: /Wizard/ }).click();
+        await expect(missingViewer).toBeHidden();
+        expect(foregroundTurns).toBe(1);
+        expect(backgroundTasks).toHaveLength(3);
+        expect([...inst.outputInference.workers.values()]).toEqual([outputWorker]);
         const evidence = {
             fingerprint: source.fingerprint, primaryIndex: 0,
             candidates: [
@@ -928,7 +939,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await expect(page.locator("#stepper")).not.toContainText(/audit/i);
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await expect(page.locator("#phase-card")).toContainText("specs/<slug>/reviews/review.md");
-        await expect(page.locator("#phase-card").getByRole("button", { name: "View artifact" })).toHaveCount(0);
+        await expect(page.locator("#phase-card").getByRole("button", { name: "View artifact" })).toBeVisible();
         await page.locator("#phase-card .phase-cust-chain-toggle")
             .filter({ hasText: "more" }).click();
         await expect(page.locator("#phase-card")).toContainText("specs/<slug>/reviews/checklist.md");

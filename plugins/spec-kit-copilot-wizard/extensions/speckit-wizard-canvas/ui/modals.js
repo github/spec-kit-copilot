@@ -735,10 +735,9 @@ export async function flushClarifications(p) {
     return flush;
 }
 
-export async function openArtifactViewer(p) {
+export async function openArtifactViewer(p, { missingMessage } = {}) {
     const root = document.getElementById("phase-artifact-viewer");
-    if (!root) return;
-    if (!p?.artifactPath) return;
+    if (!root || !p) return;
     if (reviewSubmissionPending()) { renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before switching."); return false; }
 
     discardReviewDrafts();
@@ -752,8 +751,8 @@ export async function openArtifactViewer(p) {
         <div class="artifact-viewer-header">
             <button class="btn btn-ghost btn-sm artifact-viewer-back">← Wizard</button>
             <div class="artifact-viewer-title">
-                <h2>${escapeHtml(p.shortLabel || p.title || p.id)}</h2>
-                <code class="muted">${escapeHtml(p.artifactPath)}</code>
+                <h2>${escapeHtml(p.shortLabel || p.title || p.name || p.id)}</h2>
+                <code class="muted">${escapeHtml(p.artifactPath || "No output found")}</code>
             </div>
         </div>
         <div class="artifact-viewer-clarify-banner" hidden></div>
@@ -762,6 +761,13 @@ export async function openArtifactViewer(p) {
         </div>
     `;
     root.querySelector(".artifact-viewer-back")?.addEventListener("click", closeArtifactViewer);
+
+    if (!p.artifactPath) {
+        const body = root.querySelector(".artifact-viewer-body");
+        if (body) body.innerHTML = `<p class="wizard-modal-error" role="status">${escapeHtml(missingMessage
+            || "No output found for this phase yet. Run the phase, or check its output folder.")}</p>`;
+        return;
+    }
 
     if (/\.(?:md|markdown)$/i.test(p.artifactPath)) {
         artifactReview = createArtifactReview({

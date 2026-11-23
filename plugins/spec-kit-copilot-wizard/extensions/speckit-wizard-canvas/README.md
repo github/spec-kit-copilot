@@ -212,7 +212,12 @@ predicts expected outputs from the skill rather than verifying that files were
 created. Dispatch aliases share the same completion identity; ambiguous aliases
 do not select multiple commands for inference. If the agent omits the completion
 callback, that Run does not trigger inference; ordinary Refresh does not retry
-it. If Canvas Designer is launched before a phase has been run, the launch starts
+it. **View artifact** is always shown on a phase card. Without a confirmed
+artifact it opens a "No output found" message. When the phase shows "Retrieving
+outputs…", or has run without a found artifact, clicking it also re-requests
+output inference through the existing `extension.inferArtifactTargets` action;
+work already pending for the same inputs is reused rather than restarted, and
+the artifact appears on the card once found. If Canvas Designer is launched before a phase has been run, the launch starts
 the pipeline-scoped inference, waits for it to finish (the button reads
 "Launching…"), and then opens the Designer session.
 When composition refresh needs LLM pipeline-order inference, it runs as a

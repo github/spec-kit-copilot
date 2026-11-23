@@ -480,9 +480,8 @@ export function renderGraphPhaseCard(el, p) {
 
     const disabledAttr = p.locked ? "disabled" : "";
     const hasSubmitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
-    const canViewArtifact = !!p.artifactPath;
-
-    // View follows scanner-confirmed artifacts even after a later rerun fails.
+    // View is always shown. Without a scanner-confirmed artifact it explains
+    // that no output was found; confirmed artifacts stay viewable after a failed rerun.
     // Run/Rerun wording follows scanner terminal status or local dispatch
     // acknowledgement once the temporary Running label clears.
     let actionRow;
@@ -511,11 +510,11 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (hasSubmitted) {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
               <button type="button" class="btn btn-primary" data-phase-action="redo" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     } else {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
               <button type="submit" class="btn btn-primary" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">
@@ -701,7 +700,27 @@ export function wireGraphPhaseCard(el, p) {
 
     // Post-run actions: View artifact + Run again
     const viewBtn = el.querySelector('[data-phase-action="view"]');
-    viewBtn?.addEventListener("click", () => __openArtifactViewer(p));
+    viewBtn?.addEventListener("click", () => {
+        // A run phase whose outputs are missing or still retrieving re-requests
+        // output retrieval. The existing operation starts missing or failed
+        // retrieval and reuses in-flight work; it never reruns the command.
+        const inference = outputEvidenceForCommand(state.snapshot?.outputInferenceStatus, p.commandName);
+        const retrieving = inference === "updating" || inference === "incomplete";
+        const submitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
+        // Don't start retrieval while the command itself is still running.
+        const retry = retrieving || (!p.artifactPath && submitted && !state.phaseRunning.has(p.commandName));
+        if (retry) {
+            void Promise.resolve(dispatchKind("extension.inferArtifactTargets", {})).catch((err) => {
+                console.error(`output retrieval failed: ${err?.message ?? err}`);
+            });
+        }
+        if (p.artifactPath) return __openArtifactViewer(p);
+        __openArtifactViewer(p, {
+            missingMessage: retry
+                ? "No output found yet. Output retrieval was requested again; the artifact will appear on this phase once it is found."
+                : "No output found for this phase yet. Run the phase to produce one.",
+        });
+    });
     // Writes-to path in the phase-facts row: opens the parent folder in
     // the OS file explorer (via /api/reveal). One predictable behavior
     // regardless of whether the file exists — user always lands in the

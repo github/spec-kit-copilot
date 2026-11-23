@@ -995,7 +995,7 @@ test("renderMoreCommandsPanel hides Core canonicals when presets customize them"
     }
 });
 
-test("renderGraphPhaseCard omits file viewer action for folder-only checklist fallback", () => {
+test("renderGraphPhaseCard adds folder browsing for folder-only checklist fallback", () => {
     let openedArtifact = 0;
     const el = {
         innerHTML: "",
@@ -1036,7 +1036,7 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
         });
         assert.match(el.innerHTML, /data-phase-action="browse-folder"/);
         assert.match(el.innerHTML, /data-folder-path="specs\/feature\/checklists"/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.equal(openedArtifact, 0);
     } finally {
@@ -1151,7 +1151,7 @@ test("renderGraphPhaseCard switches to rerun after local dispatch acknowledgemen
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.match(el.innerHTML, /Rerun phase/);
         assert.doesNotMatch(el.innerHTML, /Run phase/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
     } finally {
         clearPhaseSubmitted("speckit.plan");
         state.snapshot = null;
@@ -1211,7 +1211,7 @@ test("phase buttons temporarily show Running without a separate request notice o
         assert.doesNotMatch(el.innerHTML, /Request sent/);
         assert.doesNotMatch(el.innerHTML, /type="submit"[^>]*disabled/);
         assert.match(el.innerHTML, /specs\/&lt;slug&gt;\/plan\.md/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
 
         markPhaseSubmitted("speckit.plan");
         renderGraphPhaseCard(el, phase);
