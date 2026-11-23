@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import { mkdtemp, mkdir, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -307,6 +308,82 @@ test("ambiguous confirmed roots reach the canvas error response regardless of ou
             error: "Cannot determine workflow discovery root: confirmed outputs reference multiple roots (.specify/bugs, reports).",
         });
     }
+});
+
+test("generated review diagnostics survive logger failures without blocking responses", { timeout: 60000 }, async (t) => {
+    const { project, workspace, prepared, sdk } = await fixture(t);
+    await materialize(project, workspace, handoff.handoffId, prepared.requestId);
+    const { readConfig, createWorkflowRoutes } = await import(pathToFileURL(join(sdk, "server.mjs")).href);
+    const config = readConfig();
+    await rm(join(sdk, "ui", "artifact-review.js"));
+
+    const fallback = [];
+    t.mock.method(console, "warn", (message) => fallback.push(message));
+    const response = () => ({
+        setHeader() {},
+        writeHead(status) { this.status = status; return this; },
+        write() {},
+        end(body) { this.body = body; },
+    });
+    const cases = [
+        { name: "working", log: () => Promise.resolve() },
+        { name: "synchronous", failure: "synchronous logger failure",
+            log: () => { throw new Error("synchronous logger failure"); } },
+        { name: "rejected", failure: "rejected logger failure",
+            log: () => Promise.reject(new Error("rejected logger failure")) },
+    ];
+    const active = [];
+    t.after(() => { for (const entry of active) entry.routes.close(); });
+    for (const scenario of cases) {
+        const messages = [];
+        let reportPoll;
+        const polled = new Promise((resolve) => { reportPoll = resolve; });
+        const review = { activeContextCount: () => 1,
+            signature: async () => { throw new Error("polling failure"); }, dispose() {} };
+        const routes = createWorkflowRoutes(config, {
+            runtime: { createReview: () => review }, instanceId: scenario.name, token: "test-token",
+            log: (message) => {
+                messages.push(message);
+                if (messages.length === 2) reportPoll();
+                return scenario.log();
+            },
+        });
+        active.push({ ...scenario, messages, polled, routes });
+
+        const assetResponse = response();
+        await routes.handle({ method: "GET", url: "/ui/artifact-review.js", headers: {} }, assetResponse);
+        assert.equal(assetResponse.status, 500);
+        assert.equal(assetResponse.body, "Could not load a packaged viewer asset.");
+        assert.match(messages[0], /^Could not load a packaged artifact viewer asset: .*ENOENT/);
+
+        const client = Object.assign(new EventEmitter(), {
+            method: "GET", url: "/api/events", headers: { "x-canvas-token": "test-token" },
+        });
+        const eventResponse = response();
+        await routes.handle(client, eventResponse);
+        assert.equal(eventResponse.status, 200);
+    }
+
+    let timeout;
+    try {
+        await Promise.race([
+            Promise.all(active.map(({ polled }) => polled)),
+            new Promise((_, reject) => {
+                timeout = setTimeout(() => reject(new Error("Artifact polling did not run")), 10000);
+            }),
+        ]);
+    } finally { clearTimeout(timeout); }
+    for (const { routes } of active) routes.close();
+    await nextTurn();
+    for (const { failure, messages } of active) {
+        assert.equal(messages[1], "Could not check for artifact changes: polling failure");
+        if (failure) {
+            for (const message of messages) {
+                assert.ok(fallback.some((entry) => entry.includes(failure) && entry.includes(message)));
+            }
+        }
+    }
+    assert.equal(fallback.length, 4);
 });
 
 test("missing output links browse the nearest existing confined directory", async (t) => {

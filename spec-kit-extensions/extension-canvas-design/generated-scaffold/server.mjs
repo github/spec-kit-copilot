@@ -821,6 +821,12 @@ ${!adapted && hasConstitution ? `<dialog id="constitution-dialog" aria-labelledb
 export function createWorkflowRoutes(config, { runtime, instanceId, token, port, log = () => {} }) {
     const html = renderHtml(config, token);
     const review = instanceId ? runtime?.createReview?.(instanceId) : null;
+    const logReviewDiagnostic = async (message) => {
+        try { await log(message); }
+        catch (error) {
+            console.warn(`Generated canvas diagnostic logging failed: ${error?.message ?? error}. ${message}`);
+        }
+    };
     const clients = new Set();
     const broadcast = () => { for (const client of clients) client.write("data: refresh\n\n"); };
     let signature, scanning = false;
@@ -832,7 +838,7 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
             const next = await review.signature();
             if (signature !== undefined && signature !== next) broadcast();
             signature = next;
-        } catch (error) { log("warning", `Could not check for artifact changes: ${error.message}`); }
+        } catch (error) { void logReviewDiagnostic(`Could not check for artifact changes: ${error.message}`); }
         finally { scanning = false; }
     }, 1000).unref();
     const json = (response, status, value) => response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(value));
@@ -853,7 +859,7 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
                 const type = url.pathname.endsWith(".css") ? "text/css" : "text/javascript";
                 response.writeHead(200, { "Content-Type": `${type}; charset=utf-8` }).end(bytes);
             } catch (error) {
-                log("warning", `Could not load a packaged artifact viewer asset: ${error.message}`);
+                void logReviewDiagnostic(`Could not load a packaged artifact viewer asset: ${error.message}`);
                 response.writeHead(500).end("Could not load a packaged viewer asset.");
             }
             return;
