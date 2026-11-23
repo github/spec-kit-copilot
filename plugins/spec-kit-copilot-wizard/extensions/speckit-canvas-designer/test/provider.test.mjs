@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, copyFile, cp, mkdtemp, mkdir, open, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdtemp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import {
     fingerprint, handoffDirectory, HANDOFF_LIMIT, readHandoff, validateHandoff,
     validateHandoffId,
 } from "../handoff.mjs";
-import { readBootstrapRecord, writeBootstrapRecord } from "../bootstrap-artifacts.mjs";
+import { readBootstrapRecord, readResolvedHandoff, writeBootstrapRecord } from "../bootstrap-artifacts.mjs";
 import { shellHtml, startShell } from "../server.mjs";
 import { previewModel } from "../preview.mjs";
 import { assertPageCommand, loadResolvedDesignerPages as loadPages, readFrozenAsset } from "../pages.mjs";
@@ -25,6 +25,7 @@ import { freezeGeneration, generationBlockers, validateEssentials } from "../gen
 import { generationAvailability, GENERATION_EXISTS, GENERATION_PENDING } from "../contracts/generation-request.mjs";
 import { decodeImage } from "../image.mjs";
 import { specifySpawnOptions } from "../../speckit-wizard-canvas/env/specify-invocation.mjs";
+import { effectiveSource } from "../../speckit-wizard-canvas/artifact-evidence.mjs";
 import { renderStockPage } from "../../../../../spec-kit-extensions/extension-canvas-design/generated-host/workflow-page/generated-workflow-page-adapter.mjs";
 
 const ID = "designer_1";
@@ -3125,6 +3126,85 @@ test("Save accepts a bounded request and rejects one byte over the limit", async
     assert.ok((await readFile(join(folder, "settings.json"))).length <= SETTINGS_LIMIT);
 });
 
+test("inferred launch outputs survive Save and generation and detect changed result bytes", async (t) => {
+    const workspace = await fixture(t);
+    const { project, entries } = await projectFixture(t, workspace);
+    const skill = join(project, ".github", "skills", "speckit-plan", "SKILL.md");
+    await mkdir(dirname(skill), { recursive: true });
+    await writeFile(skill, "Write plan.md in the feature directory.");
+    const source = await effectiveSource(project, "speckit.plan");
+    const input = { schemaVersion: 1, workspacePath: await realpath(project),
+        commands: [{ phase: "plan", commandId: "speckit.plan", skillPath: source.skillPath,
+            fingerprint: source.fingerprint, sources: source.sources, text: source.skillText }] };
+    const inputHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const handoff = validHandoff();
+    handoff.schemaVersion = 2;
+    handoff.workflow.installed = { presets: [], extensions: [], bundles: [] };
+    handoff.workflow.outputEvidence = {
+        specify: { outputs: ["specs/<slug>/spec.md"], view: "specs/<slug>/spec.md" },
+        plan: { outputs: [], view: null },
+    };
+    handoff.workflow.pendingOutputs = { inputHash, commands: [
+        { phase: "plan", commandId: "speckit.plan", fingerprint: source.fingerprint },
+    ] };
+    handoff.sourceFingerprint = fingerprint({ workflow: handoff.workflow, selections: handoff.selections });
+    const folder = await saveHandoff(workspace, handoff);
+    await writeFile(join(folder, "inference-input.json"), JSON.stringify(input));
+    const resultPath = join(folder, "inference-result.json");
+    await writeFile(resultPath, JSON.stringify({
+        schemaVersion: 1, handoffId: handoff.handoffId, sourceFingerprint: handoff.sourceFingerprint, inputHash,
+        entries: [{ commandId: "speckit.plan", fingerprint: source.fingerprint, primaryIndex: 0,
+            candidates: [{ kind: "file", source: "inference", effect: "creates", evidence: "Plan output",
+                path: "plan.md", relativeTo: "feature" }] }],
+    }));
+    const resolved = await readResolvedHandoff(workspace, handoff.handoffId);
+    const generateSkill = join(project, ".github", "skills",
+        "speckit-extension-canvas-design-generate", "SKILL.md");
+    await mkdir(dirname(generateSkill), { recursive: true });
+    await writeFile(generateSkill, "Generate");
+    await installOpenSkill(project);
+    const model = await loadDesignerSettings(workspace, resolved,
+        await loadResolvedDesignerPages(resolved, project, entries, await stockTemplates(project)));
+    const prompts = [];
+    const shell = await startShell(resolved, model,
+        { project, workspace, session: { send: async (value) => prompts.push(value.prompt) } });
+    t.after(() => shell.close());
+    const url = new URL(shell.url);
+    const endpoint = (path) => new URL(`${path}?token=${url.searchParams.get("token")}`, url);
+    const values = { ...model.values, "canvas.id": "inferred-canvas", "canvas.displayName": "Inferred Canvas" };
+    const outputs = { ...model.outputs, plan: { outputs: ["specs/<slug>/plan.md", "specs/<slug>/notes.md"],
+        view: "specs/<slug>/plan.md" } };
+    const post = (path, body) => fetch(endpoint(path), { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const saved = await post("/api/save", { modelRevision: model.revision, revision: 0,
+        values, outputs, badges: [] });
+    assert.equal(saved.status, 200, await saved.text());
+    const generate = { modelRevision: model.revision, settingsRevision: 1, values, outputs, badges: [] };
+    const response = await post("/api/generate", generate);
+    assert.equal(response.status, 202, await response.clone().text());
+    const { requestId } = await response.json();
+    const frozen = JSON.parse(await readFile(join(folder, "generations", requestId, "request.json"), "utf8"));
+    assert.deepEqual(frozen.workflow.phaseArtifacts, outputs);
+    await waitFor(() => prompts.length === 1);
+    await appendFile(resultPath, " ");
+    const staleSave = await post("/api/save", { modelRevision: model.revision, revision: 1,
+        values, outputs, badges: [] });
+    assert.equal(staleSave.status, 409);
+    assert.match((await staleSave.json()).error, /inferred outputs changed/);
+    const staleGenerate = await post("/api/generate", generate);
+    assert.equal(staleGenerate.status, 409);
+    assert.match((await staleGenerate.json()).error, /inferred outputs changed/);
+    await writeFile(resultPath, "{}");
+    const invalidSave = await post("/api/save", { modelRevision: model.revision, revision: 1,
+        values, outputs, badges: [] });
+    assert.notEqual(invalidSave.status, 200);
+    assert.match((await invalidSave.json()).error, /inference result does not match/);
+    const invalidGenerate = await post("/api/generate", generate);
+    assert.notEqual(invalidGenerate.status, 202);
+    assert.match((await invalidGenerate.json()).error, /inference result does not match/);
+    assert.equal(prompts.length, 1);
+});
+
 test("Generate freezes Essentials and queues one composed skill invocation", async (t) => {
     const workspace = await fixture(t);
     const handoff = validHandoff();
@@ -5278,7 +5358,7 @@ test("canvas opens with a partial inventory and rebuilds on reopening", async (t
     assert.deepEqual(tools.map((tool) => tool.name),
         ["speckit_designer_bootstrap", "speckit_designer_reload_skills"]);
     assert.equal(tools[0].parameters.properties.schemaVersion.const, 1);
-    assert.deepEqual(tools[0].parameters.properties.stage.enum, ["install", "finalize-open"]);
+    assert.deepEqual(tools[0].parameters.properties.stage.enum, ["install", "outputs", "finalize-open"]);
     const incompatible = await tools[0].handler({ schemaVersion: 2 });
     assert.equal(incompatible.resultType, "failure");
     assert.equal(JSON.parse(incompatible.textResultForLlm).status, "failure");
@@ -5323,6 +5403,31 @@ test("canvas opens with a partial inventory and rebuilds on reopening", async (t
             /Designer requires es-module-lexer.*Wizard.*environment setup/);
         await cp(join(source, "node_modules", "es-module-lexer"),
             join(extension, "node_modules", "es-module-lexer"), { recursive: true });
+        const pendingHandoff = validHandoff("pending_1");
+        const text = "Write plan.md.";
+        const sources = [{ path: ".github/skills/speckit-plan/SKILL.md",
+            sha256: createHash("sha256").update(text).digest("hex") }];
+        const sourceFingerprint = createHash("sha256").update(JSON.stringify({ version: 1, sources })).digest("hex");
+        const frozenInput = { schemaVersion: 1, workspacePath: await realpath(project), commands: [{
+            phase: "plan", commandId: "speckit.plan", skillPath: sources[0].path,
+            fingerprint: sourceFingerprint, sources, text,
+        }] };
+        pendingHandoff.schemaVersion = 2;
+        pendingHandoff.workflow.selectedPhases = ["plan"];
+        pendingHandoff.workflow.outputEvidence = { plan: { outputs: [], view: null } };
+        pendingHandoff.workflow.pendingOutputs = {
+            inputHash: createHash("sha256").update(JSON.stringify(frozenInput)).digest("hex"),
+            commands: [{ phase: "plan", commandId: "speckit.plan", fingerprint: sourceFingerprint }],
+        };
+        pendingHandoff.sourceFingerprint = fingerprint({
+            workflow: pendingHandoff.workflow, selections: pendingHandoff.selections,
+        });
+        const pendingFolder = await saveHandoff(workspace, pendingHandoff);
+        await writeFile(join(pendingFolder, "inference-input.json"), JSON.stringify(frozenInput));
+        await assert.rejects(canvas.open({ instanceId: "pending", input: {
+            handoffId: pendingHandoff.handoffId, pages: entries, templates: [],
+        } }), (error) => error.code === "designer_handoff_invalid"
+            && /output inference is pending/.test(error.message));
         const empty = await canvas.open({ instanceId: "same", input: {} });
         assert.match(await (await fetch(empty.url)).text(), /No Wizard handoff is attached yet/);
         await assert.rejects(canvas.open({ instanceId: "same", input: { handoffId: ID } }),

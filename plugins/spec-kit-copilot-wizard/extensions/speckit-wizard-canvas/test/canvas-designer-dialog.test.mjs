@@ -125,6 +125,7 @@ test("dialog shows empty design catalogs and enables launch after catalog loads"
         assert.match(root.innerHTML, /Canvas Designer setup/);
         assert.match(root.innerHTML, /selections will be installed in a separate designer session/);
         assert.match(root.innerHTML, /leaving the wizard's environment unchanged/);
+        assert.match(root.innerHTML, /Missing output information is prepared in that session before Designer opens/);
         assert.doesNotMatch(root.innerHTML, /leaving this project's workflow configuration unchanged/);
         assert.doesNotMatch(root.innerHTML, /settings, appearance, and generation behavior/);
         assert.match(root.innerHTML, /No presets tagged canvas-design are available/);
@@ -218,7 +219,7 @@ test("launch closes the dialog on acceptance without a queued status", async () 
         const button = root.querySelector(".designer-submit");
         const pending = button.click();
         assert.equal(button.disabled, true);
-        assert.equal(button.textContent, "Launching…");
+        assert.equal(button.textContent, "Queuing Designer session…");
         assert.equal(root.querySelector(".wizard-modal-close").disabled, true);
         await button.click();
         assert.equal(requests.length, 1);

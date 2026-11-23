@@ -3,6 +3,7 @@ import { basename, isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { checkSchema } from "./external-design-contributions.mjs";
 import { designerOpenInputSchema, handoffIdSchema, validateDesignerOpenInput } from "./host-open.mjs";
+import { INFERENCE_INPUT_LIMIT, inferenceSubmissionSchema } from "./output-inference.mjs";
 
 export const BOOTSTRAP_TOOL = "speckit_designer_bootstrap";
 export const DESIGNER_PROVIDER = "plugin:spec-kit-copilot-wizard:speckit-canvas-designer";
@@ -24,8 +25,9 @@ export const bootstrapInputSchema = {
     required: ["schemaVersion", "stage", "launchRef"],
     properties: {
         schemaVersion: { const: 1 },
-        stage: { type: "string", enum: ["install", "finalize-open"] },
+        stage: { type: "string", enum: ["install", "outputs", "finalize-open"] },
         launchRef: launchReferenceSchema,
+        result: inferenceSubmissionSchema,
     },
 };
 const TIMINGS = ["preflight", "init", "catalogs", "base", "bundles", "extensions",
@@ -35,7 +37,7 @@ export const bootstrapOutputSchema = {
     required: ["schemaVersion", "status"],
     properties: {
         schemaVersion: { const: 1 },
-        status: { type: "string", enum: ["installed", "shell-opened", "failure"] },
+        status: { type: "string", enum: ["installed", "outputs-required", "outputs-complete", "shell-opened", "failure"] },
         handoffId: handoffIdSchema,
         instanceId: { type: "string", minLength: 1, maxLength: 160 },
         warningCount: { type: "integer", minimum: 0, maximum: 10000 },
@@ -43,6 +45,11 @@ export const bootstrapOutputSchema = {
         timings: { type: "object", additionalProperties: false,
             properties: Object.fromEntries(TIMINGS.map((name) =>
                 [name, { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER }])) },
+        outputs: { type: "object", additionalProperties: false, required: ["pending"],
+            properties: {
+                pending: { type: "integer", minimum: 0, maximum: 30 },
+                prompt: { type: "string", minLength: 1, maxLength: INFERENCE_INPUT_LIMIT },
+            } },
         error: { type: "object", additionalProperties: false, required: ["code", "message"],
             properties: {
                 code: { type: "string", pattern: "^[a-z][a-z0-9_]+$", maxLength: 100 },
@@ -72,6 +79,9 @@ export function validateLaunchReference(value) {
 export function validateBootstrapInput(value) {
     checkSchema(value, bootstrapInputSchema, "Designer bootstrap");
     validateLaunchReference(value.launchRef);
+    if (value.stage !== "outputs" && Object.hasOwn(value, "result")) {
+        throw new Error("Designer inference results are only accepted by the outputs stage");
+    }
     return value;
 }
 
@@ -80,7 +90,10 @@ export function validateBootstrapOutput(value) {
     if ((value.status === "failure") !== Object.hasOwn(value, "error")
         || (value.status !== "failure" && (!value.handoffId || !value.diagnosticsPath
             || value.warningCount === undefined || !value.timings))
-        || (value.status === "shell-opened" && !value.instanceId)) {
+        || (value.status === "shell-opened" && !value.instanceId)
+        || (["outputs-required", "outputs-complete"].includes(value.status) !== !!value.outputs)
+        || (value.status === "outputs-required" && (!value.outputs.prompt || !value.outputs.pending))
+        || (value.status === "outputs-complete" && value.outputs.prompt !== undefined)) {
         throw new Error("Incomplete Designer bootstrap result");
     }
     return value;

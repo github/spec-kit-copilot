@@ -1,11 +1,13 @@
 import { isAbsolute } from "node:path";
 import { readHandoff } from "./handoff.mjs";
-import { bootstrapDiagnosticPath, readBootstrapRecord, requireSetupRecord,
-    transferDesignerHandoff, writeBootstrapRecord } from "./bootstrap-artifacts.mjs";
+import { assertInferenceSourcesCurrent, bootstrapDiagnosticPath, readBootstrapRecord,
+    readInferenceInput, readInferenceResult, readResolvedHandoff, requireSetupRecord,
+    transferDesignerHandoff, writeBootstrapRecord, writeInferenceResult } from "./bootstrap-artifacts.mjs";
 import { assertDiagnosticSize, BootstrapError, DESIGNER_CANVAS, DESIGNER_PROVIDER,
     DIAGNOSTIC_ERROR_RESERVE, DIAGNOSTIC_LIMIT, nativeOpenSnapshot, nativeOpenText, normalizeNativeOpenResult,
     validateBootstrapInput, validateBootstrapOutput, validateBootstrapRecord, validateFinalizeInput,
     validateOpenSnapshot, validateSetupStageResult } from "./contracts/bootstrap.mjs";
+import { INFERENCE_INPUT_LIMIT } from "./contracts/output-inference.mjs";
 
 const installSetup = async (...args) =>
     (await import("../speckit-wizard-canvas/server/designer-setup.mjs")).installDesignerSetup(...args);
@@ -34,6 +36,14 @@ function status(record, context, opened = false) {
         ...(opened ? { instanceId: `designer-${record.launchRef.handoffId}` } : {}) });
 }
 
+function outputStatus(record, context, handoff, complete, prompt) {
+    const pending = handoff.workflow.pendingOutputs?.commands.length ?? 0;
+    return validateBootstrapOutput({ ...status(record, context),
+        status: complete ? "outputs-complete" : "outputs-required",
+        outputs: { pending,
+            ...(prompt ? { prompt } : {}) } });
+}
+
 export function createDesignerBootstrap({
     getContext, checkNative, reloadSkills, openCanvas, listOpenCanvases, log,
     install = installSetup, finalize = finalizeSetup, nativeTimeoutMs = 120000,
@@ -60,7 +70,16 @@ export function createDesignerBootstrap({
             }
             active.add(key);
             if (stage === "install") await transferDesignerHandoff(reference, context);
-            else await readHandoff(context.root, reference.handoffId, undefined, reference.sha256);
+            let handoff;
+            try { handoff = await readHandoff(context.root, reference.handoffId, undefined, reference.sha256); }
+            catch (error) {
+                if (stage !== "install" && error.code === "ENOENT") {
+                    throw new BootstrapError("designer_install_required",
+                        "Invoke the Designer bootstrap install stage before preparing outputs or opening Designer.",
+                        { cause: error });
+                }
+                throw error;
+            }
             record = await readBootstrapRecord(context.root, reference.handoffId);
             if (record) validateBootstrapRecord(record, reference);
             else record = { schemaVersion: 1, launchRef: reference, skillsReloaded: false, opening: false };
@@ -92,9 +111,42 @@ export function createDesignerBootstrap({
                 return status(record, context);
             }
             if (!record.install) {
-                throw new BootstrapError("designer_install_required", "Invoke the Designer bootstrap install stage before finalize-open.");
+                throw new BootstrapError("designer_install_required", "Invoke the Designer bootstrap install stage before preparing outputs or opening Designer.");
             }
             await requireSetupRecord(context.root, reference.handoffId, reference.sha256);
+            if (stage === "outputs") {
+                if (handoff.schemaVersion === 1) {
+                    if (request.result) throw new Error("Designer launch has no pending inference");
+                    delete record.error;
+                    await save();
+                    return outputStatus(record, context, handoff, true);
+                }
+                const input = await readInferenceInput(context.root, handoff);
+                const existing = await readInferenceResult(context.root, handoff, { optional: true });
+                if (existing) {
+                    if (request.result) await writeInferenceResult(context.root, handoff, request.result);
+                    delete record.error;
+                    await save();
+                    return outputStatus(record, context, handoff, true);
+                }
+                await assertInferenceSourcesCurrent(input);
+                if (request.result) {
+                    await writeInferenceResult(context.root, handoff, request.result);
+                    delete record.error;
+                    await save();
+                    return outputStatus(record, context, handoff, true);
+                }
+                const { buildDesignerOutputInferencePrompt } =
+                    await import("../speckit-wizard-canvas/canvas-runtime/artifact-inference-prompt.mjs");
+                const prompt = buildDesignerOutputInferencePrompt(input);
+                if (Buffer.byteLength(prompt) > INFERENCE_INPUT_LIMIT) {
+                    throw new Error("Designer inference prompt exceeds the size limit");
+                }
+                delete record.error;
+                await save();
+                return outputStatus(record, context, handoff, false, prompt);
+            }
+            await readResolvedHandoff(context.root, reference.handoffId, reference.sha256);
             if (!record.skillsReloaded) {
                 let pending = pendingReloads.get(key);
                 if (record.reloadPending && !pending) {

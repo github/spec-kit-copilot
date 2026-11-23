@@ -1,7 +1,7 @@
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { readHandoff } from "./handoff.mjs";
+import { readResolvedHandoff } from "./bootstrap-artifacts.mjs";
 import { startShell } from "./server.mjs";
 import { assertPageCommand, loadResolvedDesignerPages } from "./pages.mjs";
 import { previewModel } from "./preview.mjs";
@@ -82,7 +82,7 @@ const bootstrap = createDesignerBootstrap({
 const sessionReady = Promise.resolve().then(() => joinSession({
     tools: [{
         name: BOOTSTRAP_TOOL,
-        description: "Run this child session's LLM-invoked Designer install or finalize-open stage from a frozen launch reference. Transfers and opens complete payloads internally; does not create sessions or run stages automatically.",
+        description: "Run this child session's LLM-invoked Designer install, outputs, or finalize-open stage from a frozen launch reference. Transfers and opens complete payloads internally; does not create sessions or run stages automatically.",
         parameters: bootstrapInputSchema,
         handler: async (args, invocation) => {
             await sessionReady;
@@ -119,7 +119,7 @@ const sessionReady = Promise.resolve().then(() => joinSession({
                 let model = preview ? previewModel() : null;
                 if (handoffId !== undefined) {
                     try {
-                        handoff = await readHandoff(session.workspacePath, handoffId);
+                        handoff = await readResolvedHandoff(session.workspacePath, handoffId);
                     } catch (error) {
                         throw new CanvasError("designer_handoff_invalid", error.message);
                     }
