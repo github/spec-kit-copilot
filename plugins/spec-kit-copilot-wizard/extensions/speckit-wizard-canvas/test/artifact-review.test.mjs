@@ -276,6 +276,34 @@ test("Wizard resolves revision-bound local references without fetching external 
     await assert.rejects(service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "#section"), { code: "changed_source" });
 }));
 
+test("Wizard preserves owning metadata when following a link back to an owned artifact", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const primaryPath = "specs/001-fixture/spec.md";
+    const supportingPath = "specs/001-fixture/plan.md";
+    await fs.writeFile(join(root, primaryPath),
+        "# Primary\n\n[Plan](plan.md)\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    await fs.writeFile(join(root, supportingPath),
+        "# Plan\n\n[Primary](spec.md)\n\n[NEEDS CLARIFICATION: Which approach?]\n");
+    snapshot.phases.plan = { artifactPath: supportingPath };
+
+    const opened = await service.open({ stage: "specify" });
+    const primary = await service.content(opened.contextId, opened.primaryArtifactId);
+    const planLink = await service.resolveLink(opened.contextId, opened.primaryArtifactId, primary.revision, "plan.md");
+    const plan = await service.content(opened.contextId, planLink.artifact.id);
+    assert.equal(plan.artifact.role, "supporting");
+    assert.equal(plan.artifact.owningCommand, "speckit.plan");
+    assert.equal(plan.clarifications.length, 1);
+
+    const primaryLink = await service.resolveLink(opened.contextId, plan.artifact.id, plan.revision, "spec.md");
+    const returned = await service.content(opened.contextId, primaryLink.artifact.id);
+    assert.equal(returned.artifact.id, opened.primaryArtifactId);
+    assert.equal(returned.artifact.role, "primary");
+    assert.equal(returned.artifact.owningCommand, "speckit.specify");
+    assert.equal(returned.clarifications.length, 1);
+
+    await fs.writeFile(join(root, supportingPath), "# Changed plan\n");
+    await assert.rejects(service.content(opened.contextId, primaryLink.artifact.id), { code: "changed_source" });
+}));
+
 test("Wizard revalidates registered composition references when their source becomes inactive", () => serviceFixture(async ({ root, snapshot, service }) => {
     const sourcePath = ".specify/presets/fixture/commands/speckit.specify.md";
     const href = `../../${sourcePath}`;

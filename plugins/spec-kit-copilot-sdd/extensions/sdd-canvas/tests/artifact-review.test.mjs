@@ -146,6 +146,31 @@ test("SDD resolves only revision-validated safe Markdown references", () => serv
     await assert.rejects(service.resolveLink(opened.contextId, opened.primaryArtifactId, `sha256:${"0".repeat(64)}`, "#research"), { code: "changed_source" });
 }));
 
+test("SDD preserves primary ownership when following a backlink to the specification", () => serviceFixture(async ({ root, service }) => {
+    const primaryPath = "specs/001-fixture/spec.md";
+    const supportingPath = "specs/001-fixture/notes.md";
+    await fs.writeFile(join(root, primaryPath),
+        "# Specification\n\n[Notes](notes.md)\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    await fs.writeFile(join(root, supportingPath), "# Notes\n\n[Back to specification](spec.md)\n");
+
+    const opened = await service.open({ feature: "001-fixture", stage: "specify" });
+    const primary = await service.content(opened.contextId, opened.primaryArtifactId);
+    const notesLink = await service.resolveLink(opened.contextId, opened.primaryArtifactId,
+        primary.revision, "notes.md");
+    const notes = await service.content(opened.contextId, notesLink.artifact.id);
+    const primaryLink = await service.resolveLink(opened.contextId, notes.artifact.id,
+        notes.revision, "spec.md");
+    const returned = await service.content(opened.contextId, primaryLink.artifact.id);
+    assert.equal(returned.artifact.id, opened.primaryArtifactId);
+    assert.equal(returned.artifact.role, "primary");
+    assert.equal(returned.artifact.owningStage, "specify");
+    assert.equal(returned.clarifications.length, 1);
+    assert.equal((await service.content(opened.contextId, opened.primaryArtifactId)).clarifications.length, 1);
+
+    await fs.writeFile(join(root, supportingPath), "# Changed notes\n");
+    await assert.rejects(service.content(opened.contextId, primaryLink.artifact.id), { code: "changed_source" });
+}));
+
 test("SDD packaged discovery retains the cumulative inspection bound", async () => {
     const discovery = await import("../vendor/artifact-discovery.mjs").catch((error) => {
         if (error.code === "ERR_MODULE_NOT_FOUND") assert.fail("T033: packaged bounded discovery is missing");

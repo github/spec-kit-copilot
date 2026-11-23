@@ -22,3 +22,10 @@
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.mjs -text linguist-generated=true
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.NOTICES.txt -text linguist-generated=true
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/ui/artifact-review.js -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-read.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-review.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-discovery.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-clarifications.mjs -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-clarifications.NOTICES.txt -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/ui/artifact-review.js -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/ui/vendor/markdown-reader/** -text linguist-generated=true

@@ -5,12 +5,14 @@ import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 import { formatReviewAnswers } from "../contracts/review-submission.mjs";
 import { createArtifactReview } from "./artifact-review.js";
+import { captureViewerReturn, mountArtifactViewerShell } from "./artifact-viewer-shell.js";
+import { createReviewClarifications } from "./review-clarifications.js";
+export { clarificationBatchWithinBudget } from "./review-clarifications.js";
 import { isSetupComplete } from "./setup.js";
 import {
     clearClarifications,
     clearPhaseRunning,
     clearSubmittedClarifications,
-    createClarificationDraftStore,
     getPendingClarifications,
     getPhaseLastSubmitted,
     markPhaseRunning,
@@ -355,114 +357,8 @@ export function openCommunityInstallModal({
 
 // -------- Section: modals/wizard-modal.js --------
 
-// Module-scoped singleton so closeWizardModal() from anywhere shuts the
-// current modal — same behavior as the original app.js-level `let`.
-let __wizardModalCloser = null;
-
-export function closeWizardModal() {
-    if (typeof __wizardModalCloser === "function") {
-        try { __wizardModalCloser(); } catch { /* ignore */ }
-    }
-    __wizardModalCloser = null;
-}
-
-export function openWizardModal(opts) {
-    closeWizardModal();
-    const root = document.getElementById("wizard-modal-root");
-    if (!root) return;
-
-    const {
-        title, description = "", questionBox = "", textareaLabel = "Input",
-        placeholder = "", initialValue = "", required = false,
-        cancelLabel = "Cancel", confirmLabel, extraButtons = [], onConfirm,
-    } = opts || {};
-
-    const backdrop = document.createElement("div");
-    backdrop.className = "wizard-modal-backdrop";
-    backdrop.innerHTML = `
-        <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wm-title">
-            <header class="wizard-modal-head">
-                <h3 id="wm-title">${escapeHtml(title || "")}</h3>
-                <button class="btn-icon wizard-modal-close" aria-label="Close">✕</button>
-            </header>
-            <div class="wizard-modal-body">
-                ${description ? `<p class="wizard-modal-desc">${escapeHtml(description)}</p>` : ""}
-                ${questionBox ? `<div class="wizard-modal-question">${escapeHtml(questionBox)}</div>` : ""}
-                <label class="wizard-modal-field">
-                    <span class="wizard-modal-field-label">${escapeHtml(textareaLabel)}</span>
-                    <textarea class="wizard-modal-textarea" placeholder="${escapeHtml(placeholder)}"></textarea>
-                </label>
-            </div>
-            <footer class="wizard-modal-foot">
-                <button class="btn btn-secondary btn-sm wizard-modal-cancel">${escapeHtml(cancelLabel)}</button>
-                <span class="wizard-modal-extras"></span>
-                <button class="btn btn-primary btn-sm wizard-modal-confirm">${escapeHtml(confirmLabel || "Confirm")}</button>
-            </footer>
-        </div>
-    `;
-    root.appendChild(backdrop);
-
-    const ta = backdrop.querySelector(".wizard-modal-textarea");
-    const confirmBtn = backdrop.querySelector(".wizard-modal-confirm");
-    const cancelBtn = backdrop.querySelector(".wizard-modal-cancel");
-    const closeBtn = backdrop.querySelector(".wizard-modal-close");
-    const extrasHost = backdrop.querySelector(".wizard-modal-extras");
-
-    if (ta) {
-        ta.value = initialValue;
-        setTimeout(() => ta.focus(), 0);
-    }
-
-    // Extra buttons between Cancel and Confirm.
-    for (const btn of extraButtons) {
-        const b = document.createElement("button");
-        b.className = btn.className || "btn btn-ghost btn-sm";
-        b.type = "button";
-        b.textContent = btn.label || "";
-        b.addEventListener("click", () => btn.onClick?.(close));
-        extrasHost.appendChild(b);
-    }
-
-    const syncConfirmDisabled = () => {
-        if (!required) return;
-        confirmBtn.disabled = !ta?.value.trim();
-    };
-    syncConfirmDisabled();
-    ta?.addEventListener("input", syncConfirmDisabled);
-
-    let closed = false;
-    const close = () => {
-        if (closed) return;
-        closed = true;
-        document.removeEventListener("keydown", onKey);
-        backdrop.remove();
-        if (__wizardModalCloser === close) __wizardModalCloser = null;
-    };
-    const onKey = (e) => {
-        if (e.key === "Escape") { e.preventDefault(); close(); }
-    };
-    document.addEventListener("keydown", onKey);
-
-    cancelBtn.addEventListener("click", close);
-    closeBtn.addEventListener("click", close);
-    backdrop.addEventListener("click", (e) => {
-        if (e.target === backdrop) close();
-    });
-    confirmBtn.addEventListener("click", async () => {
-        if (confirmBtn.disabled) return;
-        const value = ta?.value ?? "";
-        confirmBtn.disabled = true;
-        try {
-            await onConfirm?.(value, close);
-        } finally {
-            // If handler didn't close, re-enable so user can retry.
-            if (!closed) confirmBtn.disabled = false;
-        }
-    });
-
-    __wizardModalCloser = close;
-}
-
+import { openWizardModal, closeWizardModal } from "./answer-dialog.js";
+export { openWizardModal, closeWizardModal };
 
 // -------- Section: modals/viewers.js --------
 
@@ -473,164 +369,27 @@ let artifactReviewReturn = null;
 let artifactReview = null;
 let reviewConnected = true;
 let readerMountOverride = null;
-const reviewDrafts = createClarificationDraftStore();
-
-function reviewSubmissionPending() {
-    const contextId = artifactReview?.context?.contextId;
-    return Boolean(contextId && reviewDrafts.isPending(contextId));
-}
-
-function discardReviewDrafts() {
-    const contextId = artifactReview?.context?.contextId;
-    if (contextId) reviewDrafts.discard(contextId);
-}
-
-function reviewBinding(descriptor, contextId) {
-    return { ...descriptor, contextId };
-}
-
-function boundReviewClarifications(document, context) {
-    if (!context) return [];
-    reviewDrafts.invalidate(context.contextId, document.artifact.id, document.revision);
-    return (document.clarifications ?? []).filter((descriptor) => descriptor.mode === "wizard-batched").map((descriptor) => {
-        const draft = reviewDrafts.get(reviewBinding(descriptor, context.contextId));
-        return { ...descriptor, answer: draft?.answer, status: draft?.status };
-    });
-}
-
-function renderReviewDraftBanner(message = "") {
-    const root = document.getElementById("phase-artifact-viewer");
-    const banner = root?.querySelector(".artifact-viewer-clarify-banner");
-    const context = artifactReview?.context;
-    const current = artifactReview?.document;
-    if (!banner || !context || !current) return;
-    reviewDrafts.invalidate(context.contextId, current.artifact.id, current.revision);
-    const drafts = reviewDrafts.list(context.contextId, current.artifact.id, current.revision);
-    const staleDrafts = reviewDrafts.list(context.contextId, current.artifact.id).filter((draft) => draft.revision !== current.revision);
-    const pending = reviewDrafts.isPending(context.contextId);
-    const setupReady = isSetupComplete();
-    banner.hidden = !drafts.length && !staleDrafts.length && !message;
-    banner.replaceChildren();
-    if (!banner.hidden) {
-        const text = document.createElement("span");
-        text.textContent = message || (staleDrafts.length ? "Saved answers from an earlier revision need confirmation."
-            : !setupReady ? `${drafts.length} clarification${drafts.length === 1 ? "" : "s"} queued. Complete setup before applying.`
-            : `${drafts.length} clarification${drafts.length === 1 ? "" : "s"} queued${pending ? "; applying..." : "."}`);
-        banner.append(text);
-        if (drafts.length) {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "btn btn-primary btn-sm";
-            button.textContent = pending ? "Applying..." : "Apply and Rerun";
-            button.disabled = pending || !setupReady || drafts.some((draft) => draft.status === "stale");
-            button.addEventListener("click", () => void flushReviewedClarifications());
-            banner.append(button);
+const { reviewSubmissionPending, discardReviewDrafts, boundReviewClarifications, renderReviewDraftBanner,
+    openReviewedClarification } = createReviewClarifications({
+    getRoot: () => document.getElementById("phase-artifact-viewer"),
+    getReview: () => artifactReview,
+    isReady: isSetupComplete,
+    closeViewer: closeArtifactViewer,
+    async submit({ commandName, ...review }) {
+        const lastArgs = getPhaseLastSubmitted(commandName) || "";
+        const suffix = formatReviewAnswers(review.answers);
+        const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
+        try {
+            markPhaseRunning(commandName);
+            const result = await __postJson("/api/phase/submit", { commandName, args, review });
+            if (!result?.queued) throw new Error("Submission failed");
+            setPhaseLastSubmitted(commandName, args);
+        } catch (error) {
+            clearPhaseRunning(commandName);
+            throw error;
         }
-        for (const previous of staleDrafts) {
-            const saved = document.createElement("div");
-            saved.className = "artifact-viewer-saved-answer";
-            const answer = document.createElement("p");
-            answer.textContent = `${previous.question}\n${previous.answer}`;
-            saved.append(answer);
-            const matches = (current.clarifications ?? []).filter((descriptor) => descriptor.mode === "wizard-batched" &&
-                descriptor.commandName === previous.commandName && descriptor.question === previous.question);
-            if (matches.length === 1) {
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "btn btn-secondary btn-sm";
-                button.textContent = "Review saved answer";
-                button.setAttribute("aria-label", `Review saved answer: ${previous.question}`);
-                button.disabled = pending;
-                button.addEventListener("click", () => openReviewedClarification(matches[0].id, previous));
-                saved.append(button);
-            }
-            banner.append(saved);
-        }
-    }
-    artifactReview?.updateControls();
-}
-
-export function clarificationBatchWithinBudget(answers, maximum) {
-    return Number.isSafeInteger(maximum) && maximum > 0 &&
-        new TextEncoder().encode(JSON.stringify(answers)).byteLength <= maximum;
-}
-
-async function flushReviewedClarifications() {
-    const review = artifactReview;
-    const context = review?.context;
-    const current = review?.document;
-    if (!context || !current || reviewDrafts.isPending(context.contextId)) return false;
-    const bindings = boundReviewClarifications(current, context).filter((binding) => binding.answer).map((binding) => reviewBinding(binding, context.contextId));
-    if (!bindings.length || bindings.some((binding) => binding.status === "stale")) return false;
-    if (!isSetupComplete()) {
-        renderReviewDraftBanner("Complete setup before applying clarifications and rerunning.");
-        return false;
-    }
-    const commandName = bindings[0].commandName;
-    const answers = bindings.map(({ questionId, question, answer }) => ({ questionId, question, answer }));
-    if (!clarificationBatchWithinBudget(answers, context.clarificationBatchMaxBytes)) {
-        renderReviewDraftBanner("Queued answers exceed the review submission limit. Shorten one or more answers.");
-        return false;
-    }
-    let submission;
-    try { submission = reviewDrafts.begin(bindings); }
-    catch { renderReviewDraftBanner("The clarification source is stale or unavailable."); return false; }
-    renderReviewDraftBanner();
-    const lastArgs = getPhaseLastSubmitted(commandName) || "";
-    const suffix = formatReviewAnswers(answers);
-    const args = lastArgs ? `${lastArgs}\n\n${suffix}` : suffix;
-    let ok = false;
-    let stale = false;
-    try {
-        await review.validateClarifications(answers, commandName);
-        if (artifactReview !== review || review.document?.revision !== current.revision) throw Object.assign(new Error("Source changed"), { code: "changed_source" });
-        markPhaseRunning(commandName);
-        const result = await __postJson("/api/phase/submit", {
-            commandName, args, review: { contextId: context.contextId, artifactId: current.artifact.id, expectedRevision: current.revision, answers },
-        });
-        if (!result?.queued) throw new Error("Submission failed");
-        setPhaseLastSubmitted(commandName, args);
-        ok = true;
-    } catch (error) {
-        stale = error.code === "changed_source";
-        if (stale) reviewDrafts.invalidate(context.contextId, current.artifact.id, "changed");
-        clearPhaseRunning(commandName);
-    } finally { reviewDrafts.complete(submission, { ok }); }
-    if (artifactReview === review) {
-        if (ok && !reviewDrafts.list(context.contextId).length) await closeArtifactViewer();
-        else renderReviewDraftBanner(ok ? "" : stale ? "Source changed. Refresh before submitting; your answers are preserved." : "Submission failed. Your queued answers are preserved.");
-    }
-    return ok;
-}
-
-function openReviewedClarification(descriptorId, previous) {
-    const review = artifactReview;
-    const context = review?.context;
-    const current = review?.document;
-    if (!context || !current || reviewDrafts.isPending(context.contextId)) return;
-    const descriptor = boundReviewClarifications(current, context).find((binding) => binding.id === descriptorId);
-    if (!descriptor || descriptor.status === "stale") return;
-    const binding = reviewBinding(descriptor, context.contextId);
-    openWizardModal({
-        title: "Resolve clarification", questionBox: descriptor.question, textareaLabel: "Your answer",
-        description: previous ? "Source changed. Confirm this answer against the current revision." : "",
-        required: true, confirmLabel: "Save answer", initialValue: previous?.answer ?? descriptor.answer ?? "",
-        onConfirm: async (value, close) => {
-            if (artifactReview !== review || review.document?.revision !== current.revision || review.context?.contextId !== context.contextId) {
-                close(); renderReviewDraftBanner("Source changed. Refresh before answering."); return;
-            }
-            try {
-                if (previous) reviewDrafts.recover(previous, binding, String(value ?? ""));
-                else reviewDrafts.save(binding, String(value ?? ""));
-            }
-            catch { renderReviewDraftBanner("The answer could not be queued for this source."); return; }
-            close();
-            renderReviewDraftBanner();
-            const all = boundReviewClarifications(current, context);
-            if (isSetupComplete() && all.length && all.every((item) => item.answer && item.status !== "stale")) await flushReviewedClarifications();
-        },
-    });
-}
+    },
+});
 
 export function refreshArtifactReview(message) {
     const hint = message?.review?.contextHint;
@@ -661,37 +420,14 @@ function disposeArtifactReview(force = false) {
 globalThis.window?.addEventListener?.("pagehide", () => disposeArtifactReview(true));
 
 function captureArtifactReturn() {
-    if (artifactReviewReturn) return;
-    const trigger = document.activeElement;
-    const scroll = [];
-    for (let ancestor = trigger; ancestor; ancestor = ancestor.parentElement) {
-        scroll.push({ element: ancestor, top: ancestor.scrollTop, left: ancestor.scrollLeft });
-    }
-    const scopeId = trigger?.closest("[id]")?.id;
-    const markers = [...trigger?.attributes ?? []]
-        .filter(({ name }) => name.startsWith("data-") || name === "href" || name === "name")
-        .map(({ name, value }) => ({ name, value }));
-    artifactReviewReturn = { trigger, scroll, scopeId, markers };
+    artifactReviewReturn ??= captureViewerReturn();
 }
 
 function restoreArtifactReturn() {
     if (!artifactReviewReturn) return;
-    const { trigger, scroll, scopeId, markers } = artifactReviewReturn;
+    const restore = artifactReviewReturn;
     artifactReviewReturn = null;
-    for (const entry of scroll) {
-        if (!entry.element.isConnected) continue;
-        entry.element.scrollTop = entry.top;
-        entry.element.scrollLeft = entry.left;
-    }
-    let target = trigger;
-    if (!target?.isConnected) {
-        const scope = document.getElementById(scopeId);
-        target = trigger?.id ? document.getElementById(trigger.id)
-            : [...scope?.getElementsByTagName(trigger.tagName) ?? []].find((element) => markers.length
-                ? markers.every(({ name, value }) => element.getAttribute(name) === value)
-                : element.textContent === trigger.textContent);
-    }
-    if (target?.isConnected) target.focus({ preventScroll: true });
+    restore();
 }
 
 let activeArtifactPhase = null; // phase currently open in the viewer
@@ -746,26 +482,14 @@ export async function openArtifactViewer(p) {
     captureArtifactReturn();
     const generation = artifactReviewGeneration;
     activeArtifactPhase = p;
-    document.body.classList.add("artifact-review-open");
-    root.hidden = false;
-    root.innerHTML = `
-        <div class="artifact-viewer-header">
-            <button class="btn btn-ghost btn-sm artifact-viewer-back">← Wizard</button>
-            <div class="artifact-viewer-title">
-                <h2>${escapeHtml(p.shortLabel || p.title || p.id)}</h2>
-                <code class="muted">${escapeHtml(p.artifactPath)}</code>
-            </div>
-        </div>
-        <div class="artifact-viewer-clarify-banner" hidden></div>
-        <div class="artifact-viewer-body">
-            <p class="muted">Loading…</p>
-        </div>
-    `;
-    root.querySelector(".artifact-viewer-back")?.addEventListener("click", closeArtifactViewer);
+    const shell = mountArtifactViewerShell(root, {
+        label: p.shortLabel || p.title || p.id, path: p.artifactPath,
+        returnLabel: "Wizard", onReturn: closeArtifactViewer,
+    });
 
     if (/\.(?:md|markdown)$/i.test(p.artifactPath)) {
         artifactReview = createArtifactReview({
-            container: root.querySelector(".artifact-viewer-body"), scrollElement: root.querySelector(".artifact-viewer-body"),
+            container: shell.body, scrollElement: shell.body,
             readerId: `wizard-review-${generation}`, fetch, headers: __HEADERS,
             mount: readerMountOverride ?? undefined,
             onReturn: closeArtifactViewer,
@@ -773,8 +497,7 @@ export async function openArtifactViewer(p) {
             onClarification: openReviewedClarification,
             canNavigate: () => !reviewSubmissionPending(),
             onDocument: (document) => {
-                root.querySelector(".artifact-viewer-title h2").textContent = document.artifact.label;
-                root.querySelector(".artifact-viewer-title code").textContent = document.artifact.relativePath;
+                shell.setTitle(document.artifact.label, document.artifact.relativePath);
                 renderReviewDraftBanner();
                 return false;
             },
@@ -929,6 +652,7 @@ export async function closeArtifactViewer() {
     if (root) {
         root.hidden = true;
         root.innerHTML = "";
+        root.onkeydown = null;
     }
     document.body.classList.remove("artifact-review-open");
     onArtifactReturn();

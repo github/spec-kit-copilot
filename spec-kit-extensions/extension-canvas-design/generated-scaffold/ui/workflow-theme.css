@@ -514,33 +514,6 @@ code, pre { font-family: var(--font-mono); }
 .wizard-modal-head { border-bottom: 1px solid var(--border-color-default); }
 .wizard-modal-head h3, .wizard-modal-body p { margin: 0; }
 .wizard-modal-foot { display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--border-color-default); }
-.workflow-surface .artifact-viewer,
-.artifact-viewer {
-    position: fixed;
-    inset: 0;
-    z-index: 900;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: var(--background-color-default);
-}
-.artifact-viewer-header { display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.5rem; background: var(--background-color-elevated); border-bottom: 1px solid var(--border-color-default); }
-.artifact-viewer-body { flex: 1; overflow: auto; padding: 1.25rem 1.5rem; }
-.artifact-viewer-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.artifact-viewer-md { max-width: none; margin: 0; line-height: 1.6; text-align: left; }
-@media (max-width: 640px) {
-    .artifact-viewer-body { padding-inline: 1rem; }
-}
-.artifact-viewer-md > :first-child { margin-top: 0; }
-.artifact-viewer-md h1,
-.artifact-viewer-md h2,
-.artifact-viewer-md h3 { margin: 1.5em 0 0.5em; line-height: 1.25; }
-.artifact-viewer-md a { color: var(--accent-color); }
-.artifact-viewer-md blockquote { margin-left: 0; padding-left: 1rem; border-left: 1px solid var(--border-color-default); color: var(--text-color-muted); }
-.artifact-viewer-md table { width: 100%; border-collapse: collapse; }
-.artifact-viewer-md th,
-.artifact-viewer-md td { padding: 0.5rem 0.75rem; border: 1px solid var(--border-color-default); text-align: left; vertical-align: top; }
-.artifact-viewer-md pre { padding: 1rem; border-radius: var(--radius-md); background: var(--background-color-secondary); }
 .workflow-content { display: flex; flex-direction: column; gap: 1.25rem; }
 .workflow-surface {
     --workflow-card-bg: var(--background-color-elevated);

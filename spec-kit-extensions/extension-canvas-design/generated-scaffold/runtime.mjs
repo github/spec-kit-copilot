@@ -1,6 +1,10 @@
 import { providerEvaluationScript, validateProviderSerializedResult } from
     "./contracts/external-value-provider.mjs";
 import { createHash, randomUUID } from "node:crypto";
+import { ArtifactReadError } from "./review/artifact-read.mjs";
+import { createArtifactReviewService } from "./review/artifact-review.mjs";
+import { scanArtifactCandidates } from "./review/artifact-discovery.mjs";
+import { formatReviewAnswers, validateReviewSubmission } from "./review/review-submission.mjs";
 import { lstat, realpath, readdir } from "node:fs/promises";
 import { posix } from "node:path";
 import { spawn } from "node:child_process";
@@ -395,6 +399,10 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
     function runFor(step, item, view = state) {
         return view.runs.findLast((run) => run.phase === step.id && run.item === (step.project ? "project" : item));
     }
+    function reportedArtifactFor(step, item, view = state) {
+        return view.runs.findLast((run) => run.phase === step.id &&
+            run.item === (step.project ? "project" : item) && run.artifact);
+    }
     function authorizeReport(step, path, item) {
         safePath(path);
         if (!path.endsWith(".md")) throw new UserError("Reported artifact must be Markdown.");
@@ -418,7 +426,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
         }
     }
     async function outputPath(step, item, view = state, entries, directory = false) {
-        const run = runFor(step, item, view);
+        const run = reportedArtifactFor(step, item, view);
         if (!step.configuredArtifacts && run?.artifact) {
             authorizeReport(step, run.artifact, run.item);
             return directory ? posix.dirname(run.artifact) : run.artifact;
@@ -454,7 +462,7 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
         }
         return safePath(path);
     }
-    async function artifact(input) {
+    async function artifactPath(input) {
         const step = phaseFor(input.phase);
         if (input.output !== undefined && !step.outputs.includes(input.output)) {
             throw new UserError("This output is not declared for the selected phase.", 403);
@@ -466,6 +474,10 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
         if (!path) throw new UserError(step.output
             ? "No artifact is available yet. Run the phase or select an existing workflow to view its artifact."
             : "No artifact is available for this phase yet. Run the phase, then refresh to check again.", 404);
+        return path;
+    }
+    async function artifact(input) {
+        const path = await artifactPath(input);
         try {
             const content = await readBounded(cwd, path);
             return { path, content, message: content.trim() ? null : "Artifact is empty or still being written. Refresh to try again." };
@@ -473,6 +485,68 @@ export async function createRuntime({ config, cwd, workspace, session, notify = 
             if (error.code === "ENOENT") throw new UserError("Could not load the artifact. It may not have been created yet. Run the phase or check its output path.", 404);
             throw error;
         }
+    }
+    function createReview(instanceId) {
+        const service = createArtifactReviewService({
+            canvasId: "generated-workflow", instanceId, workspacePath: cwd,
+            async getScope({ stage, feature, source }) {
+                const step = phases.find((phase) => phase.id === stage);
+                if (!step || (step.project ? feature !== "project" : !(await items()).some(({ id }) => id === feature))) return null;
+                let relativePath;
+                try { relativePath = await artifactPath({ phase: stage, itemId: feature, output: source }); }
+                catch (error) {
+                    if (error instanceof UserError) return null;
+                    throw error;
+                }
+                const describe = (relativePath, phase, role = "supporting", output) => ({
+                    relativePath, label: output === undefined || output === phase.output ? phase.label : posix.basename(relativePath), role,
+                    owningStage: phase.id, owningCommand: phase.command,
+                });
+                const primary = describe(relativePath, step, "primary", source);
+                const candidates = new Map([[relativePath, primary]]);
+                for (const phase of phases.filter((entry) => entry.project === step.project)) {
+                    const outputs = [...new Set([undefined, ...phase.outputs])];
+                    for (const output of outputs) {
+                        try {
+                            const path = await artifactPath({ phase: phase.id, itemId: feature, output });
+                            if (!candidates.has(path)) candidates.set(path, describe(path, phase, "supporting", output));
+                        } catch (error) { if (!(error instanceof UserError)) throw error; }
+                    }
+                    for (const path of runFor(phase, feature)?.artifacts ?? []) {
+                        try {
+                            authorizeReport(phase, path, feature);
+                            if (!candidates.has(path)) candidates.set(path, describe(path, phase));
+                        } catch (error) { if (!(error instanceof UserError)) throw error; }
+                    }
+                }
+                return {
+                    scopeType: step.project ? "project" : "feature",
+                    scopeKey: createHash("sha256").update(JSON.stringify([instanceId, stage, feature, relativePath])).digest("hex"),
+                    primary, originStage: stage, originCommand: step.command,
+                    roots: step.project ? [] : [feature], candidates: [...candidates.values()],
+                };
+            },
+            discoverCandidates: ({ roots, candidates }, { maxInspect } = {}) =>
+                scanArtifactCandidates({ workspacePath: cwd, roots, explicit: candidates, maxInspect }),
+        });
+        return {
+            ...service,
+            async submit(input) {
+                const { commandName, ...review } = input;
+                const { feature } = await service.selectionFor(review.contextId);
+                const { artifact } = await service.content(review.contextId, review.artifactId, { expectedRevision: review.expectedRevision });
+                const phase = phases.find(({ id }) => id === artifact.owningStage);
+                if (!phase || phase.command !== commandName || Boolean(phase.project) !== (feature === "project")) {
+                    throw new ArtifactReadError("invalid_request");
+                }
+                const validate = () => validateReviewSubmission(service, review, commandName);
+                const answers = await validate();
+                const last = runFor(phase, feature)?.args;
+                const suffix = formatReviewAnswers(answers);
+                const args = last ? `${last}\n\n${suffix}` : suffix;
+                return run({ phase: phase.id, ...(phase.project ? {} : { itemId: feature }), args }, instanceId, validate);
+            },
+        };
     }
     async function snapshot() {
         if (recoverOnOpen) {
@@ -1021,7 +1095,7 @@ Steps:\n${instructions}` });
         liveRuns.delete(run.runId);
         return { accepted: true, nextPhase: workflowSteps[state.autopilot.current]?.id ?? null };
     }
-    async function run(input, instanceId) {
+    async function run(input, instanceId, validateReview) {
         if ((config.runtimeSetup !== undefined || config.showSetup) && !(await setup.status({ fresh: true })).ready) {
             throw new UserError("Project setup is not ready. Select Set up project, review any pending installs, and retry this phase.", 409);
         }
@@ -1091,6 +1165,7 @@ Workflow output paths: ${JSON.stringify(phases.filter((phase) => !step.project |
 For each Markdown artifact this phase creates or updates, invoke report_phase_artifact separately with {phaseRunId:${JSON.stringify(runId)},path:<actual checkout-relative Markdown path>}. Report the primary artifact first, then additional artifacts of this phase; never a path from another checkout. If no artifact was produced, do not invent one.
 Use canvas instance ${JSON.stringify(instanceId)} for artifact reporting too.
 User input follows as JSON data for the skill:\n${JSON.stringify(input.args)}`;
+            if (validateReview) await validateReview();
             busy.value = true;
             const messageId = await session.send({ prompt: `/${step.skill}${instructions}` });
             sent = true;
@@ -1389,7 +1464,7 @@ User input follows as JSON data for the skill:\n${JSON.stringify(input.args)}`;
 
         return { snapshot, refresh, save, saveValue, createPending, removePending, run,
         startAutopilot, stopAutopilot, reportAutopilotStep,
-        report, reportSlug, artifact, reveal, deleteWorkflow,
+        report, reportSlug, artifact, createReview, reveal, deleteWorkflow,
         setupStart: setup.start, setupConfirm: setup.confirm, setupStatus: setup.status,
         close() { if (closed) return; closed = true; subscriptions.forEach((unsubscribe) => unsubscribe?.()); } };
 }

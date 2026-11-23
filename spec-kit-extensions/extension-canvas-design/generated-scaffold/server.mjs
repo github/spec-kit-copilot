@@ -12,12 +12,20 @@ import { readFieldPlacement as checkFieldPlacement, readPlacementControl as chec
     readWorkflowPage as checkWorkflowPage, readImageAsset as checkImageAsset,
     readImageControl as checkImageControl, readTextControl as checkTextControl } from "./contracts/packaged-contributions.mjs";
 import { validateBadges } from "./badge-runtime.mjs";
+import { ArtifactReadError } from "./review/artifact-read.mjs";
+import { handleArtifactReview } from "./review/artifact-review.mjs";
+import { REVIEW_SUBMIT_PATH, validateGeneratedReviewSubmission } from "./review/generated-review-contract.mjs";
 
 const styles = readFileSync(new URL("./ui/workflow-theme.css", import.meta.url), "utf8");
 const script = readFileSync(new URL("./ui/app.js", import.meta.url), "utf8");
 const markdown = readFileSync(new URL("./ui/markdown.mjs", import.meta.url), "utf8");
 const pageAssets = readFileSync(new URL("./ui/page-assets.mjs", import.meta.url), "utf8");
 const runtimeStyles = readFileSync(new URL("./ui/runtime.css", import.meta.url), "utf8");
+const reviewStyles = ["overlays.css", "artifact-review.css"]
+    .map((file) => readFileSync(new URL(`./ui/styles/${file}`, import.meta.url), "utf8")).join("\n");
+const reviewAssets = new Set(["/ui/artifact-review.js", "/ui/artifact-viewer-shell.js", "/ui/answer-dialog.js",
+    "/ui/review-clarifications.js", "/ui/clarification-drafts.js", "/ui/vendor/markdown-reader/markdown-reader.js",
+    "/ui/vendor/markdown-reader/markdown-reader.css"]);
 const packageRoot = realpathSync(new URL(".", import.meta.url));
 const RESERVED_GENERATED_PAGE_ID = "workflow";
 const WORKFLOW_REGIONS = ["collection", "constitution", "details", "values", "controls",
@@ -474,28 +482,28 @@ function readWorkflowPresentation(page) {
     }
     return bytes;
 }
-function readPackagedFile(url) {
+function readPackagedFile(url, { folder, limit = 32 * 1024 } = {}) {
     const parent = dirname(fileURLToPath(url));
     const checkParent = () => {
         if (realpathSync(new URL(".", import.meta.url)) !== packageRoot
-            || realpathSync(parent) !== join(packageRoot, basename(parent))) {
+            || realpathSync(parent) !== join(packageRoot, folder ?? basename(parent))) {
             throw new Error("Packaged asset directory escapes the generated canvas");
         }
     };
     checkParent();
     const before = lstatSync(url);
-    if (!before.isFile() || before.isSymbolicLink() || before.size > 32 * 1024) {
-        throw new Error("Packaged asset must be a regular file under 32 KiB");
+    if (!before.isFile() || before.isSymbolicLink() || before.size > limit) {
+        throw new Error(`Packaged asset must be a regular file under ${limit / 1024} KiB`);
     }
     const fd = openSync(url, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
         | (constants.O_NONBLOCK ?? 0));
     try {
         const opened = fstatSync(fd);
-        if (!opened.isFile() || opened.size > 32 * 1024
+        if (!opened.isFile() || opened.size > limit
             || opened.dev !== before.dev || opened.ino !== before.ino) {
-            throw new Error("Packaged asset changed or exceeds 32 KiB");
+            throw new Error(`Packaged asset changed or exceeds ${limit / 1024} KiB`);
         }
-        const buffer = Buffer.alloc(32 * 1024 + 1);
+        const buffer = Buffer.alloc(opened.size + 1);
         let size = 0;
         while (size < buffer.length) {
             const count = readSync(fd, buffer, size, buffer.length - size, null);
@@ -504,11 +512,11 @@ function readPackagedFile(url) {
         }
         const after = fstatSync(fd);
         const current = lstatSync(url);
-        if (size > 32 * 1024 || size !== opened.size || after.size !== opened.size
+        if (size > limit || size !== opened.size || after.size !== opened.size
             || after.mtimeMs !== opened.mtimeMs || current.dev !== opened.dev
             || current.ino !== opened.ino || current.size !== opened.size
             || current.mtimeMs !== opened.mtimeMs) {
-            throw new Error("Packaged asset changed or exceeds 32 KiB");
+            throw new Error(`Packaged asset changed or exceeds ${limit / 1024} KiB`);
         }
         checkParent();
         return buffer.subarray(0, size);
@@ -754,7 +762,7 @@ export function renderHtml(config, token = "") {
     return `<!doctype html>
 <html lang="en"${config.theme ? ` data-theme="${escapeHtml(config.theme)}"` : ""}>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(canvas.displayName)}</title><style>${styles}\n${runtimeStyles}\n${appearanceCss}</style></head>
+<title>${escapeHtml(canvas.displayName)}</title><style>${styles}\n${runtimeStyles}\n${appearanceCss}\n${reviewStyles}</style></head>
 <body>
 <header class="app-header">
     <div class="brand"><span class="brand-mark${config.brandAsset ? " brand-image" : ""}"${config.brandAsset
@@ -802,7 +810,8 @@ export function renderHtml(config, token = "") {
     data-buttons="${escapeHtml(JSON.stringify(config.buttons ?? []))}"
     data-button-controls="${escapeHtml(JSON.stringify(config.buttonControls ?? []))}"></span>
 <div id="generated-dialog-root"></div>
-<dialog id="artifact-viewer" class="artifact-viewer" aria-labelledby="artifact-title"><header class="artifact-viewer-header"><button class="btn btn-secondary artifact-viewer-back" id="close-artifact" type="button">&#8592; Canvas</button><div class="artifact-viewer-title"><h2 id="artifact-title">Artifact</h2><code id="artifact-path" class="muted"></code></div></header><div class="artifact-viewer-body"><p id="artifact-message" role="status"></p><article id="artifact-content" class="artifact-viewer-md"></article></div></dialog>
+<div id="phase-artifact-viewer" class="artifact-viewer" hidden></div>
+<div id="wizard-modal-root"></div>
 ${adapted ? "" : `<dialog id="delete-workflow-dialog" aria-labelledby="delete-workflow-title"><h2 id="delete-workflow-title">Delete <span id="delete-workflow-name"></span>?</h2><p>This permanently deletes the selected item directory and everything in it:</p><p><code id="delete-workflow-directory"></code></p><footer class="viewer-head"><button class="btn btn-secondary" id="cancel-delete-workflow" type="button">Cancel</button><button class="btn btn-danger" id="confirm-delete-workflow" type="button">Delete ${itemLabel}</button></footer></dialog>`}
 ${!adapted && hasConstitution ? `<dialog id="constitution-dialog" aria-labelledby="constitution-dialog-title"><h2 id="constitution-dialog-title">Create constitution</h2><label class="field" for="constitution-args"><span class="field-label" id="constitution-args-label">Project principles</span><textarea class="phase-input-control" id="constitution-args" required></textarea></label><p id="constitution-message" role="status"></p><footer class="viewer-head"><button class="btn btn-secondary" id="cancel-constitution" type="button">Cancel</button><button class="btn btn-primary" id="send-constitution" type="button">Create constitution</button></footer></dialog>` : ""}
 <script type="module" src="/ui/app.js?token=${escapeHtml(encodeURIComponent(token))}"></script>
@@ -811,16 +820,50 @@ ${!adapted && hasConstitution ? `<dialog id="constitution-dialog" aria-labelledb
 
 export function createWorkflowRoutes(config, { runtime, instanceId, token, port, log = () => {} }) {
     const html = renderHtml(config, token);
+    const review = instanceId ? runtime?.createReview?.(instanceId) : null;
+    const logReviewDiagnostic = async (message) => {
+        try { await log(message); }
+        catch (error) {
+            console.warn(`Generated canvas diagnostic logging failed: ${error?.message ?? error}. ${message}`);
+        }
+    };
     const clients = new Set();
+    const broadcast = () => { for (const client of clients) client.write("data: refresh\n\n"); };
+    let signature, scanning = false;
+    const reviewTimer = review && setInterval(async () => {
+        if (scanning || !clients.size) return;
+        if (!review.activeContextCount()) { signature = undefined; return; }
+        scanning = true;
+        try {
+            const next = await review.signature();
+            if (signature !== undefined && signature !== next) broadcast();
+            signature = next;
+        } catch (error) { void logReviewDiagnostic(`Could not check for artifact changes: ${error.message}`); }
+        finally { scanning = false; }
+    }, 1000).unref();
     const json = (response, status, value) => response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(value));
     const handle = async (request, response) => {
         response.setHeader("Cache-Control", "no-store");
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Referrer-Policy", "no-referrer");
-        response.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
+        response.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'");
         let url;
         try { url = new URL(request.url, "http://127.0.0.1"); }
         catch { response.writeHead(400).end("Invalid URL"); return; }
+        // These immutable modules contain no workspace or session data. Nested ES module imports have no token.
+        if (request.method === "GET" && reviewAssets.has(url.pathname)) {
+            try {
+                const bytes = readPackagedFile(new URL(`.${url.pathname}`, import.meta.url), {
+                    folder: dirname(url.pathname.slice(1)), limit: 5 * 1024 * 1024,
+                });
+                const type = url.pathname.endsWith(".css") ? "text/css" : "text/javascript";
+                response.writeHead(200, { "Content-Type": `${type}; charset=utf-8` }).end(bytes);
+            } catch (error) {
+                void logReviewDiagnostic(`Could not load a packaged artifact viewer asset: ${error.message}`);
+                response.writeHead(500).end("Could not load a packaged viewer asset.");
+            }
+            return;
+        }
         const supplied = request.headers["x-canvas-token"] ?? url.searchParams.get("token");
         const candidate = Buffer.from(typeof supplied === "string" ? supplied : "");
         const expected = Buffer.from(token);
@@ -908,6 +951,12 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
                 return;
             }
             if (!runtime) throw new UserError("The Copilot session runtime is unavailable. Reopen the canvas.", 503);
+            if (review && url.pathname.startsWith("/api/review/") && url.pathname !== REVIEW_SUBMIT_PATH) {
+                if (request.method === "POST" && request.headers.origin && request.headers.origin !== `http://127.0.0.1:${port()}`) {
+                    throw new UserError("Untrusted request origin.", 403);
+                }
+                return await handleArtifactReview(request, response, url, review);
+            }
             if (request.method === "GET" && url.pathname === "/api/events") {
                 response.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
                 response.write("data: refresh\n\n");
@@ -923,7 +972,7 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
             if (request.method !== "POST" || !["/api/run", "/api/autopilot/start", "/api/autopilot/stop",
                 "/api/state", "/api/values", "/api/refresh", "/api/reveal", "/api/workflow/delete",
                 "/api/workflow/new", "/api/workflow/pending/remove",
-                "/api/setup/start", "/api/setup/confirm"].includes(url.pathname)) return json(response, 404, { error: "Not found" });
+                "/api/setup/start", "/api/setup/confirm", REVIEW_SUBMIT_PATH].includes(url.pathname)) return json(response, 404, { error: "Not found" });
             const origin = request.headers.origin;
             if (origin && origin !== `http://127.0.0.1:${port()}`) throw new UserError("Untrusted request origin.", 403);
             if (!request.headers["content-type"]?.startsWith("application/json")) throw new UserError("Expected a JSON request.", 415);
@@ -937,6 +986,16 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
             let input;
             try { input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new UserError("Invalid JSON request."); }
             if (!input || typeof input !== "object" || Array.isArray(input)) throw new UserError("Expected a JSON object.");
+            if (url.pathname === REVIEW_SUBMIT_PATH) {
+                if (!review) throw new UserError("Artifact review is unavailable.", 503);
+                try {
+                    validateGeneratedReviewSubmission(input);
+                    return json(response, 200, await review.submit(input));
+                } catch (error) {
+                    if (!(error instanceof ArtifactReadError)) throw error;
+                    return json(response, error.status, { error: error.message, code: error.code });
+                }
+            }
             const result = url.pathname === "/api/setup/start" ? await runtime.setupStart(input)
                 : url.pathname === "/api/setup/confirm" ? await runtime.setupConfirm(input)
                 : url.pathname === "/api/run" ? await runtime.run(input, instanceId)
@@ -957,8 +1016,10 @@ export function createWorkflowRoutes(config, { runtime, instanceId, token, port,
     };
     return {
         handle,
-        broadcast: () => { for (const client of clients) client.write("data: refresh\n\n"); },
+        broadcast,
         close: () => {
+            clearInterval(reviewTimer);
+            review?.dispose();
             for (const client of clients) client.end();
             clients.clear();
         },

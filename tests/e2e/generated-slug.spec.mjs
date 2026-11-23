@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test, expect } from "./playwright.mjs";
+import { startFixture } from "../../scripts/canvas-reader/serve-fixture.mjs";
 
 const scratchRoot = tmpdir();
 
@@ -65,8 +66,16 @@ test("vertical phase adapter keeps the numbered step list and manual retry acces
         await page.locator('.vertical-phase-list [data-phase-index="1"]').click();
         await expect(page.locator(".vertical-phase-detail h2")).toHaveText("Plan");
         await page.locator('[data-action="view-row"][data-index="1"]').click();
-        await expect(page.locator("#artifact-path")).toHaveText("specs/sample-feature/plan.md");
-        await page.locator("#close-artifact").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer).toHaveAttribute("role", "dialog");
+        await expect(viewer).toHaveAttribute("aria-modal", "true");
+        await expect(viewer).toHaveAttribute("aria-labelledby", "artifact-viewer-title");
+        await expect(viewer.locator(".artifact-viewer-back")).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(viewer).toBeHidden();
+        await page.locator('[data-action="view-row"][data-index="1"]').click();
+        await expect(viewer.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/plan.md");
+        await page.locator(".artifact-viewer-back").click();
         await expect(page.locator('[data-action="start"]').first()).toBeEnabled();
         await page.locator('[data-action="previous"]').click();
         await expect(page.locator(".vertical-phase-detail h2")).toHaveText("Specify");
@@ -1103,6 +1112,51 @@ test("first visit auto-creates a numbered pending row without making a directory
     }
 });
 
+test("phase run waits for initial and explicit workflow creation before targeting the selected row", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    const started = [], gates = [];
+    for (let index = 0; index < 2; index++) {
+        let notifyStarted, release;
+        started.push(new Promise((resolve) => { notifyStarted = resolve; }));
+        const promise = new Promise((resolve) => { release = resolve; });
+        gates.push({ promise, release, notifyStarted });
+    }
+    let createCount = 0;
+    await page.route("**/api/workflow/new", async (route) => {
+        const index = createCount++;
+        if (index >= gates.length) return route.continue();
+        const response = await route.fetch();
+        gates[index].notifyStarted();
+        await gates[index].promise;
+        await route.fulfill({ response });
+    });
+    const navigation = page.goto(canvas.url);
+    try {
+        await started[0];
+        const create = page.locator("#new-workflow").click();
+        expect(createCount).toBe(1);
+        gates[0].release();
+        await started[1];
+        expect(createCount).toBe(2);
+
+        const runRequest = page.waitForRequest((request) =>
+            request.url().endsWith("/api/run") && request.method() === "POST");
+        await page.locator("#run-phase").click();
+        gates[1].release();
+
+        await navigation;
+        await create;
+        const request = await runRequest;
+        const snapshot = await canvas.runtime.snapshot();
+        expect(snapshot.items).toHaveLength(2);
+        expect(snapshot.selected).toBe("__new__:2");
+        expect(request.postDataJSON().itemId).toBe(snapshot.selected);
+    } finally {
+        gates.forEach((gate) => gate.release());
+        await canvas.close();
+    }
+});
+
 test("sending a phase keeps the navigation free of run states and clears the dispatch notice", async ({ page }) => {
     const canvas = await openGeneratedCanvas(false);
     try {
@@ -1168,7 +1222,7 @@ test("agent phase reply is reconciled from the fake session after a browser run"
         await expect(page.locator("#phase-message")).toBeEmpty();
         await expect(page.locator("#view-artifact")).toBeVisible();
         await page.locator("#view-artifact").click();
-        await expect(page.locator("#artifact-path")).toHaveText("specs/new-feature/spec.md");
+        await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/new-feature/spec.md");
     } finally { await canvas.close(); }
 });
 
@@ -1521,11 +1575,11 @@ test("confirmed phase outputs disclose extra files and View output opens the sel
         await page.locator("#phase-output-toggle").click();
         await expect(page.locator("#phase-other-outputs [data-output]")).toHaveCount(1);
         await page.locator('#phase-other-outputs [data-output="specs/<slug>/spec.md"]').click();
-        await expect(page.locator("#artifact-path")).toHaveText("specs/sample-feature/spec.md");
-        await page.locator("#close-artifact").click();
+        await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/spec.md");
+        await page.locator(".artifact-viewer-back").click();
         await page.locator("#view-artifact").click();
-        await expect(page.locator("#artifact-path")).toHaveText("specs/sample-feature/research.md");
-        await page.locator("#close-artifact").click();
+        await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/research.md");
+        await page.locator(".artifact-viewer-back").click();
         await page.locator("#next-phase").click();
         await expect(page.locator("#view-artifact")).toBeHidden();
         await expect(page.locator("#phase-output-toggle")).toBeHidden();
@@ -1550,35 +1604,54 @@ test("a phase with no default viewer still links its declared output file", asyn
         await expect(page.locator("#phase-output-toggle")).toHaveText(/\+1 more/);
         await page.locator("#phase-output-toggle").click();
         await page.locator('#phase-other-outputs [data-output="specs/<slug>/notes.md"]').click();
-        await expect(page.locator("#artifact-path")).toHaveText("specs/sample-feature/notes.md");
+        await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/notes.md");
     } finally { await canvas.close(); }
 });
 
-test("artifact viewer matches the Wizard full-page layout and returns to the canvas", async ({ page }) => {
+test("artifact viewer matches the Wizard full-page layout and returns to the canvas", async ({ page }, testInfo) => {
     const canvas = await openGeneratedCanvas(false);
+    const markdown = "# Sample feature\n\nDetails. <!-- hidden -->\n\n```html\n<!-- important -->\n<div>Example</div>\n```\n";
+    let wizard;
     try {
         await mkdir(join(canvas.root, "specs", "sample-feature"), { recursive: true });
         const artifact = join(canvas.root, "specs", "sample-feature", "spec.md");
-        await writeFile(artifact,
-            "# Sample feature\n\nDetails. <!-- hidden -->\n\n```html\n<!-- important -->\n<div>Example</div>\n```\n");
+        await writeFile(artifact, markdown);
         await page.goto(canvas.url);
         await page.getByRole("button", { name: "sample-feature", exact: true }).click();
         await expect(page.locator("#view-artifact")).toBeVisible();
         await page.locator("#view-artifact").click();
-        const viewer = page.locator("#artifact-viewer");
+        const viewer = page.locator("#phase-artifact-viewer");
         await expect(viewer).toBeVisible();
-        await expect(viewer.locator("#artifact-title")).toHaveText("Specify");
-        await expect(viewer.locator("#artifact-path")).toHaveText("specs/sample-feature/spec.md");
-        await expect(viewer.locator("#artifact-content h1")).toHaveText("Sample feature");
-        await expect(viewer.locator("#artifact-content")).not.toContainText("hidden");
-        await expect(viewer.locator("#artifact-content pre code"))
+        await expect(viewer.locator(".artifact-viewer-title h2")).toHaveText("Specify");
+        await expect(viewer.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/spec.md");
+        const article = viewer.locator(".md-reader__article");
+        await expect(article.locator("h1")).toHaveText("Sample feature");
+        await expect(article).not.toContainText("hidden");
+        await expect(article.locator("pre code"))
             .toHaveText("<!-- important -->\n<div>Example</div>");
+        wizard = await startFixture({ canvas: "wizard", markdown });
+        const wizardPage = await page.context().newPage();
+        await wizardPage.goto(wizard.url);
+        await wizardPage.locator('[data-tab="phases"]').click();
+        await wizardPage.locator('#phase-card [data-phase-action="view"]').click();
+        const wizardViewer = wizardPage.locator("#phase-artifact-viewer");
+        await expect(wizardViewer.locator(".md-reader__article h1")).toHaveText("Sample feature");
+        const coreLayout = (root) => root.locator(".md-reader__article").evaluate((article) => {
+            const heading = article.querySelector("h1");
+            const bounds = heading.getBoundingClientRect();
+            const style = getComputedStyle(heading);
+            return { width: bounds.width, height: bounds.height, fontSize: style.fontSize, fontWeight: style.fontWeight,
+                lineHeight: style.lineHeight, color: style.color };
+        });
+        expect(await coreLayout(viewer)).toEqual(await coreLayout(wizardViewer));
+        await testInfo.attach("Wizard artifact viewer", { body: await wizardViewer.screenshot(), contentType: "image/png" });
+        await testInfo.attach("Generated artifact viewer", { body: await viewer.screenshot(), contentType: "image/png" });
+        await wizardPage.close();
         await writeFile(artifact, "");
         canvas.broadcast();
-        await expect(viewer.locator("#artifact-message"))
-            .toHaveText("Artifact is empty or still being written. Refresh to try again.");
-        await expect(viewer.locator("#artifact-content")).toBeEmpty();
-        await expect(viewer.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+        await expect(viewer.getByText("This artifact is empty.", { exact: true })).toBeVisible();
+        await expect(article).toHaveCount(0);
+        await expect(viewer.getByRole("button", { name: "Refresh artifact" })).toBeEnabled();
         expect(await viewer.evaluate((element) => {
             const bounds = element.getBoundingClientRect();
             return bounds.left === 0 && bounds.top === 0
@@ -1587,9 +1660,135 @@ test("artifact viewer matches the Wizard full-page layout and returns to the can
         await viewer.getByRole("button", { name: "Canvas" }).click();
         await expect(viewer).not.toBeVisible();
         await expect(page.locator("#instance-collection")).toBeVisible();
+        await expect(page.locator("#view-artifact")).toBeFocused();
     } finally {
+        await wizard?.stop();
         await canvas.close();
     }
+});
+
+test("Constitution opens the shared viewer, which reports disconnection until reconnect", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false, ["constitution", "specify"]);
+    try {
+        await mkdir(join(canvas.root, ".specify", "memory"), { recursive: true });
+        await writeFile(join(canvas.root, ".specify", "memory", "constitution.md"), "# Project principles\n");
+        await page.goto(canvas.url);
+        await page.locator("#view-constitution").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer.locator(".artifact-viewer-title code")).toHaveText(".specify/memory/constitution.md");
+        await expect(viewer.locator(".md-reader__article h1")).toHaveText("Project principles");
+        const notice = viewer.getByText("Disconnected. Displayed content may be out of date.", { exact: true });
+        await expect(notice).toHaveCount(0);
+        await page.route("**/api/events**", (route) => route.abort());
+        canvas.server.closeAllConnections();
+        await expect(notice).toBeVisible();
+        await expect(viewer.locator(".md-reader__article h1")).toHaveText("Project principles");
+        await page.unroute("**/api/events**");
+        await expect(notice).toHaveCount(0, { timeout: 15_000 });
+        await viewer.getByRole("button", { name: "Canvas" }).click();
+        await expect(page.locator("#view-constitution")).toBeFocused();
+    } finally { await canvas.close(); }
+});
+
+test("generated artifact review preserves stale drafts and reruns the owning phase", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    try {
+        const folder = join(canvas.root, "specs", "sample-feature");
+        const artifact = join(folder, "spec.md");
+        const markdown = "# Sample feature\n\n[Details](notes.md#details)\n\n[NEEDS CLARIFICATION: Which scope?]\n\n[NEEDS CLARIFICATION: Which tests?]\n";
+        await mkdir(folder, { recursive: true });
+        await writeFile(artifact, markdown);
+        await writeFile(join(folder, "notes.md"),
+            "# Details\n\nNotes for this feature.\n\n[Back to specification](spec.md#scope)");
+        await mkdir(join(canvas.root, ".github", "skills", "speckit-specify"), { recursive: true });
+        await writeFile(join(canvas.root, ".github", "skills", "speckit-specify", "SKILL.md"),
+            "---\nname: speckit-specify\ndescription: Fixture skill.\n---\n");
+        await page.goto(canvas.url);
+        await page.getByRole("button", { name: "sample-feature", exact: true }).click();
+        await page.locator("#view-artifact").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        const navigation = viewer.getByRole("navigation", { name: "Artifact navigation" });
+        const request = (path) => {
+            const url = new URL(path, canvas.url);
+            url.searchParams.set("token", new URL(canvas.url).searchParams.get("token"));
+            return url.href;
+        };
+        const invalidScope = await page.request.get(request("/api/review/context?stage=specify&feature=specs%2Foutside"));
+        expect(invalidScope.status()).toBe(404);
+        const contextResponse = await page.request.get(request("/api/review/context?stage=specify&feature=specs%2Fsample-feature"));
+        const { data: context } = await contextResponse.json();
+        const contentResponse = await page.request.get(request(`/api/review/content?context=${context.contextId}&artifactId=${context.primaryArtifactId}`));
+        const { data: content } = await contentResponse.json();
+        const [{ question, questionId }] = content.clarifications;
+        const incompatible = { contextId: context.contextId, artifactId: context.primaryArtifactId,
+            expectedRevision: content.revision, commandName: "speckit.plan", answers: [{ question, questionId, answer: "Do not dispatch." }] };
+        const wrongOwner = await page.request.post(request("/api/review/submit"), { data: incompatible });
+        expect(wrongOwner.status()).toBe(400);
+        assert.equal(canvas.sent.length, 0);
+        await viewer.getByRole("link", { name: "Details" }).click();
+        await expect(viewer.locator(".md-reader__article h1")).toHaveText("Details");
+        await viewer.getByRole("link", { name: "Back to specification" }).click();
+        await expect(viewer.locator(".md-reader__article h1")).toHaveText("Sample feature");
+        await viewer.getByRole("button", { name: "Clarify: Which scope?" }).click();
+        await page.getByRole("textbox", { name: "Your answer" }).fill("Only this feature.");
+        await page.getByRole("button", { name: "Save answer", exact: true }).click();
+        await expect(viewer.getByRole("button", { name: "Apply and Rerun" })).toBeEnabled();
+        await writeFile(artifact, `${markdown}\nChanged externally.\n`);
+        const stale = await page.request.post(request("/api/review/submit"), { data: { ...incompatible, commandName: "speckit.specify" } });
+        expect(stale.status()).toBe(409);
+        assert.equal(canvas.sent.length, 0);
+        canvas.broadcast();
+        await viewer.getByRole("button", { name: "Review saved answer: Which scope?" }).click();
+        await expect(page.getByRole("textbox", { name: "Your answer" })).toHaveValue("Only this feature.");
+        await page.getByRole("button", { name: "Save answer", exact: true }).click();
+        await viewer.getByRole("button", { name: "Apply and Rerun" }).click();
+        await expect(viewer).toBeHidden();
+        assert.equal(canvas.sent.length, 1);
+        assert.match(canvas.sent[0].prompt, /^\/speckit-specify/);
+        assert.match(canvas.sent[0].prompt, /Clarification - Which scope\?\\nAnswer: Only this feature\./);
+    } finally { await canvas.close(); }
+});
+
+test("reported primary artifacts remain selected while clarification reruns are dispatched", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    try {
+        const folder = join(canvas.root, "specs", "sample-feature");
+        const artifact = join(folder, "custom-spec.md");
+        await mkdir(folder, { recursive: true });
+        await writeFile(artifact,
+            "# Sample feature\n\n[NEEDS CLARIFICATION: Which scope?]\n\n[NEEDS CLARIFICATION: Which tests?]\n");
+        await mkdir(join(canvas.root, ".specify", "memory"), { recursive: true });
+        await writeFile(join(canvas.root, ".specify", "memory", "constitution.md"), "# Principles\n");
+        const skill = join(canvas.root, ".github", "skills", "speckit-specify");
+        await mkdir(skill, { recursive: true });
+        await writeFile(join(skill, "SKILL.md"), "---\nname: speckit-specify\n---\n");
+        const beforeRun = await canvas.runtime.snapshot();
+        await canvas.runtime.save({ revision: beforeRun.revision, selected: "specs/sample-feature" });
+
+        const firstRun = await canvas.runtime.run({
+            phase: "specify", itemId: "specs/sample-feature", args: "Initial feature request",
+        }, "generated-review-test");
+        await canvas.runtime.report({
+            phaseRunId: firstRun.runId, path: "specs/sample-feature/custom-spec.md",
+        }, "generated-review-test");
+        assert.equal((await canvas.runtime.snapshot()).statuses.specify.output,
+            "specs/sample-feature/custom-spec.md");
+
+        await page.goto(canvas.url);
+        await page.getByRole("button", { name: "sample-feature", exact: true }).click();
+        await page.locator("#view-artifact").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer.locator(".artifact-viewer-title code"))
+            .toHaveText("specs/sample-feature/custom-spec.md");
+        await viewer.getByRole("button", { name: "Clarify: Which scope?" }).click();
+        await page.getByRole("textbox", { name: "Your answer" }).fill("Only this feature.");
+        await page.getByRole("button", { name: "Save answer", exact: true }).click();
+        await viewer.getByRole("button", { name: "Apply and Rerun" }).click();
+        await expect(viewer).toBeHidden();
+        assert.equal(canvas.sent.length, 2);
+        assert.match(canvas.sent.at(-1).prompt, /^\/speckit-specify/);
+        assert.match(canvas.sent.at(-1).prompt, /Clarification - Which scope\?\\nAnswer: Only this feature\./);
+    } finally { await canvas.close(); }
 });
 
 test("workflow list stays bounded and searchable across selection and refresh", async ({ page }) => {

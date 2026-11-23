@@ -25,7 +25,14 @@ const featureFiles = ["server.mjs", "runtime.mjs", "setup.mjs", "contract.mjs", 
     "contracts/external-badge-evaluator.mjs", "contracts/external-value-provider.mjs",
     "contracts/badge-selection.mjs",
     "badge-runtime.mjs",
-    "ui/app.js", "ui/markdown.mjs", "ui/page-assets.mjs", "ui/runtime.css", "ui/workflow-theme.css"];
+    "ui/app.js", "ui/markdown.mjs", "ui/page-assets.mjs", "ui/runtime.css", "ui/workflow-theme.css",
+    "review/artifact-read.mjs", "review/artifact-review.mjs", "review/artifact-discovery.mjs",
+    "review/artifact-clarifications.mjs", "review/artifact-clarifications.NOTICES.txt", "review/review-submission.mjs",
+    "review/generated-review-contract.mjs",
+    "ui/artifact-review.js", "ui/artifact-viewer-shell.js", "ui/review-clarifications.js", "ui/clarification-drafts.js",
+    "ui/answer-dialog.js", "ui/styles/overlays.css", "ui/styles/artifact-review.css",
+    "ui/vendor/markdown-reader/markdown-reader.js", "ui/vendor/markdown-reader/markdown-reader.css",
+    "ui/vendor/markdown-reader/THIRD_PARTY_NOTICES.txt"];
 const idPattern = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const reserved = new Set(["speckit-canvas-designer", "speckit-wizard", "speckit-canvas-generator"]);
 const RESERVED_GENERATED_PAGE_ID = "workflow";
@@ -1702,6 +1709,9 @@ export async function materialize(project, workspace, handoffId, requestId, repl
     await verifyTarget();
     await mkdir(join(target, "ui"));
     await mkdir(join(target, "contracts"));
+    await mkdir(join(target, "review"));
+    await mkdir(join(target, "ui", "styles"));
+    await mkdir(join(target, "ui", "vendor", "markdown-reader"), { recursive: true });
     if (pageFiles.length) await mkdir(join(target, "pages"));
     if (controlFiles.length) await mkdir(join(target, "controls"));
     if (providerFiles.length) await mkdir(join(target, "providers"));
