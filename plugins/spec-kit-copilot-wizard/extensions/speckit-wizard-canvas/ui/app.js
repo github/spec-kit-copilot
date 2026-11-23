@@ -239,6 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+let initialNavigationApplied = false;
+
 async function refreshState() {
     try {
         const res = await fetch(`/api/state?token=${encodeURIComponent(TOKEN)}`, { headers: HEADERS });
@@ -251,9 +253,13 @@ async function refreshState() {
         // any progress the backend has made between server-start and
         // this first REST fetch (avoids a blank frame before SSE ticks).
         boot.setInitialSnapshot(snap);
-        const cp = snap.currentPhase || "constitution";
-        state.currentPhase = SETUP_TAB_PHASE_KEYS.has(cp) ? "constitution" : cp;
+        if (!initialNavigationApplied) {
+            const cp = snap.currentPhase || "constitution";
+            state.currentPhase = SETUP_TAB_PHASE_KEYS.has(cp) ? "constitution" : cp;
+            initialNavigationApplied = true;
+        }
         observePhaseProgress();
+        refreshArtifactReview({ type: "state" });
         render();
         // Kick the one-time auto-chain once we have real state to evaluate.
         // Fires only when plugin+CLI are already installed but init hasn't

@@ -8,6 +8,7 @@ import {
     beginOutputInference,
     createOutputInferenceWorker,
     failOutputInference,
+    reconcileOutputInference,
     unassignedOutputRequests,
 } from "./output-inference.mjs";
 
@@ -56,8 +57,21 @@ export async function ensurePipelineOutputInference(inst, {
     isCurrent = () => true,
 } = {}) {
     if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
-    const current = await getSnapshot(inst);
-    if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
+    let current, revision, attempts = 0;
+    do {
+        revision = inst.artifactEvidenceRevision ?? 0;
+        current = await getSnapshot(inst);
+        if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
+        if (++attempts >= 3 && revision !== (inst.artifactEvidenceRevision ?? 0)) {
+            throw new Error("Artifact evidence changed repeatedly during output inference admission");
+        }
+    } while (revision !== (inst.artifactEvidenceRevision ?? 0));
+    if (current?.artifactEvidence && current?.artifactInferenceRequests) {
+        reconcileOutputInference(inst, {
+            evidence: current.artifactEvidence,
+            requests: current.artifactInferenceRequests,
+        });
+    }
     const pipelineCommands = new Set(effectivePipelinePhases(current)
         .map(({ id }) => commandId(id)));
     const selectedCommands = commandIds == null
@@ -73,6 +87,12 @@ export async function ensurePipelineOutputInference(inst, {
     inference.buildPrompt = buildPrompt;
     inference.startWorker = startWorker;
     inference.schedule = () => scheduleWorkers(inst, inference);
+    if (current?.artifactEvidence && current?.artifactInferenceRequests) {
+        reconcileOutputInference(inst, {
+            evidence: current.artifactEvidence,
+            requests: current.artifactInferenceRequests,
+        });
+    }
     scheduleWorkers(inst, inference);
     return { queued: true, requests, inference };
 }

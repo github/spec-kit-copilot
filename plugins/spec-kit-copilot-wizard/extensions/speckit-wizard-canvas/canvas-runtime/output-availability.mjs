@@ -98,7 +98,7 @@ export async function attachOutputEvidence(inst, scan, snap, outputs) {
     snap.refreshStatus = inst.refreshStatus?.status ?? "ready";
     snap.refreshId = inst.refreshStatus?.id ?? null;
     snap.compositionRefreshing = (inst.compositionRefreshCount ?? 0) > 0;
-    snap.outputInferenceStatus = outputInferenceStatus(inst, outputs.evidence);
+    snap.outputInferenceStatus = outputInferenceStatus(inst, outputs.evidence, outputs.requests);
     const pipeline = new Set(effectivePipelinePhases(snap).map(({ id }) => commandId(id)));
     snap.outputInferenceProgress = outputInferenceProgress(inst,
         outputs.requests.filter((request) => pipeline.has(commandId(request.commandId))));

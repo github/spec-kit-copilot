@@ -8,6 +8,7 @@ import {
     outputInferenceProgress,
     unassignedOutputRequests,
 } from "../canvas-runtime/output-inference.mjs";
+import * as outputInference from "../canvas-runtime/output-inference.mjs";
 import { ensurePipelineOutputInference, waitForOutputInference } from "../canvas-runtime/output-inference-dispatch.mjs";
 import { attachOutputEvidence } from "../canvas-runtime/output-availability.mjs";
 
@@ -178,6 +179,162 @@ test("new pipeline checks share active inference without cancelling useful worke
     assert.equal(firstInference.workers.size, 1);
     assert.equal(dispatched.length, 2);
     assert.equal(dispatched[1].prompt, "speckit.tasks");
+});
+
+test("a stale View snapshot cannot requeue evidence committed while it was loading", async (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const intake = request("intake"), define = request("define");
+    const dispatched = [];
+    const pipeline = [{ id: "speckit.intake" }, { id: "speckit.define" }];
+    const deps = {
+        session: {},
+        buildPrompt: async ({ commands }) => commands.map(({ commandId }) => commandId).join(","),
+        startWorker: async (_target, { prompt }) => dispatched.push(prompt),
+    };
+    await ensurePipelineOutputInference(inst, {
+        ...deps, getSnapshot: async () => ({ pipeline, artifactInferenceRequests: [intake] }),
+    });
+    await new Promise(setImmediate);
+    const inference = inst.outputInference;
+    const workerId = [...inference.workers.keys()][0];
+    let release, reads = 0;
+    const staleView = ensurePipelineOutputInference(inst, {
+        ...deps, commandIds: ["speckit.intake"],
+        getSnapshot: () => ++reads === 1
+            ? new Promise((resolve) => { release = () => resolve({ pipeline, artifactInferenceRequests: [intake] }); })
+            : Promise.resolve({ pipeline, artifactInferenceRequests: [define] }),
+    });
+    finishOutputInference(inst, inference, workerId, ["speckit.intake"]);
+    release();
+    assert.deepEqual(await staleView, { queued: false, requests: [] });
+    assert.equal(reads, 2);
+    await ensurePipelineOutputInference(inst, {
+        ...deps, commandIds: ["speckit.define"],
+        getSnapshot: async () => ({ pipeline, artifactInferenceRequests: [define] }),
+    });
+    await new Promise(setImmediate);
+    assert.deepEqual(dispatched, ["speckit.intake", "speckit.define"]);
+});
+
+test("admission reports repeated concurrent evidence changes instead of looping indefinitely", async () => {
+    const inst = fixture();
+    let reads = 0;
+    await assert.rejects(ensurePipelineOutputInference(inst, {
+        getSnapshot: async () => {
+            reads++;
+            inst.artifactEvidenceRevision = reads;
+            return { pipeline: [], artifactInferenceRequests: [] };
+        },
+    }), /Artifact evidence changed repeatedly/);
+    assert.equal(reads, 3);
+    assert.equal(inst.outputInference, undefined);
+});
+
+test("reconciliation releases obsolete workers but preserves unresolved mixed assignments", (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const intake = request("intake"), define = request("define");
+    const inference = beginOutputInference(inst, [intake, define]);
+    const { worker } = createOutputInferenceWorker(inst, inference, [intake, define]);
+    const cancelled = [];
+    inst.backgroundInferences = new Map([[worker.id, { cancel: () => cancelled.push(worker.id) }]]);
+    const resolved = {
+        "speckit.intake": { fingerprint: intake.fingerprint, candidates: [{ kind: "none" }], primaryIndex: null },
+        "speckit.define": { fingerprint: define.fingerprint, candidates: [] },
+    };
+    outputInference.reconcileOutputInference(inst, { evidence: resolved, requests: [define] });
+    assert.equal(inference.workers.has(worker.id), true);
+    assert.deepEqual([...inference.pending.keys()], ["speckit.define"]);
+    assert.deepEqual(cancelled, []);
+    resolved["speckit.define"] = { fingerprint: define.fingerprint, candidates: [{ kind: "unknown" }], primaryIndex: null };
+    outputInference.reconcileOutputInference(inst, { evidence: resolved, requests: [] });
+    assert.deepEqual(cancelled, [worker.id]);
+    assert.equal(inst.outputInference, null);
+});
+
+test("older evidence cannot clear a newer request or its worker", (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const old = request("intake");
+    const newer = { ...old, fingerprint: "new" };
+    const inference = beginOutputInference(inst, [newer]);
+    const { worker } = createOutputInferenceWorker(inst, inference, [newer]);
+    outputInference.reconcileOutputInference(inst, {
+        evidence: { "speckit.intake": { fingerprint: old.fingerprint, candidates: [], primaryIndex: null } },
+        requests: [],
+    });
+    assert.equal(inference.pending.get("speckit.intake"), newer);
+    assert.equal(inference.workers.get(worker.id), worker);
+});
+
+test("a newer fingerprint retires an obsolete worker and starts without waiting for its timeout", async (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const old = request("intake");
+    const newer = { ...old, fingerprint: "new" };
+    const inference = beginOutputInference(inst, [old]);
+    const { worker: previous } = createOutputInferenceWorker(inst, inference, [old]);
+    const cancelled = [], dispatched = [];
+    inst.backgroundInferences = new Map([[previous.id, { cancel: () => cancelled.push(previous.id) }]]);
+    await ensurePipelineOutputInference(inst, {
+        getSnapshot: async () => ({
+            pipeline: [{ id: "speckit.intake" }],
+            artifactEvidence: { "speckit.intake": { fingerprint: "new", candidates: [] } },
+            artifactInferenceRequests: [newer],
+        }),
+        session: {},
+        buildPrompt: async ({ commands }) => commands[0].fingerprint,
+        startWorker: async (_target, { prompt }) => dispatched.push(prompt),
+    });
+    await new Promise(setImmediate);
+    assert.deepEqual(cancelled, [previous.id]);
+    assert.deepEqual(dispatched, ["new"]);
+    assert.equal(inference.pending.get("speckit.intake"), newer);
+    failOutputInference(inst, inference, previous.id, "late failure");
+    assert.equal(inference.pending.get("speckit.intake"), newer);
+    assert.equal(inference.workers.size, 1);
+});
+
+test("resolved evidence suppresses stale status without hiding a new fingerprint", async (t) => {
+    const inst = fixture();
+    t.after(() => clearTimeout(inst.outputInference?.timer));
+    const intake = request("intake"), define = request("define");
+    const inference = beginOutputInference(inst, [intake, define]);
+    createOutputInferenceWorker(inst, inference, [intake, define]);
+    const outputs = {
+        evidence: {
+            "speckit.intake": { fingerprint: intake.fingerprint, candidates: [{ kind: "none" }], primaryIndex: null },
+            "speckit.define": { fingerprint: define.fingerprint, candidates: [] },
+        },
+        requests: [define], warnings: [], incomplete: false,
+    };
+    const snap = { pipeline: [{ id: "intake" }, { id: "define" }], phases: {}, warnings: [] };
+    await attachOutputEvidence(inst, {}, snap, outputs);
+    assert.deepEqual(snap.outputInferenceStatus, { "speckit.define": "updating" });
+});
+
+test("a timed-out worker fails only its assignments and the next worker gets a full deadline", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const inst = fixture();
+    const intake = request("intake"), define = request("define");
+    const inference = beginOutputInference(inst, [intake]);
+    const first = createOutputInferenceWorker(inst, inference, [intake]).worker;
+    beginOutputInference(inst, [define]);
+    let second;
+    inference.schedule = () => { second = createOutputInferenceWorker(inst, inference, [define]).worker; };
+    t.mock.timers.tick(10 * 60 * 1000);
+    assert.equal(inference.failures.has("speckit.intake"), true);
+    assert.equal(inference.failures.has("speckit.define"), false);
+    assert.equal(inference.pending.has("speckit.define"), true);
+    assert.ok(second);
+    failOutputInference(inst, inference, first.id, "late failure");
+    assert.equal(inference.workers.has(second.id), true);
+    t.mock.timers.tick(10 * 60 * 1000 - 1);
+    assert.equal(inference.pending.has("speckit.define"), true);
+    t.mock.timers.tick(1);
+    assert.equal(inference.failures.has("speckit.define"), true);
+    t.mock.timers.reset();
 });
 
 test("closing the canvas during snapshot prevents starting inference", async () => {

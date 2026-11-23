@@ -28,6 +28,7 @@ import { activeArtifactsForCommand } from "../pipeline/active-artifacts.mjs";
 import { runFastComposition } from "./composition-apply.mjs";
 import { snapshot } from "./snapshot.mjs";
 import { ensurePipelineOutputInference } from "./output-inference-dispatch.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
 import { buildArtifactInferencePrompt } from "./artifact-inference-prompt.mjs";
 import { cancelBackgroundInference, startBackgroundInference } from "./background-inference.mjs";
 import { startRefresh, setRefreshWork, failRefresh, isCurrentRefresh } from "./refresh-status.mjs";
@@ -117,10 +118,12 @@ export async function dispatchKindPrompt(inst, kind, payload, {
     // (novel commands, wraps/prepends/appends directives, etc.).
     const outputsOnly = kind === "extension.inferArtifactTargets";
     if (outputsOnly) {
+        const { commandId } = validateOutputInferenceRequest(payload);
         await ensurePipelineOutputInference(inst, {
             getSnapshot: (target) => getSnapshot(target),
             session: sessionAdapter(),
             buildPrompt: buildInferencePrompt,
+            commandIds: commandId === undefined ? undefined : [commandId],
             startWorker: sendInference
                 ? (target, request, workerSession, isCurrent, workerId) =>
                     sendInference(request, workerSession, isCurrent, workerId, target)

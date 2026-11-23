@@ -39,12 +39,6 @@ export function beginOutputInference(inst, requests) {
         inst.outputInference = inference;
         inst.outputInferenceOwner = inference;
     }
-    if (!inference.timer) {
-        inference.timer = setTimeout(() => {
-            failOutputInference(inst, inference, undefined, "output inference timed out");
-        }, REQUEST_TIMEOUT_MS);
-        inference.timer.unref?.();
-    }
     for (const request of requests) {
         const id = commandId(request.commandId);
         const previous = inference.pending.get(id);
@@ -66,6 +60,11 @@ export function createOutputInferenceWorker(inst, inference, requests) {
     const worker = { id, requests: new Map(requests.map((request) =>
         [commandId(request.commandId), request])) };
     inference.workers.set(id, worker);
+    worker.timer = setTimeout(() => {
+        failOutputInference(inst, inference, id, "output inference timed out");
+    }, REQUEST_TIMEOUT_MS);
+    worker.timer.unref?.();
+    inference.timer = worker.timer;
     const endpoint = new URL("/api/artifact-targets", inst.url);
     endpoint.searchParams.set("token", inst.token);
     endpoint.searchParams.set("runId", id);
@@ -78,8 +77,16 @@ export function findOutputInferenceWorker(inst, runId) {
     return worker ? { inference, worker } : null;
 }
 
+function clearWorkerTimer(inference, worker) {
+    clearTimeout(worker.timer);
+    if (inference.timer === worker.timer) inference.timer = null;
+}
+
 export function releaseSupersededOutputWorker(inst, inference, workerId) {
-    if (!isCurrentInference(inst, inference) || !inference.workers.has(workerId)) return;
+    if (!isCurrentInference(inst, inference)) return;
+    const worker = inference.workers.get(workerId);
+    if (!worker) return;
+    clearWorkerTimer(inference, worker);
     inference.workers.delete(workerId);
     releaseBackgroundInference(inst, workerId);
     finishIfIdle(inst, inference);
@@ -102,6 +109,7 @@ export function finishOutputInference(inst, inference, workerId, commands) {
     if (!isCurrentInference(inst, inference)) return false;
     const worker = inference.workers.get(workerId);
     if (!worker) return false;
+    if (commands.length) inst.artifactEvidenceRevision = (inst.artifactEvidenceRevision ?? 0) + 1;
     const completed = new Set(commands.map(commandId));
     for (const [id, request] of worker.requests) {
         if (completed.has(id) && inference.pending.get(id)?.fingerprint === request.fingerprint) {
@@ -112,6 +120,7 @@ export function finishOutputInference(inst, inference, workerId, commands) {
             inference.failures.set(id, { fingerprint: request.fingerprint, reason: "output inference returned no result" });
         }
     }
+    clearWorkerTimer(inference, worker);
     inference.workers.delete(workerId);
     releaseBackgroundInference(inst, workerId);
     finishIfIdle(inst, inference);
@@ -125,6 +134,7 @@ export function failOutputInference(inst, inference, workerId, reason = "output 
     if (workerId !== undefined) {
         const worker = inference.workers.get(workerId);
         if (!worker) return;
+        clearWorkerTimer(inference, worker);
         inference.workers.delete(workerId);
         cancelBackgroundInference(inst, workerId);
         for (const [id, request] of worker.requests) {
@@ -137,7 +147,8 @@ export function failOutputInference(inst, inference, workerId, reason = "output 
             inference.failures.set(id, { fingerprint: request.fingerprint, reason });
         }
         inference.pending.clear();
-        for (const workerId of inference.workers.keys()) {
+        for (const [workerId, worker] of inference.workers) {
+            clearWorkerTimer(inference, worker);
             cancelBackgroundInference(inst, workerId);
         }
         inference.workers.clear();
@@ -147,14 +158,54 @@ export function failOutputInference(inst, inference, workerId, reason = "output 
     if (inference.status === "updating") void inference.schedule?.();
 }
 
-export function outputInferenceStatus(inst, evidence = {}) {
+export function reconcileOutputInference(inst, { evidence, requests }) {
+    const inference = inst.outputInference;
+    if (!inference) return;
+    const unresolved = new Map(requests.map((request) =>
+        [commandId(request.commandId), request.fingerprint]));
+    const resolved = (id, fingerprint) => {
+        const record = evidence[id];
+        return record?.fingerprint === fingerprint
+            && Object.hasOwn(record, "primaryIndex") && unresolved.get(id) !== fingerprint;
+    };
+    let changed = false;
+    for (const [id, request] of inference.pending) {
+        if (resolved(id, request.fingerprint)) {
+            inference.pending.delete(id);
+            changed = true;
+        }
+    }
+    for (const [id, failure] of inference.failures) {
+        if (resolved(id, failure.fingerprint)) {
+            inference.failures.delete(id);
+            changed = true;
+        }
+    }
+    for (const [id, worker] of inference.workers) {
+        if ([...worker.requests].some(([key, request]) =>
+            inference.pending.get(key)?.fingerprint === request.fingerprint)) continue;
+        clearWorkerTimer(inference, worker);
+        inference.workers.delete(id);
+        cancelBackgroundInference(inst, id);
+        changed = true;
+    }
+    if (!changed) return;
+    finishIfIdle(inst, inference);
+    notify(inst, "output inference reconciled");
+    if (inference.status === "updating") void inference.schedule?.();
+}
+
+export function outputInferenceStatus(inst, evidence = {}, requests = null) {
     const status = {};
     const inference = inst.outputInference;
+    const unresolved = requests && new Map(requests.map((request) =>
+        [commandId(request.commandId), request.fingerprint]));
+    const needsInference = (id, fingerprint) => !unresolved || unresolved.get(id) === fingerprint;
     for (const [id, request] of inference?.pending ?? []) {
-        if (evidence[id]?.fingerprint === request.fingerprint) status[id] = "updating";
+        if (evidence[id]?.fingerprint === request.fingerprint && needsInference(id, request.fingerprint)) status[id] = "updating";
     }
     for (const [id, failure] of inference?.failures ?? []) {
-        if (evidence[id]?.fingerprint === failure.fingerprint && !status[id]) status[id] = "incomplete";
+        if (evidence[id]?.fingerprint === failure.fingerprint && needsInference(id, failure.fingerprint) && !status[id]) status[id] = "incomplete";
     }
     return status;
 }

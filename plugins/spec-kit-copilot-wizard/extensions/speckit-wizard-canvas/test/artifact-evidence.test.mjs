@@ -10,7 +10,8 @@ import { handleArtifactTargets } from "../server/handlers-ops.mjs";
 import { attachOutputEvidence, outputAvailability } from "../canvas-runtime/output-availability.mjs";
 import { fsDeps } from "../canvas-runtime/instances.mjs";
 import { beginOutputInference as beginInferenceGroup, createOutputInferenceWorker,
-    findOutputInferenceWorker, unassignedOutputRequests } from "../canvas-runtime/output-inference.mjs";
+    findOutputInferenceWorker, reconcileOutputInference, unassignedOutputRequests } from "../canvas-runtime/output-inference.mjs";
+import { ensurePipelineOutputInference } from "../canvas-runtime/output-inference-dispatch.mjs";
 import { startRefresh } from "../canvas-runtime/refresh-status.mjs";
 import { hydrateExtensionArtifactsFromCache } from "../project-scanner/extension-artifacts.mjs";
 import { CORE_OUTPUTS } from "../pipeline/canonical.mjs";
@@ -215,6 +216,75 @@ test("a valid worker reply survives composition refresh and merges its cache ent
         assert.notEqual(inst.refreshStatus, refresh);
         assert.equal(inst.refreshStatus.status, "refreshing");
         clearTimeout(inst.refreshStatus.timer);
+    });
+});
+
+test("a View snapshot racing an accepted cache commit cannot enqueue the committed evidence", async () => {
+    await fixture(async ({ root }) => {
+        const fingerprint = (await effectiveSource(root, "plan")).fingerprint;
+        const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };
+        const { worker } = startWorker(inst, [{ commandId: "speckit.plan", fingerprint }]);
+        const pipeline = [{ id: "plan" }];
+        let release, entered, reads = 0;
+        const started = new Promise((resolve) => { entered = resolve; });
+        const wait = new Promise((resolve) => { release = resolve; });
+        const retry = ensurePipelineOutputInference(inst, {
+            commandIds: ["speckit.plan"],
+            getSnapshot: async () => {
+                reads++;
+                const outputs = await collectArtifactEvidence(root, { pipeline });
+                if (reads === 1) { entered(); await wait; }
+                return { pipeline, artifactEvidence: outputs.evidence, artifactInferenceRequests: outputs.requests };
+            },
+            session: {},
+            startWorker: async () => assert.fail("resolved evidence must not start another worker"),
+        });
+        await started;
+        const res = response();
+        await handleArtifactTargets(res, { entries: {
+            "commands/speckit.plan": { outputEvidence: {
+                fingerprint, primaryIndex: null,
+                candidates: [{ kind: "unknown", source: "inference",
+                    effect: "unknown", evidence: "No fixed output established" }],
+            } },
+        } }, { getInstance: () => inst, runId: worker.id });
+        assert.equal(res.status, 200);
+        release();
+        assert.deepEqual(await retry, { queued: false, requests: [] });
+        assert.equal(reads, 2);
+        assert.equal(inst.outputInference, null);
+    });
+});
+
+test("a mixed worker can finish unresolved assignments after other evidence is reconciled", async () => {
+    await fixture(async ({ root, write }) => {
+        await write(".github/skills/speckit-tasks/SKILL.md", "---\nname: speckit-tasks\n---\nCreate tasks.");
+        const plan = await effectiveSource(root, "plan");
+        const tasks = await effectiveSource(root, "tasks");
+        const unknown = (fingerprint) => ({ fingerprint, primaryIndex: null,
+            candidates: [{ kind: "unknown", source: "inference",
+                effect: "unknown", evidence: "No fixed output established" }] });
+        await write(".speckit-wizard/artifact-targets.json", JSON.stringify({
+            version: 1, entries: { "commands/speckit.plan": { outputEvidence: unknown(plan.fingerprint) } },
+        }));
+        const inst = { workspacePath: root, url: "http://127.0.0.1:1234", token: "test", broadcast() {} };
+        const requests = [{ commandId: "speckit.plan", fingerprint: plan.fingerprint },
+            { commandId: "speckit.tasks", fingerprint: tasks.fingerprint }];
+        const inference = beginInferenceGroup(inst, requests);
+        const { worker } = createOutputInferenceWorker(inst, inference, requests);
+        const outputs = await collectArtifactEvidence(root, { pipeline: [{ id: "plan" }, { id: "tasks" }] });
+        reconcileOutputInference(inst, outputs);
+        assert.equal(inference.workers.has(worker.id), true);
+        assert.deepEqual([...inference.pending.keys()], ["tasks"]);
+        const res = response();
+        await handleArtifactTargets(res, { entries: {
+            "commands/speckit.tasks": { outputEvidence: unknown(tasks.fingerprint) },
+        } }, { getInstance: () => inst, runId: worker.id });
+        assert.equal(res.status, 200);
+        const cache = await readEvidenceCache(root);
+        assert.equal(cache.entries["commands/speckit.plan"].outputEvidence.fingerprint, plan.fingerprint);
+        assert.equal(cache.entries["commands/speckit.tasks"].outputEvidence.fingerprint, tasks.fingerprint);
+        assert.equal(inst.outputInference, null);
     });
 });
 

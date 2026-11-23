@@ -12,6 +12,7 @@ import { catalogOperationKind } from "../contracts/catalog-operation.mjs";
 import { catalogFailure, runCatalogOperation } from "../canvas-runtime/catalog-operations.mjs";
 import { isPhaseSetupReady } from "../contracts/setup-readiness.mjs";
 import { reviewAnswersMatchArguments, validateReviewSubmission } from "../contracts/review-submission.mjs";
+import { OutputInferenceRequestError } from "../contracts/output-inference-request.mjs";
 
 export async function handlePrompt(res, body, { log, getInstance, catalogOperation = runCatalogOperation }) {
     const kind = body?.kind;
@@ -30,7 +31,9 @@ export async function handlePrompt(res, body, { log, getInstance, catalogOperati
     try {
         await dispatchKindPrompt(inst, kind, payload);
     } catch (err) {
-        if (err instanceof UnknownActionKindError) return jsonError(res, 400, err.message);
+        if (err instanceof UnknownActionKindError || err instanceof OutputInferenceRequestError) {
+            return jsonError(res, 400, err.message);
+        }
         return jsonError(res, 500, `prompt build failed: ${err?.message ?? err}`);
     }
     // Ephemeral feedback line so the click "landed" visually.

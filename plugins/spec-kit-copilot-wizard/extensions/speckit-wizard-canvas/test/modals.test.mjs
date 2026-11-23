@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import * as runtime from "../ui/phase-runtime.js";
-import { clarificationBatchWithinBudget, closeArtifactViewer, flushClarifications, openArtifactViewer, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
+import { clarificationBatchWithinBudget, closeArtifactViewer, flushClarifications, openArtifactViewer, openCommunityInstallModal, refreshArtifactReview, setViewersDeps } from "../ui/modals.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -67,14 +67,13 @@ describe("wizard modals", () => {
         }
     });
 
-    test("missing output viewer opens the known folder or the project root", async () => {
+    test("missing output viewer omits the folder button and follows only its phase's retrieval status", async () => {
         const previousDocument = globalThis.document;
-        let click;
-        const button = { addEventListener: (_event, callback) => { click = callback; } };
-        const body = { innerHTML: "",
-            querySelector: (selector) => selector === ".artifact-viewer-open-folder" ? button : null };
+        const body = { innerHTML: "", querySelector: () => null };
+        const titlePath = { textContent: "" };
         const viewer = { hidden: true, innerHTML: "",
-            querySelector: (selector) => selector === ".artifact-viewer-body" ? body : null };
+            querySelector: (selector) => selector === ".artifact-viewer-body" ? body
+                : selector === ".artifact-viewer-title code" ? titlePath : null };
         globalThis.document = {
             body: { classList: { add() {}, remove() {} } },
             getElementById: (id) => id === "phase-artifact-viewer" ? viewer : null,
@@ -82,17 +81,33 @@ describe("wizard modals", () => {
         const reveals = [];
         setViewersDeps({ postJson: async (url, payload) => { reveals.push([url, payload]); return { ok: true }; } });
         try {
-            await openArtifactViewer({ id: "plan" }, { missingMessage: "No output found yet.", outputFolder: "specs/feature" });
+            state.snapshot.outputInferenceStatus = { "speckit.assess.define": "updating" };
+            await openArtifactViewer({ id: "assess-define", commandName: "speckit.assess.define" },
+                { missingMessage: "No output found yet.", outputFolder: "specs/feature" });
+            assert.match(body.innerHTML, /Retrieving outputs…/);
+            assert.equal(titlePath.textContent, "Retrieving outputs…");
+            assert.doesNotMatch(body.innerHTML, /No output|Open output folder|wizard-modal-error/);
+
+            state.snapshot.outputInferenceStatus = { "speckit.assess.intake": "updating" };
+            refreshArtifactReview({ type: "state" });
             assert.match(body.innerHTML, /No output found yet\./);
-            assert.match(body.innerHTML, /Open output folder/);
-            click();
+            assert.equal(titlePath.textContent, "No output found");
+            assert.doesNotMatch(body.innerHTML, /Retrieving outputs|Open output folder/);
+
+            state.snapshot.outputInferenceStatus["speckit.assess.define"] = "updating";
+            refreshArtifactReview({ type: "state" });
+            assert.match(body.innerHTML, /Retrieving outputs…/);
+            assert.equal(titlePath.textContent, "Retrieving outputs…");
+
+            state.snapshot.outputInferenceStatus["speckit.assess.define"] = "incomplete";
+            refreshArtifactReview({ type: "state" });
+            assert.match(body.innerHTML, /Pipeline preparation did not finish/);
+            assert.doesNotMatch(body.innerHTML, /Retrieving outputs/);
+
             await openArtifactViewer({ id: "plan" });
-            click();
-            await Promise.resolve();
-            assert.deepEqual(reveals, [
-                ["/api/reveal", { sub: "specs/feature" }],
-                ["/api/reveal", { sub: "" }],
-            ]);
+            assert.match(body.innerHTML, /No output found/);
+            assert.doesNotMatch(body.innerHTML, /Open output folder/);
+            assert.deepEqual(reveals, []);
         } finally {
             await closeArtifactViewer();
             globalThis.document = previousDocument;

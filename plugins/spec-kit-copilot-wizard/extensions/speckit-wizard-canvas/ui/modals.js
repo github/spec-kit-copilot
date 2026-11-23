@@ -4,6 +4,7 @@ import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 import { formatReviewAnswers } from "../contracts/review-submission.mjs";
+import { stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { createArtifactReview } from "./artifact-review.js";
 import { isSetupComplete } from "./setup.js";
 import {
@@ -633,6 +634,7 @@ function openReviewedClarification(descriptorId, previous) {
 }
 
 export function refreshArtifactReview(message) {
+    if (message?.type === "state") renderMissingArtifact();
     const hint = message?.review?.contextHint;
     if (hint && hint !== artifactReview?.context?.contextId) return;
     if (["state", "review"].includes(message?.type)) void artifactReview?.refresh();
@@ -654,6 +656,7 @@ export function setViewersDeps({ postJson, HEADERS, readerMount, onReturn } = {}
 
 function disposeArtifactReview(force = false) {
     artifactReviewGeneration++;
+    activeArtifactMissingMessage = null;
     artifactReview?.close({ restore: false, force });
     artifactReview = null;
 }
@@ -695,7 +698,23 @@ function restoreArtifactReturn() {
 }
 
 let activeArtifactPhase = null; // phase currently open in the viewer
+let activeArtifactMissingMessage = null;
 const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
+
+function renderMissingArtifact() {
+    if (activeArtifactMissingMessage === null) return;
+    const root = document.getElementById("phase-artifact-viewer");
+    const body = root?.querySelector(".artifact-viewer-body");
+    if (!body) return;
+    const commandName = activeArtifactPhase?.commandName;
+    const inference = commandName
+        ? state.snapshot?.outputInferenceStatus?.[stripCommandsPrefix(commandName)] : null;
+    const status = inference === "updating" ? "Retrieving outputs…"
+        : inference === "incomplete" ? "Pipeline preparation did not finish" : null;
+    const titlePath = root.querySelector(".artifact-viewer-title code");
+    if (titlePath) titlePath.textContent = status || "No output found";
+    body.innerHTML = `<p class="${inference === "updating" ? "muted" : "wizard-modal-error"}" role="status">${escapeHtml(status || activeArtifactMissingMessage)}</p>`;
+}
 
 export function isClarificationFlushPending(commandName) {
     return !!commandName && clarificationFlushes.has(commandName);
@@ -735,7 +754,7 @@ export async function flushClarifications(p) {
     return flush;
 }
 
-export async function openArtifactViewer(p, { missingMessage, outputFolder } = {}) {
+export async function openArtifactViewer(p, { missingMessage } = {}) {
     const root = document.getElementById("phase-artifact-viewer");
     if (!root || !p) return;
     if (reviewSubmissionPending()) { renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before switching."); return false; }
@@ -763,17 +782,9 @@ export async function openArtifactViewer(p, { missingMessage, outputFolder } = {
     root.querySelector(".artifact-viewer-back")?.addEventListener("click", closeArtifactViewer);
 
     if (!p.artifactPath) {
-        const body = root.querySelector(".artifact-viewer-body");
-        if (!body) return;
-        const folder = typeof outputFolder === "string" ? outputFolder : "";
-        body.innerHTML = `<p class="wizard-modal-error" role="status">${escapeHtml(missingMessage
-            || "No output found for this phase yet. Run the phase, or check its output folder.")}</p>
-            <p><button type="button" class="btn btn-secondary btn-sm artifact-viewer-open-folder" title="Open ${escapeHtml(folder || "project folder")} in file explorer">Open output folder</button></p>`;
-        body.querySelector(".artifact-viewer-open-folder")?.addEventListener("click", () => {
-            void Promise.resolve(__postJson("/api/reveal", { sub: folder })).catch((err) => {
-                console.error(`reveal failed: ${err?.message ?? err}`);
-            });
-        });
+        activeArtifactMissingMessage = missingMessage
+            || "No output found for this phase yet. Run the phase to produce one.";
+        renderMissingArtifact();
         return;
     }
 

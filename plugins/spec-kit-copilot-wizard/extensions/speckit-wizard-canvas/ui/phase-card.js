@@ -39,6 +39,7 @@ import { wireInfoPopover } from "./composition.js";
 import { outputEvidenceForCommand, projectFolderLink, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
 import { displayOutputPath, primaryCandidate } from "../pipeline/output-evidence.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
 
 // -------- Section: render/env.js --------
 
@@ -705,11 +706,18 @@ export function wireGraphPhaseCard(el, p) {
         // retrieval and reuses in-flight work; it never reruns the command.
         const inference = outputEvidenceForCommand(state.snapshot?.outputInferenceStatus, p.commandName);
         const retrieving = inference === "updating" || inference === "incomplete";
+        const currentEvidence = outputEvidenceForCommand(state.snapshot?.artifactEvidence, p.commandName);
+        const requests = state.snapshot?.artifactInferenceRequests;
+        const resolved = currentEvidence?.fingerprint && Object.hasOwn(currentEvidence, "primaryIndex")
+            && Array.isArray(requests) && !requests.some((request) =>
+                bareCommandId(request.commandId) === bareCommandId(p.commandName)
+                && request.fingerprint === currentEvidence.fingerprint);
         const submitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
         // Don't start retrieval while the command itself is still running.
-        const retry = retrieving || (!p.artifactPath && submitted && !state.phaseRunning.has(p.commandName));
+        const retry = !resolved && (retrieving || (!p.artifactPath && submitted && !state.phaseRunning.has(p.commandName)));
         if (retry) {
-            void Promise.resolve(dispatchKind("extension.inferArtifactTargets", {})).catch((err) => {
+            void Promise.resolve().then(() => dispatchKind("extension.inferArtifactTargets",
+                validateOutputInferenceRequest({ commandId: p.commandName }))).catch((err) => {
                 console.error(`output retrieval failed: ${err?.message ?? err}`);
             });
         }
@@ -718,9 +726,6 @@ export function wireGraphPhaseCard(el, p) {
             missingMessage: retry
                 ? "No output found yet. Output retrieval was requested again; the artifact will appear on this phase once it is found."
                 : "No output found for this phase yet. Run the phase to produce one.",
-            // Same folder as the Writes-to link: known existing folder, else the project root ("").
-            outputFolder: el.querySelector('.phase-cust-row-writes [data-phase-action="browse-folder"]')
-                ?.getAttribute("data-folder-path") ?? "",
         });
     });
     // Writes-to path in the phase-facts row: opens the parent folder in

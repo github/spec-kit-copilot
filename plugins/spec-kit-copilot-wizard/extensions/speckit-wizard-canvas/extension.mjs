@@ -374,6 +374,7 @@ async function onClose(ctx) {
     inst.closed = true;
     clearCommandRunsForInstance(ctx.instanceId);
     cancelBackgroundInference(inst);
+    for (const worker of inst.outputInference?.workers?.values() ?? []) clearTimeout(worker.timer);
     clearTimeout(inst.outputInference?.timer);
     clearTimeout(inst.refreshStatus?.timer);
     inst.outputInference = null;

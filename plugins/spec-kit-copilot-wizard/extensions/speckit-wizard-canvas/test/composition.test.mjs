@@ -50,6 +50,7 @@ import {
 } from "../ui/phase-card.js";
 import { buildExecutionReport, renderOutputRows } from "../ui/phase-contributors.js";
 import { compositionProgressText, reconcileCompositionRefresh, renderCompositionProgress } from "../ui/composition.js";
+import { setPostJson } from "../ui/client.js";
 import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 
 function makeScannerFs(files) {
@@ -165,6 +166,50 @@ test("phase outputs describe retrieval without hiding known outputs", () => {
     const idle = renderOutputRows({ buildRow });
     assert.match(idle[0], /data-folder-path=""[^>]*><span class="phase-cust-unchanged">Not yet identified/);
     assert.doesNotMatch(idle[0], /Retrieving outputs/);
+});
+
+test("View ignores stale retrieval status for resolved evidence but retries a newer fingerprint", async () => {
+    let click;
+    const calls = [], opened = [];
+    const previousDocument = globalThis.document;
+    globalThis.document = { getElementById: () => null };
+    setPostJson(async (url, body) => { calls.push({ url, body }); });
+    setGraphPhaseCardDeps({ openArtifactViewer: (phase) => opened.push(phase.artifactPath) });
+    const el = {
+        querySelector: (selector) => selector === '[data-phase-action="view"]'
+            ? { addEventListener: (_event, handler) => { click = handler; } } : null,
+        querySelectorAll: () => [],
+    };
+    const phase = { id: "plan", commandName: "speckit.plan", status: "done",
+        artifactPath: "specs/feature/plan.md" };
+    try {
+        state.snapshot = {
+            artifactEvidence: { plan: { fingerprint: "old", candidates: [], primaryIndex: null } },
+            artifactInferenceRequests: [],
+            outputInferenceStatus: { plan: "updating" },
+        };
+        wireGraphPhaseCard(el, phase);
+        click();
+        await new Promise(setImmediate);
+        assert.deepEqual(opened, ["specs/feature/plan.md"]);
+        assert.deepEqual(calls, []);
+
+        state.snapshot.artifactEvidence.plan = { fingerprint: "new", candidates: [] };
+        state.snapshot.artifactInferenceRequests = [{ commandId: "speckit.plan", fingerprint: "new" }];
+        state.snapshot.outputInferenceStatus.plan = "incomplete";
+        click();
+        await new Promise(setImmediate);
+        assert.deepEqual(calls, [{ url: "/api/prompt", body: {
+            kind: "extension.inferArtifactTargets", payload: { commandId: "speckit.plan" },
+        } }]);
+        assert.deepEqual(opened, ["specs/feature/plan.md", "specs/feature/plan.md"]);
+    } finally {
+        state.snapshot = null;
+        setPostJson(null);
+        setGraphPhaseCardDeps({ openArtifactViewer: () => {} });
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+    }
 });
 
 test("phase card links Writes to the project root without output evidence", () => {
