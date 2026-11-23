@@ -59,7 +59,7 @@ test("a timed-out Run clears the in-flight guard without automatically resubmitt
     const messages = [];
     const actions = runInNewContext(`let sending = false;
         ${section("async function api(", "async function retryRevision(")}
-        ${section("async function send(", "async function refreshArtifact(")}
+        ${section("async function send(", "let viewerConnected")}
         ({ send, pending: () => Boolean(sending) })`, {
         token: "test", model: { constitutionReady: true, userProvidesSlug: false,
             selected: "specs/demo", statuses: {} },
@@ -506,7 +506,7 @@ test("rerunning a phase or Constitution requires overwrite confirmation, but fir
         api: async () => { submissions++; }, refresh: async () => {},
         $: () => null, AbortSignal: { timeout: () => new AbortController().signal },
     };
-    const send = runInNewContext(`${section("async function send(", "async function refreshArtifact(")}
+    const send = runInNewContext(`${section("async function send(", "let viewerConnected")}
         send`, context);
     const phase = { id: "specify", project: false };
     const constitution = { id: "constitution", project: true };
@@ -536,6 +536,8 @@ test("a not-yet-created output browses its parent without opening the artifact v
     const context = {
         model: { selected: "specs/demo" },
         URLSearchParams,
+        document: { activeElement: null },
+        viewerGeneration: 0,
         api: async (path, input) => {
             calls.push({ path, input });
             if (path.startsWith("/api/artifact")) throw Object.assign(new Error("Not found"), { status: 404 });

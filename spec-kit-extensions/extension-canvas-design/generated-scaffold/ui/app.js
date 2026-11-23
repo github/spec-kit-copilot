@@ -4,7 +4,10 @@ const { validateStockTextAdapter, validateGeneratedControl, validatePlacedContro
 const { validateDialogAdapter, validateDialogInstance, validateDialogDecision,
     validateButtonAdapter, validateButtonInstance } = await import(
     `/contracts/external-dialog-button.mjs${new URL(import.meta.url).search}`);
-const { renderMarkdown } = await import(`./markdown.mjs${new URL(import.meta.url).search}`);
+import { createArtifactReview } from "./artifact-review.js";
+import { captureViewerReturn, mountArtifactViewerShell } from "./artifact-viewer-shell.js";
+import { createReviewClarifications } from "./review-clarifications.js";
+import { closeWizardModal } from "./answer-dialog.js";
 const { mountPageAssets, createStockImageRenderer } = await import(
     `./page-assets.mjs${new URL(import.meta.url).search}`);
 const { validatePhaseAdapter, validatePhaseMount, validatePhaseState,
@@ -1207,49 +1210,83 @@ async function send(step, value, target = "phase-action-error") {
         sending = false; renderStatus();
     }
 }
-async function refreshArtifact(initial) {
-    const context = viewer;
-    if (!context) return;
-    if (context.reading) { message("The artifact is already loading.", "artifact-message"); return; }
-    context.reading = true;
-    message("Loading artifact...", "artifact-message");
-    try {
-        const query = new URLSearchParams({ phase: context.phase, itemId: context.itemId,
-            ...(context.output !== undefined ? { output: context.output } : {}) });
-        const result = initial ?? await api(`/api/artifact?${query}`);
-        if (viewer !== context) return;
-        $("artifact-path").textContent = result.path;
-        $("artifact-content").innerHTML = renderMarkdown(result.content);
-        context.loaded = true;
-        message(result.message ?? "", "artifact-message");
-    } catch (error) {
-        if (viewer === context) message(context.loaded
-            ? `Could not refresh the artifact. Displayed content is retained. ${error.message}` : error.message, "artifact-message", true);
-    } finally { context.reading = false; }
-    try { await refresh(); }
-    catch (error) { message(`Could not refresh artifact availability: ${error.message}`, "artifact-message", true); }
+let viewerConnected = true;
+let viewerGeneration = 0;
+const clarificationReview = createReviewClarifications({
+    getRoot: () => $("phase-artifact-viewer"), getReview: () => viewer,
+    isReady: () => model?.setup?.ready !== false,
+    closeViewer: closeArtifact,
+    async submit(review) {
+        const result = await api("/api/review/submit", review);
+        if (!result?.ok) throw new Error("Submission failed");
+    },
+});
+let restoreArtifactReturn;
+async function closeArtifact() {
+    if (clarificationReview.reviewSubmissionPending()) {
+        clarificationReview.renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before closing.");
+        return false;
+    }
+    clarificationReview.discardReviewDrafts();
+    closeWizardModal();
+    viewer?.close({ restore: false });
+    viewer = null;
+    const generation = ++viewerGeneration;
+    const root = $("phase-artifact-viewer");
+    root.hidden = true;
+    root.replaceChildren();
+    document.body.classList.remove("artifact-review-open");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (generation === viewerGeneration && root.hidden) {
+        restoreArtifactReturn?.();
+        restoreArtifactReturn = null;
+    }
+    return true;
 }
+window.addEventListener("pagehide", () => viewer?.close({ force: true, restore: false }));
 async function openArtifact(step, output) {
     if (!step) throw new Error("Wait for the canvas to connect, then try again.");
     const itemId = step.project ? "project" : model.selected;
-    const query = new URLSearchParams({ phase: step.id, itemId,
-        ...(output !== undefined ? { output } : {}) });
-    let result;
-    try {
-        result = await api(`/api/artifact?${query}`);
-    } catch (error) {
-        if (error.status !== 404) throw error;
-        await api("/api/reveal", { phase: step.id, itemId,
-            ...(output !== undefined ? { output } : {}) });
-        return;
+    const source = { phase: step.id, itemId, ...(output === undefined ? {} : { output }) };
+    const trigger = document.activeElement;
+    const generation = ++viewerGeneration;
+    let artifact;
+    try { artifact = await api(`/api/artifact?${new URLSearchParams(source)}`); }
+    catch (error) {
+        if (error.status === 404) {
+            if (generation === viewerGeneration) await api("/api/reveal", source);
+            return;
+        }
+        // The shared reader has its own file limit and presentation for large files.
+        if (error.status !== 413) throw error;
     }
-    viewer = { phase: step.id, itemId, ...(output !== undefined ? { output } : {}), loaded: false };
-    $("artifact-title").textContent = step.project ? "Constitution" : step.label;
-    $("artifact-path").textContent = "";
-    $("artifact-content").replaceChildren();
-    $("artifact-viewer").showModal();
-    $("close-artifact").focus();
-    await refreshArtifact(result);
+    if (generation !== viewerGeneration) return;
+    if (clarificationReview.reviewSubmissionPending()) {
+        clarificationReview.renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before switching.");
+        return false;
+    }
+    clarificationReview.discardReviewDrafts();
+    viewer?.close({ restore: false });
+    restoreArtifactReturn ??= captureViewerReturn(trigger);
+    const root = $("phase-artifact-viewer");
+    const shell = mountArtifactViewerShell(root, { label: step.label, path: artifact?.path ?? "", returnLabel: "Canvas", onReturn: closeArtifact });
+    const review = createArtifactReview({
+        container: shell.body, scrollElement: shell.body, readerId: `generated-review-${generation}`,
+        headers: { "x-canvas-token": token }, onReturn: closeArtifact,
+        getClarifications: clarificationReview.boundReviewClarifications,
+        onClarification: clarificationReview.openReviewedClarification,
+        canNavigate: () => !clarificationReview.reviewSubmissionPending(),
+        onDocument: ({ artifact }) => {
+            shell.setTitle(artifact.label, artifact.relativePath);
+            clarificationReview.renderReviewDraftBanner();
+        },
+    });
+    viewer = review;
+    await review.open({ stage: step.id, feature: itemId, source: output });
+    if (viewer === review) {
+        review.setConnected(viewerConnected);
+        clarificationReview.renderReviewDraftBanner();
+    }
 }
 document.addEventListener("input", (event) => {
     if (!model) return;
@@ -1320,7 +1357,6 @@ document.addEventListener("click", (event) => {
         if (button.id === "theme-toggle") {
             return;
         }
-        if (button.id === "close-artifact") { $("artifact-viewer").close(); return; }
         if (button.id === "cancel-constitution") { $("constitution-dialog").close(); return; }
         if (button.id === "refresh-state") {
             // Fetch the current revision first; retry locally retained drafts explicitly.
@@ -1362,7 +1398,6 @@ document.addEventListener("click", (event) => {
         } else if (button.id === "send-constitution") await send(constitution(), $("constitution-args").value, "constitution-message");
     })().catch((error) => message(error.message, "workflow-action-error", true));
 });
-$("artifact-viewer").addEventListener("close", () => { viewer = null; });
 const pipelineRoot = $("workflow-pipeline");
 const workflowRoot = $("workflow-content") ?? $("workflow-surface");
 try {
@@ -1513,16 +1548,21 @@ await mountGeneratedButtons().catch((error) => {
     throw error;
 });
 const events = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
-events.onopen = () => setConnectionStatus("live");
+events.onopen = () => { viewerConnected = true; viewer?.setConnected(true); setConnectionStatus("live"); };
 events.onmessage = () => {
     if (!timer && !constitutionTimer) {
         stateNotificationVersion++;
         saving.catch(() => {}).then(() => refreshCurrent())
             .catch((error) => message(error.message, "canvas-message", true));
     }
-    if (viewer) refreshArtifact();
+    if (viewer) void viewer.refresh();
 };
-events.onerror = () => { setConnectionStatus("lost"); message("Connection interrupted. Drafts are retained; use Refresh if reconnection fails."); };
+events.onerror = () => {
+    viewerConnected = false;
+    viewer?.setConnected(false);
+    setConnectionStatus("lost");
+    message("Connection interrupted. Drafts are retained; use Refresh if reconnection fails.");
+};
 window.addEventListener("beforeunload", (event) => {
     if (timer || constitutionTimer || saveFailure || pendingValueSaves || failedValueDrafts.size) {
         event.preventDefault();

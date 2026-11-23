@@ -103,6 +103,13 @@ FILES = {
         "badge-runtime.mjs",
         "ui/app.js", "ui/markdown.mjs", "ui/runtime.css", "ui/workflow-theme.css",
         "ui/page-assets.mjs",
+        "review/artifact-read.mjs", "review/artifact-review.mjs", "review/artifact-discovery.mjs",
+        "review/artifact-clarifications.mjs", "review/artifact-clarifications.NOTICES.txt",
+        "review/review-submission.mjs", "review/generated-review-contract.mjs",
+        "ui/artifact-review.js", "ui/artifact-viewer-shell.js", "ui/review-clarifications.js",
+        "ui/clarification-drafts.js", "ui/answer-dialog.js", "ui/styles/overlays.css",
+        "ui/styles/artifact-review.css", "ui/vendor/markdown-reader/markdown-reader.js",
+        "ui/vendor/markdown-reader/markdown-reader.css", "ui/vendor/markdown-reader/THIRD_PARTY_NOTICES.txt",
     )),
 }
 
