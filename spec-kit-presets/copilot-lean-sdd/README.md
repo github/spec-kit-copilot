@@ -13,7 +13,7 @@ Copyright GitHub, Inc.; [MIT licensed](LICENSE).
 The package id and directory are **`copilot-lean-sdd`**.
 This is Specify CLI plumbing, **not** a `copilot plugin` package.
 
-## Installation and status
+## Installation and prerequisites
 
 Requires Specify CLI **>= 1.0.8** and Copilot **skills mode**. This floor is the
 oldest locally verified CLI for this package, not a claim that upstream Lean needs it.
@@ -21,23 +21,30 @@ The shared-command adaptations use Copilot's `ask_user` for interactive decision
 and report a missing tool when a blocking question cannot be asked.
 No delegation tools or extensions are required.
 
-**Initial release pending.** No release/tag/asset is created by adding this source.
-Use a disposable project for local development, starting from a clone of this repo:
+[Copilot Lean SDD 1.0.0](https://github.com/github/spec-kit-copilot/releases/tag/copilot-lean-sdd-v1.0.0)
+is available from the preset catalog. Initialize a fresh project in Copilot skills
+mode, then register the catalog and install the preset:
 
 ```bash
-specify init /path/to/lean-project --integration copilot --integration-options="--skills" --non-interactive
+specify init /path/to/lean-project --integration copilot --integration-options="--skills" --script sh --non-interactive
 cd /path/to/lean-project
-specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-lean-sdd
+specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+  --name spec-kit-copilot --install-allowed
+specify preset add copilot-lean-sdd
 specify preset resolve speckit.specify
 specify preset resolve speckit.clarify
 ```
 
-After a maintainer publishes `copilot-lean-sdd-v1.0.0`, catalog installation will be:
+Use `--script ps` instead of `--script sh` on Windows. Both resolution checks
+should identify `copilot-lean-sdd` as the source.
+
+For local development, initialize a disposable project the same way, but install
+from a working clone instead of using the catalog:
 
 ```bash
-specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
-  --name spec-kit-copilot --install-allowed
-specify preset add copilot-lean-sdd
+specify preset add --dev /absolute/path/to/spec-kit-copilot/spec-kit-presets/copilot-lean-sdd
+specify preset resolve speckit.specify
+specify preset resolve speckit.clarify
 ```
 
 See the shared
