@@ -449,7 +449,9 @@ class HookPackageTests(unittest.TestCase):
         manifest = yaml.safe_load((PACKAGE / "preset.yml").read_text(encoding="utf-8"))
         for phrase in (
             f"**{manifest['preset']['version']}**", "27d14e20c187c1f2916540ea201ecbdc9f8ed588",
-            "**Initial release pending.**", "do not regenerate existing skills",
+            f"{manifest['preset']['repository']}/releases/tag/{PACKAGE.name}-v{manifest['preset']['version']}",
+            "specify preset add copilot-extension-hooks --priority 5",
+            "do not regenerate existing skills",
             "specify preset remove copilot-extension-hooks",
             "not a runtime executor", "Copilot App behavior is not established",
         ):

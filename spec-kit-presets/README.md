@@ -23,7 +23,7 @@ for maintainer guidance on which packages belong here.
 
 | Preset | Requires | Copilot purpose |
 | --- | --- | --- |
-| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
+| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-extension-hooks-v1.0.0). |
 | [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Full core workflow registered as Copilot skills, without extension lifecycle hooks and with safeguards for creating and updating specs. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-full-sdd-v1.0.0). |
 | [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-lean-sdd-v1.0.0). |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
@@ -49,10 +49,9 @@ Choose one SDD baseline and follow its installation prerequisites:
 or [Lean SDD](copilot-lean-sdd#installation-and-prerequisites) (`specify preset add copilot-lean-sdd`).
 Do not install both in the same project.
 
-`copilot-extension-hooks` **1.0.0 is pending release**; use its
-[local-development install](copilot-extension-hooks#install-and-configure).
-It is an opt-in layer over one selected baseline, not another baseline.
-After publication, install it with `specify preset add copilot-extension-hooks --priority 5`.
+To opt in to Extension Hooks, install it over the selected baseline with
+`specify preset add copilot-extension-hooks --priority 5`. Follow the
+[setup and verification instructions](copilot-extension-hooks#install-and-configure).
 
 The two methods below are escape hatches, not the primary path:
 
