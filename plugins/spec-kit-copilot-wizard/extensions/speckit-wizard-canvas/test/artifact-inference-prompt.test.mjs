@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { effectiveSource } from "../artifact-evidence.mjs";
 import { buildArtifactInferencePrompt, captureArtifactInferenceSources } from "../canvas-runtime/artifact-inference-prompt.mjs";
-import { validateInferenceInput } from "../../speckit-canvas-designer/contracts/output-inference.mjs";
+import { INFERENCE_SKILL_LIMIT, validateInferenceInput } from "../../speckit-canvas-designer/contracts/output-inference.mjs";
+import { INFERENCE_SKILL_LIMIT as WIZARD_INFERENCE_SKILL_LIMIT } from "../contracts/inference-limits.mjs";
 
 test("inference prompt bundles all requested installed skills and verifies their fingerprints", async () => {
     const root = await mkdtemp(join(tmpdir(), "wizard-inference-prompt-"));
@@ -68,6 +69,7 @@ test("inference prompt rejects a batch that exceeds its bounded skill-text size"
 });
 
 test("Wizard capture and Designer validation enforce the same aggregate skill-text boundary", async (t) => {
+    assert.equal(WIZARD_INFERENCE_SKILL_LIMIT, INFERENCE_SKILL_LIMIT);
     const root = await mkdtemp(join(tmpdir(), "wizard-inference-boundary-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const ids = ["plan", "tasks"];
