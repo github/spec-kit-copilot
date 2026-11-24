@@ -2,18 +2,24 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildDesignerHandoff, buildScriptedDesignerLaunchPrompt } from "../server/handlers-designer.mjs";
 import { getSession, sessionAdapter, setSession } from "../canvas-runtime/instances.mjs";
 import { createDesignerBootstrap } from "../../speckit-canvas-designer/bootstrap.mjs";
-import { bootstrapDiagnosticPath, readBootstrapRecord, stageDesignerHandoff,
+import { bootstrapDiagnosticPath, readBootstrapRecord, readResolvedHandoff, stageDesignerHandoff,
     transferDesignerHandoff, writeBootstrapRecord } from "../../speckit-canvas-designer/bootstrap-artifacts.mjs";
 import { assertBootstrapCapabilities, assertDiagnosticSize, bootstrapSessionContext, DESIGNER_CANVAS,
     DESIGNER_PROVIDER, DIAGNOSTIC_ERROR_RESERVE, DIAGNOSTIC_LIMIT, nativeOpenSnapshot, validateBootstrapInput,
     validateBootstrapOutput, validateBootstrapRecord } from "../../speckit-canvas-designer/contracts/bootstrap.mjs";
-import { HANDOFF_LIMIT, readHandoff } from "../../speckit-canvas-designer/handoff.mjs";
+import { HANDOFF_LIMIT, readHandoff, validateHandoff } from "../../speckit-canvas-designer/handoff.mjs";
+import { INFERENCE_INPUT_LIMIT, INFERENCE_RESULT_LIMIT } from "../../speckit-canvas-designer/contracts/output-inference.mjs";
+import { freshDesignerSettings, initialOutputs, loadDesignerSettings,
+    saveDesignerSettings } from "../../speckit-canvas-designer/settings.mjs";
+import { effectiveSource } from "../artifact-evidence.mjs";
+import { checkSchema } from "../../speckit-canvas-designer/contracts/external-design-contributions.mjs";
+import { launchReferenceSchema } from "../../speckit-canvas-designer/contracts/bootstrap.mjs";
 
 const empty = { presets: [], extensions: [], bundles: [] };
 const catalog = { ...empty, extensions: [{ id: "extension-canvas-design", source: "copilot",
@@ -26,13 +32,38 @@ async function fixture(t, options = {}) {
     const childId = randomUUID();
     const sourceRoot = join(folder, sourceId);
     const context = { sessionId: childId, root: join(folder, childId), project: join(folder, "checkout") };
-    await Promise.all([sourceRoot, context.root, context.project].map((path) => mkdir(path)));
+    const sourceProject = options.separateSource ? join(folder, "wizard-checkout") : context.project;
+    await Promise.all([...new Set([sourceRoot, context.root, context.project, sourceProject])]
+        .map((path) => mkdir(path)));
     const session = { sessionId: sourceId, workspacePath: sourceRoot,
         rpc: { metadata: { snapshot: async () => ({ sessionId: sourceId,
-            workspacePath: sourceRoot, workingDirectory: context.project }) } } };
-    const handoff = options.handoff ?? buildDesignerHandoff({ pipeline: [{ id: "plan" }], catalog },
+            workspacePath: sourceRoot, workingDirectory: sourceProject }) } } };
+    let inferenceInput;
+    let handoff = options.handoff;
+    if (options.pending) {
+        const skillPath = join(sourceProject, ".github", "skills", "speckit-plan", "SKILL.md");
+        await mkdir(dirname(skillPath), { recursive: true });
+        await writeFile(skillPath, "# Plan\nWrite plan.md in the feature directory.\n"
+            + (options.helper ? "Inspect .specify/scripts/bash/prepare.sh.\n" : ""));
+        if (options.helper) {
+            const helper = join(sourceProject, ".specify", "scripts", "bash", "prepare.sh");
+            await mkdir(dirname(helper), { recursive: true });
+            await writeFile(helper, "FEATURE_DIR=specs/example\n");
+        }
+        const source = await effectiveSource(sourceProject, "speckit.plan");
+        inferenceInput = { schemaVersion: 1, workspacePath: sourceProject, commands: [{
+            phase: "plan", commandId: "speckit.plan", skillPath: source.skillPath,
+            fingerprint: source.fingerprint, sources: source.sources, text: source.skillText,
+        }] };
+        const pendingOutputs = { inputHash: createHash("sha256").update(JSON.stringify(inferenceInput)).digest("hex"),
+            commands: [{ phase: "plan", commandId: "speckit.plan", fingerprint: source.fingerprint }] };
+        handoff = buildDesignerHandoff({ pipeline: [{ id: "plan" }], catalog },
+            empty, options.local, empty, randomUUID(), empty,
+            { outputEvidence: { plan: { outputs: [], view: null } }, pendingOutputs });
+    }
+    handoff ??= buildDesignerHandoff({ pipeline: [{ id: "plan" }], catalog },
         empty, options.local, empty, randomUUID(), empty);
-    const reference = await stageDesignerHandoff(session, handoff);
+    const reference = await stageDesignerHandoff(session, handoff, inferenceInput);
     const calls = [];
     const errors = [];
     const input = { handoffId: handoff.handoffId, pages: [{
@@ -74,7 +105,7 @@ async function fixture(t, options = {}) {
     };
     const run = createDesignerBootstrap(deps);
     const request = (stage) => ({ schemaVersion: 1, stage, launchRef: reference });
-    return { folder, session, context, handoff, reference, calls, errors, input, deps, run, request,
+    return { folder, session, context, handoff, reference, inferenceInput, calls, errors, input, deps, run, request,
         setOpen: (value) => { current = value; } };
 }
 
@@ -98,6 +129,177 @@ test("bootstrap stages require separate LLM calls and carry complete payloads in
     assert.deepEqual(nativeOpenSnapshot(record.nativeResult).input, f.input);
     assert.doesNotThrow(() => validateBootstrapOutput(opened));
     assert.equal(opened.diagnosticsPath, bootstrapDiagnosticPath(f.context.root, f.handoff.handoffId));
+});
+
+function outputSubmission(f, candidates = [{
+    kind: "file", source: "inference", effect: "creates", evidence: "The skill writes the plan.",
+    path: "plan.md", relativeTo: "feature",
+}], primaryIndex = 0) {
+    return { entries: [{ commandId: "speckit.plan",
+        fingerprint: f.inferenceInput.commands[0].fingerprint, candidates, primaryIndex }] };
+}
+
+test("pending outputs require install and a validated result before open, Save, and reopen", async (t) => {
+    const f = await fixture(t, { pending: true });
+    assert.equal((await f.run(f.request("outputs"))).error.code, "designer_install_required");
+    assert.equal((await f.run(f.request("install"))).status, "installed");
+    const before = await f.run(f.request("finalize-open"));
+    assert.equal(before.status, "failure");
+    assert.match(before.error.message, /output inference is pending/);
+    await assert.rejects(readResolvedHandoff(f.context.root, f.handoff.handoffId), /output inference is pending/);
+    assert.deepEqual(f.calls, ["install"]);
+    const prepared = await f.run(f.request("outputs"));
+    assert.equal(prepared.status, "outputs-required");
+    assert.equal(prepared.outputs.pending, 1);
+    assert.equal(Object.hasOwn(prepared.outputs, "known"), false);
+    assert.match(prepared.outputs.prompt, /Write plan\.md in the feature directory/);
+    assert.match(prepared.outputs.prompt, /speckit\.plan/);
+    assert.doesNotMatch(prepared.outputs.prompt, /api\/artifact-targets|speckit\.outside/);
+    const submitted = await f.run({ ...f.request("outputs"), result: outputSubmission(f) });
+    assert.equal(submitted.status, "outputs-complete");
+    const skill = join(f.context.project, ...f.inferenceInput.commands[0].skillPath.split("/"));
+    await writeFile(skill, "Changed after the result was accepted.");
+    assert.equal((await f.run(f.request("outputs"))).status, "outputs-complete");
+    assert.equal((await readBootstrapRecord(f.context.root, f.handoff.handoffId)).error, undefined);
+    const handoff = await readResolvedHandoff(f.context.root, f.handoff.handoffId);
+    const baseline = { plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" } };
+    assert.deepEqual(initialOutputs(handoff), baseline);
+    const model = { revision: "outputs", constraints: {}, values: {}, badges: [] };
+    const fresh = await freshDesignerSettings(f.context.root, handoff, model);
+    const outputs = { plan: { outputs: [...baseline.plan.outputs, "specs/<slug>/notes.md"],
+        view: baseline.plan.view } };
+    await saveDesignerSettings(f.context.root, handoff, fresh,
+        { modelRevision: model.revision, revision: 0, values: {}, outputs, badges: [] });
+    assert.deepEqual((await loadDesignerSettings(f.context.root, handoff, model)).outputs, outputs);
+    const reopened = await freshDesignerSettings(f.context.root, handoff, model);
+    assert.equal(reopened.settingsRevision, 1);
+    assert.deepEqual(reopened.outputs, baseline);
+    assert.equal((await f.run(f.request("finalize-open"))).status, "shell-opened");
+    assert.deepEqual(f.calls, ["install", "reload", "finalize", "open"]);
+});
+
+test("outputs rejects incompatible results without persisting an empty or unsafe answer", async (t) => {
+    const f = await fixture(t, { pending: true });
+    assert.equal((await f.run(f.request("install"))).status, "installed");
+    const valid = outputSubmission(f);
+    const wrongFingerprint = structuredClone(valid);
+    wrongFingerprint.entries[0].fingerprint = "0".repeat(64);
+    const outside = structuredClone(valid);
+    outside.entries.push({ ...outside.entries[0], commandId: "speckit.outside" });
+    const replaced = structuredClone(valid);
+    replaced.entries[0].commandId = "speckit.outside";
+    const empty = { entries: [] };
+    const unsafe = outputSubmission(f, [{
+        kind: "file", source: "inference", effect: "creates", evidence: "Bad path",
+        path: "../outside.md",
+    }]);
+    const reserved = outputSubmission(f, [{
+        kind: "file", source: "inference", effect: "creates", evidence: "Bad path",
+        path: ".speckit-canvas/private.md",
+    }]);
+    const badPrimary = outputSubmission(f, [{ kind: "unknown", source: "inference",
+        effect: "unknown", evidence: "Not established" }], 0);
+    const tooLarge = outputSubmission(f, [{ kind: "unknown", source: "inference",
+        effect: "unknown", evidence: "x".repeat(1024 * 1024) }], null);
+    for (const result of [wrongFingerprint, outside, replaced, empty, unsafe, reserved, badPrimary, tooLarge]) {
+        const rejected = await f.run({ ...f.request("outputs"), result });
+        assert.equal(rejected.status, "failure");
+        assert.ok(rejected.error.message);
+        await assert.rejects(readFile(join(f.context.root, "speckit-canvas-designer", "handoffs",
+            f.handoff.handoffId, "inference-result.json")), { code: "ENOENT" });
+    }
+    const unknown = outputSubmission(f, [{ kind: "unknown", source: "inference",
+        effect: "unknown", evidence: "The skill does not establish an output." }], null);
+    assert.equal((await f.run({ ...f.request("outputs"), result: unknown })).status, "outputs-complete");
+    assert.deepEqual(initialOutputs(await readResolvedHandoff(f.context.root, f.handoff.handoffId)),
+        { plan: { outputs: [], view: null } });
+    assert.equal((await f.run({ ...f.request("outputs"), result: valid })).status, "failure");
+});
+
+test("a validated no-output result is complete without inventing a viewer", async (t) => {
+    const f = await fixture(t, { pending: true });
+    assert.equal((await f.run(f.request("install"))).status, "installed");
+    const result = outputSubmission(f, [{ kind: "none", source: "inference",
+        effect: "unknown", evidence: "This command does not produce an artifact." }], null);
+    assert.equal((await f.run({ ...f.request("outputs"), result })).status, "outputs-complete");
+    assert.deepEqual(initialOutputs(await readResolvedHandoff(f.context.root, f.handoff.handoffId)),
+        { plan: { outputs: [], view: null } });
+    assert.equal((await f.run(f.request("finalize-open"))).status, "shell-opened");
+});
+
+test("pending handoffs reject changed source and altered input artifacts", async (t) => {
+    const f = await fixture(t, { pending: true });
+    assert.equal((await f.run(f.request("install"))).status, "installed");
+    assert.equal((await f.run(f.request("outputs"))).status, "outputs-required");
+    const skill = join(f.context.project, ...f.inferenceInput.commands[0].skillPath.split("/"));
+    await writeFile(skill, "changed skill");
+    const changed = await f.run({ ...f.request("outputs"), result: outputSubmission(f) });
+    assert.equal(changed.status, "failure");
+    assert.match(changed.error.message, /changed or is unavailable/);
+    await writeFile(skill, f.inferenceInput.commands[0].text);
+    const inputPath = join(f.context.root, "speckit-canvas-designer", "handoffs",
+        f.handoff.handoffId, "inference-input.json");
+    await writeFile(inputPath, "{}");
+    assert.match((await f.run(f.request("outputs"))).error.message, /inputs changed/);
+    await assert.rejects(readResolvedHandoff(f.context.root, f.handoff.handoffId), /inputs changed/);
+    assert.match((await f.run(f.request("finalize-open"))).error.message, /inputs changed/);
+});
+
+test("pending inference rejects helper drift before providing its prompt", async (t) => {
+    const f = await fixture(t, { pending: true, helper: true });
+    assert.equal((await f.run(f.request("install"))).status, "installed");
+    const helper = join(f.context.project, ".specify", "scripts", "bash", "prepare.sh");
+    await writeFile(helper, "FEATURE_DIR=specs/changed\n");
+    const result = await f.run(f.request("outputs"));
+    assert.equal(result.status, "failure");
+    assert.match(result.error.message, /changed or is unavailable/);
+});
+
+test("oversized inference artifacts stop transfer and native open", async (t) => {
+    const source = await fixture(t, { pending: true });
+    const sourceInput = join(source.session.workspacePath, "speckit-canvas-designer", "handoffs",
+        source.handoff.handoffId, "inference-input.json");
+    await writeFile(sourceInput, Buffer.alloc(INFERENCE_INPUT_LIMIT + 1));
+    const install = await source.run(source.request("install"));
+    assert.equal(install.status, "failure");
+    assert.match(install.error.message, /oversized/i);
+    assert.deepEqual(source.calls, []);
+
+    const child = await fixture(t, { pending: true });
+    assert.equal((await child.run(child.request("install"))).status, "installed");
+    assert.equal((await child.run({ ...child.request("outputs"), result: outputSubmission(child) })).status,
+        "outputs-complete");
+    const resultPath = join(child.context.root, "speckit-canvas-designer", "handoffs",
+        child.handoff.handoffId, "inference-result.json");
+    await writeFile(resultPath, Buffer.alloc(INFERENCE_RESULT_LIMIT + 1));
+    const finalize = await child.run(child.request("finalize-open"));
+    assert.equal(finalize.status, "failure");
+    assert.match(finalize.error.message, /oversized/i);
+    assert.deepEqual(child.calls, ["install"]);
+});
+
+test("v1 contract boundaries reject pending handoffs and the new outputs stage", async (t) => {
+    const f = await fixture(t, { pending: true });
+    const validateV1Handoff = (handoff) => {
+        if (handoff.schemaVersion !== 1 || Object.keys(handoff.workflow).some((key) =>
+            !["selectedPhases", "phaseDescriptions", "outputEvidence", "installed", "installLocators",
+                "runtimeSetup"].includes(key))) throw new Error("Invalid Designer handoff");
+        return validateHandoff(handoff, handoff.handoffId);
+    };
+    const v1BootstrapInput = { type: "object", additionalProperties: false,
+        required: ["schemaVersion", "stage", "launchRef"], properties: {
+            schemaVersion: { const: 1 },
+            stage: { type: "string", enum: ["install", "finalize-open"] },
+            launchRef: launchReferenceSchema,
+        } };
+    assert.throws(() => validateV1Handoff(f.handoff), /Invalid Designer handoff/);
+    assert.throws(() => checkSchema(f.request("outputs"), v1BootstrapInput, "legacy bootstrap"), /unsupported value/);
+    const complete = await fixture(t);
+    assert.equal(complete.handoff.schemaVersion, 1);
+    assert.deepEqual(validateV1Handoff(complete.handoff), complete.handoff);
+    assert.doesNotThrow(() => checkSchema(complete.request("install"), v1BootstrapInput, "legacy bootstrap"));
+    assert.equal((await complete.run(complete.request("install"))).status, "installed");
+    assert.equal((await complete.run(complete.request("finalize-open"))).status, "shell-opened");
 });
 
 test("large inventories stay complete in native input, not model output", async (t) => {
@@ -731,4 +933,35 @@ test("real Specify setup composes complete inventories through the staged bootst
     assert.equal(result.status, "shell-opened", result.error?.message);
     assert.ok(opened.input.pages.some((page) => page.name === "canvas-settings-pr1-test"));
     assert.ok(opened.input.templates.some((entry) => entry.name === "generated-workflow"));
+});
+
+test("real Specify setup preserves pending outputs from the Wizard checkout", {
+    skip: process.env.SPECIFY_E2E !== "1",
+}, async (t) => {
+    const source = fileURLToPath(new URL("../../../../../spec-kit-extensions/extension-canvas-design/", import.meta.url)).replace(/[\\/]$/, "");
+    const preset = fileURLToPath(new URL("../../../../../tests/fixtures/test-presets/copilot-canvas-design-test/", import.meta.url)).replace(/[\\/]$/, "");
+    const f = await fixture(t, { pending: true, separateSource: true, local: {
+        extensions: [{ id: "extension-canvas-design", path: source, source: "local", approved: true }],
+        presets: [{ id: "copilot-canvas-design-test", path: preset, source: "local", approved: true }],
+    } });
+    let opened;
+    const { installDesignerSetup, finalizeDesignerSetup } = await import("../server/designer-setup.mjs");
+    const run = createDesignerBootstrap({ ...f.deps, install: installDesignerSetup, finalize: finalizeDesignerSetup,
+        openCanvas: async (request) => {
+            opened = request;
+            f.setOpen([request]);
+            return { resultType: "success", textResultForLlm: JSON.stringify(request) };
+        } });
+    const installed = await run(f.request("install"));
+    assert.equal(installed.status, "installed", installed.error?.message);
+    const prepared = await run(f.request("outputs"));
+    assert.equal(prepared.status, "outputs-required", prepared.error?.message);
+    assert.match(prepared.outputs.prompt, /Write plan\.md in the feature directory/);
+    const completed = await run({ ...f.request("outputs"), result: outputSubmission(f) });
+    assert.equal(completed.status, "outputs-complete", completed.error?.message);
+    const result = await run(f.request("finalize-open"));
+    assert.equal(result.status, "shell-opened", result.error?.message);
+    assert.ok(opened.input.pages.some((page) => page.name === "canvas-settings-pr1-test"));
+    assert.deepEqual(initialOutputs(await readResolvedHandoff(f.context.root, f.handoff.handoffId)),
+        { plan: { outputs: ["specs/<slug>/plan.md"], view: "specs/<slug>/plan.md" } });
 });

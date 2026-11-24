@@ -57,7 +57,10 @@ for (const fails of [false, true]) {
         };
         const importing = import(pathToFileURL(join(target, "extension.mjs")).href);
         const imported = importing.then(() => null, (error) => error);
-        const { canvas, opening } = await sdk.registered.promise;
+        const { canvas, opening } = await Promise.race([
+            sdk.registered.promise,
+            importing.then(() => { throw new Error("Wizard imported without registering its canvas"); }),
+        ]);
         let settled = false;
         const opened = opening.then((value) => {
             settled = true;

@@ -205,9 +205,17 @@ only. Opening the Phases tab and changing installed packages do not start output
 inference. After a phase Run click, the Wizard checks missing or stale outputs
 for the current user-visible pipeline and dispatches inference in the background
 while the phase runs. The Output(s) row shows "Retrieving outputs…" while those
-details are pending. If Canvas Designer is launched before a phase has been run,
-the launch starts the same pipeline-scoped inference, waits for it to finish
-(the button reads "Launching…"), and then opens the Designer session.
+details are pending. Canvas Designer launch reuses verified pipeline outputs,
+including partial output lists, and queues the child session without waiting for
+the Wizard's output-inference worker. When a verified run path matches a trusted
+`<slug>` template, Designer receives the template as its default rather than an
+extra run-specific path; explicitly declared fixed outputs remain available.
+After installation, the child infers only
+pipeline commands without usable evidence before opening Designer. The setup
+dialog explains this and reads "Queuing Designer session…" while submitting;
+the queue acknowledgment does not mean the child or Designer is ready.
+Bundled skill text is limited to 512 KiB per inference batch. Wizard startup
+does not require the Designer provider, though launching Designer does.
 When composition refresh needs LLM pipeline-order inference, it runs as a
 background task and applies its result through the existing run-correlated
 `showInferredPipeline` callback.
@@ -345,7 +353,7 @@ Preset and extension JSON list order supplies the Wizard's composition layer
 precedence; missing or invalid post-operation ordering is reported as an error.
 Effective preset/extension changes trigger one bounded SDK skill reload and one
 composition rebuild. Package changes do not start output inference; it runs
-only on a phase Run click or as the Canvas Designer launch fallback.
+on a phase Run click or, for missing Designer outputs, in the Designer child.
 Pipeline-order inference still requires the existing Refresh flow when the fast
 assembler cannot determine it. Setup skips its extra reload only after the
 package result confirms a successful reload.
@@ -429,7 +437,10 @@ The Canvas Designer launch dialog (Design tab → Open Designer) lets you
 choose hosted presets, extensions, and bundles before launching the child
 session that installs them. Hosted catalogs remain the primary, default way
 to pick what gets installed.
-The new Designer child starts in interactive mode. When the vertical phase
+The new Designer child starts in interactive mode. Its fixed setup-dialog
+wording and nonvisual bootstrap orchestration do not introduce a customizable
+control, so no JSON definition or adapter/renderer template pair is needed.
+When the vertical phase
 control is installed, its managed Autopilot action switches modes for the run
 and restores the previous mode afterward.
 
@@ -557,16 +568,21 @@ addition to) the hosted registry entry:
   Passing `verify-base` establishes base compatibility, not an entire hosted
   Designer journey.
 - The parent agent creates the same app-native default-branch worktree with a
-  compact launch reference, not inline handoff JSON. In that child, the LLM
-  explicitly calls `speckit_designer_bootstrap` twice: first with
-  `{schemaVersion:1,stage:"install",launchRef}`, then, after `installed`, with
-  `{schemaVersion:1,stage:"finalize-open",launchRef}`. The source-owned
+  compact launch reference, not inline handoff JSON. The child explicitly calls
+  `speckit_designer_bootstrap` with `{schemaVersion:1,stage:"install",launchRef}`.
+  If outputs are missing, it reports the actual known and pending counts, calls
+  the `outputs` stage to obtain one bounded inference prompt, and calls it again
+  to submit the result. It reports completion or a concrete failure before
+  calling `{schemaVersion:1,stage:"finalize-open",launchRef}`. Fully known
+  launches skip `outputs`; legacy unavailable evidence is reported separately
+  rather than counted as known. If a verified output is usable despite an
+  evidence-read error, the child reports that warning. The source-owned
   `contracts/bootstrap.mjs` defines the nonvisual tool boundary; it requires no
   customizable UI definition/renderer pair. No setup runs at registration or
   session creation. The first call transfers the handoff and invokes
   `installDesignerSetup()` for real Specify initialization, installation, and
   verification. Missing/outdated Specify sends the LLM to the existing
-  setup/upgrade skill. The second call reloads skills once for that install,
+  setup/upgrade skill. Finalize reloads skills once for that install,
   invokes `finalizeDesignerSetup()` for real Specify inventory/composition
   checks, and passes its complete `openInput` directly through the installed
   SDK's native `session.rpc.tools.execute({name:"open_canvas",arguments})`.
@@ -578,8 +594,14 @@ addition to) the hosted registry entry:
   display text can be truncated; the complete `canvas.listOpen()` snapshot is
   authoritative for provider/canvas/instance/input verification. The model never
   needs to regenerate their payloads.
-  Installation and resolution never run in the Wizard checkout. The handoff
-  schema, `202 { queued: true }` launch response, and official canvas open input
+  Installation and resolution never run in the Wizard checkout. Complete
+  handoffs retain schema version 1; handoffs requiring inference use version 2,
+  with frozen original-workspace sources and a launch-bound, validated result
+  beside the handoff. Source drift before a result is accepted, missing or
+  invalid results, and incompatible older providers stop the launch rather than
+  falling back to Wizard inference. After acceptance, retries and Designer use
+  the validated frozen artifacts without rereading mutable Wizard sources.
+  The `202 { queued: true }` launch response and official canvas open input
   remain unchanged. Native tool invocation, canvas snapshots, session metadata,
   and skill reload are required; unsupported runtimes fail visibly, without a
   CLI-created session or an LLM-authored opening fallback.

@@ -402,8 +402,6 @@ export function createHandler(deps) {
                             enableProviderForSession: deps.enableDesignerProvider,
                             getInstalledWorkflow: deps.getInstalledWorkflow,
                             stageHandoff: deps.stageDesignerHandoff,
-                            ensureOutputInference: deps.ensureOutputInference,
-                            waitForOutputInference: deps.waitForOutputInference,
                         });
                     },
                     "/api/designer/local-source": async () => {

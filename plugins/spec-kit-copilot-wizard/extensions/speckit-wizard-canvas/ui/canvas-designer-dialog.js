@@ -82,7 +82,7 @@ function updateLaunch(root) {
         && typeof state.snapshot.catalog.designerFingerprint === "string";
     submit.disabled = Boolean(processing || confirming || inspecting || !ready);
     submit.setAttribute("aria-busy", String(processing));
-    submit.textContent = processing ? "Launching…" : "Launch designer";
+    submit.textContent = processing ? "Queuing Designer session…" : "Launch designer";
     root.querySelectorAll("[data-designer-kind], [data-designer-tab], .wizard-modal-close, .wizard-modal-cancel")
         .forEach((element) => {
             element.disabled = Boolean(processing || pendingInspections.has(element)) || requiredInputs.has(element);
@@ -392,7 +392,7 @@ export function openCanvasDesignerDialog() {
         <section class="wizard-modal generation-modal designer-modal" role="dialog" aria-modal="true" aria-labelledby="designer-title" aria-describedby="designer-description">
             <header class="wizard-modal-head"><h3 id="designer-title">Canvas Designer setup</h3><button type="button" class="wizard-modal-close" aria-label="Close">✕</button></header>
             <div class="wizard-modal-body">
-                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles to customize the canvas designer's settings and generation behavior. Your selections will be installed in a separate designer session, leaving the wizard's environment unchanged.</p>
+                <p class="wizard-modal-desc" id="designer-description">Select presets, extensions, or bundles to customize the canvas designer's settings and generation behavior. Your selections will be installed in a separate designer session, leaving the wizard's environment unchanged. Missing output information is prepared in that session before Designer opens.</p>
                 <p class="wizard-modal-desc">Choose from the available catalogs.</p>
                 <p class="designer-error" role="alert" hidden></p>
                 <nav class="subtabs designer-tabs" role="tablist" aria-label="Design customization type">

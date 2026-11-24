@@ -11,7 +11,7 @@ import { validateBadges } from "./contracts/external-badges.mjs";
 
 const saves = new Map();
 export const initialOutputs = (handoff) => fixedConstitutionOutputs(
-    handoff.workflow.outputEvidence
+    handoff.resolvedOutputEvidence ?? handoff.workflow.outputEvidence
         ?? Object.fromEntries(handoff.workflow.selectedPhases.map((id) =>
             [id, { outputs: [], view: null }])), handoff.workflow.selectedPhases);
 

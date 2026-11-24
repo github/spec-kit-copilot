@@ -176,16 +176,46 @@ export function fingerprint(data) {
     return createHash("sha256").update(JSON.stringify(data)).digest("hex");
 }
 
+export function fullCommandId(id) {
+    return typeof id === "string" && !id.startsWith("speckit.") ? `speckit.${id}` : id;
+}
+
+export function validatePendingOutputs(pending, workflow) {
+    if (!record(pending) || Object.keys(pending).sort().join() !== "commands,inputHash"
+        || !/^[a-f0-9]{64}$/.test(pending.inputHash ?? "") || !Array.isArray(pending.commands)
+        || !pending.commands.length || pending.commands.length > 30
+        || !record(workflow.outputEvidence)) {
+        throw new Error("Invalid pending Designer outputs");
+    }
+    const phases = new Set(), commands = new Set();
+    for (const item of pending.commands) {
+        if (!record(item) || Object.keys(item).sort().join() !== "commandId,fingerprint,phase"
+            || !workflow.selectedPhases.includes(item.phase) || phases.has(item.phase)
+            || item.phase.replace(/^speckit\./, "") === "constitution"
+            || typeof item.commandId !== "string" || !PACKAGE.test(item.commandId)
+            || fullCommandId(item.phase) !== item.commandId || commands.has(item.commandId)
+            || !/^[a-f0-9]{64}$/.test(item.fingerprint ?? "")
+            || workflow.outputEvidence[item.phase]?.outputs?.length !== 0
+            || workflow.outputEvidence[item.phase]?.view !== null) {
+            throw new Error("Invalid pending Designer outputs");
+        }
+        phases.add(item.phase);
+        commands.add(item.commandId);
+    }
+    return pending;
+}
+
 export function validateHandoff(handoff, id) {
     validateHandoffId(id);
     if (!record(handoff)
         || Object.keys(handoff).some((key) =>
             !["schemaVersion", "handoffId", "workflow", "selections", "sourceFingerprint", "localSelections", "canvasDesign"]
                 .includes(key))
-        || handoff.schemaVersion !== 1 || handoff.handoffId !== id
+        || ![1, 2].includes(handoff.schemaVersion) || handoff.handoffId !== id
         || !record(handoff.workflow)
         || Object.keys(handoff.workflow).some((key) =>
-            !["selectedPhases", "phaseDescriptions", "outputEvidence", "installed", "installLocators", "runtimeSetup"].includes(key))
+            !["selectedPhases", "phaseDescriptions", "outputEvidence", "installed", "installLocators", "runtimeSetup",
+                ...(handoff.schemaVersion === 2 ? ["pendingOutputs"] : [])].includes(key))
         || !Array.isArray(handoff.workflow.selectedPhases)
         || handoff.workflow.selectedPhases.length > 30
         || !handoff.workflow.selectedPhases.every((phase) => typeof phase === "string" && PACKAGE.test(phase))
@@ -266,6 +296,7 @@ export function validateHandoff(handoff, id) {
     if (handoff.workflow.outputEvidence !== undefined) {
         validatePhaseOutputs(handoff.workflow.outputEvidence, handoff.workflow.selectedPhases);
     }
+    if (handoff.schemaVersion === 2) validatePendingOutputs(handoff.workflow.pendingOutputs, handoff.workflow);
     if (!validRuntimeSetup(handoff.workflow)) throw new Error("Invalid Designer handoff");
     return handoff;
 }
