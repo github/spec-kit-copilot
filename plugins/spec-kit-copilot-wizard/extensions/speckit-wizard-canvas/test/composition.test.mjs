@@ -50,6 +50,7 @@ import {
 } from "../ui/phase-card.js";
 import { buildExecutionReport, renderOutputRows } from "../ui/phase-contributors.js";
 import { compositionProgressText, reconcileCompositionRefresh, renderCompositionProgress } from "../ui/composition.js";
+import { setPostJson } from "../ui/client.js";
 import { PHASE_ORDER as RUNTIME_PHASE_ORDER } from "../canvas-runtime/wizard-phases.mjs";
 
 function makeScannerFs(files) {
@@ -138,7 +139,13 @@ test("phase outputs show explicit no-file result without stale default links", (
         buildRow: (_label, parts) => parts.join(" "),
     });
     assert.match(rows[0], /No file output/);
+    assert.match(rows[0], /data-phase-action="browse-folder" data-folder-path=""/);
     assert.doesNotMatch(rows[0], /specs\/old/);
+    const unspecified = renderOutputRows({
+        outputEvidence: { primaryIndex: null, candidates: [{ kind: "unknown", source: "inference" }] },
+        buildRow: (_label, parts) => parts.join(" "),
+    });
+    assert.match(unspecified[0], /data-folder-path=""[^>]*>Output not specified/);
 });
 
 test("phase outputs describe retrieval without hiding known outputs", () => {
@@ -157,8 +164,71 @@ test("phase outputs describe retrieval without hiding known outputs", () => {
     assert.match(known[0], /Retrieving outputs…/);
 
     const idle = renderOutputRows({ buildRow });
-    assert.match(idle[0], /Not yet identified/);
+    assert.match(idle[0], /data-folder-path=""[^>]*><span class="phase-cust-unchanged">Not yet identified/);
     assert.doesNotMatch(idle[0], /Retrieving outputs/);
+});
+
+test("View ignores stale retrieval status for resolved evidence but retries a newer fingerprint", async () => {
+    let click;
+    const calls = [], opened = [];
+    const previousDocument = globalThis.document;
+    globalThis.document = { getElementById: () => null };
+    setPostJson(async (url, body) => { calls.push({ url, body }); });
+    setGraphPhaseCardDeps({ openArtifactViewer: (phase) => opened.push(phase.artifactPath) });
+    const el = {
+        querySelector: (selector) => selector === '[data-phase-action="view"]'
+            ? { addEventListener: (_event, handler) => { click = handler; } } : null,
+        querySelectorAll: () => [],
+    };
+    const phase = { id: "plan", commandName: "speckit.plan", status: "done",
+        artifactPath: "specs/feature/plan.md" };
+    try {
+        state.snapshot = {
+            artifactEvidence: { plan: { fingerprint: "old", candidates: [], primaryIndex: null } },
+            artifactInferenceRequests: [],
+            outputInferenceStatus: { plan: "updating" },
+        };
+        wireGraphPhaseCard(el, phase);
+        click();
+        await new Promise(setImmediate);
+        assert.deepEqual(opened, ["specs/feature/plan.md"]);
+        assert.deepEqual(calls, []);
+
+        state.snapshot.artifactEvidence.plan = { fingerprint: "new", candidates: [] };
+        state.snapshot.artifactInferenceRequests = [{ commandId: "speckit.plan", fingerprint: "new" }];
+        state.snapshot.outputInferenceStatus.plan = "incomplete";
+        click();
+        await new Promise(setImmediate);
+        assert.deepEqual(calls, [{ url: "/api/prompt", body: {
+            kind: "extension.inferArtifactTargets", payload: { commandId: "speckit.plan" },
+        } }]);
+        assert.deepEqual(opened, ["specs/feature/plan.md", "specs/feature/plan.md"]);
+    } finally {
+        state.snapshot = null;
+        setPostJson(null);
+        setGraphPhaseCardDeps({ openArtifactViewer: () => {} });
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+    }
+});
+
+test("phase card links Writes to the project root without output evidence", () => {
+    const el = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
+    const priorDocument = globalThis.document;
+    const priorSnapshot = state.snapshot;
+    globalThis.document = { activeElement: null, getElementById: () => null };
+    state.snapshot = { pipeline: [{ id: "plan" }], composition: { artifacts: [] } };
+    try {
+        renderGraphPhaseCard(el, {
+            id: "plan", name: "Plan", commandName: "speckit.plan",
+            status: "empty", artifactPath: null, folderPath: null,
+        });
+        assert.match(el.innerHTML, /phase-cust-row-writes[\s\S]*?data-folder-path=""[^>]*><em>no artifact<\/em>/);
+    } finally {
+        state.snapshot = priorSnapshot;
+        if (priorDocument === undefined) delete globalThis.document;
+        else globalThis.document = priorDocument;
+    }
 });
 
 test("phase card browses project root for an unresolved output directory", () => {
@@ -817,10 +887,12 @@ test("renderPhaseCard preserves cleared and orphaned pipelines without preset co
     try {
         state.snapshot = { commands: [], pipeline: [], composition: { artifacts: [] } };
         renderPhaseCard();
-        assert.match(card.innerHTML, /No commands in the pipeline/);
+        assert.equal(card.hidden, true);
+        assert.equal(card.innerHTML, "");
 
         state.snapshot.pipeline = [{ id: "removed-preset-command" }];
         renderPhaseCard();
+        assert.equal(card.hidden, false);
         assert.match(card.innerHTML, /Pipeline references unknown commands/);
         assert.equal(renders, 0);
     } finally {
@@ -993,7 +1065,7 @@ test("renderMoreCommandsPanel hides Core canonicals when presets customize them"
     }
 });
 
-test("renderGraphPhaseCard omits file viewer action for folder-only checklist fallback", () => {
+test("renderGraphPhaseCard adds folder browsing for folder-only checklist fallback", () => {
     let openedArtifact = 0;
     const el = {
         innerHTML: "",
@@ -1034,7 +1106,7 @@ test("renderGraphPhaseCard omits file viewer action for folder-only checklist fa
         });
         assert.match(el.innerHTML, /data-phase-action="browse-folder"/);
         assert.match(el.innerHTML, /data-folder-path="specs\/feature\/checklists"/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.equal(openedArtifact, 0);
     } finally {
@@ -1149,7 +1221,7 @@ test("renderGraphPhaseCard switches to rerun after local dispatch acknowledgemen
         assert.match(el.innerHTML, /data-phase-action="redo"/);
         assert.match(el.innerHTML, /Rerun phase/);
         assert.doesNotMatch(el.innerHTML, /Run phase/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
     } finally {
         clearPhaseSubmitted("speckit.plan");
         state.snapshot = null;
@@ -1209,7 +1281,7 @@ test("phase buttons temporarily show Running without a separate request notice o
         assert.doesNotMatch(el.innerHTML, /Request sent/);
         assert.doesNotMatch(el.innerHTML, /type="submit"[^>]*disabled/);
         assert.match(el.innerHTML, /specs\/&lt;slug&gt;\/plan\.md/);
-        assert.doesNotMatch(el.innerHTML, /data-phase-action="view"/);
+        assert.match(el.innerHTML, /data-phase-action="view"/);
 
         markPhaseSubmitted("speckit.plan");
         renderGraphPhaseCard(el, phase);

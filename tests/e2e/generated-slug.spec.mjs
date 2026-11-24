@@ -1493,7 +1493,7 @@ test("one workflow header, compact constitution and legible narrow phase navigat
             return navigation.top - heading.bottom;
         })).toBeLessThanOrEqual(28);
         await expect(page.locator("#workflow-action-error")).toBeHidden();
-        await expect(page.locator("#view-constitution")).toBeHidden();
+        await expect(page.locator("#view-constitution")).toBeVisible();
         await expect(page.locator("#mobile-phase-select")).toBeHidden();
         await expect(page.locator("#workflow-slug")).toBeVisible();
         await expect(page.locator("#workflow-slug")).toHaveValue("");
@@ -1581,7 +1581,7 @@ test("confirmed phase outputs disclose extra files and View output opens the sel
         await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/research.md");
         await page.locator(".artifact-viewer-back").click();
         await page.locator("#next-phase").click();
-        await expect(page.locator("#view-artifact")).toBeHidden();
+        await expect(page.locator("#view-artifact")).toBeVisible();
         await expect(page.locator("#phase-output-toggle")).toBeHidden();
         await expect(page.locator("#phase-other-outputs [data-output]")).toHaveCount(0);
     } finally { await canvas.close(); }
@@ -1600,11 +1600,33 @@ test("a phase with no default viewer still links its declared output file", asyn
         await page.goto(canvas.url);
         await page.getByRole("button", { name: "sample-feature", exact: true }).click();
         await page.locator("#next-phase").click();
-        await expect(page.locator("#view-artifact")).toBeHidden();
+        await expect(page.locator("#view-artifact")).toBeVisible();
         await expect(page.locator("#phase-output-toggle")).toHaveText(/\+1 more/);
         await page.locator("#phase-output-toggle").click();
         await page.locator('#phase-other-outputs [data-output="specs/<slug>/notes.md"]').click();
         await expect(page.locator(".artifact-viewer-title code")).toHaveText("specs/sample-feature/notes.md");
+    } finally { await canvas.close(); }
+});
+
+test("missing output opens the shared viewer and reveals its folder", async ({ page }) => {
+    const canvas = await openGeneratedCanvas(false);
+    let reveal;
+    try {
+        await mkdir(join(canvas.root, "specs", "sample-feature"), { recursive: true });
+        await page.route("**/api/reveal", async (route) => {
+            reveal = route.request().postDataJSON();
+            await route.fulfill({ json: { ok: true } });
+        });
+        await page.goto(canvas.url);
+        await page.getByRole("button", { name: "sample-feature", exact: true }).click();
+        await page.locator("#view-artifact").click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer).toBeVisible();
+        await expect(viewer.locator(".artifact-viewer-body"))
+            .toHaveText("No output found yet. Opened the output folder so you can look for it.");
+        expect(reveal).toMatchObject({ phase: "specify", itemId: "specs/sample-feature" });
+        await viewer.getByRole("button", { name: "Canvas" }).click();
+        await expect(viewer).toBeHidden();
     } finally { await canvas.close(); }
 });
 

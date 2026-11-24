@@ -202,10 +202,33 @@ Opening an expected output in the viewer before it exists shows an
 The **Composition** button reads **Refresh** when idle, whether or not the latest
 data is up to date; its progress and retry messages describe composition refresh
 only. Opening the Phases tab and changing installed packages do not start output
-inference. After a phase Run click, the Wizard checks missing or stale outputs
-for the current user-visible pipeline and dispatches inference in the background
-while the phase runs. The Output(s) row shows "Retrieving outputs…" while those
-details are pending. Canvas Designer launch reuses verified pipeline outputs,
+inference. A Run dispatch sends the selected command without starting output
+inference. After the agent finishes the skill's normal work and calls
+`reportCommandComplete`, the Wizard checks only that command for missing or
+stale outputs and dispatches inference in the background. The Output(s) row
+shows "Retrieving outputs…" while those details are pending. A skipped command
+does not start inference; completed and failed commands do, because inference
+predicts expected outputs from the skill rather than verifying that files were
+created. Dispatch aliases share the same completion identity; ambiguous aliases
+do not select multiple commands for inference. If the agent omits the completion
+callback, that Run does not trigger inference; ordinary Refresh does not retry
+it. **View artifact** is always shown on a phase card. Without a confirmed
+artifact it opens a "No output found" message, or the same "Retrieving outputs…"
+status shown on that phase while retrieval is pending. The viewer follows
+updates for its own command without showing another phase's retrieval status.
+Returning to the Wizard preserves the selected phase, including after background
+snapshot refreshes. When the phase shows "Retrieving
+outputs…", or has run without a found artifact, clicking it also re-requests
+output inference for that phase's command through the existing
+`extension.inferArtifactTargets` action. Its request payload accepts an optional
+`commandId`; an omitted ID retains the legacy pipeline-wide behavior, while a
+non-string, empty, or whitespace-padded ID is rejected. Work already pending for
+the same inputs is reused rather than restarted, and
+the artifact appears on the card once found. The viewer does not include an
+**Open output folder** button. The phase card's Writes-to and Output(s) links
+remain available; rows without a confirmed folder likewise link to the project
+root, so outputs can always be explored manually when automatic discovery fails.
+Canvas Designer launch reuses verified pipeline outputs,
 including partial output lists, and queues the child session without waiting for
 the Wizard's output-inference worker. When a verified run path matches a trusted
 `<slug>` template, Designer receives the template as its default rather than an
@@ -224,8 +247,12 @@ of a separate request-status message. This local acknowledgement lasts 15 second
 survives snapshot updates, and does not disable retry. Chat owns execution progress;
 the button returns to **Rerun phase** after an accepted request, without implying
 that execution has finished.
-Fingerprint-matched cached outputs are reused. One background worker handles
-all currently missing outputs at a time; refreshes, pipeline edits, and package
+Fingerprint-matched cached outputs are reused, including when a View retry
+overlaps the completion of a prior inference. Resolved outputs do not show
+"Retrieving outputs…". One background worker handles all currently missing
+outputs at a time. If a worker does not report a result within ten minutes, its
+assignments are marked incomplete and queued commands can start with their own
+deadline; unrelated queued commands are not failed. Refreshes, pipeline edits, and package
 removal do not cancel useful work or delete cached results. Removing a command,
 preset, or extension leaves its cache available if it is later restored.
 Before dispatch, the host reads requested effective `SKILL.md` files

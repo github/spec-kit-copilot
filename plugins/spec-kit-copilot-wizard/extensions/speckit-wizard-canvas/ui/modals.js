@@ -4,6 +4,7 @@ import { state, TOKEN } from "./state.js";
 import { escapeHtml, safeExternalHref } from "./client.js";
 import { parseClarifications } from "../pipeline/canonical.mjs";
 import { formatReviewAnswers } from "../contracts/review-submission.mjs";
+import { stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 import { createArtifactReview } from "./artifact-review.js";
 import { captureViewerReturn, mountArtifactViewerShell } from "./artifact-viewer-shell.js";
 import { createReviewClarifications } from "./review-clarifications.js";
@@ -392,6 +393,7 @@ const { reviewSubmissionPending, discardReviewDrafts, boundReviewClarifications,
 });
 
 export function refreshArtifactReview(message) {
+    if (message?.type === "state") renderMissingArtifact();
     const hint = message?.review?.contextHint;
     if (hint && hint !== artifactReview?.context?.contextId) return;
     if (["state", "review"].includes(message?.type)) void artifactReview?.refresh();
@@ -413,6 +415,7 @@ export function setViewersDeps({ postJson, HEADERS, readerMount, onReturn } = {}
 
 function disposeArtifactReview(force = false) {
     artifactReviewGeneration++;
+    activeArtifactMissingMessage = null;
     artifactReview?.close({ restore: false, force });
     artifactReview = null;
 }
@@ -431,7 +434,23 @@ function restoreArtifactReturn() {
 }
 
 let activeArtifactPhase = null; // phase currently open in the viewer
+let activeArtifactMissingMessage = null;
 const clarificationFlushes = new Map(); // commandName -> in-flight flush promise
+
+function renderMissingArtifact() {
+    if (activeArtifactMissingMessage === null) return;
+    const root = document.getElementById("phase-artifact-viewer");
+    const body = root?.querySelector(".artifact-viewer-body");
+    if (!body) return;
+    const commandName = activeArtifactPhase?.commandName;
+    const inference = commandName
+        ? state.snapshot?.outputInferenceStatus?.[stripCommandsPrefix(commandName)] : null;
+    const status = inference === "updating" ? "Retrieving outputs…"
+        : inference === "incomplete" ? "Pipeline preparation did not finish" : null;
+    const titlePath = root.querySelector(".artifact-viewer-title code");
+    if (titlePath) titlePath.textContent = status || "No output found";
+    body.innerHTML = `<p class="${inference === "updating" ? "muted" : "wizard-modal-error"}" role="status">${escapeHtml(status || activeArtifactMissingMessage)}</p>`;
+}
 
 export function isClarificationFlushPending(commandName) {
     return !!commandName && clarificationFlushes.has(commandName);
@@ -471,10 +490,9 @@ export async function flushClarifications(p) {
     return flush;
 }
 
-export async function openArtifactViewer(p) {
+export async function openArtifactViewer(p, { missingMessage } = {}) {
     const root = document.getElementById("phase-artifact-viewer");
-    if (!root) return;
-    if (!p?.artifactPath) return;
+    if (!root || !p) return;
     if (reviewSubmissionPending()) { renderReviewDraftBanner("Applying clarification rerun. Wait for it to finish before switching."); return false; }
 
     discardReviewDrafts();
@@ -483,9 +501,16 @@ export async function openArtifactViewer(p) {
     const generation = artifactReviewGeneration;
     activeArtifactPhase = p;
     const shell = mountArtifactViewerShell(root, {
-        label: p.shortLabel || p.title || p.id, path: p.artifactPath,
+        label: p.shortLabel || p.title || p.name || p.id, path: p.artifactPath,
         returnLabel: "Wizard", onReturn: closeArtifactViewer,
     });
+
+    if (!p.artifactPath) {
+        activeArtifactMissingMessage = missingMessage
+            || "No output found for this phase yet. Run the phase to produce one.";
+        renderMissingArtifact();
+        return;
+    }
 
     if (/\.(?:md|markdown)$/i.test(p.artifactPath)) {
         artifactReview = createArtifactReview({

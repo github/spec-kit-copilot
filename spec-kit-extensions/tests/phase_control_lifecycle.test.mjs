@@ -48,6 +48,11 @@ for (const [name, adapter] of [["stock", stock], ["vertical", vertical]]) {
                 ...pending, slugEditable: true, output: "specs/demo/spec.md",
             }));
             assert.equal(dom.root.querySelector("#browse-output-folder").hidden, false);
+            control.update(validatePhaseState({ ...state, output: null, status: { status: "Completed" } }));
+            assert.equal(dom.root.querySelector("#browse-output-folder").disabled, false);
+            assert.equal(dom.root.querySelector("#browse-output-folder").title,
+                "Open the project folder in file explorer");
+            assert.equal(dom.root.querySelector("#view-artifact").hidden, false);
             control.dispose();
         });
         test("stock shows a supplied phase description instead of its command ID", (t) => {
@@ -315,7 +320,7 @@ for (const [name, adapter] of [["stock", stock], ["vertical", vertical]]) {
         }
         assert.deepEqual(calls.map(([action]) => action), name === "stock"
             ? ["select", "draft", "run", "view", "reveal"]
-            : ["select", "draft", "runAt", "reveal"]);
+            : ["select", "draft", "runAt", "viewAt", "reveal"]);
         assert.deepEqual(calls[0], ["select", 1]);
         assert.deepEqual(calls[2], name === "stock" ? ["run", "run this"] : ["runAt", 0]);
         if (name === "stock") {

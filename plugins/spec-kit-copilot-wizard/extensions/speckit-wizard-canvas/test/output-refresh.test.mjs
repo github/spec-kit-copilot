@@ -950,9 +950,10 @@ test("inference prompts require copying fresh fingerprints rather than transcrib
     ]) {
         assert.match(prompt, /GET \/api\/state on the artifactInferenceEndpoint origin with the same token/);
         assert.match(prompt, /artifactInferenceRequests as the data source for command IDs and fingerprints/);
-        assert.match(prompt, /Verify each listed command appears exactly once/);
+        assert.match(prompt, /Verify each remaining listed command appears exactly once/);
         assert.match(prompt, /Build entries programmatically by joining your inferred candidates by command ID/);
-        assert.match(prompt, /If a listed ID is missing, duplicated, or lacks a fingerprint or inference result, stop without POST/);
+        assert.match(prompt, /missing from requests may be skipped only when artifactEvidence/);
+        assert.match(prompt, /if a listed ID is missing, duplicated, or lacks a fingerprint or inference result, stop without POST/);
         assert.match(prompt, /fingerprint copied programmatically from matching GET request/);
         assert.match(prompt, /Use the supplied bundled SKILL\.md text/);
     }

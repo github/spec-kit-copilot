@@ -36,9 +36,10 @@ import {
 } from "./phase-runtime.js";
 import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, performInstallDefaults, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
-import { outputEvidenceForCommand, renderPhaseCustomizations } from "./phase-contributors.js";
+import { outputEvidenceForCommand, projectFolderLink, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
 import { displayOutputPath, primaryCandidate } from "../pipeline/output-evidence.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
 
 // -------- Section: render/env.js --------
 
@@ -339,11 +340,10 @@ export function renderPhaseCard() {
     const all = commands();
     // The card follows the pipeline, even when no preset contributes commands.
     const items = pipelineItems();
+    // The stepper already explains an empty pipeline, so omit the card.
+    el.hidden = !items.length;
     if (!items.length) {
-        el.innerHTML = `<div class="empty phase-empty">
-            <p><strong>No commands in the pipeline.</strong></p>
-            <p class="muted">Click <strong>+ Add</strong> on any command below, or <em>Reset to default</em> above, to start building the pipeline.</p>
-        </div>`;
+        el.innerHTML = "";
         renderMoreCommandsPanel();
         return;
     }
@@ -469,21 +469,19 @@ export function renderGraphPhaseCard(el, p) {
         : (primary?.root ? null : p.folderPath) ?? (outputPath ? parentDirOf(outputPath) : null));
     if (folder != null && expectedPath) {
         artifact = `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(folder)}" title="Open ${escapeHtml(folder || "project folder")} in file explorer"><code>${escapeHtml(expectedPath)}</code></button>`;
-    } else if (displayFolder) {
-        artifact = `<code class="muted">${escapeHtml(displayFolder)}/</code>`;
-    } else if (p.artifact) {
-        artifact = `<code class="muted">${escapeHtml(p.artifact)}</code>`;
     } else {
-        artifact = "<em>no artifact</em>";
+        // No confirmed folder: still let the user explore from the project root.
+        const label = displayFolder ? `<code class="muted">${escapeHtml(displayFolder)}/</code>`
+            : p.artifact ? `<code class="muted">${escapeHtml(p.artifact)}</code>` : "<em>no artifact</em>";
+        artifact = projectFolderLink(label);
     }
 
     const cached = getPhaseDraft(p.commandName);
 
     const disabledAttr = p.locked ? "disabled" : "";
     const hasSubmitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
-    const canViewArtifact = !!p.artifactPath;
-
-    // View follows scanner-confirmed artifacts even after a later rerun fails.
+    // View is always shown. Without a scanner-confirmed artifact it explains
+    // that no output was found; confirmed artifacts stay viewable after a failed rerun.
     // Run/Rerun wording follows scanner terminal status or local dispatch
     // acknowledgement once the temporary Running label clears.
     let actionRow;
@@ -512,11 +510,11 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (hasSubmitted) {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
               <button type="button" class="btn btn-primary" data-phase-action="redo" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     } else {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
               <button type="submit" class="btn btn-primary" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">
@@ -702,7 +700,34 @@ export function wireGraphPhaseCard(el, p) {
 
     // Post-run actions: View artifact + Run again
     const viewBtn = el.querySelector('[data-phase-action="view"]');
-    viewBtn?.addEventListener("click", () => __openArtifactViewer(p));
+    viewBtn?.addEventListener("click", () => {
+        // A run phase whose outputs are missing or still retrieving re-requests
+        // output retrieval. The existing operation starts missing or failed
+        // retrieval and reuses in-flight work; it never reruns the command.
+        const inference = outputEvidenceForCommand(state.snapshot?.outputInferenceStatus, p.commandName);
+        const retrieving = inference === "updating" || inference === "incomplete";
+        const currentEvidence = outputEvidenceForCommand(state.snapshot?.artifactEvidence, p.commandName);
+        const requests = state.snapshot?.artifactInferenceRequests;
+        const resolved = currentEvidence?.fingerprint && Object.hasOwn(currentEvidence, "primaryIndex")
+            && Array.isArray(requests) && !requests.some((request) =>
+                bareCommandId(request.commandId) === bareCommandId(p.commandName)
+                && request.fingerprint === currentEvidence.fingerprint);
+        const submitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
+        // Don't start retrieval while the command itself is still running.
+        const retry = !resolved && (retrieving || (!p.artifactPath && submitted && !state.phaseRunning.has(p.commandName)));
+        if (retry) {
+            void Promise.resolve().then(() => dispatchKind("extension.inferArtifactTargets",
+                validateOutputInferenceRequest({ commandId: p.commandName }))).catch((err) => {
+                console.error(`output retrieval failed: ${err?.message ?? err}`);
+            });
+        }
+        if (p.artifactPath) return __openArtifactViewer(p);
+        __openArtifactViewer(p, {
+            missingMessage: retry
+                ? "No output found yet. Output retrieval was requested again; the artifact will appear on this phase once it is found."
+                : "No output found for this phase yet. Run the phase to produce one.",
+        });
+    });
     // Writes-to path in the phase-facts row: opens the parent folder in
     // the OS file explorer (via /api/reveal). One predictable behavior
     // regardless of whether the file exists — user always lands in the

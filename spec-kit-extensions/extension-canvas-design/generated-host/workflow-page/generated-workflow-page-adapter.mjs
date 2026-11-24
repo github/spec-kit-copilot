@@ -437,7 +437,7 @@ export function mount({ root, definition, state, actions }) {
         : result?.output ? `${result.output} is not available yet. Run the phase, then refresh to check again.`
           : "No artifact is available for this phase yet. Run the phase, then refresh to check again.");
       notice.hidden = !notice.textContent;
-      find("view-constitution").hidden = !available;
+      find("view-constitution").hidden = false;
       find("constitution-card").classList.toggle("constitution-ready", available);
       const status = find("constitution-status");
       status.textContent = available ? ""

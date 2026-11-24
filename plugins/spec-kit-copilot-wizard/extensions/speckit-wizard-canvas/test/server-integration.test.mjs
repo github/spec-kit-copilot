@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { reviewHttpSecurityTests } from "./review-http-security-fixture.mjs";
 import {
@@ -13,7 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, test } from "node:test";
-import { setSession } from "../canvas-runtime/instances.mjs";
+import { allInstances, fsDeps, getInstance, setSession } from "../canvas-runtime/instances.mjs";
+import { phaseActions } from "../canvas-runtime/actions/phase.mjs";
+import { cancelBackgroundInference } from "../canvas-runtime/background-inference.mjs";
 import {
     beginOutputInference,
     createOutputInferenceWorker,
@@ -33,14 +36,20 @@ import { createHandler } from "../server.mjs";
 import { formatReviewAnswers } from "../contracts/review-submission.mjs";
 import { activeRunMatches, __resetRunTrackerForTests } from "../canvas-runtime/run-tracker.mjs";
 import {
+    commandRunMatches,
+    __resetCommandRunsForTests,
+} from "../canvas-runtime/command-run-tracker.mjs";
+import {
     applyPatch,
     EXECUTION_STATES,
     normalizeExecutionReports,
     normalizeState,
+    writeState,
 } from "../state/store.mjs";
 
 afterEach(() => {
     __resetRunTrackerForTests();
+    __resetCommandRunsForTests();
     setSession(null);
     for (const timer of outputTimers.splice(0)) clearTimeout(timer);
 });
@@ -785,6 +794,8 @@ test("S3×S2: canonical phase submit yields a prompt whose setPhaseStatus write 
 
         // Every canonical dispatch must begin with the slash command.
         assert.ok(prompt.startsWith("/speckit-constitution"), `prompt must lead with slash: ${prompt.slice(0, 60)}`);
+        assert.match(prompt, /reportCommandComplete\(/,
+            "Run prompt must request output inference only after command completion");
 
         // Extract the setPhaseStatus({...}) invocation and parse fields
         // by name — resilient to reordering / whitespace / new fields.
@@ -836,9 +847,11 @@ test("POST /api/phase/submit acknowledges before session.send completion and cle
         const body = JSON.parse(res.body);
         assert.equal(body.queued, true);
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), true);
+        assert.equal(commandRunMatches("inst-fail", "speckit.constitution", body.runId), true);
 
         await new Promise((r) => setImmediate(r));
         assert.equal(activeRunMatches("inst-fail", "speckit.constitution", body.runId), false);
+        assert.equal(commandRunMatches("inst-fail", "speckit.constitution", body.runId), false);
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
@@ -1012,11 +1025,10 @@ test("POST /api/phase/submit revalidates the artifact after the awaited state sc
     }
 });
 
-test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus call", async () => {
+test("S3×S2: extension-namespaced commands get completion tracking without phase-status calls", async () => {
     // Extension commands aren't tracked by the wizard's canonical stepper;
-    // wrapping them with a tracking preamble would ask the agent to write
-    // to a phase id that doesn't exist. This test ensures no `setPhaseStatus`
-    // instruction leaks into the extension-command dispatch.
+    // Phase-status and witness reporting target canonical phases only. The
+    // completion callback is generic and lets extension outputs be inferred.
     const ws = tmpWorkspace();
     try {
         const deps = baseDeps({ workspacePath: ws });
@@ -1033,6 +1045,10 @@ test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus ca
         await new Promise((r) => setImmediate(r));
         const prompt = deps._sessionCalls[0].prompt;
         assert.ok(prompt.startsWith("/speckit-assess-intake"), "dispatch must slash-normalize");
+        assert.match(prompt, /Invoke the `skill` tool with name `speckit-assess-intake`/,
+            "extension prompt must explicitly invoke its mapped skill");
+        assert.match(prompt, /reportCommandComplete\(/,
+            "extension prompt must request command completion");
         assert.equal(
             /setPhaseStatus/.test(prompt),
             false,
@@ -1041,6 +1057,125 @@ test("S3×S2: extension-namespaced commands dispatch WITHOUT a setPhaseStatus ca
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
+});
+
+async function withAliasRun(callback) {
+    const ws = tmpWorkspace();
+    const instanceId = `alias-${randomUUID()}`;
+    const inst = getInstance(instanceId);
+    const prompts = [];
+    const background = [];
+    let markStarted;
+    const started = new Promise((resolve) => { markStarted = resolve; });
+    const extensionCommand = "speckit.extension-wizard-flow-test.review";
+    try {
+        mkdirSync(join(ws, ".specify"), { recursive: true });
+        for (const skill of ["speckit-plan", "speckit-tasks", "speckit-extension-wizard-flow-test-review"]) {
+            const dir = join(ws, ".github", "skills", skill);
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, "SKILL.md"), `---\nname: ${skill}\n---\nWrite an output.\n`);
+        }
+        inst.workspacePath = ws;
+        inst.url = "http://127.0.0.1:1234";
+        inst.token = "alias-token";
+        inst.state = {
+            currentPhase: "plan",
+            setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
+            pipeline: [{ id: "plan" }, { id: "tasks" }, { id: extensionCommand }],
+            phases: {},
+        };
+        inst.cachedComposition = { presets: [], extensions: [], artifacts: [] };
+        await writeState(ws, inst.state, fsDeps);
+        const session = {
+            send: async ({ prompt }) => { prompts.push(prompt); },
+            log: async () => {},
+            rpc: { tasks: {
+                startAgent: async ({ prompt }) => {
+                    background.push(prompt);
+                    markStarted();
+                    return { agentId: "alias-inference" };
+                },
+                cancel: async () => ({ cancelled: true }),
+            } },
+        };
+        const deps = baseDeps({ workspacePath: ws, extras: { getInstance: () => inst, session } });
+        setSession(session);
+        const handler = createHandler(deps);
+        const submit = async (commandName) => {
+            const res = mockRes();
+            await handler(mockReq({
+                method: "POST",
+                url: "/api/phase/submit?token=secret-token",
+                body: JSON.stringify({ commandName }),
+            }), res);
+            assert.equal(res.statusCode, 202, res.body);
+            await new Promise((resolve) => setImmediate(resolve));
+            const prompt = prompts.at(-1);
+            const completion = prompt.match(/reportCommandComplete\(\{ commandId: "([^"]+)", runId: "([^"]+)", status/);
+            assert.ok(completion, prompt);
+            return { response: JSON.parse(res.body), prompt, completion: {
+                commandId: completion[1], runId: completion[2], status: "done",
+            } };
+        };
+        await callback({ inst, instanceId, submit, background, started, extensionCommand });
+    } finally {
+        cancelBackgroundInference(inst);
+        if (inst.outputInference?.timer) clearTimeout(inst.outputInference.timer);
+        allInstances().delete(instanceId);
+        rmSync(ws, { recursive: true, force: true });
+    }
+}
+
+for (const [alias, expectedCommand, expectedCallback] of [
+    ["speckit.plan", "plan", "speckit-plan"],
+    ["speckit-plan", "plan", "speckit-plan"],
+    ["/speckit-plan", "plan", "speckit-plan"],
+    ["speckit-extension-wizard-flow-test-review",
+        "speckit.extension-wizard-flow-test.review", "speckit-extension-wizard-flow-test-review"],
+]) {
+    test(`tracked dispatch completes and infers only ${alias}`, { timeout: 15000 }, async () => {
+        await withAliasRun(async ({ inst, instanceId, submit, background, started }) => {
+            const { response, prompt, completion } = await submit(alias);
+            assert.equal(completion.commandId, expectedCallback);
+            assert.equal(background.length, 0);
+            if (response.tracked) {
+                assert.match(prompt, /- templates: \["plan-template"\]/);
+                const status = await phaseActions.find((action) => action.name === "setPhaseStatus")
+                    .handler({ instanceId, input: { phase: "plan", status: "done", runId: response.runId } });
+                assert.deepEqual(status, { ok: true });
+                const report = await phaseActions.find((action) => action.name === "reportExecution")
+                    .handler({ instanceId, input: {
+                        phase: "plan", runId: response.runId,
+                        artifacts: { templates: {}, scripts: {}, hooks: {} },
+                    } });
+                assert.deepEqual(report, { ok: true, merged: 1 });
+                assert.equal(background.length, 0);
+            }
+            const result = await phaseActions.find((action) => action.name === "reportCommandComplete")
+                .handler({ instanceId, input: completion });
+            assert.deepEqual(result, { ok: true, queued: true });
+            await started;
+            const [worker] = inst.outputInference.workers.values();
+            assert.deepEqual([...worker.requests.keys()], [expectedCommand]);
+            assert.equal(background.length, 1);
+        });
+    });
+}
+
+test("tracked rerun under another alias rejects the earlier completion", { timeout: 15000 }, async () => {
+    await withAliasRun(async ({ inst, instanceId, submit, background, started }) => {
+        const first = await submit("speckit.plan");
+        const latest = await submit("/speckit-plan");
+        const complete = phaseActions.find((action) => action.name === "reportCommandComplete");
+        assert.deepEqual(await complete.handler({ instanceId, input: first.completion }),
+            { ok: false, error: "stale command run" });
+        assert.equal(background.length, 0);
+        assert.deepEqual(await complete.handler({ instanceId, input: latest.completion }),
+            { ok: true, queued: true });
+        await started;
+        const [worker] = inst.outputInference.workers.values();
+        assert.deepEqual([...worker.requests.keys()], ["plan"]);
+    });
 });
 
 // -------- S5: server writes artifact-targets → scanner reads it -----------
@@ -1450,6 +1585,8 @@ test("S2: tracking preamble requires terminal status for success, skips, and blo
     const preamble = buildWorkflowTrackingPreamble({
         commandName: "speckit.implement",
         artifactPath: null,
+        expectedArtifacts: { templates: ["tasks-template"], scripts: [], hooks: [] },
+        runId: "run-test",
     });
 
     assert.ok(preamble.includes('status: "done"'), "success must report done");
@@ -1459,6 +1596,11 @@ test("S2: tracking preamble requires terminal status for success, skips, and blo
     assert.match(preamble, /cancellation/);
     assert.match(preamble, /skill\/tool failure/);
     assert.match(preamble, /Before you return, call `setPhaseStatus` exactly once/);
+    assert.ok(
+        preamble.indexOf("reportCommandComplete(") > preamble.indexOf("reportExecution({"),
+        "command completion must follow phase status and witness reporting",
+    );
+    assert.match(preamble, /commandId: "speckit\.implement".*run-test/);
 });
 
 // ---------- Full-state JSON round-trip ----------

@@ -794,7 +794,7 @@ function renderStatus() {
     }
     function artifactAction(buttonId, noticeId, status) {
         const button = $(buttonId), notice = $(noticeId);
-        if (button) button.hidden = status?.artifactAvailability !== "available";
+        if (button) button.hidden = false;
         if (notice) {
             notice.textContent = status?.artifactError ?? (status?.artifactAvailability === "available" ? ""
                 : status?.output ? `${status.output} is not available yet. Run the phase, then refresh to check again.`
@@ -1277,14 +1277,11 @@ async function openArtifact(step, output) {
     const trigger = document.activeElement;
     const generation = ++viewerGeneration;
     let artifact;
+    let missing = false;
     try { artifact = await api(`/api/artifact?${new URLSearchParams(source)}`); }
     catch (error) {
-        if (error.status === 404) {
-            if (generation === viewerGeneration) await api("/api/reveal", source);
-            return;
-        }
-        // The shared reader has its own file limit and presentation for large files.
-        if (error.status !== 413) throw error;
+        if (error.status === 404) missing = true;
+        else if (error.status !== 413) throw error;
     }
     if (generation !== viewerGeneration) return;
     if (clarificationReview.reviewSubmissionPending()) {
@@ -1293,9 +1290,29 @@ async function openArtifact(step, output) {
     }
     clarificationReview.discardReviewDrafts();
     viewer?.close({ restore: false });
+    viewer = null;
     restoreArtifactReturn ??= captureViewerReturn(trigger);
     const root = $("phase-artifact-viewer");
     const shell = mountArtifactViewerShell(root, { label: step.label, path: artifact?.path ?? "", returnLabel: "Canvas", onReturn: closeArtifact });
+    if (missing) {
+        shell.body.setAttribute("role", "status");
+        shell.body.textContent = "No output found yet.";
+        try {
+            await api("/api/reveal", source);
+            if (generation === viewerGeneration) shell.body.textContent = "No output found yet. Opened the output folder so you can look for it.";
+        } catch (error) {
+            if (generation === viewerGeneration) shell.body.textContent = `No output found yet. Could not open the output folder: ${error.message}`;
+        }
+        if (generation !== viewerGeneration) return;
+        try { await refresh(); }
+        catch (error) {
+            if (generation === viewerGeneration) {
+                shell.body.setAttribute("role", "alert");
+                shell.body.textContent = `Could not refresh artifact availability: ${error.message}`;
+            }
+        }
+        return;
+    }
     const review = createArtifactReview({
         container: shell.body, scrollElement: shell.body, readerId: `generated-review-${generation}`,
         headers: { "x-canvas-token": token }, onReturn: closeArtifact,

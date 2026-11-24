@@ -59,6 +59,7 @@ import { fsDeps } from "./instances.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
 import { collectArtifactEvidence } from "../artifact-evidence.mjs";
 import { attachOutputEvidence } from "./output-availability.mjs";
+import { reconcileOutputInference } from "./output-inference.mjs";
 
 // Owned persistence scans may be superseded after committing; return null
 // instead of installing or broadcasting their now-stale derived state.
@@ -167,8 +168,16 @@ export async function snapshot(inst, isCurrent = () => true) {
         const overlay = overlayCachedComposition(inst.cachedComposition);
         if (overlay) snap.composition = overlay;
     }
-    const outputs = await collectArtifactEvidence(inst.workspacePath, snap);
-    if (!isCurrent()) return null;
+    let outputs, revision, attempts = 0;
+    do {
+        revision = inst.artifactEvidenceRevision ?? 0;
+        outputs = await collectArtifactEvidence(inst.workspacePath, snap);
+        if (!isCurrent()) return null;
+        if (++attempts >= 3 && revision !== (inst.artifactEvidenceRevision ?? 0)) {
+            throw new Error("Artifact evidence changed repeatedly during snapshot");
+        }
+    } while (revision !== (inst.artifactEvidenceRevision ?? 0));
+    reconcileOutputInference(inst, outputs);
     await attachOutputEvidence(inst, scan, snap, outputs, undefined, refresh);
     if (!isCurrent()) return null;
     // Expose the transient skills-reload diagnostic (populated by

@@ -519,6 +519,11 @@ export function outputEvidenceForCommand(evidence, commandName) {
     return evidence?.[stripCommandsPrefix(commandName)];
 }
 
+// Fallback link used when no output location is known; "" reveals the project root.
+export function projectFolderLink(labelHtml) {
+    return `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="" title="Open project folder in file explorer">${labelHtml}</button>`;
+}
+
 export function renderOutputRows({
     outputEvidence, availability, defaultPath, specsDir, cmdName = "", buildRow,
     contributorLinkHtml = (_layer, id) => escapeHtml(id || ""),
@@ -541,8 +546,8 @@ export function renderOutputRows({
                 ? `data-output-path="${escapeHtml(target)}"` : `data-phase-action="browse-folder" data-folder-path="${escapeHtml(target)}"`}><code>${escapeHtml(target)}</code></button>`
             : path && browsePath != null
                 ? `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(browsePath)}" title="Open ${escapeHtml(browsePath || "project folder")} in file explorer"><code>${escapeHtml(path)}</code></button>`
-                : path ? `<code>${escapeHtml(path)}</code>`
-                    : candidate.kind === "none" ? "No file output" : "Output not specified";
+                : projectFolderLink(path ? `<code>${escapeHtml(path)}</code>`
+                    : candidate.kind === "none" ? "No file output" : "Output not specified");
         const contributors = candidate.contributors
             ?? (candidate.source === "core" ? [{ layer: "core" }]
                 : fallbackContributor && ["inference", "declaration"].includes(candidate.source)
@@ -582,7 +587,8 @@ export function renderOutputRows({
         defaultIndex = 0;
     }
     if (!outputs.length) {
-        return [buildRow("Output(s)", [status ?? '<span class="phase-cust-unchanged">Not yet identified</span>'])];
+        return [buildRow("Output(s)", [status
+            ?? projectFolderLink('<span class="phase-cust-unchanged">Not yet identified</span>')])];
     }
     const [main] = outputs.splice(defaultIndex < 0 ? 0 : defaultIndex, 1);
     const key = chainKeyFor(cmdName, "output", "outputs");

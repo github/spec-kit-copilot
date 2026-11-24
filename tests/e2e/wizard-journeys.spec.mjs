@@ -24,6 +24,9 @@ const preset = await validateLocalSource("presets", presetPath);
 const extension = await validateLocalSource("extensions", extensionPath);
 const review = "speckit.extension-wizard-flow-test.review";
 const run = promisify(execFile);
+const setPhaseStatus = phaseActions.find((action) => action.name === "setPhaseStatus");
+const reportExecution = phaseActions.find((action) => action.name === "reportExecution");
+const reportCommandComplete = phaseActions.find((action) => action.name === "reportCommandComplete");
 
 async function withWizardCheckout(page, run, {
     setup: setupOverrides = {}, environment: environmentOverrides = {},
@@ -273,6 +276,28 @@ test("ready Wizard unlocks navigation and pipeline edits preserve the selected p
         expect(inst.state.pipeline).toBeNull();
         server.broadcast({ type: "invalidate", reason: "pipeline verified" });
         await expect(page.locator("#stepper .step.active")).toHaveCount(1);
+    });
+});
+
+test("returning from a missing output viewer preserves a later phase after background invalidation", async ({ page }) => {
+    await withWizardCheckout(page, async ({ inst, server }) => {
+        await expect(page.locator("#conn-status")).toContainText("live");
+        await page.getByRole("tab", { name: "Phases" }).click();
+        await page.locator("#stepper .step").filter({ hasText: /Plan/ }).first().click();
+        await expect(page.locator("#stepper .step.active")).toContainText("Plan");
+        await page.locator("#phase-card").getByRole("button", { name: "View artifact" }).click();
+        const viewer = page.locator("#phase-artifact-viewer");
+        await expect(viewer).toContainText("No output found");
+        inst.state.phases.constitution = { status: "done" };
+        server.broadcast({ type: "invalidate", reason: "background phase output changed" });
+        await page.waitForFunction(async () => {
+            const { state } = await import("/ui/state.js");
+            return state.snapshot?.phases?.constitution?.status === "done";
+        });
+        await viewer.getByRole("button", { name: /Wizard/ }).click();
+        await expect(viewer).toBeHidden();
+        await expect(page.locator("#stepper .step.active")).toContainText("Plan");
+        await expect(page.locator("#phase-card h2")).toContainText("Plan");
     });
 });
 
@@ -550,10 +575,10 @@ test("phase status and execution report reach the stepper, then verified output 
         await mkdir(join(root, ".specify", "memory"), { recursive: true });
         const artifactPath = ".specify/memory/constitution.md";
         await writeFile(join(root, artifactPath), "# Controlled constitution\n\nA verified output.\n");
-        expect(await phaseActions[0].handler({ instanceId: id, input: {
+        expect(await setPhaseStatus.handler({ instanceId: id, input: {
             phase: "constitution", status: "done", artifactPath, runId,
         } })).toEqual({ ok: true });
-        expect(await phaseActions[2].handler({ instanceId: id, input: {
+        expect(await reportExecution.handler({ instanceId: id, input: {
             phase: "constitution", runId, artifacts: { templates: {}, scripts: {}, hooks: {} },
         } })).toMatchObject({ ok: true });
         expect(inst.cachedComposition.executionReports["commands/speckit.constitution"]).toBeTruthy();
@@ -575,7 +600,7 @@ test("phase status and execution report reach the stepper, then verified output 
         await page.getByRole("dialog").getByRole("button", { name: "Yes" }).click();
         const { runId: retryRunId } = await (await retry).json();
         await expect.poll(() => prompts.length).toBe(2);
-        expect(await phaseActions[0].handler({ instanceId: id, input: {
+        expect(await setPhaseStatus.handler({ instanceId: id, input: {
             phase: "constitution", status: "error", artifactPath, runId: retryRunId,
         } })).toEqual({ ok: true });
         await page.reload();
@@ -708,6 +733,9 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
     const finishTurns = [];
     const backgroundTasks = [];
     let foregroundTurns = 0;
+    let commandCompletionStarted = false;
+    let outputBeforeCompletion = false;
+    let specsDir = null;
     const setup = { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true };
     try {
         inst.workspacePath = root;
@@ -729,6 +757,8 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await mkdir(join(root, ".github", "skills", review.replaceAll(".", "-")), { recursive: true });
         await writeFile(join(root, skillPath), await readFile(
             join(extensionPath, "skills", review.replaceAll(".", "-"), "SKILL.md")));
+        await mkdir(join(root, "specs", "001-demo", "reviews"), { recursive: true });
+        await writeFile(join(root, "specs", "001-demo", "reviews", "review.md"), "# Review output\n");
         const source = await effectiveSource(root, review);
         expect(source).toBeTruthy();
         inst.cachedPresetItems = [{ id: preset.id, name: preset.name, version: preset.version, active: true, enabled: true }];
@@ -743,6 +773,9 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
                 skills: { reload: async () => ({ errors: [], warnings: [] }) },
                 tasks: {
                     startAgent: async ({ prompt }) => {
+                        if (prompt.includes("POST http://") && !commandCompletionStarted) {
+                            outputBeforeCompletion = true;
+                        }
                         backgroundTasks.push(prompt);
                         prompts.push(prompt);
                         return { agentId: randomUUID() };
@@ -768,7 +801,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
                 ],
                 composition: inst.cachedComposition ?? { presets: [], extensions: [], artifacts: [] },
                 catalog: { presets: inst.cachedPresetItems, extensions: inst.cachedExtensionItems, bundles: [] },
-                warnings: [], specsDir: null,
+                warnings: [], specsDir,
             };
             await attachOutputEvidence(inst, {}, snap, await collectArtifactEvidence(root, snap));
             return snap;
@@ -777,6 +810,11 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         inst.broadcast = (message) => server.broadcast(message.type === "state"
             ? { type: "invalidate", reason: "fixture state changed" } : message);
         await page.goto(server.url);
+        const invalidRetry = await page.request.post(new URL(`/api/prompt?token=${server.token}`, server.url).href,
+            { data: { kind: "extension.inferArtifactTargets", payload: { commandId: "" } } });
+        expect(invalidRetry.status()).toBe(400);
+        expect((await invalidRetry.json()).error).toMatch(/Invalid output inference commandId/);
+        expect(inst.outputInference).toBeFalsy();
         await page.locator('#setup-stepper .step[data-substep="composition"]').click();
         const progress = page.locator("#comp-meta-text");
         const refresh = page.getByRole("button", { name: "Refresh composition" });
@@ -876,14 +914,43 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await page.getByRole("tab", { name: "Phases" }).click();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await page.locator("#phase-card").getByRole("button", { name: "Run phase" }).click();
+        await expect.poll(() => foregroundTurns).toBe(1);
+        expect(backgroundTasks.some((prompt) => prompt.includes("POST http://"))).toBe(false);
+        const commandPrompt = prompts.find((prompt) => prompt.startsWith("/speckit-extension-wizard-flow-test-review"));
+        const completion = commandPrompt?.match(
+            /reportCommandComplete\(\{ commandId: "([^"]+)", runId: "([^"]+)", status/);
+        expect(completion).toBeTruthy();
+        commandCompletionStarted = true;
+        expect(await reportCommandComplete.handler({ instanceId: id, input: {
+            commandId: completion[1], runId: completion[2], status: "done",
+        } })).toEqual({ ok: true, queued: true });
         await expect.poll(() => backgroundTasks.some((prompt) => prompt.includes("POST http://"))).toBe(true);
+        expect(outputBeforeCompletion).toBe(false);
         expect(foregroundTurns).toBe(1);
         expect(backgroundTasks).toHaveLength(3);
+        const [outputWorker] = inst.outputInference.workers.values();
+        expect([...outputWorker.requests.keys()]).toEqual([review]);
         const outputPrompt = backgroundTasks.find((prompt) => prompt.includes("POST http://"));
         const artifactEndpoint = outputPrompt.match(/POST (http:\/\/\S+) with JSON/)?.[1];
         expect(new URL(artifactEndpoint).searchParams.get("runId")).toBeTruthy();
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await expect(page.locator("#phase-card")).toContainText("Retrieving outputs");
+        const retrievalRequest = page.waitForRequest((req) => req.url().includes("/api/prompt")
+            && req.method() === "POST" && req.postDataJSON()?.kind === "extension.inferArtifactTargets");
+        await page.locator("#phase-card").getByRole("button", { name: "View artifact" }).click();
+        const retryRequest = await retrievalRequest;
+        expect(retryRequest.postDataJSON().payload).toEqual({ commandId: review });
+        await expect.poll(() => [...inst.outputInference.pending.keys()]).toEqual([review]);
+        const missingViewer = page.locator("#phase-artifact-viewer");
+        await expect(missingViewer).toContainText("Retrieving outputs");
+        await expect(missingViewer).not.toContainText("No output found");
+        await expect(missingViewer.getByRole("button", { name: "Open output folder" })).toHaveCount(0);
+        await missingViewer.getByRole("button", { name: /Wizard/ }).click();
+        await expect(missingViewer).toBeHidden();
+        await expect(page.locator("#stepper .step.active")).toContainText("Review");
+        expect(foregroundTurns).toBe(1);
+        expect(backgroundTasks).toHaveLength(3);
+        expect([...inst.outputInference.workers.values()]).toEqual([outputWorker]);
         const evidence = {
             fingerprint: source.fingerprint, primaryIndex: 0,
             candidates: [
@@ -907,7 +974,7 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         await expect(page.locator("#stepper")).not.toContainText(/audit/i);
         await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
         await expect(page.locator("#phase-card")).toContainText("specs/<slug>/reviews/review.md");
-        await expect(page.locator("#phase-card").getByRole("button", { name: "View artifact" })).toHaveCount(0);
+        await expect(page.locator("#phase-card").getByRole("button", { name: "View artifact" })).toBeVisible();
         await page.locator("#phase-card .phase-cust-chain-toggle")
             .filter({ hasText: "more" }).click();
         await expect(page.locator("#phase-card")).toContainText("specs/<slug>/reviews/checklist.md");
@@ -921,6 +988,31 @@ test("refresh completes pipeline ordering before phase Run retrieves output evid
         const current = await getState();
         expect(current.artifactEvidence[review]?.candidates.map((item) => item.path))
             .toEqual(evidence.candidates.map((item) => item.path));
+        await mkdir(join(root, ".github", "skills", "speckit-plan"), { recursive: true });
+        await writeFile(join(root, ".github", "skills", "speckit-plan", "SKILL.md"),
+            "---\nname: speckit-plan\ndescription: Create a plan\n---\nWrite the project plan.\n");
+        specsDir = "specs/001-demo";
+        inst.broadcast({ type: "invalidate", reason: "feature directory selected" });
+        await expect(page.locator("#phase-card")).toContainText("specs/001-demo/reviews/review.md");
+        await page.locator("#stepper .step").filter({ hasText: /Plan/ }).first().click();
+        await page.locator("#stepper .step").filter({ hasText: /review/i }).click();
+        await expect(page.locator("#phase-card")).not.toContainText("Retrieving outputs");
+        await page.locator("#phase-card").getByRole("button", { name: "View artifact" }).click();
+        await expect(page.locator("#phase-artifact-viewer")).toContainText("Review output");
+        await page.locator("#phase-artifact-viewer").getByRole("button", { name: /Wizard/ }).click();
+        expect(backgroundTasks).toHaveLength(3);
+        await page.locator("#stepper .step").filter({ hasText: /Plan/ }).first().click();
+        await page.locator("#phase-card").getByRole("button", { name: "Run phase" }).click();
+        await expect.poll(() => foregroundTurns).toBe(2);
+        const planPrompt = prompts.find((prompt) => prompt.startsWith("/speckit-plan"));
+        const planCompletion = planPrompt?.match(
+            /reportCommandComplete\(\{ commandId: "([^"]+)", runId: "([^"]+)", status/);
+        expect(planCompletion).toBeTruthy();
+        expect(await reportCommandComplete.handler({ instanceId: id, input: {
+            commandId: planCompletion[1], runId: planCompletion[2], status: "done",
+        } })).toEqual({ ok: true, queued: true });
+        await expect.poll(() => backgroundTasks.length).toBe(4);
+        expect([...inst.outputInference.workers.values()][0].requests.has("plan")).toBe(true);
     } finally {
         for (const finish of finishTurns) finish();
         await page.goto("about:blank");

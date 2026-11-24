@@ -84,6 +84,8 @@ test("vertical phase adapter owns full navigation and card and dispatches the co
     assert.match(root.innerHTML, /data-action="view-row"/);
     control.update({ ...initial, output: null, status: null, outputLinks: [] });
     assert.match(root.innerHTML, /No declared output/);
+    assert.doesNotMatch(root.innerHTML, /data-action="reveal"[^>]*disabled/);
+    assert.doesNotMatch(root.innerHTML, /data-action="view-row"[^>]*disabled/);
     assert.match(root.innerHTML, /No artifact is available for this phase yet/);
     control.update({ ...initial, sending: true, status: { status: "Running" }, runLabel: "Sending..." });
     assert.match(root.innerHTML, /data-action="start" data-index="0"[^>]*>Start Step 0/);

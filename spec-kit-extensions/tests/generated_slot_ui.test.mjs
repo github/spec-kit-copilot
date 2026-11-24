@@ -537,33 +537,56 @@ test("rerunning a phase or Constitution requires overwrite confirmation, but fir
     assert.equal(submissions, 4);
 });
 
-test("a not-yet-created output browses its parent without opening the artifact viewer", async () => {
+test("a not-yet-created output opens the viewer with a message and browses its folder", async () => {
     const calls = [];
-    let viewerOpened = false;
+    let refreshed = 0;
+    const elements = new Map();
+    const element = (id) => {
+        if (!elements.has(id)) elements.set(id, { id, hidden: true });
+        return elements.get(id);
+    };
+    const body = { textContent: "", setAttribute(name, value) { this[name] = value; } };
     const context = {
         model: { selected: "specs/demo" },
         URLSearchParams,
         document: { activeElement: null },
         viewerGeneration: 0,
+        viewer: null,
+        restoreArtifactReturn: null,
+        clarificationReview: { reviewSubmissionPending: () => false, discardReviewDrafts() {} },
+        captureViewerReturn: () => () => {},
+        closeArtifact() {},
+        mountArtifactViewerShell: (root) => { root.hidden = false; return { body }; },
         api: async (path, input) => {
             calls.push({ path, input });
             if (path.startsWith("/api/artifact")) throw Object.assign(new Error("Not found"), { status: 404 });
         },
-        $: () => { viewerOpened = true; throw new Error("Viewer should stay closed"); },
+        $: element,
+        refresh: async () => { refreshed += 1; },
     };
     const openArtifact = runInNewContext(`${section("async function openArtifact(", 'document.addEventListener("input"')}
         openArtifact`, context);
     await openArtifact({ id: "specify", project: false }, "specs/<slug>/notes.md");
-    assert.equal(viewerOpened, false);
+    assert.equal(element("phase-artifact-viewer").hidden, false);
     assert.equal(calls.length, 2);
     assert.match(calls[0].path, /^\/api\/artifact\?/);
     assert.equal(calls[1].path, "/api/reveal");
     assert.equal(calls[1].input.phase, "specify");
     assert.equal(calls[1].input.itemId, "specs/demo");
     assert.equal(calls[1].input.output, "specs/<slug>/notes.md");
+    assert.equal(body.textContent, "No output found yet. Opened the output folder so you can look for it.");
+    assert.equal(body.role, "status");
+    assert.equal(refreshed, 1);
+    context.api = async (path) => {
+        if (path === "/api/reveal") throw new Error("Explorer unavailable");
+        throw Object.assign(new Error("Not found"), { status: 404 });
+    };
+    await openArtifact({ id: "specify" });
+    assert.match(body.textContent, /Could not open the output folder: Explorer unavailable/);
+    elements.clear();
     context.api = async () => { throw Object.assign(new Error("Access denied"), { status: 403 }); };
     await assert.rejects(openArtifact({ id: "specify" }), /Access denied/);
-    assert.equal(viewerOpened, false);
+    assert.equal(elements.has("phase-artifact-viewer"), false);
 });
 
 class Element {

@@ -11,6 +11,7 @@ import { startRefresh } from "../canvas-runtime/refresh-status.mjs";
 import { dispatchKindPrompt } from "../canvas-runtime/dispatch.mjs";
 import { setSession } from "../canvas-runtime/instances.mjs";
 import { buildCompositionPrompt } from "../prompts/composition.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
 
 function fixture() {
     const calls = [], cancellations = [];
@@ -23,6 +24,46 @@ function fixture() {
         } },
     };
     return { inst, session, calls, cancellations };
+}
+
+test("output inference request accepts scoped and legacy forms and rejects incompatible command IDs", () => {
+    assert.deepEqual(validateOutputInferenceRequest({}), {});
+    assert.deepEqual(validateOutputInferenceRequest({ commandId: "speckit.plan" }),
+        { commandId: "speckit.plan" });
+    for (const payload of [[], "plan", { commandId: "" }, { commandId: null },
+        { commandId: undefined }, { commandId: " plan " }, { commandId: ["speckit.plan"] }]) {
+        assert.throws(() => validateOutputInferenceRequest(payload), /Invalid output inference/);
+    }
+});
+
+for (const [payload, expected] of [
+    [{ commandId: "speckit.plan" }, ["speckit.plan"]],
+    [{}, ["speckit.plan", "speckit.tasks"]],
+]) {
+    test(`output retry dispatch ${payload.commandId ? "scopes to the selected command" : "preserves legacy pipeline scope"}`, async () => {
+        const f = fixture();
+        const dispatched = [];
+        setSession(f.session);
+        try {
+            const deps = {
+                getSnapshot: async () => ({
+                    pipeline: [{ id: "plan" }, { id: "tasks" }],
+                    artifactInferenceRequests: ["plan", "tasks"].map((id) =>
+                        ({ commandId: `speckit.${id}`, fingerprint: id.repeat(64) })),
+                }),
+                buildInferencePrompt: async ({ commands }) => commands.map(({ commandId }) => commandId).join(","),
+                sendInference: async ({ prompt }) => dispatched.push(prompt),
+            };
+            await dispatchKindPrompt(f.inst, "extension.inferArtifactTargets", payload, deps);
+            if (payload.commandId) await dispatchKindPrompt(f.inst, "extension.inferArtifactTargets", payload, deps);
+            await new Promise(setImmediate);
+            assert.deepEqual([...f.inst.outputInference.pending.values()].map(({ commandId }) => commandId), expected);
+            assert.deepEqual(dispatched, [expected.join(",")]);
+        } finally {
+            setSession(null);
+            clearTimeout(f.inst.outputInference?.timer);
+        }
+    });
 }
 
 test("background boundary accepts runtime IDs and rejects unavailable or incompatible exchanges", () => {
