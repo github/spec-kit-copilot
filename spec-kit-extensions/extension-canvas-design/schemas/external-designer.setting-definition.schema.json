@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "host", "slot", "order", "field"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"},
+    "host": {"const": "designer"},
+    "slot": {"type": "string"},
+    "order": {"type": "integer", "minimum": -100000, "maximum": 100000},
+    "requires": {"type": "array", "minItems": 1, "maxItems": 1,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}},
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "type", "control"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "description": {"type": "string", "maxLength": 1000},
+        "type": {"enum": ["string", "boolean", "object", "image"]},
+        "control": {"type": "string"},
+        "maxLength": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "required": {"const": true},
+        "default": {"type": "boolean"}
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "boolean"}}}, "then": {"properties": {"control": {"const": "stock.checkbox"}}}},
+        {"if": {"properties": {"type": {"const": "string"}}}, "then": {"properties": {"control": {"const": "stock.text"}}}},
+        {"if": {"properties": {"type": {"const": "image"}}}, "then": {"properties": {"control": {"const": "stock.image"}}}},
+        {"if": {"properties": {"type": {"const": "object"}}}, "then": {"properties": {"control": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}}}},
+        {"if": {"required": ["default"]}, "then": {"properties": {"type": {"const": "boolean"}}}},
+        {"if": {"required": ["maxLength"]}, "then": {"properties": {"type": {"const": "string"}}}},
+        {"if": {"required": ["required"]}, "then": {"properties": {"type": {"const": "string"}}}}
+      ]
+    },
+    "generatedBinding": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["presentation"],
+          "properties": {"presentation": {"const": "stock.readonly"}, "section": {"$ref": "#/$defs/section"}}},
+        {"type": "object", "additionalProperties": false, "required": ["presentation", "slot"],
+          "properties": {"presentation": {"const": "control"}, "slot": {"const": "details.content"}}},
+        {"type": "object", "additionalProperties": false, "required": ["presentation", "slot"],
+          "properties": {"presentation": {"const": "asset"}, "slot": {"enum": ["header.brand", "workflow.intro"]}}},
+        {"type": "object", "additionalProperties": false, "required": ["presentation", "slot", "page"],
+          "properties": {"presentation": {"const": "asset"},
+            "slot": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,79}$"},
+            "page": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"}}},
+        {"type": "object", "additionalProperties": false, "required": ["presentation", "slot"],
+          "properties": {"presentation": {"const": "text"},
+            "slot": {"enum": ["workflow.description", "workflow.heading"]}}}
+      ]
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"field": {"properties": {"type": {"const": "image"}}}}},
+      "then": {"required": ["generatedBinding"], "properties": {"generatedBinding": {"properties": {"presentation": {"const": "asset"}}}}}},
+    {"if": {"properties": {"field": {"properties": {"type": {"const": "object"}}}}},
+      "then": {"required": ["generatedBinding"],
+        "properties": {"generatedBinding": {"properties": {"presentation": {"const": "control"}}}}}},
+    {"if": {"properties": {"field": {"properties": {"type": {"const": "string"}}}}},
+      "then": {"properties": {"generatedBinding": {"properties": {"presentation":
+        {"enum": ["stock.readonly", "text"]}}}}}},
+    {"if": {"properties": {"field": {"properties": {"type": {"const": "boolean"}}}}},
+      "then": {"not": {"required": ["generatedBinding"]}}}
+  ],
+  "$defs": {
+    "section": {"type": "object", "additionalProperties": false, "required": ["id", "title"],
+      "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,79}$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S"}}}
+  }
+}

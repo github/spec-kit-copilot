@@ -6,6 +6,8 @@ import { activeChainForArtifact } from "../pipeline/active-artifacts.mjs";
 import { isCanonical, canonicalTemplateIds, coreScriptsForCommand, CORE_INVENTORY } from "../pipeline/canonical.mjs";
 import { bareArtifactId } from "./composition.js";
 import { hooksForCommand } from "./phase-runtime.js";
+import { displayOutputPath } from "../pipeline/output-evidence.mjs";
+import { stripCommandsPrefix } from "../pipeline/effective-phases.mjs";
 
 // -------- Section: render/phase-customizations/lookups.js --------
 
@@ -338,16 +340,12 @@ export function renderArtifactRows({
     // layer stacks expand into their contributing chain via a disclosure
     // caret.
     const templateRows = [];
-    templateArts.forEach(({ bareId: tBareId, art: tArt }, idx) => {
+    templateArts.forEach(({ bareId: tBareId, art: tArt }) => {
+        if (!tArt) return;
         const tActive = (tArt?.stack ?? []).find((l) => l.active) || null;
-        const label = idx === 0 ? "Template(s)" : "";
+        const label = templateRows.length === 0 ? "Template(s)" : "";
         const templateSourcePath = tActive?.sourcePath || `.specify/templates/${tBareId}.md`;
         const pill = runtimePillFor("template", tBareId, { commandActive, artifactActive: tActive });
-        if (!tArt) {
-            const parts = [`<span class="phase-cust-unchanged">not resolved by any layer</span>`];
-            templateRows.push(buildRow(label, parts, "", pill));
-            return;
-        }
         const chain = activeChainForArtifact(tArt);
         templateRows.push(buildChainRows({
             kindLabel: label,
@@ -514,6 +512,109 @@ export function renderArtifactRows({
         rows.push(...capRows(scriptRows, "script(s)"));
     }
 
+    return rows;
+}
+
+export function outputEvidenceForCommand(evidence, commandName) {
+    return evidence?.[stripCommandsPrefix(commandName)];
+}
+
+// Fallback link used when no output location is known; "" reveals the project root.
+export function projectFolderLink(labelHtml) {
+    return `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="" title="Open project folder in file explorer">${labelHtml}</button>`;
+}
+
+export function renderOutputRows({
+    outputEvidence, availability, defaultPath, specsDir, cmdName = "", buildRow,
+    contributorLinkHtml = (_layer, id) => escapeHtml(id || ""),
+    fallbackContributor = null,
+    inferenceStatus = null,
+}) {
+    const status = inferenceStatus === "updating" ? '<span role="status">Retrieving outputs…</span>'
+        : inferenceStatus === "incomplete" ? '<span role="status">Pipeline preparation did not finish</span>'
+            : null;
+    const candidates = outputEvidence?.candidates ?? [];
+    const hasNamedOutput = !!defaultPath || candidates.some(({ kind }) => ["file", "folder"].includes(kind));
+    const items = candidates.map((candidate, index) => {
+        const link = availability?.candidates?.[index];
+        const path = ["file", "folder"].includes(candidate.kind)
+            ? link?.resolvedPath ?? displayOutputPath(candidate, specsDir) : null;
+        const target = link?.filePath ?? (candidate.kind === "folder" ? link?.folderPath : null);
+        const browsePath = link?.browsePath;
+        const text = path && target
+            ? `<button type="button" class="phase-artifact-link" ${link.filePath
+                ? `data-output-path="${escapeHtml(target)}"` : `data-phase-action="browse-folder" data-folder-path="${escapeHtml(target)}"`}><code>${escapeHtml(target)}</code></button>`
+            : path && browsePath != null
+                ? `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(browsePath)}" title="Open ${escapeHtml(browsePath || "project folder")} in file explorer"><code>${escapeHtml(path)}</code></button>`
+                : projectFolderLink(path ? `<code>${escapeHtml(path)}</code>`
+                    : candidate.kind === "none" ? "No file output" : "Output not specified");
+        const contributors = candidate.contributors
+            ?? (candidate.source === "core" ? [{ layer: "core" }]
+                : fallbackContributor && ["inference", "declaration"].includes(candidate.source)
+                    ? [fallbackContributor] : []);
+        return { text, path, kind: candidate.kind, linked: !!target || browsePath != null,
+            contributors: [...contributors] };
+    }).filter(({ kind }) => kind !== "unknown" || !hasNamedOutput);
+    const outputs = [];
+    for (const item of items) {
+        const previous = item.path && outputs.find((other) =>
+            other.path === item.path && other.kind === item.kind);
+        if (!previous) {
+            outputs.push(item);
+            continue;
+        }
+        if (item.linked && !previous.linked) {
+            previous.text = item.text;
+            previous.linked = true;
+        }
+        for (const contributor of item.contributors) {
+            if (!previous.contributors.some(({ layer, id }) =>
+                layer === contributor.layer && id === contributor.id)) {
+                previous.contributors.push(contributor);
+            }
+        }
+    }
+    let defaultIndex = outputs.findIndex(({ kind, path }) => kind === "file" && path === defaultPath);
+    if (defaultIndex < 0 && Number.isInteger(outputEvidence?.primaryIndex)) {
+        const primary = candidates[outputEvidence.primaryIndex];
+        const primaryPath = primary && (availability?.candidates?.[outputEvidence.primaryIndex]?.resolvedPath
+            ?? displayOutputPath(primary, specsDir));
+        defaultIndex = outputs.findIndex(({ kind, path }) => kind === "file" && path === primaryPath);
+    }
+    if (defaultPath && defaultIndex < 0 && outputEvidence?.primaryIndex === undefined) {
+        outputs.unshift({ text: `<code>${escapeHtml(defaultPath)}</code>`, path: defaultPath,
+            kind: "file", contributors: fallbackContributor ? [fallbackContributor] : [] });
+        defaultIndex = 0;
+    }
+    if (!outputs.length) {
+        return [buildRow("Output(s)", [status
+            ?? projectFolderLink('<span class="phase-cust-unchanged">Not yet identified</span>')])];
+    }
+    const [main] = outputs.splice(defaultIndex < 0 ? 0 : defaultIndex, 1);
+    const key = chainKeyFor(cmdName, "output", "outputs");
+    const expanded = state.expandedArtifactChains.has(key);
+    const toggle = outputs.length
+        ? `<button type="button" class="phase-cust-chain-toggle" data-chain-key="${escapeHtml(key)}" aria-expanded="${expanded}" title="Show all phase outputs">${escapeHtml(expanded ? "− hide outputs" : `▸ +${outputs.length} more`)}</button>`
+        : "";
+    const partsFor = ({ text, contributors }) => [
+        text,
+        ...contributors.map(({ layer, id }) => layer === "core"
+            ? '<span class="phase-cust-part-label">CORE</span>'
+            : `<span class="phase-cust-part-label">${layer === "preset" ? "PRESET" : "EXTENSION"}:</span> ${contributorLinkHtml(layer, id, id)}`),
+    ];
+    const parts = [
+        ...partsFor(main).map((part, index) =>
+            index === 0 && defaultIndex >= 0 ? `<span class="phase-cust-part-label">DEFAULT:</span> ${part}` : part),
+        toggle,
+        status,
+    ];
+    const rows = [buildRow("Output(s)", parts)];
+    if (expanded) {
+        outputs.forEach((item, index) => {
+            rows.push(buildRow("", partsFor(item),
+                `phase-cust-row-chain-sub${index === outputs.length - 1 ? " phase-cust-row-chain-base" : ""}`));
+        });
+    }
     return rows;
 }
 
@@ -808,7 +909,7 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
     // whose template ID diverges from the `<phase>-template` convention
     // (e.g. specify → spec-template, checklist-template) still find every
     // template artifact they load, and phases with no phase-specific template
-    // (clarify, analyze, implement, taskstoissues) return [] so we can hide
+    // (clarify, analyze, implement) return [] so we can hide
     // the row rather than lie with "Core · unchanged". Source of truth is
     // core-capabilities.mjs — do not maintain a second list here.
     const templateBareIds = canonicalTemplateIds(bareId);
@@ -842,7 +943,23 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
         deps: { buildChainRows, commandContributorParts, strategyPart, pillForState },
     });
 
-    // Artifact rows: Templates → Hooks → Scripts. See artifact-rows.js.
+    const outputRows = renderOutputRows({
+        outputEvidence: outputEvidenceForCommand(state.snapshot?.artifactEvidence, cmdName),
+        availability: outputEvidenceForCommand(state.snapshot?.outputAvailability, cmdName),
+        inferenceStatus: outputEvidenceForCommand(state.snapshot?.outputInferenceStatus, cmdName),
+        defaultPath: p.artifactPath,
+        specsDir: state.snapshot?.specsDir,
+        cmdName,
+        buildRow,
+        contributorLinkHtml,
+        fallbackContributor: (() => {
+            const chain = activeChainForArtifact(commandArt);
+            if (chain.length !== 1) return null;
+            return { layer: chain[0].layer, ...(chain[0].presetId || chain[0].extensionId
+                ? { id: chain[0].presetId ?? chain[0].extensionId } : {}) };
+        })(),
+    });
+    // Artifact rows: Templates → Hooks → Scripts.
     const rows = renderArtifactRows({
         cmdName,
         commandActive,
@@ -895,6 +1012,6 @@ export function renderPhaseCustomizations(p, outputArtifactHtml) {
                 To see what a specific run actually executed, run the phase and check the <strong>Executed</strong> / <strong>Omitted</strong> pills that appear next to each artifact after the run completes. Hover the pill for a one-sentence reason explaining <em>why</em> that artifact was executed or omitted (e.g. which preset replaced the command body).
             </p>
         </div>
-        <div class="phase-cust-grid">${writesRow}${commandRow}${rows.join("")}</div>
+        <div class="phase-cust-grid">${writesRow}${outputRows.join("")}${commandRow}${rows.join("")}</div>
     </div>`;
 }

@@ -1,0 +1,33 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-minimal-essentials-test"
+  name: "Copilot Minimal Essentials Test"
+  version: "0.1.3"
+  description: "Test-only Canvas Designer Essentials with Canvas ID and Title."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Resolve only the three default Designer pages without optional stock fields."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "replace"
+    - type: "template"
+      name: "designer-essentials"
+      file: "designer/tabs/essentials.json"
+      description: "Replace Essentials with required identity fields only."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

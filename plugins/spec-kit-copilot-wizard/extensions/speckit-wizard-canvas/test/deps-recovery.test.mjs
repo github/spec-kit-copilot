@@ -6,7 +6,15 @@ import { EventEmitter } from "node:events";
 import { syncBuiltinESMExports } from "node:module";
 
 import { buildNpmDiagnosticPrompt } from "../env/deps-recovery.mjs";
-import { getExtensionDir, installDeps } from "../env/deps-check.mjs";
+import { getDependencyDir, getExtensionDir, installDeps } from "../env/deps-check.mjs";
+import { join } from "node:path";
+
+test("Wizard setup tracks both runtime dependencies in their own extensions", () => {
+    assert.equal(getDependencyDir("js-yaml"), getExtensionDir());
+    assert.equal(getDependencyDir("es-module-lexer"),
+        join(getExtensionDir(), "..", "speckit-canvas-designer"));
+    assert.throws(() => getDependencyDir("unknown"), /Unknown Wizard dependency/);
+});
 
 test("runtime bootstrap omits development dependencies in quiet and progress modes", async () => {
     const calls = [];
@@ -29,8 +37,8 @@ test("runtime bootstrap omits development dependencies in quiet and progress mod
             assert.equal(result.ok, true);
             const call = calls.at(-1);
             assert.equal(call.command, process.platform === "win32" ? "npm.cmd" : "npm");
+            assert.equal(call.args[0], "ci");
             assert.ok(call.args.includes("--omit=dev"));
-            assert.ok(call.args.includes("js-yaml"));
             assert.equal(call.options.cwd, getExtensionDir());
             assert.equal(call.options.shell, true);
         }
@@ -55,7 +63,18 @@ test("includes extDir verbatim in the retry step", () => {
         stderr: "schannel: SEC_E_ILLEGAL_MESSAGE",
     });
     assert.ok(p.includes("C:\\Users\\me\\ext"));
-    assert.match(p, /npm install --omit=dev --no-audit --no-fund/);
+    assert.match(p, /npm ci --omit=dev --no-audit --no-fund/);
+});
+
+test("Designer dependency failures diagnose the Designer directory and package", () => {
+    const p = buildNpmDiagnosticPrompt({
+        extDir: "C:\\plugins\\speckit-canvas-designer",
+        packageName: "es-module-lexer",
+        errorCode: "HTTP_403",
+    });
+    assert.match(p, /failed to install es-module-lexer/);
+    assert.match(p, /npm ci --omit=dev --no-audit --no-fund.*es-module-lexer/);
+    assert.match(p, /C:\\plugins\\speckit-canvas-designer/);
 });
 
 test("mentions the classified error code and includes a code-specific hint", () => {
@@ -101,7 +120,7 @@ test("workspacePath appears when provided", () => {
     assert.match(p, /User workspace: \/home\/nicole\/repo/);
 });
 
-test("prompt tells the agent to call refreshEnvironment on success", () => {
+test("prompt tells the agent to use the Wizard retry control on success", () => {
     const p = buildNpmDiagnosticPrompt({ extDir: "/x", errorCode: "UNKNOWN" });
-    assert.match(p, /refreshEnvironment/);
+    assert.match(p, /click Retry in the Wizard/);
 });

@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "id": "dialog.trigger",
+  "adapter": "canvas-dialog-trigger-adapter"
+}

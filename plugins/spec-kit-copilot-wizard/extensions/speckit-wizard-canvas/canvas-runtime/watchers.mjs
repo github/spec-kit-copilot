@@ -2,7 +2,7 @@
 //
 // `startStateWatcher` observes `.speckit-wizard/state.json` so external
 // edits (agent tools, human editors) reflect in the UI immediately.
-// `startArtifactWatcher` observes `.specify/` and `specs/` (recursively
+// `startArtifactWatcher` observes `.specify/`, `specs/`, and `.github/` (recursively
 // where supported) so artifact changes trigger a re-scan without waiting
 // for the next canvas action.
 //
@@ -12,10 +12,11 @@
 // circular-import risk that a static import of `snapshot` would create.
 
 import { mkdir, stat } from "node:fs/promises";
-import { watch as fsWatch } from "node:fs";
+import { realpathSync, watch as fsWatch } from "node:fs";
 import { joinIfPossible } from "../env/workspace.mjs";
 import { readState } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
+import { artifactSetNotice } from "../contracts/artifact-notice.mjs";
 
 // --------------------------- state.json file watcher ------------------------
 // Watches `.speckit-wizard/state.json` for external edits (agent tools,
@@ -29,53 +30,92 @@ import { fsDeps } from "./instances.mjs";
 // canvas-driven write produces one extra idempotent broadcast — no cascade.
 // We also suppress duplicate events by comparing mtimeMs to the last one we
 // processed (fs.watch can fire twice for a single write on Windows).
-export async function startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }) {
-    if (!inst?.workspacePath || inst.stateWatcher) return;
-    const dir = joinIfPossible(inst.workspacePath, ".speckit-wizard");
-    if (!dir) return;
-    try { await mkdir(dir, { recursive: true }); } catch { /* best-effort */ }
-    try {
-        const w = fsWatch(dir, { persistent: false }, (event, filename) => {
-            // Node normalizes to "state.json" on Windows when the file changes;
-            // some rename/replace patterns emit null — accept both.
-            if (filename && filename !== "state.json") return;
-            if (inst._stateWatchDebounce) clearTimeout(inst._stateWatchDebounce);
-            inst._stateWatchDebounce = setTimeout(async () => {
-                inst._stateWatchDebounce = null;
+export async function startStateWatcher(inst, {
+    snapshot,
+    normalizeHookArtifactsInComposition,
+    onProjectInitialized,
+}) {
+    if (!inst?.workspacePath) return;
+    // Reopens can follow a reset that moved the watched directory to a backup.
+    stopStateWatcher(inst);
+    const stateDir = joinIfPossible(inst.workspacePath, ".speckit-wizard");
+    if (!stateDir) return;
+    try { await mkdir(stateDir, { recursive: true }); } catch { /* best-effort */ }
+    // Windows fs.watch can abort the process for an 8.3 short-path alias.
+    const workspacePath = process.platform === "win32"
+        ? realpathSync.native(inst.workspacePath) : inst.workspacePath;
+    const dir = joinIfPossible(workspacePath, ".speckit-wizard");
+    const scheduleRead = () => {
+        if (inst._stateWatchDebounce) clearTimeout(inst._stateWatchDebounce);
+        inst._stateWatchDebounce = setTimeout(async () => {
+            inst._stateWatchDebounce = null;
+            try {
+                const statePath = joinIfPossible(dir, "/state.json");
+                let mtimeMs = 0;
                 try {
-                    const statePath = joinIfPossible(dir, "/state.json");
-                    let mtimeMs = 0;
-                    try {
-                        const s = await stat(statePath);
-                        mtimeMs = s.mtimeMs;
-                    } catch { /* file may not exist yet */ }
-                    if (mtimeMs && mtimeMs === inst._stateWatchLastMtimeMs) return;
-                    inst._stateWatchLastMtimeMs = mtimeMs;
-                    const r = await readState(inst.workspacePath, fsDeps).catch(() => null);
-                    if (r?.state) {
-                        inst.state = r.state;
-                        // Re-hydrate the composition cache from the freshly
-                        // loaded state so external writes (agent tools,
-                        // manual edits, workflows) surface in the
-                        // Composition tab. Without this, the snapshot
-                        // pipeline keeps emitting the stale cached
-                        // composition and the file watcher only refreshes
-                        // phases/setup/etc.
-                        if (r.state.composition) {
-                            inst.cachedComposition = normalizeHookArtifactsInComposition(r.state.composition);
-                        }
+                    const s = await stat(statePath);
+                    mtimeMs = s.mtimeMs;
+                } catch { /* file may not exist yet */ }
+                if (mtimeMs && mtimeMs === inst._stateWatchLastMtimeMs) return;
+                inst._stateWatchLastMtimeMs = mtimeMs;
+                const r = await readState(inst.workspacePath, fsDeps).catch(() => null);
+                if (r?.state) {
+                    const wasInitialized = !!inst.state?.setup?.projectInitialized;
+                    inst.state = r.state;
+                    // Re-hydrate the composition cache from the freshly
+                    // loaded state so external writes (agent tools,
+                    // manual edits, workflows) surface in the
+                    // Composition tab. Without this, the snapshot
+                    // pipeline keeps emitting the stale cached
+                    // composition and the file watcher only refreshes
+                    // phases/setup/etc.
+                    if (r.state.composition) {
+                        inst.cachedComposition = normalizeHookArtifactsInComposition(r.state.composition);
                     }
-                    const snap = await snapshot(inst);
-                    inst.broadcast({ type: "state", data: snap });
-                } catch {
-                    // best-effort watcher; UI will pick up state on next event
+                    if (!wasInitialized && r.state.setup.projectInitialized) {
+                        await onProjectInitialized?.();
+                    }
                 }
+                const snap = await snapshot(inst);
+                inst.broadcast({ type: "state", data: snap });
+            } catch {
+                // best-effort watcher; UI will pick up state on next event
+            }
             }, 80);
+    };
+    // fs.watch follows a moved directory handle on Windows, so a reset that
+    // replaces `.speckit-wizard/` while the provider runs would otherwise
+    // leave the watcher observing the backup. The root watcher reattaches.
+    const attachDirWatcher = () => {
+        if (inst.stateWatcher) {
+            try { inst.stateWatcher.close(); } catch { /* ignore */ }
+            inst.stateWatcher = null;
+        }
+        try {
+            const w = fsWatch(dir, { persistent: false }, (_event, filename) => {
+                // Node normalizes to "state.json" on Windows when the file changes;
+                // some rename/replace patterns emit null — accept both.
+                if (filename && filename !== "state.json") return;
+                scheduleRead();
+            });
+            w.on?.("error", () => {
+                // best-effort watcher; ignore transient fs.watch errors
+            });
+            inst.stateWatcher = w;
+        } catch {
+            // Directory may be absent mid-reset; the root watcher retries.
+        }
+    };
+    attachDirWatcher();
+    try {
+        const rootWatcher = fsWatch(workspacePath, { persistent: false }, (_event, filename) => {
+            if (filename !== ".speckit-wizard") return;
+            attachDirWatcher();
+            inst._stateWatchLastMtimeMs = null;
+            scheduleRead();
         });
-        w.on?.("error", () => {
-            // best-effort watcher; ignore transient fs.watch errors
-        });
-        inst.stateWatcher = w;
+        rootWatcher.on?.("error", () => { /* ignore */ });
+        inst.stateRootWatcher = rootWatcher;
     } catch {
         // fs.watch may fail on some filesystems (e.g. network mounts); the
         // wizard still works, it just won't auto-refresh on external edits.
@@ -84,29 +124,34 @@ export async function startStateWatcher(inst, { snapshot, normalizeHookArtifacts
 
 export function stopStateWatcher(inst) {
     if (!inst) return;
+    inst._stateWatchLastMtimeMs = null;
     if (inst._stateWatchDebounce) {
         clearTimeout(inst._stateWatchDebounce);
         inst._stateWatchDebounce = null;
     }
-    if (inst.stateWatcher) {
-        try { inst.stateWatcher.close(); } catch { /* ignore */ }
-        inst.stateWatcher = null;
+    for (const key of ["stateWatcher", "stateRootWatcher"]) {
+        if (!inst[key]) continue;
+        try { inst[key].close(); } catch { /* ignore */ }
+        inst[key] = null;
     }
 }
 
 // --------------------------- artifact file watcher --------------------------
-// Watches `.specify/` and `specs/` (recursive where the OS supports it) so
+// Watches `.specify/`, `specs/`, and `.github/` (recursive where supported) so
 // that when a skill writes constitution.md, spec.md, plan.md, tasks.md, etc.
 // — or the user edits them by hand — the wizard rescans and re-broadcasts
 // without waiting for the next canvas action. Complements the state.json
 // watcher: state.json is the control-plane cache, but the artifacts on disk
 // are the grounding truth for phase status.
 export async function startArtifactWatcher(inst, { snapshot }) {
-    if (!inst?.workspacePath || inst.artifactWatchers.length) return;
+    if (!inst?.workspacePath) return;
+    stopArtifactWatcher(inst);
+    const workspacePath = process.platform === "win32"
+        ? realpathSync.native(inst.workspacePath) : inst.workspacePath;
     const roots = [
-        joinIfPossible(inst.workspacePath, ".specify"),
-        joinIfPossible(inst.workspacePath, "specs"),
-        joinIfPossible(inst.workspacePath, ".github"),
+        joinIfPossible(workspacePath, ".specify"),
+        joinIfPossible(workspacePath, "specs"),
+        joinIfPossible(workspacePath, ".github"),
     ].filter(Boolean);
 
     const scheduleRescan = () => {
@@ -115,14 +160,21 @@ export async function startArtifactWatcher(inst, { snapshot }) {
             inst._artifactWatchDebounce = null;
             try {
                 const snap = await snapshot(inst);
-                inst.broadcast({ type: "state", data: snap, review: { kind: "artifact-set" } });
+                inst.broadcast({ type: "state", data: snap, review: artifactSetNotice() });
             } catch {
                 // best-effort watcher; UI will pick up state on next event
             }
         }, 150);
     };
 
+    const watchersByRoot = new Map();
     const attachRootWatcher = (root) => {
+        const previous = watchersByRoot.get(root);
+        if (previous) {
+            try { previous.close(); } catch { /* ignore */ }
+            inst.artifactWatchers = inst.artifactWatchers.filter((w) => w !== previous);
+            watchersByRoot.delete(root);
+        }
         try {
             const w = fsWatch(root, { persistent: false, recursive: true }, (_event, filename) => {
                 if (typeof filename === "string" && filename.startsWith(".git")) return;
@@ -132,40 +184,29 @@ export async function startArtifactWatcher(inst, { snapshot }) {
                 // best-effort watcher; ignore transient fs.watch errors
             });
             inst.artifactWatchers.push(w);
+            watchersByRoot.set(root, w);
             return true;
         } catch {
             return false;
         }
     };
 
-    // Attempt to attach recursive watchers on any roots that already exist.
-    // Track which ones are still missing so we can re-attach them lazily
-    // when they're created (e.g. `specs/` after the first /speckit-specify).
-    const missing = new Set();
-    for (const root of roots) {
-        if (!attachRootWatcher(root)) missing.add(root);
-    }
+    for (const root of roots) attachRootWatcher(root);
 
-    // Watch the workspace root (non-recursive) so we notice when a top-level
-    // directory (`.specify` or `specs`) is created, then attach a recursive
-    // watcher to it.
-    if (missing.size) {
-        try {
-            const rootWatcher = fsWatch(inst.workspacePath, { persistent: false }, (_event, filename) => {
-                if (typeof filename !== "string" || !filename) return;
-                for (const target of Array.from(missing)) {
-                    if (target.endsWith(filename) || target === joinIfPossible(inst.workspacePath, filename)) {
-                        if (attachRootWatcher(target)) {
-                            missing.delete(target);
-                            scheduleRescan();
-                        }
-                    }
-                }
-            });
-            rootWatcher.on?.("error", () => { /* ignore */ });
-            inst.artifactWatchers.push(rootWatcher);
-        } catch { /* best-effort */ }
-    }
+    // Watch the workspace root (non-recursive) so we notice when `.specify`
+    // `specs`, or `.github` is created or replaced while the provider runs
+    // (fs.watch follows a moved directory on Windows), and reattach.
+    try {
+        const rootWatcher = fsWatch(workspacePath, { persistent: false }, (_event, filename) => {
+            if (typeof filename !== "string" || !filename) return;
+            const target = joinIfPossible(workspacePath, filename);
+            if (!roots.includes(target)) return;
+            attachRootWatcher(target);
+            scheduleRescan();
+        });
+        rootWatcher.on?.("error", () => { /* ignore */ });
+        inst.artifactWatchers.push(rootWatcher);
+    } catch { /* best-effort */ }
 }
 
 export function stopArtifactWatcher(inst) {

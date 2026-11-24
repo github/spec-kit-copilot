@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-generated.phase-control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "workflow-phases",
+  "adapter": "generated-phase-adapter",
+  "placement": {"page": "workflow", "slot": "workflow.phases"},
+  "slots": [
+    {"id": "phase.card"},
+    {"id": "phase.output"}
+  ]
+}

@@ -5,8 +5,7 @@
 // walks in the parent chat session. It carries the extension folder path
 // so the agent doesn't have to guess where to install, the classified
 // error code so it knows what to attempt first, and a short stderr tail
-// as evidence. When the fix succeeds it must call the wizard's
-// `refreshEnvironment` canvas action so the diagnostic card clears.
+// as evidence. The Wizard's Retry control rechecks and clears the card.
 
 const CODE_HINTS = {
     TLS_HANDSHAKE:
@@ -41,19 +40,21 @@ function truncateStderr(s) {
 /**
  * @param {object} opts
  * @param {string} opts.extDir         Absolute path to the extension folder.
+ * @param {string} [opts.packageName]  Failed runtime dependency.
  * @param {string} opts.errorCode      Classified npm error code (see classifier).
  * @param {string} [opts.stderr]       Raw stderr from the failed install.
  * @param {string} [opts.workspacePath] User workspace path (for context).
  * @returns {string}
  */
-export function buildNpmDiagnosticPrompt({ extDir, errorCode, stderr = "", workspacePath = null } = {}) {
+export function buildNpmDiagnosticPrompt({ extDir, packageName = "js-yaml",
+    errorCode, stderr = "", workspacePath = null } = {}) {
     if (!extDir || typeof extDir !== "string") {
         throw new Error("buildNpmDiagnosticPrompt requires extDir");
     }
     const codeHint = CODE_HINTS[errorCode] ?? CODE_HINTS.UNKNOWN;
     const wsLine = workspacePath ? `\nUser workspace: ${workspacePath}` : "";
     return [
-        "The Spec Kit Wizard canvas failed to install its js-yaml dependency and is asking you to diagnose the underlying npm/network problem.",
+        `The Spec Kit Wizard environment setup failed to install ${packageName} and is asking you to diagnose the underlying npm/network problem.`,
         "",
         `Classified error code: **${errorCode}**`,
         `Extension folder (run every npm command inside this folder): ${extDir}${wsLine}`,
@@ -76,8 +77,8 @@ export function buildNpmDiagnosticPrompt({ extDir, errorCode, stderr = "", works
         "   d. None of the above / they don't know — recommend they check with IT.",
         "4. Based on the answer, propose the minimal `~/.npmrc` change (registry=, cafile=, https-proxy=, or a strict-ssl override as a last resort). Show the exact diff before applying.",
         "5. Apply the change with the user's confirmation.",
-        `6. Retry the install with: \`cd "${extDir}" && npm install --omit=dev --no-audit --no-fund\``,
-        "7. If it succeeds, invoke the wizard's `refreshEnvironment` canvas action (canvasId `speckit-wizard`) so the diagnostic banner clears. If it fails again, capture the new stderr, re-classify, and continue the loop.",
+        `6. Retry the install with: \`cd "${extDir}" && npm ci --omit=dev --no-audit --no-fund\` (installs ${packageName} from the extension's lockfile).`,
+        "7. If it succeeds, ask the user to click Retry in the Wizard dependency error card; it rechecks both dependencies and clears the banner. If it fails again, capture the new stderr, re-classify, and continue the loop.",
         "",
         "Constraints:",
         "- Never disable TLS certificate validation project-wide without the user's explicit consent.",

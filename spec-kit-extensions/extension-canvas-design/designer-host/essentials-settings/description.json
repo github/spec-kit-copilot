@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.description",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 10,
+  "field": {"id": "canvas.description", "type": "string", "control": "stock.text",
+    "label": "Description", "description": "Optional description of up to 240 characters. Leave blank to use the default."},
+  "generatedBinding": {"presentation": "text", "slot": "workflow.description"}
+}

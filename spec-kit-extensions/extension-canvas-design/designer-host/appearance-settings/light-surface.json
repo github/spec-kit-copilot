@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.light-surface",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 30,
+  "field": {"id": "canvas.surfaceLight", "type": "string", "control": "stock.text",
+    "label": "Light surface", "description": "Optional card and header surface color, with or without #. Leave blank for the default."}
+}

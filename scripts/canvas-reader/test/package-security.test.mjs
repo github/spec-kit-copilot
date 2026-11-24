@@ -43,6 +43,8 @@ test("reader validation actions are immutable and retain read-only fork permissi
     assert.doesNotMatch(workflow, /pull_request_target:/);
     assert.match(workflow, /permissions:\s*\n\s+contents:\s+read/);
     assert.match(workflow, /node-version:\s+24\.19\.0/);
+    assert.match(workflow, /Push-Location "\.\.\/\.\.\/\.\.\/speckit-canvas-designer"/);
+    assert.match(workflow, /npm ci --omit=dev --ignore-scripts --no-fund/);
 });
 
 async function withPayload(canvas, run) {

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "test-phase",
+  "label": "Phase confirmed",
+  "description": "Matches when the selected phase's latest run completed.",
+  "inputs": [
+    {"id": "phase", "type": "phase", "label": "Phase to confirm"}
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-test-phase-adapter"
+}

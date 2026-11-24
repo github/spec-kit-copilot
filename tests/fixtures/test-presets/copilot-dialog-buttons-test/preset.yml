@@ -1,0 +1,58 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-dialog-buttons-test"
+  name: "Copilot Dialog and Buttons Test"
+  version: "0.1.0"
+  description: "Test-only phase dialog and Workflow dialog-trigger placement."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register optional named generated dialog and Workflow button."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-dialog-buttons-test"
+      file: "generated/dialog.json"
+      description: "Test-only confirmation dialog."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-button-dialog-test"
+      file: "generated/button-dialog.json"
+      description: "Test-only Workflow button dialog."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-dialog-trigger-control"
+      file: "generated/dialog-trigger-control.json"
+      description: "Dialog-only Workflow trigger control."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-dialog-trigger-adapter"
+      file: "generated/dialog-trigger-adapter.mjs"
+      description: "Dialog-only Workflow trigger adapter."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-implement-dialog-test"
+      file: "generated/phase-binding.json"
+      description: "Bind one phase to the named confirmation dialog."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-workflow-button-test"
+      file: "generated/button.json"
+      description: "Place a dialog-only trigger in workflow.actions."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

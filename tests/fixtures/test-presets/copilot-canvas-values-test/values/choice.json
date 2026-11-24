@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "demo.choice",
+  "label": "Choice",
+  "schema": { "type": "object", "properties": { "level": ["one", "two"] } },
+  "source": { "kind": "constant", "value": { "level": "two" } },
+  "presentation": "stock.readonly"
+}

@@ -1,4 +1,5 @@
-// Phase-tracking canvas action handlers: setPhaseStatus, reportExecution.
+// Phase-tracking canvas action handlers: setPhaseStatus, reportExecution,
+// reportCommandComplete.
 // Called by the scaffolded skills to mark completion and record which
 // artifacts actually fired during a run.
 //
@@ -11,12 +12,16 @@
 // layer.
 
 import { RUNNABLE_PHASE_ORDER, RUNNABLE_PHASES } from "../wizard-phases.mjs";
-import { withInstance } from "../instances.mjs";
+import { sessionAdapter, withInstance } from "../instances.mjs";
 import { persistAndBroadcast } from "../composition-apply.mjs";
 import { normalizeExecutionReports, mergeExecutionReportEntry } from "../../state/store.mjs";
 import { activeArtifactsForCommand } from "../../pipeline/active-artifacts.mjs";
 import { dispatchPhaseCommand } from "../dispatch.mjs";
 import { activeRunMatches, clearRun, consumeReportableRun, finishRun, hasActiveRun } from "../run-tracker.mjs";
+import { phaseExecutionInputSchema, phaseStatusInputSchema } from "../../contracts/agent-phase.mjs";
+import { commandCompletionInputSchema, validateCommandCompletionInput } from "../../contracts/agent-command.mjs";
+import { ensurePipelineOutputInference } from "../output-inference-dispatch.mjs";
+import { consumeCommandRun, currentCommandRunMatches } from "../command-run-tracker.mjs";
 
 // Helper used by `reportExecution` below to merge the agent's per-phase
 // self-report into `composition.executionReports`. The agent is the sole
@@ -69,21 +74,36 @@ async function applyExecutionReport(inst, input) {
     return { ok: true, merged: Object.keys(norm).length };
 }
 
+export async function completeCommandRun(inst, input, {
+    infer = ensurePipelineOutputInference,
+    log = (message) => sessionAdapter().log(message, "warning"),
+} = {}) {
+    const parsed = validateCommandCompletionInput(input);
+    if (!parsed.ok) return parsed;
+    const { commandId, runId, status } = parsed.value;
+    const run = consumeCommandRun(inst.instanceId, commandId, runId);
+    if (!run) {
+        return { ok: false, error: "stale command run" };
+    }
+    if (status === "skipped") return { ok: true, queued: false };
+    const isCurrent = () => currentCommandRunMatches(inst.instanceId, commandId, runId);
+    try {
+        const result = await infer(inst, { commandIds: [run.sourceCommandId], isCurrent });
+        if (!isCurrent()) return { ok: false, error: "stale command run" };
+        return { ok: true, queued: result.queued };
+    } catch (error) {
+        const detail = error?.message ?? String(error);
+        await log(`Output inference: ${detail}`);
+        return { ok: false, error: `output inference failed: ${detail}` };
+    }
+}
+
 export const phaseActions = [
     {
         name: "setPhaseStatus",
         description:
             "Update the status (and optional artifact path) of a single wizard phase after the scaffolded skill finishes.",
-        inputSchema: {
-            type: "object",
-            required: ["phase", "status"],
-            properties: {
-                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
-                status: { type: "string", enum: ["empty", "in_progress", "done", "skipped", "error"] },
-                artifactPath: { type: "string" },
-                runId: { type: "string" },
-            },
-        },
+        inputSchema: phaseStatusInputSchema,
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, status, artifactPath, runId } = ctx.input ?? {};
@@ -127,9 +147,17 @@ export const phaseActions = [
             }),
     },
     {
+        name: "reportCommandComplete",
+        description:
+            "Report that a Run command has finished. Call once after completing its normal work; the Wizard then infers expected outputs for that command.",
+        inputSchema: commandCompletionInputSchema,
+        handler: (ctx) =>
+            withInstance(ctx, (inst) => completeCommandRun(inst, ctx.input)),
+    },
+    {
         name: "runPhase",
         description:
-            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble so the agent knows to report a terminal status and, on success, call `reportExecution`. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
+            "Kick off a wizard phase by dispatching its `/speckit-<phase>` slash command through the session — the same code path the wizard's Run phase button uses. Includes the wizard tracking preamble for terminal status, `reportExecution`, and output-inference completion. Use this when the user asks the agent to run a phase directly instead of clicking the button.",
         inputSchema: {
             type: "object",
             required: ["phase"],
@@ -162,33 +190,7 @@ export const phaseActions = [
         name: "reportExecution",
         description:
             "Report which of the phase's expected templates / scripts / hooks the agent actually invoked, per the tracking preamble's closed list. Call once after setPhaseStatus(status:'done').",
-        inputSchema: {
-            type: "object",
-            required: ["phase", "artifacts", "runId"],
-            properties: {
-                phase: { type: "string", enum: RUNNABLE_PHASE_ORDER },
-                runId: { type: "string" },
-                artifacts: {
-                    type: "object",
-                    description:
-                        "Per-kind map of bareId → 'executed' | 'omitted'. Use the exact IDs the tracking preamble listed as expected. Do not invent IDs.",
-                    properties: {
-                        templates: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                        scripts: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                        hooks: {
-                            type: "object",
-                            additionalProperties: { type: "string", enum: ["executed", "omitted"] },
-                        },
-                    },
-                },
-            },
-        },
+        inputSchema: phaseExecutionInputSchema,
         handler: (ctx) =>
             withInstance(ctx, async (inst) => {
                 const { phase, artifacts, runId } = ctx.input ?? {};

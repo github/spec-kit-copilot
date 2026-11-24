@@ -1,10 +1,16 @@
 name: Release Preset
 
-# Pushing a `<preset-id>-vX.Y.Z` tag builds that preset's zip inline and publishes it
-# as a release asset — matching the `download_url` entries in
-# spec-kit-presets/catalog.json.
+# Build and publish a preset zip from a tag push or a manual trigger call.
 
 on:
+  workflow_call:
+    inputs:
+      preset_id:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
   push:
     tags:
       - 'copilot-*-v[0-9]+.[0-9]+.[0-9]+'
@@ -17,23 +23,29 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
-      - name: Parse tag
+      - name: Validate release
         id: parse
+        env:
+          SELECTED_PRESET: ${{ inputs.preset_id }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          # Extract preset id (everything before the last -vX.Y.Z)
-          PRESET_ID="${TAG%-v*}"
-          VERSION="${TAG##*-v}"
-
-          # Validate version format
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version format '$VERSION'" >&2
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            PRESET_ID="${TAG%-v*}"
+            VERSION="${TAG##*-v}"
+          else
+            PRESET_ID="$SELECTED_PRESET"
+            VERSION="${REQUESTED_VERSION#v}"
+            TAG="${PRESET_ID}-v${VERSION}"
           fi
 
-          if [[ ! "$PRESET_ID" =~ ^copilot-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
-            echo "Error: Invalid preset ID '$PRESET_ID'. Must be copilot-<name> with lowercase letters, digits, and hyphens" >&2
+          if [[ ! "$PRESET_ID" =~ ^copilot-[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+             [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+             [[ "$TAG" != "${PRESET_ID}-v${VERSION}" ]]; then
+            echo "Error: Invalid preset release tag '$TAG'" >&2
             exit 1
           fi
 
@@ -60,32 +72,9 @@ jobs:
             exit 1
           fi
 
-          MANIFEST_ID=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["id"])' "spec-kit-presets/$PRESET_ID/preset.yml")
-          if [[ "$MANIFEST_ID" != "$PRESET_ID" ]]; then
-            echo "Error: preset.yml ID '$MANIFEST_ID' != directory '$PRESET_ID'" >&2
-            exit 1
-          fi
-
-          # Ensure the tag version matches the manifest and the catalog entry,
-          # so a typo or direct tag push can't publish a mislabeled archive.
-          MANIFEST_VERSION=$(python3 -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["preset"]["version"])' "spec-kit-presets/$PRESET_ID/preset.yml")
-          if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
-            echo "Error: tag version '$VERSION' != preset.yml version '$MANIFEST_VERSION'" >&2
-            exit 1
-          fi
-
-          CATALOG_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["version"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
-          if [[ "$CATALOG_VERSION" != "$VERSION" ]]; then
-            echo "Error: tag version '$VERSION' != catalog.json version '$CATALOG_VERSION' for '$PRESET_ID'" >&2
-            exit 1
-          fi
-
-          CATALOG_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["presets"][sys.argv[2]]["download_url"])' "spec-kit-presets/catalog.json" "$PRESET_ID")
-          EXPECTED_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/${PRESET_ID}.zip"
-          if [[ "$CATALOG_URL" != "$EXPECTED_URL" ]]; then
-            echo "Error: catalog download_url '$CATALOG_URL' != expected release URL '$EXPECTED_URL'" >&2
-            exit 1
-          fi
+          # Validate identity/version and the exact asset URL against this
+          # publishing repository; never rewrite metadata during publication.
+          node dev-tools/validate-preset-catalog.mjs "$PRESET_ID" "$VERSION"
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "preset_id=$PRESET_ID" >> "$GITHUB_OUTPUT"
@@ -97,6 +86,23 @@ jobs:
           cd "spec-kit-presets/${{ steps.parse.outputs.preset_id }}"
           zip -r "$GITHUB_WORKSPACE/${{ steps.parse.outputs.preset_id }}.zip" . \
             -x '.*' '__pycache__/*'
+
+      - name: Create or verify release tag
+        env:
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            if [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "Error: Tag '$TAG' points to a different commit; refusing to move it." >&2
+              exit 1
+            fi
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "Error: Release tag '$TAG' is missing." >&2
+            exit 1
+          else
+            git tag "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+          fi
 
       - name: Generate release notes
         env:
@@ -128,5 +134,7 @@ jobs:
         run: |
           gh release create "$TAG" \
             "$PRESET_ID.zip" \
+            --verify-tag \
+            --latest=false \
             --title "$PRESET_ID v$VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md"

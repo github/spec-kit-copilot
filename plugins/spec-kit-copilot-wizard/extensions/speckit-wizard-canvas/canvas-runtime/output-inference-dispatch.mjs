@@ -1,0 +1,114 @@
+import { commandId } from "../artifact-evidence.mjs";
+import { commandAliasKey, effectivePipelinePhases } from "../pipeline/effective-phases.mjs";
+import { snapshot } from "./snapshot.mjs";
+import { sessionAdapter } from "./instances.mjs";
+import { buildArtifactInferencePrompt as defaultBuildPrompt } from "./artifact-inference-prompt.mjs";
+import { startBackgroundInference } from "./background-inference.mjs";
+import {
+    beginOutputInference,
+    createOutputInferenceWorker,
+    failOutputInference,
+    reconcileOutputInference,
+    unassignedOutputRequests,
+} from "./output-inference.mjs";
+
+function scheduleWorkers(inst, inference) {
+    if (inst.outputInference !== inference || inference.status !== "updating"
+        || inference.workers.size > 0) return;
+    const requests = unassignedOutputRequests(inference);
+    if (!requests.length) return;
+    const { worker, endpoint } = createOutputInferenceWorker(inst, inference, requests);
+    const isCurrent = () => inst.outputInference === inference
+        && inference.workers.get(worker.id) === worker;
+    void Promise.resolve().then(() => inference.buildPrompt({
+        workspacePath: inst.workspacePath,
+        commands: requests,
+        endpoint: endpoint.toString(),
+    })).then((prompt) => inference.startWorker(inst, { prompt },
+        inference.session, isCurrent, worker.id)).catch((error) => {
+        failOutputInference(inst, inference, worker.id,
+            `Output inference dispatch failed: ${error.message}`);
+    });
+}
+
+function selectedPipelineCommands(commandIds, pipelineCommands) {
+    const selected = new Set();
+    for (const raw of commandIds) {
+        const id = commandId(typeof raw === "string" ? raw.replace(/^\/+/, "") : raw);
+        if (pipelineCommands.has(id)) {
+            selected.add(id);
+            continue;
+        }
+        const alias = commandAliasKey(raw);
+        const matches = [...pipelineCommands].filter((candidate) => commandAliasKey(candidate) === alias);
+        if (matches.length > 1) throw new Error(`Ambiguous command alias: ${raw}`);
+        if (matches.length === 1) selected.add(matches[0]);
+    }
+    return selected;
+}
+
+export async function ensurePipelineOutputInference(inst, {
+    getSnapshot = snapshot,
+    session = sessionAdapter(),
+    buildPrompt = defaultBuildPrompt,
+    startWorker = (target, request, workerSession, isCurrent, workerId) =>
+        startBackgroundInference(target, request, workerSession, isCurrent, workerId),
+    commandIds,
+    isCurrent = () => true,
+} = {}) {
+    if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
+    let current, revision, attempts = 0;
+    do {
+        revision = inst.artifactEvidenceRevision ?? 0;
+        current = await getSnapshot(inst);
+        if (inst.closed || !isCurrent()) return { queued: false, requests: [] };
+        if (++attempts >= 3 && revision !== (inst.artifactEvidenceRevision ?? 0)) {
+            throw new Error("Artifact evidence changed repeatedly during output inference admission");
+        }
+    } while (revision !== (inst.artifactEvidenceRevision ?? 0));
+    if (current?.artifactEvidence && current?.artifactInferenceRequests) {
+        reconcileOutputInference(inst, {
+            evidence: current.artifactEvidence,
+            requests: current.artifactInferenceRequests,
+        });
+    }
+    const pipelineCommands = new Set(effectivePipelinePhases(current)
+        .map(({ id }) => commandId(id)));
+    const selectedCommands = commandIds == null
+        ? null
+        : selectedPipelineCommands(commandIds, pipelineCommands);
+    const requests = (current?.artifactInferenceRequests ?? [])
+        .filter(({ commandId: id }) => pipelineCommands.has(commandId(id))
+            && (!selectedCommands || selectedCommands.has(commandId(id))));
+    if (!requests.length) return { queued: false, requests: [] };
+    const inference = beginOutputInference(inst, requests);
+    if (!inference) return { queued: false, requests: [] };
+    inference.session = session;
+    inference.buildPrompt = buildPrompt;
+    inference.startWorker = startWorker;
+    inference.schedule = () => scheduleWorkers(inst, inference);
+    if (current?.artifactEvidence && current?.artifactInferenceRequests) {
+        reconcileOutputInference(inst, {
+            evidence: current.artifactEvidence,
+            requests: current.artifactInferenceRequests,
+        });
+    }
+    scheduleWorkers(inst, inference);
+    return { queued: true, requests, inference };
+}
+
+// Resolves once the given inference run is no longer updating. The run's own
+// timeout marks it incomplete, so this wait is bounded.
+export async function waitForOutputInference(inst, inference, { intervalMs = 250, requests } = {}) {
+    const scoped = requests && new Map(requests.map((request) =>
+        [commandId(request.commandId), request.fingerprint]));
+    while (inference && inst.outputInference === inference && inference.status === "updating"
+        && (!scoped || [...inference.pending].some(([id, request]) =>
+            scoped.get(id) === request.fingerprint))) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+}
+
+export function scheduleOutputInference(inst, inference = inst.outputInference) {
+    if (inference?.schedule) scheduleWorkers(inst, inference);
+}

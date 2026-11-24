@@ -13,7 +13,9 @@ preview has room and a keyboard-accessible drawer in narrower containers.
 
 The artifact selector includes the selected feature's supporting documents,
 contracts, checklists, and available project constitution. Wizard also
-supports command and template sources already known to its composition.
+supports command and template sources already known to its composition. Nested
+commands follow Copilot skill naming: for example, `speckit.assess.intake` maps
+to `.github/skills/speckit-assess-intake/SKILL.md`.
 Relative Markdown links open scoped documents in the same reader. Back and
 forward arrows select the previous or next available Markdown document in the
 current folder, in natural filename order, without requiring prior visits.
@@ -104,6 +106,11 @@ the reader, dependency notices, and provenance in each plugin independently.
 Neither installed plugin requires the sibling checkout or reader build
 dependencies. Generated payloads are marked in the repository attributes;
 edit their canonical sources and rebuild, not the copies.
+The Wizard's separate Designer launch also loads its verifier from the
+validated Canvas Design extension installed in the target project; reader
+preview and packaging do not install or execute that extension.
+The staging verifier recognizes Designer's scoped dynamic adapter loads and
+includes its locked runtime; Designer validates contributed modules separately.
 
 ## Build And Test
 
@@ -112,8 +119,10 @@ root in PowerShell:
 
 ```powershell
 $wizard = "plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas"
+$designer = "plugins/spec-kit-copilot-wizard/extensions/speckit-canvas-designer"
 $reader = "$wizard/ui/markdown-reader"
 npm ci --prefix $wizard --ignore-scripts
+npm ci --prefix $designer --omit=dev --ignore-scripts
 npm ci --prefix $reader --ignore-scripts
 npm --prefix $reader run typecheck
 npm --prefix $reader run lint

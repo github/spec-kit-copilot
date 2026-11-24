@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "markdown-file-count",
+  "label": "Markdown files in output folder",
+  "description": "Choose a confirmed output in the folder to count. Count regular Markdown files beside it for each workflow, even when the selected output does not exist yet.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "scope": "directory"
+    }
+  ],
+  "textPlaceholders": [
+    "count"
+  ],
+  "adapter": "badge-rule-content-adapter"
+}

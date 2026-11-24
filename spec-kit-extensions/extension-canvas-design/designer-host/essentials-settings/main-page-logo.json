@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.logo-main-page",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 1,
+  "field": {"id": "canvas.mainPageLogo", "type": "image", "control": "stock.image",
+    "label": "Main page logo", "description": "Optional larger PNG, JPEG, GIF, or WebP image (up to 32 KiB)."},
+  "generatedBinding": {"presentation": "asset", "slot": "workflow.intro"}
+}

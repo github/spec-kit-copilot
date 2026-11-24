@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "types": [
+    {
+      "id": "test-phase",
+      "title": "Phase confirmed",
+      "description": "A test-only badge whose input editor explains phase selection.",
+      "rule": "test-phase",
+      "defaultText": "Phase confirmed",
+      "defaultColor": "purple",
+      "enabled": true
+    }
+  ]
+}

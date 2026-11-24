@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-shared.control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.text",
+  "value": {"type": "string"},
+  "adapters": {
+    "designer": "designer-control-adapter-text",
+    "generated": "generated-control-adapter-text"
+  }
+}

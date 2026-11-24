@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "adapter", "title", "blocks", "buttons"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "adapter": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "title": {"$ref": "#/$defs/text"},
+    "blocks": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["type", "text"],
+        "properties": {"type": {"enum": ["heading", "paragraph", "warning"]}, "text": {"$ref": "#/$defs/text"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "items"],
+        "properties": {"type": {"const": "list"}, "items": {"type": "array", "minItems": 1, "maxItems": 20,
+          "items": {"$ref": "#/$defs/text"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "text", "href"],
+        "properties": {"type": {"const": "link"}, "text": {"$ref": "#/$defs/text"},
+          "href": {"type": "string", "maxLength": 2048, "pattern": "^https://[^\\s]+$"}}},
+      {"type": "object", "additionalProperties": false, "required": ["type", "name"],
+        "properties": {"type": {"const": "slot"}, "name": {"enum": ["pending-packages", "phase"]}}}
+    ]}},
+    "buttons": {"type": "object", "additionalProperties": false, "required": ["cancel", "confirm"],
+      "properties": {"cancel": {"$ref": "#/$defs/text"}, "confirm": {"$ref": "#/$defs/text"}}}
+  },
+  "$defs": {"text": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S"}}
+}

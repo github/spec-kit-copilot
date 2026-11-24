@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.workflow-item-name",
+  "host": "designer",
+  "slot": "essentials.options",
+  "order": 25,
+  "field": {"id": "canvas.workflowItemName", "type": "string", "control": "stock.text",
+    "label": "Workflow item name", "description": "The name for one workflow item, used in buttons, labels, and default names. Use the singular form. Leave blank to use ‘Workflow.’"}
+}

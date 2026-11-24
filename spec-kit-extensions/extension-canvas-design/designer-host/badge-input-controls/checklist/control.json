@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schemas/external-designer.badge-input-control.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.checklist-inputs",
+  "adapter": "designer-badge-input-checklist-adapter",
+  "inputTypes": ["artifact", "ordered-artifacts", "phase"],
+  "capabilities": ["declare-markdown-output"]
+}

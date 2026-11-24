@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.tab-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "designer-appearance",
+  "title": "Appearance",
+  "description": "Configure the generated canvas logos and light/dark palette colors.",
+  "order": 30,
+  "enabled": true,
+  "slots": [{"id": "appearance.options"}],
+  "fields": []
+}

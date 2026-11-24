@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.light-text",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 50,
+  "field": {"id": "canvas.textLight", "type": "string", "control": "stock.text",
+    "label": "Light text", "description": "Optional main text color, with or without #. Leave blank for the default."}
+}

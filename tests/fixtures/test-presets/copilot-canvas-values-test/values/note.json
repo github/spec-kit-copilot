@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "demo.note",
+  "label": "Note",
+  "schema": { "type": "string", "maxLength": 80 },
+  "source": { "kind": "constant", "value": "Initial note" },
+  "presentation": "stock.editable",
+  "section": { "id": "demo", "title": "Demo values" }
+}

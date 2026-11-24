@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.light-background",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 20,
+  "field": {"id": "canvas.backgroundLight", "type": "string", "control": "stock.text",
+    "label": "Light page background", "description": "Optional six-digit hex color, with or without #. Leave blank for the default."}
+}

@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-generated-overview",
+  "title": "Overview",
+  "renderer": "canvas-generated-overview-renderer"
+}

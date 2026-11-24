@@ -18,7 +18,7 @@ import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 
 import { readState } from "./state/store.mjs";
 import { startServer } from "./server.mjs";
-import { checkDeps, getExtensionDir, installDeps } from "./env/deps-check.mjs";
+import { checkDeps, getDependencyDir, installDeps } from "./env/deps-check.mjs";
 import { createBootTracker } from "./canvas-runtime/boot-progress.mjs";
 // Composition retrieval is entirely LLM-driven via the `speckit-preset` +
 // `speckit-extension` skills — see the `composition.refresh` case in
@@ -26,7 +26,9 @@ import { createBootTracker } from "./canvas-runtime/boot-progress.mjs";
 // There is deliberately no native import that parses `preset.yml` /
 // `extension.yml` / `.registry` here; catalog interpretation belongs to the
 // skills and scanner.
-import { fetchSessionRepoPath, resolveWorkspace } from "./env/workspace.mjs";
+import { fetchSessionRepoPath, resolveWorkspace, resolveGenerateCanvas } from "./env/workspace.mjs";
+import { runtimeSettings } from "./env/runtime-settings.mjs";
+import { generateCanvasInputSchema } from "./contracts/generate-feature.mjs";
 import { fsDeps, sessionState, getInstance, allInstances, sessionAdapter, setSession, getSession } from "./canvas-runtime/instances.mjs";
 import { ensureEnvProbe } from "./env/probe-cache.mjs";
 import { startStateWatcher, stopStateWatcher, startArtifactWatcher, stopArtifactWatcher } from "./canvas-runtime/watchers.mjs";
@@ -34,9 +36,12 @@ import { hydratePresetsForSources } from "./catalog/presets.mjs";
 import { hydrateExtensionsForSources } from "./catalog/extensions.mjs";
 import { hydrateBundlesForSources } from "./catalog/bundles.mjs";
 import { PRESET_CATALOG_URL, EXTENSION_CATALOG_URL, BUNDLE_CATALOG_URL } from "./catalog/sources.mjs";
+import { hydrateCatalogGroups } from "./catalog/shared.mjs";
 import { snapshot } from "./canvas-runtime/snapshot.mjs";
+import { cancelBackgroundInference } from "./canvas-runtime/background-inference.mjs";
 import { runFastComposition, normalizeHookArtifactsInComposition } from "./canvas-runtime/composition-apply.mjs";
 import { phaseActions } from "./canvas-runtime/actions/phase.mjs";
+import { clearCommandRunsForInstance } from "./canvas-runtime/command-run-tracker.mjs";
 import { catalogActions } from "./canvas-runtime/actions/catalog.mjs";
 import { compositionActions } from "./canvas-runtime/actions/composition.mjs";
 import { pipelineActions } from "./canvas-runtime/actions/pipeline.mjs";
@@ -70,10 +75,12 @@ const instances = allInstances();
 // --------------------------- canvas open / close ---------------------------
 async function onOpen(ctx) {
     const inst = getInstance(ctx.instanceId);
+    await sessionReady;
+    if (instances.get(ctx.instanceId) !== inst) throw new Error("Wizard panel closed while opening");
+    inst.generateCanvas = resolveGenerateCanvas(inst, ctx, runtimeSettings.generateCanvasEnabled);
     inst._session = getSession();
-    inst.generateCanvas = ctx.input?.generateCanvas === true;
-    // If the session repo path wasn't captured at startup (race), try once more.
-    if (!sessionState.repoPath && getSession()) {
+    // Retry metadata lookup if it was unavailable at startup.
+    if (!sessionState.repoPath) {
         sessionState.repoPath = await fetchSessionRepoPath(getSession());
     }
     inst.workspacePath = resolveWorkspace(inst, ctx, sessionState.repoPath);
@@ -102,7 +109,32 @@ async function onOpen(ctx) {
 
     // Start watching .speckit-wizard/state.json so external edits push
     // fresh state to the UI immediately.
-    startStateWatcher(inst, { snapshot, normalizeHookArtifactsInComposition }).catch(() => { /* best-effort */ });
+    startStateWatcher(inst, {
+        snapshot,
+        normalizeHookArtifactsInComposition,
+        onProjectInitialized: async () => {
+            try {
+                await inst.bootPromise;
+                let snap;
+                const failures = await hydrateCatalogs(inst, async () => {
+                    await runFastComposition(inst, { reason: "project initialized" });
+                    snap = await snapshot(inst);
+                });
+                if (failures.length) {
+                    await sessionAdapter().log?.(
+                        `catalog refresh had failures: ${formatCatalogFailures(failures)}`,
+                        "warning",
+                    );
+                }
+                if (snap) inst.broadcast({ type: "state", data: snap });
+            } catch (err) {
+                await sessionAdapter().log?.(
+                    `catalog refresh after project initialization failed: ${err?.message ?? err}`,
+                    "error",
+                );
+            }
+        },
+    }).catch(() => { /* best-effort */ });
     startArtifactWatcher(inst, { snapshot }).catch(() => { /* best-effort */ });
     return {
         title: "Spec Kit Wizard",
@@ -164,7 +196,8 @@ export async function bootAsync(inst) {
             const stderrTail = String(installResult.stderr ?? "").split(/\r?\n/).filter(Boolean).slice(-8).join("\n");
             inst.depsError = {
                 ...classified,
-                extDir: getExtensionDir(),
+                extDir: installResult.extDir ?? getDependencyDir(recheck.missing[0]),
+                packageName: installResult.packageName ?? recheck.missing[0],
                 packages: deps.missing,
                 stderrTail,
                 timestamp: new Date().toISOString(),
@@ -199,13 +232,14 @@ export async function bootAsync(inst) {
 
     // Step 5: catalog bootstrap + fast composition.
     tracker.start("catalog");
-    try {
-        await hydrateCatalogs(inst);
+    const failures = await hydrateCatalogs(inst, async () => {
         await runFastComposition(inst, { reason: "boot" });
         await snapshot(inst);
+    });
+    if (failures.length) {
+        tracker.fail("catalog", { title: `catalog bootstrap incomplete: ${formatCatalogFailures(failures)}` });
+    } else {
         tracker.ok("catalog");
-    } catch (err) {
-        tracker.fail("catalog", { title: `catalog hydrate failed: ${err?.message ?? err}` });
     }
 
     // Step 6: ready
@@ -231,10 +265,13 @@ async function hydrateReadState(inst) {
     }
 }
 
-// Catalog bootstrap: presets → extensions → bundles. Same content as the
-// old hydrateOnce, just factored out so bootAsync can time it as its own
-// step and the retry endpoint can re-run just this phase.
-async function hydrateCatalogs(inst) {
+function formatCatalogFailures(failures) {
+    return failures.map(({ kind, message }) => `${kind}: ${message}`).join("; ");
+}
+
+// Catalog bootstrap: presets → extensions → bundles. Each catalog is
+// independent, so a failed installed-inventory read must not block the rest.
+async function hydrateCatalogs(inst, afterHydration) {
     // On a fresh instance (extension reload etc.) we auto-hydrate from the
     // hardcoded plugin catalog URLs so the Catalogs tab is populated without
     // requiring the user to re-run the skill.
@@ -271,7 +308,6 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedCatalogSources = bootstrap;
-        await hydratePresetsForSources(inst, bootstrap).catch(() => {});
     }
     if (!inst.cachedExtensionCatalogSources?.length) {
         const extBootstrap = [
@@ -301,7 +337,6 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedExtensionCatalogSources = extBootstrap;
-        await hydrateExtensionsForSources(inst, extBootstrap).catch(() => {});
     }
     if (!inst.cachedBundleCatalogSources?.length) {
         const bundleBootstrap = [
@@ -323,17 +358,28 @@ async function hydrateCatalogs(inst) {
             },
         ];
         inst.cachedBundleCatalogSources = bundleBootstrap;
-        await hydrateBundlesForSources(inst, bundleBootstrap).catch(() => {});
     }
+    return hydrateCatalogGroups([
+        { kind: "presets", hydrate: () => hydratePresetsForSources(inst, inst.cachedCatalogSources) },
+        { kind: "extensions", hydrate: () => hydrateExtensionsForSources(inst, inst.cachedExtensionCatalogSources) },
+        { kind: "bundles", hydrate: () => hydrateBundlesForSources(inst, inst.cachedBundleCatalogSources) },
+    ], afterHydration);
 }
 
-// Legacy hydrateOnce removed — bootAsync in this file supersedes it. The
-// individual phases (hydrateReadState, hydrateCatalogs) are exported
-// internally for the retry/HTTP path.
+// Legacy hydrateOnce removed — bootAsync in this file supersedes it.
 
 async function onClose(ctx) {
     const inst = instances.get(ctx.instanceId);
     if (!inst) return;
+    inst.closed = true;
+    clearCommandRunsForInstance(ctx.instanceId);
+    cancelBackgroundInference(inst);
+    for (const worker of inst.outputInference?.workers?.values() ?? []) clearTimeout(worker.timer);
+    clearTimeout(inst.outputInference?.timer);
+    clearTimeout(inst.refreshStatus?.timer);
+    inst.outputInference = null;
+    inst.outputInferenceOwner = null;
+    inst.refreshStatus = null;
     stopStateWatcher(inst);
     stopArtifactWatcher(inst);
     if (inst.sseClients) {
@@ -349,7 +395,8 @@ async function onClose(ctx) {
 }
 
 // --------------------------- joinSession + register ------------------------
-setSession(await joinSession({
+// Defer registration until the readiness promise exists, even for synchronous restores.
+const sessionReady = Promise.resolve().then(() => joinSession({
     canvases: [
         createCanvas({
             id: "speckit-wizard",
@@ -360,7 +407,7 @@ setSession(await joinSession({
                 type: "object",
                 properties: {
                     cwd: { type: "string", description: "Workspace directory. Defaults to the session's cwd." },
-                    generateCanvas: { type: "boolean", description: "Show the experimental Generate canvas button. Defaults to false." },
+                    generateCanvas: generateCanvasInputSchema,
                 },
             },
             actions: ACTIONS,
@@ -368,9 +415,9 @@ setSession(await joinSession({
             onClose,
         }),
     ],
-}));
-// Late-bind session on any instance opened during startup races.
-for (const inst of instances.values()) inst._session = getSession();
+})).then(setSession);
+
+await sessionReady;
 
 // Fetch the user's repo cwd via RPC metadata. This is the CLI-launched
 // working directory (e.g. C:\...\copilot-worktrees\<project>\<branch>) — the

@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../schemas/external-designer.badge-input-control.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.ordered-stale-inputs",
+  "adapter": "designer-badge-input-ordered-stale-adapter",
+  "inputTypes": ["artifact", "ordered-artifacts"]
+}

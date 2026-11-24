@@ -13,12 +13,15 @@ test("loaded empty preset, extension and bundle catalogs make Designer launch-re
     inst.workspacePath = root;
 
     const before = await snapshot(inst);
+    assert.deepEqual(before.featureFlags, { generateCanvas: false });
     assert.equal(before.catalog.extensions, undefined);
     assert.equal(before.catalog.bundles, undefined);
     assert.equal(before.catalog.designerFingerprint, undefined);
 
     inst.cachedExtensionItems = [];
+    inst.generateCanvas = true;
     const partial = await snapshot(inst);
+    assert.deepEqual(partial.featureFlags, { generateCanvas: true });
     assert.deepEqual(partial.catalog.extensions, []);
     assert.equal(partial.catalog.designerFingerprint, undefined);
 

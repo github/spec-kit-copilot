@@ -1,0 +1,1 @@
+export const INFERENCE_SKILL_LIMIT = 512 * 1024;

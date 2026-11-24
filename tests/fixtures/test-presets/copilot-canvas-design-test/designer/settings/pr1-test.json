@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "pr1-test-label",
+  "host": "designer",
+  "slot": "pr1-test.options",
+  "order": 10,
+  "field": {
+    "id": "pr1Test.label",
+    "label": "Test label",
+    "description": "Saved in Designer; not consumed by generation.",
+    "type": "string",
+    "control": "stock.text"
+  }
+}

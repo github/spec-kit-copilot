@@ -1,0 +1,49 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-logo-gallery-test"
+  name: "Copilot Logo Gallery Test"
+  version: "0.1.1"
+  description: "Test-only Logo field on a custom Designer page and asset slot on a generated page."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the Logo gallery Designer and generated pages."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-settings-logo-gallery"
+      file: "designer/tabs/logo-gallery.json"
+      description: "Designer page with a gallery Logo field slot."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-logo-gallery-image"
+      file: "designer/settings/logo.json"
+      description: "Stock image field bound to the gallery's generated asset slot."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-generated-logo-gallery"
+      file: "generated/pages/logo-gallery.json"
+      description: "Generated page with a hero Logo asset slot."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-generated-logo-gallery-renderer"
+      file: "generated/pages/logo-gallery.mjs"
+      description: "Generated page renderer positioning the hero Logo."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "logo"
+  - "test"

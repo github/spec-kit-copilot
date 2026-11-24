@@ -17,17 +17,28 @@
 ## What lives here
 
 These are **Spec Kit presets maintained for the Copilot experience**, including
-upstream-derived SDD baselines. Their instructions may remain portable.
+upstream-derived SDD baselines that depend on Copilot-specific mechanisms.
 See [contribution scope and placement](../CONTRIBUTING.md#scope-and-package-placement)
 for maintainer guidance on which packages belong here.
 
 | Preset | Requires | Copilot purpose |
 | --- | --- | --- |
-| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
+| [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one compatible SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
 | [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Full core workflow registered as Copilot skills, without extension lifecycle hooks and with safeguards for creating and updating specs. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-full-sdd-v1.0.0). |
 | [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. Initial release pending. |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
+| [`copilot-vertical-phase-control`](copilot-vertical-phase-control) | Spec Kit `>= 1.0.7`, the `extension-canvas-design` extension | Replaces the Copilot generated canvas phase adapter and uses its Copilot Autopilot session and validated artifact-reporting actions. |
+
+Only Copilot-specific presets and the existing Full SDD baseline belong here.
+New agent-agnostic presets (generic themes, extension-specific workflows that
+don't rely on Copilot's tools) do **not** belong in this Copilot integration hub.
+
+The **test-only** local presets for Wizard, Designer, and generated-canvas
+coverage live alongside the tests in
+[`tests/fixtures/test-presets/`](../tests/fixtures/test-presets/). They are outside this
+shipping preset directory and `catalog.json`; install them locally with
+`specify preset add --dev <path-to-fixture>`.
 
 ## Installing a preset
 
@@ -36,16 +47,20 @@ discovery-only by default, so `--install-allowed` is required to install from th
 (and `--name` is required):
 
 ```bash
-specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
-  --name spec-kit-copilot --install-allowed
+specify preset catalog add https://raw.githubusercontent.com/nicolehaugen/spec-kit-copilot/staging-canvas/spec-kit-presets/catalog.json \
+  --name spec-kit-staging --install-allowed
 
 # then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
-specify preset add copilot-full-sdd
+specify preset add copilot-vertical-phase-control # also: specify extension add extension-canvas-design
+# After publication only; until then, use the local-development instructions below.
+# Opt-in, after selecting one compatible Copilot SDD baseline:
+specify preset add copilot-extension-hooks --priority 5
 ```
 
-For Full SDD, follow the [installation prerequisites](copilot-full-sdd#installation-and-prerequisites)
+For Full SDD, register its upstream catalog and follow the
+[installation prerequisites](copilot-full-sdd#installation-and-prerequisites)
 before installing. Full and Lean are alternative baselines, not cumulative layers.
 
 `copilot-lean-sdd` **1.0.0 is not released yet**. Its catalog entry reserves the
@@ -74,8 +89,8 @@ The two methods below are escape hatches, not the primary path:
   ```bash
   specify preset add --dev ./spec-kit-presets/copilot-sub-agents
   specify preset add --dev ./spec-kit-presets/copilot-assess-ask-questions
+  specify preset add --dev ./spec-kit-presets/copilot-full-sdd
   specify preset add --dev ./spec-kit-presets/copilot-lean-sdd
-  specify preset add --dev ./spec-kit-presets/copilot-full-sdd  # alternative to Lean
   specify preset add --dev ./spec-kit-presets/copilot-extension-hooks --priority 5  # opt-in layer
   ```
 
@@ -100,9 +115,14 @@ spec-kit-presets/
 ├── copilot-sub-agents/
 │   ├── preset.yml
 │   └── commands/
-└── copilot-assess-ask-questions/
+├── copilot-assess-ask-questions/
+│   ├── preset.yml
+│   └── commands/
+└── copilot-vertical-phase-control/
     ├── preset.yml
-    └── commands/
+    ├── commands/
+    │   └── load-page.md
+    └── generated/
 ```
 
 ## Validation
@@ -132,37 +152,33 @@ Releases are cut by CI — there is no local build script. The zip is built **in
 the release workflow (`.github/workflows/release-preset.yml`) from the preset
 directory, so `preset.yml` and `commands/` sit at the archive root.
 
-The manual trigger requires a repository Actions secret named **`RELEASE_PAT`**
-containing a token authorized to push tags. Checkout persists this credential for
-the tag push, matching Spec Kit's core release trigger and allowing the separate
-release workflow to start. Do not use the default `GITHUB_TOKEN` for this handoff:
-its tag pushes do not trigger another workflow.
-
 To publish:
 
-- **Preferred:** run the **Release Preset Trigger** workflow
-  (`.github/workflows/release-preset-trigger.yml`) via *Actions → Run workflow* with
-  the preset id and version; it validates, then creates and pushes the
-  `<preset>-v<version>` tag.
-- **Or** push the tag yourself (`git tag copilot-sub-agents-v1.0.0 && git push origin
+- **Preferred:** run **Release Preset Trigger** via *Actions → Run workflow*
+  from the staging branch with the preset id and matching manifest version.
+  It calls the publisher directly, creates the tag, and publishes the ZIP
+  in the same run.
+- Or push the tag yourself (`git tag copilot-sub-agents-v1.0.0 && git push origin
   copilot-sub-agents-v1.0.0`).
 
-Either path fires `release-preset.yml`, which builds the zip and creates the GitHub
-release with that asset. When revving a preset, bump its `preset.yml` version and the
-matching `catalog.json` entry together **before** tagging.
+Both paths run `release-preset.yml`, which builds the zip and creates the GitHub
+release with that asset. A `GITHUB_TOKEN` tag push alone cannot start a separate
+workflow, so the manual trigger calls the publisher as a reusable workflow.
+When revving a preset, bump its `preset.yml` version and the matching
+`catalog.json` entry together **before** tagging.
 
-The trigger checks the requested version against the manifest and catalog before
-creating any tag. Both the trigger and publisher also require the catalog's
+The publisher checks the requested version against the manifest and catalog before
+creating any tag. It also requires the catalog's
 `download_url` to match the release repository, tag, and `<preset>.zip` asset.
 Update that URL when bumping the catalog version. Direct tag pushes receive the
 same version and URL checks in the publisher before packaging or publication.
-Both workflows require the manifest ID to match the directory. Package IDs use
+The publisher requires the manifest ID to match the directory. Package IDs use
 lowercase letters, digits, and single hyphen separators after `copilot-`.
 Symlinks in the package root or contents (including hidden and dangling links)
 are rejected before reading manifests or creating archives.
 
 The preset publisher listens only for `copilot-*-vX.Y.Z` tags, while extension
-publishers listen for `extension-*-vX.Y.Z` tags. Their workflow structure remains
-aligned with Spec Kit's manual-trigger and separate tag-push publisher model.
+publishers listen for `extension-*-vX.Y.Z` tags. Both support manual and tag-push
+entry points.
 Versions are parsed after the final `-v`; changelog notes are passed through a
 file rather than interpolated into shell scripts.

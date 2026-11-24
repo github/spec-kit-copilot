@@ -20,77 +20,41 @@
 //     }
 //   }
 //
-// This scanner is the read side. Writing / re-inference is the agent's
-// job, exposed via the wizard's HTTP surface (see server /api/inference/*).
+// Inference writes through the wizard's HTTP surface. Cache entries outlive
+// their source packages so a later reinstall can reuse prior inference.
 
 import { dirname, isAbsolute, join, relative } from "node:path";
+import { artifactPath, readEvidenceCache } from "../artifact-evidence.mjs";
+import { CORE_COMMANDS } from "../pipeline/canonical.mjs";
 import { emptyPhaseSlice } from "../canvas-runtime/wizard-phases.mjs";
 import { toPortable } from "./fs-helpers.mjs";
 import {
     safeReaddir,
-    readBoundedJson,
     pickNewestSubdir,
     securePathWithin,
     canonicalizePath,
     isPathContained,
 } from "./fs-helpers.mjs";
 
-export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, deps }) {
+export async function hydrateExtensionArtifactsFromCache({ cwd, phases, slug, deps, warnings = [] }) {
     const cachePath = join(cwd, ".speckit-wizard", "artifact-targets.json");
     if (!(await deps.pathExists(cachePath))) return;
 
-    const cache = await readBoundedJson(cachePath, deps);
+    const cache = await (deps.readEvidenceCache ?? readEvidenceCache)(cwd);
     const entries = cache?.entries;
     if (!entries || typeof entries !== "object") return;
 
-    // Discover the currently-installed extension command set so we can
-    // prune orphaned cache entries (extensions the user has since
-    // uninstalled). Without this, a `commands/foo.bar` entry would linger
-    // in the cache forever after `foo` was removed, and the LLM
-    // dispatcher would think the world is in sync when it isn't.
-    //
-    // Source of truth: `.specify/extensions/<ext>/commands/*.md`. If the
-    // directory is missing we can't distinguish "no extensions installed"
-    // from "not scannable" — skip pruning in that case rather than
-    // wiping the cache accidentally.
+    // Keep stale cache entries on disk, but only hydrate currently available
+    // commands. This preserves inference if a removed package is restored.
     const installedCommandKeys = await discoverInstalledCommandKeys(cwd, deps);
-
-    let prunedAny = false;
-    const kept = {};
     for (const [key, entry] of Object.entries(entries)) {
-        if (typeof key !== "string" || !key.startsWith("commands/")) {
-            prunedAny = true;
-            continue;
-        }
-        // Only prune when we successfully enumerated installed commands
-        // (installedCommandKeys is a Set). If it's null we couldn't scan,
-        // so leave the entry alone.
-        if (installedCommandKeys && !installedCommandKeys.has(key)) {
-            prunedAny = true;
-            continue;
-        }
-        kept[key] = entry;
-    }
-
-    if (prunedAny) {
-        // Persist the pruned cache back to disk so subsequent scans
-        // (and any consumer that reads the file directly) see a clean
-        // picture. Best-effort — a write failure just means we'll try
-        // again next scan.
-        try {
-            const fsp = await import("node:fs/promises");
-            const nextCache = {
-                ...cache,
-                version: 1,
-                entries: kept,
-                updatedAt: new Date().toISOString(),
-            };
-            await fsp.writeFile(cachePath, JSON.stringify(nextCache, null, 2) + "\n", "utf8");
-        } catch { /* leave stale — next scan retries */ }
-    }
-
-    for (const [key, entry] of Object.entries(kept)) {
-        const writesTo = typeof entry?.writesTo === "string" ? entry.writesTo : null;
+        if (typeof key !== "string" || !key.startsWith("commands/")) continue;
+        const command = key.slice("commands/".length);
+        const skill = `.github/skills/${command.replaceAll(".", "-")}/SKILL.md`;
+        if (installedCommandKeys && !installedCommandKeys.has(key)
+            && !CORE_COMMANDS.includes(command) && !await deps.pathExists(join(cwd, skill))) continue;
+        const writesTo = typeof entry?.writesTo === "string"
+            && (artifactPath(entry.writesTo) || isAbsolute(entry.writesTo)) ? entry.writesTo : null;
         const description = typeof entry?.description === "string" ? entry.description.trim() : "";
         const argsHint = typeof entry?.argsHint === "string" ? entry.argsHint.trim() : "";
         const argsWhenEmpty = typeof entry?.argsWhenEmpty === "string" ? entry.argsWhenEmpty.trim() : "";
@@ -218,13 +182,9 @@ async function newestMarkdownMtimeIso(dirAbs, cwd, deps) {
 }
 
 // Enumerate `.specify/extensions/*/commands/*.md` and return the set of
-// `commands/<basename>` keys that map to actually-installed command
-// files. Returns an empty Set (NOT null) when the extensions root
-// doesn't exist, so an uninstall-all scenario correctly prunes every
-// `commands/*` entry from the cache. Returns `null` only when the
-// directory exists but can't be enumerated (permissions, race with a
-// concurrent write) — in that case callers should skip pruning rather
-// than risk wiping valid entries on a transient read failure.
+// `commands/<basename>` keys available for hydration. Returns an empty Set
+// when no extensions are installed and `null` only when an existing
+// directory can't be enumerated; neither case changes the on-disk cache.
 async function discoverInstalledCommandKeys(cwd, deps) {
     const extRoot = join(cwd, ".specify", "extensions");
     if (!(await deps.pathExists(extRoot))) return new Set();

@@ -1,0 +1,10 @@
+{
+  "catalogs": {
+    "copilot": {
+      "presets": "https://raw.githubusercontent.com/nicolehaugen/spec-kit-copilot/staging-canvas/spec-kit-presets/catalog.json",
+      "extensions": "https://raw.githubusercontent.com/nicolehaugen/spec-kit-copilot/staging-canvas/spec-kit-extensions/catalog.json"
+    }
+  },
+  "copilotCatalogName": "spec-kit-staging",
+  "generateCanvasEnabled": true
+}

@@ -34,10 +34,12 @@ import {
     markPhaseRunning,
     markPhaseSubmitted,
 } from "./phase-runtime.js";
-import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, installCatalogPreset, performEnvProbe } from "./setup.js";
+import { isSetupComplete, renderSetupBody, collectSetupValues, runInit, runReload, performInstallDefaults, performEnvProbe } from "./setup.js";
 import { wireInfoPopover } from "./composition.js";
-import { renderPhaseCustomizations } from "./phase-contributors.js";
+import { outputEvidenceForCommand, projectFolderLink, renderPhaseCustomizations } from "./phase-contributors.js";
 import { popoverConfirm } from "./modals.js";
+import { displayOutputPath, primaryCandidate } from "../pipeline/output-evidence.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
 
 // -------- Section: render/env.js --------
 
@@ -71,11 +73,7 @@ function wireEnvironmentCard(el) {
             } else if (action === "probe-env") {
                 await performEnvProbe(btn.dataset.probeSource);
             } else if (action === "reinstall-defaults") {
-                installCatalogPreset({
-                    presetId: "copilot-sub-agents",
-                    name: "copilot-sub-agents",
-                    downloadUrl: "https://github.com/github/spec-kit-copilot/releases/download/copilot-sub-agents-v1.0.0/copilot-sub-agents.zip",
-                });
+                await performInstallDefaults();
             }
         });
     });
@@ -339,70 +337,48 @@ export function synthesizeCanonicalPhase(id) {
 export function renderPhaseCard() {
     const el = document.getElementById("phase-card");
     if (!el || !state.snapshot) return;
-    const all = [...commands()];
-    if (!all.length) {
-        for (const id of PHASE_ORDER) {
-            const phase = state.snapshot.phases?.[id];
-            if (id === "setup" || !phase?.artifactPath) continue;
-            all.push({ ...synthesizeCanonicalPhase(id), status: phase.status, artifactPath: phase.artifactPath });
-        }
-    }
-    if (all.length) {
-        // The phase card is now strictly a projection of the pipeline: only
-        // commands that are currently in the pipeline can be viewed here.
-        // The "Commands" panel below is just a picker — clicking a card there
-        // does NOT navigate; only + Add works.
-        const items = pipelineItems();
-        if (!items.length) {
-            el.innerHTML = `<div class="empty phase-empty">
-                <p><strong>No commands in the pipeline.</strong></p>
-                <p class="muted">Click <strong>+ Add</strong> on any command below, or <em>Reset to default</em> above, to start building the pipeline.</p>
-            </div>`;
-            renderMoreCommandsPanel();
-            return;
-        }
-        const inPipeline = new Set(items.map((it) => it.id));
-        const lookup = new Map(all.map((x) => [x.id, x]));
-        // Resolver: prefer commands() entry; fall back to the shared
-        // pipeline-entry resolver (canonical synth OR extension artifact)
-        // when the id isn't in the flat command list. Returns null only for
-        // true orphans.
-        const resolvePhase = (id) => {
-            if (!inPipeline.has(id)) return null;
-            const found = lookup.get(id);
-            if (found) return found;
-            const resolved = resolvePipelineEntry(id, state.snapshot);
-            if (resolved.kind === "core" || resolved.kind === "extension") return resolved.phase;
-            return null;
-        };
-        const setupLocked = !isSetupComplete();
-        let p = resolvePhase(state.currentPhase);
-        if (!p) {
-            // Current phase isn't resolvable — snap to the first pipeline
-            // entry that resolves (commands() hit OR canonical synth).
-            for (const it of items) {
-                const cand = resolvePhase(it.id);
-                if (cand) { p = cand; break; }
-            }
-            if (p) state.currentPhase = p.id;
-        }
-        if (!p) {
-            el.innerHTML = `<div class="empty phase-empty">
-                <p><strong>Pipeline references unknown commands.</strong></p>
-                <p class="muted">All entries are orphaned. Remove them with × in the stepper above, or install a preset that provides them.</p>
-            </div>`;
-            renderMoreCommandsPanel();
-            return;
-        }
-        __renderGraphPhaseCard(el, setupLocked ? { ...p, locked: true } : p);
+    const all = commands();
+    // The card follows the pipeline, even when no preset contributes commands.
+    const items = pipelineItems();
+    // The stepper already explains an empty pipeline, so omit the card.
+    el.hidden = !items.length;
+    if (!items.length) {
+        el.innerHTML = "";
         renderMoreCommandsPanel();
         return;
     }
-    // Snapshot arrived without any graph phases — nothing renderable yet.
-    el.innerHTML = `<div class="empty phase-empty">
-        <p><strong>No phases available.</strong></p>
-        <p class="muted">Install a preset or wait for the pipeline snapshot to arrive.</p>
-    </div>`;
+    const inPipeline = new Set(items.map((it) => it.id));
+    const lookup = new Map(all.map((x) => [x.id, x]));
+    // Prefer preset command metadata, then resolve core/extension commands
+    // independently so removing the last preset cannot hide valid phases.
+    const resolvePhase = (id) => {
+        if (!inPipeline.has(id)) return null;
+        const found = lookup.get(id);
+        if (found) return found;
+        const resolved = resolvePipelineEntry(id, state.snapshot);
+        if (resolved.kind === "core" || resolved.kind === "extension") return resolved.phase;
+        return null;
+    };
+    const setupLocked = !isSetupComplete();
+    let p = resolvePhase(state.currentPhase);
+    if (!p) {
+        // Current phase isn't resolvable — snap to the first pipeline
+        // entry that resolves (commands() hit OR canonical synth).
+        for (const it of items) {
+            const cand = resolvePhase(it.id);
+            if (cand) { p = cand; break; }
+        }
+        if (p) state.currentPhase = p.id;
+    }
+    if (!p) {
+        el.innerHTML = `<div class="empty phase-empty">
+            <p><strong>Pipeline references unknown commands.</strong></p>
+            <p class="muted">All entries are orphaned. Remove them with × in the stepper above, or install a preset that provides them.</p>
+        </div>`;
+        renderMoreCommandsPanel();
+        return;
+    }
+    __renderGraphPhaseCard(el, setupLocked ? { ...p, locked: true } : p);
     renderMoreCommandsPanel();
 }
 
@@ -478,34 +454,41 @@ export function renderGraphPhaseCard(el, p) {
     // the artifact." From there they can inspect the real file, spot a
     // near-miss filename, or open a sibling.
     let artifact;
-    if (p.artifactPath || p.folderPath) {
-        // If we only know the folder, use it. Otherwise derive it from
-        // the artifact path.
-        const parentFolder = p.artifactPath
-            ? parentDirOf(p.artifactPath)
-            : p.folderPath;
-        const displayPath = `${parentFolder}/`;
-        const titleAttr = `title="Open ${escapeHtml(parentFolder)}/ in file explorer"`;
-        artifact = `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(parentFolder)}" ${titleAttr}><code>${escapeHtml(displayPath)}</code></button>`;
-    } else if (p.artifact) {
-        artifact = `<code class="muted">${escapeHtml(p.artifact)}</code>`;
+    const evidence = outputEvidenceForCommand(state.snapshot?.artifactEvidence, p.commandName);
+    const availability = outputEvidenceForCommand(state.snapshot?.outputAvailability, p.commandName);
+    const primary = primaryCandidate(evidence);
+    const primaryAvailability = primary
+        ? availability?.candidates?.[evidence.candidates.indexOf(primary)] : null;
+    const outputPath = primary
+        ? primaryAvailability?.resolvedPath ?? displayOutputPath(primary, state.snapshot?.specsDir) : null;
+    const folder = primary
+        ? primaryAvailability?.folderPath ?? primaryAvailability?.browsePath
+        : availability?.folderPath ?? p.folderPath;
+    const expectedPath = outputPath ?? p.artifactPath ?? (folder ? `${folder}/` : null);
+    const displayFolder = folder ?? (p.artifactPath ? parentDirOf(p.artifactPath)
+        : (primary?.root ? null : p.folderPath) ?? (outputPath ? parentDirOf(outputPath) : null));
+    if (folder != null && expectedPath) {
+        artifact = `<button type="button" class="phase-artifact-link" data-phase-action="browse-folder" data-folder-path="${escapeHtml(folder)}" title="Open ${escapeHtml(folder || "project folder")} in file explorer"><code>${escapeHtml(expectedPath)}</code></button>`;
     } else {
-        artifact = "<em>no artifact</em>";
+        // No confirmed folder: still let the user explore from the project root.
+        const label = displayFolder ? `<code class="muted">${escapeHtml(displayFolder)}/</code>`
+            : p.artifact ? `<code class="muted">${escapeHtml(p.artifact)}</code>` : "<em>no artifact</em>";
+        artifact = projectFolderLink(label);
     }
 
     const cached = getPhaseDraft(p.commandName);
 
     const disabledAttr = p.locked ? "disabled" : "";
     const hasSubmitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
-    const canViewArtifact = !!p.artifactPath;
-
-    // View follows scanner-confirmed artifacts even after a later rerun fails.
-    // Run/Rerun wording follows either scanner terminal status or local
-    // dispatch acknowledgement so the button flips immediately after submit.
+    // View is always shown. Without a scanner-confirmed artifact it explains
+    // that no output was found; confirmed artifacts stay viewable after a failed rerun.
+    // Run/Rerun wording follows scanner terminal status or local dispatch
+    // acknowledgement once the temporary Running label clears.
     let actionRow;
     const running = state.phaseRunning.has(p.commandName);
-    const runningLabel = `<span class="btn-spinner" aria-hidden="true"></span> Running…`;
-    const runningDisabled = running ? "disabled" : "";
+    const runLabel = running
+        ? `<span class="btn-spinner" aria-hidden="true"></span>Running`
+        : hasSubmitted ? "Rerun phase" : "Run phase";
     // Pipeline nav data — used by the phase-actions row (Back / Continue)
     // and the header Remove icon. Nav walks the current pipeline (hooks
     // live off-strip), so index math is 1-based over `pipelineItems()`.
@@ -527,12 +510,12 @@ export function renderGraphPhaseCard(el, p) {
     let centerActions;
     if (hasSubmitted) {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
-              <button type="button" class="btn btn-primary" data-phase-action="redo" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Rerun phase"}</button>`;
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
+              <button type="button" class="btn btn-primary" data-phase-action="redo" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     } else {
         centerActions = `
-              ${canViewArtifact ? `<button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>` : ""}
-              <button type="submit" class="btn btn-primary" ${disabledAttr}${runningDisabled}>${running ? runningLabel : "Run phase"}</button>`;
+              <button type="button" class="btn btn-primary" data-phase-action="view">View artifact</button>
+              <button type="submit" class="btn btn-primary" aria-live="polite" ${disabledAttr}>${runLabel}</button>`;
     }
     actionRow = `<div class="phase-actions phase-actions-nav">
         <div class="phase-actions-left">${backBtn}</div>
@@ -561,9 +544,6 @@ export function renderGraphPhaseCard(el, p) {
         },
         analyze: {
             overlayHtml: `<span class="phase-input-overlay-primary">Add a specific concern for analysis to focus on.</span> <em class="phase-input-overlay-hint">If left empty, a full consistency and quality analysis will be performed across spec.md, plan.md, and tasks.md (with constitution.md as governing authority).</em>`,
-        },
-        taskstoissues: {
-            overlayHtml: `<span class="phase-input-overlay-primary">Add issue-creation guidance like labels, milestone, and assignees.</span> <em class="phase-input-overlay-hint">If left empty, one GitHub issue per task will be created in tasks.md on the current repo's git remote.</em>`,
         },
     };
     const DEFAULT_PHASE_OVERLAY = {
@@ -622,7 +602,6 @@ export function renderGraphPhaseCard(el, p) {
         tasks: "Break the plan into actionable work items.",
         analyze: "Check the spec, plan, and tasks for consistency.",
         implement: "Execute the tasks to build the feature.",
-        taskstoissues: "Convert generated task lists into GitHub issues for tracking and execution.",
     };
     const phaseTagline = PHASE_TAGLINE_OVERRIDES[p.id] ?? p.description ?? (p.title || p.helpText || "");
 
@@ -721,20 +700,54 @@ export function wireGraphPhaseCard(el, p) {
 
     // Post-run actions: View artifact + Run again
     const viewBtn = el.querySelector('[data-phase-action="view"]');
-    viewBtn?.addEventListener("click", () => __openArtifactViewer(p));
+    viewBtn?.addEventListener("click", () => {
+        // A run phase whose outputs are missing or still retrieving re-requests
+        // output retrieval. The existing operation starts missing or failed
+        // retrieval and reuses in-flight work; it never reruns the command.
+        const inference = outputEvidenceForCommand(state.snapshot?.outputInferenceStatus, p.commandName);
+        const retrieving = inference === "updating" || inference === "incomplete";
+        const currentEvidence = outputEvidenceForCommand(state.snapshot?.artifactEvidence, p.commandName);
+        const requests = state.snapshot?.artifactInferenceRequests;
+        const resolved = currentEvidence?.fingerprint && Object.hasOwn(currentEvidence, "primaryIndex")
+            && Array.isArray(requests) && !requests.some((request) =>
+                bareCommandId(request.commandId) === bareCommandId(p.commandName)
+                && request.fingerprint === currentEvidence.fingerprint);
+        const submitted = ["done", "error", "skipped"].includes(p.status) || state.phaseSubmitted.has(p.commandName);
+        // Don't start retrieval while the command itself is still running.
+        const retry = !resolved && (retrieving || (!p.artifactPath && submitted && !state.phaseRunning.has(p.commandName)));
+        if (retry) {
+            void Promise.resolve().then(() => dispatchKind("extension.inferArtifactTargets",
+                validateOutputInferenceRequest({ commandId: p.commandName }))).catch((err) => {
+                console.error(`output retrieval failed: ${err?.message ?? err}`);
+            });
+        }
+        if (p.artifactPath) return __openArtifactViewer(p);
+        __openArtifactViewer(p, {
+            missingMessage: retry
+                ? "No output found yet. Output retrieval was requested again; the artifact will appear on this phase once it is found."
+                : "No output found for this phase yet. Run the phase to produce one.",
+        });
+    });
     // Writes-to path in the phase-facts row: opens the parent folder in
     // the OS file explorer (via /api/reveal). One predictable behavior
     // regardless of whether the file exists — user always lands in the
     // real folder on disk.
-    const browseLink = el.querySelector('[data-phase-action="browse-folder"]');
-    browseLink?.addEventListener("click", async () => {
-        const folder = browseLink.getAttribute("data-folder-path");
-        if (!folder) return;
-        try {
-            await __postJson("/api/reveal", { sub: folder });
-        } catch (err) {
-            console.error(`reveal failed: ${err?.message ?? err}`);
-        }
+    el.querySelectorAll('[data-phase-action="browse-folder"]').forEach((browseLink) => {
+        browseLink.addEventListener("click", async () => {
+            const folder = browseLink.getAttribute("data-folder-path");
+            if (folder === null) return;
+            try {
+                await __postJson("/api/reveal", { sub: folder });
+            } catch (err) {
+                console.error(`reveal failed: ${err?.message ?? err}`);
+            }
+        });
+    });
+    el.querySelectorAll("[data-output-path]").forEach((link) => {
+        link.addEventListener("click", () => {
+            const path = link.getAttribute("data-output-path");
+            if (path) __openArtifactViewer({ ...p, artifactPath: path });
+        });
     });
     // Customization row targets — reveal the assembled source file (template,
     // command, script, etc.) in the command viewer.

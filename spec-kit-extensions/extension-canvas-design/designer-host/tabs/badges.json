@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.tab-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "designer-badges",
+  "title": "Badges",
+  "description": "Add result badges for your configured phases and outputs.",
+  "order": 25,
+  "enabled": true,
+  "fixedControl": "designer.badges",
+  "fields": []
+}

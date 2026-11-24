@@ -51,13 +51,20 @@
 
 
 import { PHASE_ORDER } from "./wizard-phases.mjs";
+import { createFeatureFlags } from "../contracts/generate-feature.mjs";
 import { scanWorkspace } from "../project-scanner.mjs";
 import { buildStateSnapshot } from "./snapshot-builder.mjs";
 import { applyPatch, overlayCachedComposition, activeFingerprint } from "../state/store.mjs";
 import { fsDeps } from "./instances.mjs";
 import { designerCatalogFingerprint } from "../catalog/designer-fingerprint.mjs";
+import { collectArtifactEvidence } from "../artifact-evidence.mjs";
+import { attachOutputEvidence } from "./output-availability.mjs";
+import { reconcileOutputInference } from "./output-inference.mjs";
 
-export async function snapshot(inst) {
+// Owned persistence scans may be superseded after committing; return null
+// instead of installing or broadcasting their now-stale derived state.
+export async function snapshot(inst, isCurrent = () => true) {
+    const refresh = inst.refreshStatus;
     // Preset precedence: consume the order the `speckit-preset` skill
     // published on its last refresh (cached in inst.cachedComposition
     // and mirrored to state.json). That order came from the CLI via the
@@ -71,6 +78,7 @@ export async function snapshot(inst) {
         ? { ...fsDeps, presetOrder }
         : fsDeps;
     const scan = await scanWorkspace(inst.workspacePath, scanDeps);
+    if (!isCurrent()) return null;
     inst.cwdBoundState = scan;
     // Merge cached env probe results into the snapshot.
     if (inst.cachedProbes?.summary) {
@@ -160,13 +168,23 @@ export async function snapshot(inst) {
         const overlay = overlayCachedComposition(inst.cachedComposition);
         if (overlay) snap.composition = overlay;
     }
+    let outputs, revision, attempts = 0;
+    do {
+        revision = inst.artifactEvidenceRevision ?? 0;
+        outputs = await collectArtifactEvidence(inst.workspacePath, snap);
+        if (!isCurrent()) return null;
+        if (++attempts >= 3 && revision !== (inst.artifactEvidenceRevision ?? 0)) {
+            throw new Error("Artifact evidence changed repeatedly during snapshot");
+        }
+    } while (revision !== (inst.artifactEvidenceRevision ?? 0));
+    reconcileOutputInference(inst, outputs);
+    await attachOutputEvidence(inst, scan, snap, outputs, undefined, refresh);
+    if (!isCurrent()) return null;
     // Expose the transient skills-reload diagnostic (populated by
     // /api/skills/reload) so the UI can gate setup completion on the
     // live SDK result rather than a persisted flag or a folder probe.
     snap.skillsReload = inst.skillsReload ?? null;
-    snap.featureFlags = {
-        generateCanvas: inst.generateCanvas === true,
-    };
+    snap.featureFlags = createFeatureFlags(inst.generateCanvas ?? false);
     inst.state = applyPatch(inst.state ?? {}, {
         currentPhase: scan.currentPhase,
         preset: scan.preset,

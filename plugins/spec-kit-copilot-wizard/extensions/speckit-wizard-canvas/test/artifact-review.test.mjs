@@ -276,6 +276,34 @@ test("Wizard resolves revision-bound local references without fetching external 
     await assert.rejects(service.resolveLink(opened.contextId, opened.primaryArtifactId, source.revision, "#section"), { code: "changed_source" });
 }));
 
+test("Wizard preserves owning metadata when following a link back to an owned artifact", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const primaryPath = "specs/001-fixture/spec.md";
+    const supportingPath = "specs/001-fixture/plan.md";
+    await fs.writeFile(join(root, primaryPath),
+        "# Primary\n\n[Plan](plan.md)\n\n[NEEDS CLARIFICATION: Which scope?]\n");
+    await fs.writeFile(join(root, supportingPath),
+        "# Plan\n\n[Primary](spec.md)\n\n[NEEDS CLARIFICATION: Which approach?]\n");
+    snapshot.phases.plan = { artifactPath: supportingPath };
+
+    const opened = await service.open({ stage: "specify" });
+    const primary = await service.content(opened.contextId, opened.primaryArtifactId);
+    const planLink = await service.resolveLink(opened.contextId, opened.primaryArtifactId, primary.revision, "plan.md");
+    const plan = await service.content(opened.contextId, planLink.artifact.id);
+    assert.equal(plan.artifact.role, "supporting");
+    assert.equal(plan.artifact.owningCommand, "speckit.plan");
+    assert.equal(plan.clarifications.length, 1);
+
+    const primaryLink = await service.resolveLink(opened.contextId, plan.artifact.id, plan.revision, "spec.md");
+    const returned = await service.content(opened.contextId, primaryLink.artifact.id);
+    assert.equal(returned.artifact.id, opened.primaryArtifactId);
+    assert.equal(returned.artifact.role, "primary");
+    assert.equal(returned.artifact.owningCommand, "speckit.specify");
+    assert.equal(returned.clarifications.length, 1);
+
+    await fs.writeFile(join(root, supportingPath), "# Changed plan\n");
+    await assert.rejects(service.content(opened.contextId, primaryLink.artifact.id), { code: "changed_source" });
+}));
+
 test("Wizard revalidates registered composition references when their source becomes inactive", () => serviceFixture(async ({ root, snapshot, service }) => {
     const sourcePath = ".specify/presets/fixture/commands/speckit.specify.md";
     const href = `../../${sourcePath}`;
@@ -436,6 +464,28 @@ test("Wizard source entry points accept only scoped folder files and current com
     const overridden = await service.open({ source });
     assert.equal((await service.content(overridden.contextId, overridden.primaryArtifactId)).content, "# Customized command\n");
     await assert.rejects(service.open({ source: ".specify/templates/unlisted.md" }), { code: "artifact_unavailable" });
+}));
+
+test("Wizard discovers and opens installed nested command skills", () => serviceFixture(async ({ root, snapshot, service }) => {
+    const artifact = { id: "commands/speckit.assess.intake", kind: "command", stack: [] };
+    const source = ".github/skills/speckit-assess-intake/SKILL.md";
+    assert.equal(artifactSourcePath(artifact, null), source);
+    assert.equal(artifactSourcePath({ id: "commands/speckit.plan", kind: "command" }, null),
+        ".github/skills/speckit-plan/SKILL.md");
+    await fs.mkdir(join(root, ".github/skills/speckit-assess-intake"), { recursive: true });
+    await fs.writeFile(join(root, source), "# Assess intake skill\n");
+    snapshot.composition.artifacts = [artifact];
+
+    const opened = await service.open({ stage: "specify" });
+    const page = await service.list(opened.contextId);
+    const skill = page.items.find((item) => item.relativePath === source);
+    assert.ok(skill);
+    assert.equal(skill.role, "command");
+    assert.equal(skill.owningCommand, "speckit.assess.intake");
+    assert.equal((await service.content(opened.contextId, skill.id)).content, "# Assess intake skill\n");
+
+    const direct = await service.open({ source });
+    assert.equal((await service.content(direct.contextId, direct.primaryArtifactId)).content, "# Assess intake skill\n");
 }));
 
 test("Wizard retains the composition UI's conventional template source previews", () => serviceFixture(async ({ root, snapshot, service }) => {

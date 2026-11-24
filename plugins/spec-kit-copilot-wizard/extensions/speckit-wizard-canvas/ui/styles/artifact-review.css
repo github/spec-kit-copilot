@@ -28,3 +28,34 @@ body.artifact-review-open > header {
 #phase-artifact-viewer .md-reader__toolbar {
     min-height: 44px;
 }
+
+body.artifact-review-open :is(#phase-artifact-viewer, #wizard-modal-root) .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    font: inherit;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 120ms ease-out;
+    white-space: nowrap;
+}
+
+body.artifact-review-open :is(#phase-artifact-viewer, #wizard-modal-root) .btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 13px;
+}
+
+body.artifact-review-open :is(#phase-artifact-viewer, #wizard-modal-root) .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+#phase-artifact-viewer .btn-ghost {
+    background: transparent;
+    color: var(--text-color-muted);
+    border: 1px solid transparent;
+}
+
+#phase-artifact-viewer .btn-ghost:hover { color: var(--text-color-default); }

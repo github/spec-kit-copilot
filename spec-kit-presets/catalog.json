@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-10-23T00:00:00Z",
-  "catalog_url": "https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json",
+  "updated_at": "2026-10-11T23:30:07Z",
+  "catalog_url": "https://raw.githubusercontent.com/nicolehaugen/spec-kit-copilot/staging-canvas/spec-kit-presets/catalog.json",
   "presets": {
     "copilot-extension-hooks": {
       "name": "Copilot Extension Hooks",
@@ -114,6 +114,27 @@
         "discovery",
         "interactive"
       ]
+    },
+    "copilot-vertical-phase-control": {
+      "name": "Copilot Vertical Phase Control",
+      "id": "copilot-vertical-phase-control",
+      "version": "1.0.1",
+      "description": "Vertical Workflow phase list with Copilot Autopilot for generated Canvas Design apps.",
+      "author": "spec-kit-copilot",
+      "repository": "https://github.com/nicolehaugen/spec-kit-copilot",
+      "download_url": "https://github.com/nicolehaugen/spec-kit-copilot/releases/download/copilot-vertical-phase-control-v1.0.1/copilot-vertical-phase-control.zip",
+      "homepage": "https://github.com/nicolehaugen/spec-kit-copilot",
+      "documentation": "https://github.com/nicolehaugen/spec-kit-copilot/blob/staging-canvas/spec-kit-presets/copilot-vertical-phase-control/README.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=1.0.7",
+        "extensions": ["extension-canvas-design"]
+      },
+      "provides": {
+        "templates": 2,
+        "commands": 1
+      },
+      "tags": ["copilot", "canvas-design", "autopilot", "vertical"]
     }
   }
 }

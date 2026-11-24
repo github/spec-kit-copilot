@@ -1,0 +1,11 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.logo",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 0,
+  "field": {"id": "canvas.logo", "type": "image", "control": "stock.image",
+    "label": "Header logo", "description": "Optional small PNG, JPEG, GIF, or WebP image (up to 32 KiB)."},
+  "generatedBinding": {"presentation": "asset", "slot": "header.brand"}
+}

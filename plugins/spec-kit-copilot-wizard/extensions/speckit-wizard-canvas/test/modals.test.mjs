@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import * as runtime from "../ui/phase-runtime.js";
-import { clarificationBatchWithinBudget, flushClarifications, openCommunityInstallModal, setViewersDeps } from "../ui/modals.js";
+import { clarificationBatchWithinBudget, closeArtifactViewer, flushClarifications, openArtifactViewer, openCommunityInstallModal, refreshArtifactReview, setViewersDeps } from "../ui/modals.js";
 import {
     clearClarifications,
     clearPhaseRunning,
@@ -34,6 +34,85 @@ describe("wizard modals", () => {
         clearClarifications("speckit.plan");
         clearPhaseRunning("speckit.plan");
         state.snapshot = previousSnapshot;
+    });
+
+    test("missing legacy output shows an actionable viewer message, other errors remain failures", async () => {
+        const previousDocument = globalThis.document;
+        const previousFetch = globalThis.fetch;
+        const body = { innerHTML: "" };
+        const viewer = {
+            hidden: true,
+            innerHTML: "",
+            setAttribute: () => {},
+            querySelector: (selector) => selector === ".artifact-viewer-body" ? body : null,
+        };
+        globalThis.document = {
+            body: { classList: { add() {}, remove() {} } },
+            getElementById: (id) => id === "phase-artifact-viewer" ? viewer : null,
+        };
+        try {
+            globalThis.fetch = async () => ({ ok: false, status: 404 });
+            await openArtifactViewer({ id: "plan", artifactPath: "specs/new/plan.txt" });
+            assert.equal(viewer.hidden, false);
+            assert.match(body.innerHTML, /Output not ready or not found at the expected path/);
+            assert.match(body.innerHTML, /Run the phase or check its output folder/);
+            assert.doesNotMatch(body.innerHTML, /Failed to load artifact/);
+
+            globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => "forbidden" });
+            await openArtifactViewer({ id: "plan", artifactPath: "specs/new/plan.txt" });
+            assert.match(body.innerHTML, /Failed to load artifact: 403 forbidden/);
+        } finally {
+            await closeArtifactViewer();
+            globalThis.document = previousDocument;
+            globalThis.fetch = previousFetch;
+        }
+    });
+
+    test("missing output viewer omits the folder button and follows only its phase's retrieval status", async () => {
+        const previousDocument = globalThis.document;
+        const body = { innerHTML: "", querySelector: () => null };
+        const titlePath = { textContent: "" };
+        const viewer = { hidden: true, innerHTML: "", setAttribute() {},
+            querySelector: (selector) => selector === ".artifact-viewer-body" ? body
+                : selector === ".artifact-viewer-title code" ? titlePath : null };
+        globalThis.document = {
+            body: { classList: { add() {}, remove() {} } },
+            getElementById: (id) => id === "phase-artifact-viewer" ? viewer : null,
+        };
+        const reveals = [];
+        setViewersDeps({ postJson: async (url, payload) => { reveals.push([url, payload]); return { ok: true }; } });
+        try {
+            state.snapshot.outputInferenceStatus = { "speckit.assess.define": "updating" };
+            await openArtifactViewer({ id: "assess-define", commandName: "speckit.assess.define" },
+                { missingMessage: "No output found yet.", outputFolder: "specs/feature" });
+            assert.match(body.innerHTML, /Retrieving outputs…/);
+            assert.equal(titlePath.textContent, "Retrieving outputs…");
+            assert.doesNotMatch(body.innerHTML, /No output|Open output folder|wizard-modal-error/);
+
+            state.snapshot.outputInferenceStatus = { "speckit.assess.intake": "updating" };
+            refreshArtifactReview({ type: "state" });
+            assert.match(body.innerHTML, /No output found yet\./);
+            assert.equal(titlePath.textContent, "No output found");
+            assert.doesNotMatch(body.innerHTML, /Retrieving outputs|Open output folder/);
+
+            state.snapshot.outputInferenceStatus["speckit.assess.define"] = "updating";
+            refreshArtifactReview({ type: "state" });
+            assert.match(body.innerHTML, /Retrieving outputs…/);
+            assert.equal(titlePath.textContent, "Retrieving outputs…");
+
+            state.snapshot.outputInferenceStatus["speckit.assess.define"] = "incomplete";
+            refreshArtifactReview({ type: "state" });
+            assert.match(body.innerHTML, /Pipeline preparation did not finish/);
+            assert.doesNotMatch(body.innerHTML, /Retrieving outputs/);
+
+            await openArtifactViewer({ id: "plan" });
+            assert.match(body.innerHTML, /No output found/);
+            assert.doesNotMatch(body.innerHTML, /Open output folder/);
+            assert.deepEqual(reveals, []);
+        } finally {
+            await closeArtifactViewer();
+            globalThis.document = previousDocument;
+        }
     });
 
     test("community warning preserves Catalogs install copy and supports designer selection", () => {
@@ -175,6 +254,16 @@ describe("wizard modals", () => {
 
         assert.equal(dispatched, true);
         assert.equal(isPhaseRunning("speckit.plan"), true);
+        clearPhaseRunning("speckit.plan");
+    });
+
+    test("allows clarification retry while an earlier agent turn is still running", async () => {
+        let dispatches = 0;
+        setViewersDeps({ postJson: async () => { dispatches++; return { queued: true }; } });
+        runtime.markPhaseRunning("speckit.plan");
+        queueClarification("speckit.plan", "Which scope?", "Only this feature.");
+        assert.equal(await flushClarifications({ commandName: "speckit.plan" }), true);
+        assert.equal(dispatches, 1);
         clearPhaseRunning("speckit.plan");
     });
 

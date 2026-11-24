@@ -2,6 +2,7 @@
 
 import { stat } from "node:fs/promises";
 import path from "node:path";
+import { validateGenerateCanvas } from "../contracts/generate-feature.mjs";
 
 export async function pathExists(path, statFn = stat) {
     try {
@@ -29,6 +30,14 @@ export function resolveWorkspace(instance, context, sessionRepoPath) {
     if (typeof fromInput === "string" && fromInput.length) return fromInput;
     if (typeof sessionRepoPath === "string" && sessionRepoPath.length) return sessionRepoPath;
     return instance?.workspacePath ?? null;
+}
+
+export function resolveGenerateCanvas(instance, context, defaultValue = false) {
+    const input = context?.input;
+    if (input && Object.hasOwn(input, "generateCanvas")) {
+        return validateGenerateCanvas(input.generateCanvas);
+    }
+    return typeof instance?.generateCanvas === "boolean" ? instance.generateCanvas : defaultValue;
 }
 
 export async function fetchSessionRepoPath(session) {

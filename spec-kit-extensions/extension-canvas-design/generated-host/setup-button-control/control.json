@@ -1,0 +1,6 @@
+{
+  "$schema": "../../schemas/external-generated.button-control-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "project.setup-button",
+  "adapter": "generated-setup-button-adapter"
+}

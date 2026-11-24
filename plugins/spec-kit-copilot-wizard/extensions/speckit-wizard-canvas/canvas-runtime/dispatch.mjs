@@ -26,16 +26,24 @@ import { sessionAdapter } from "./instances.mjs";
 import { PHASE_BY_ID } from "./wizard-phases.mjs";
 import { activeArtifactsForCommand } from "../pipeline/active-artifacts.mjs";
 import { runFastComposition } from "./composition-apply.mjs";
+import { snapshot } from "./snapshot.mjs";
+import { ensurePipelineOutputInference } from "./output-inference-dispatch.mjs";
+import { validateOutputInferenceRequest } from "../contracts/output-inference-request.mjs";
+import { buildArtifactInferencePrompt } from "./artifact-inference-prompt.mjs";
+import { cancelBackgroundInference, startBackgroundInference } from "./background-inference.mjs";
+import { startRefresh, setRefreshWork, failRefresh, isCurrentRefresh } from "./refresh-status.mjs";
 import {
     buildPrompt,
     buildWorkflowSlashCommand,
     buildWorkflowTrackingPreamble,
+    buildCommandCompletionPreamble,
     phaseIdForCommandName,
 } from "../prompts.mjs";
 import {
     beginRun,
     clearRun,
 } from "./run-tracker.mjs";
+import { beginCommandRun, clearCommandRun } from "./command-run-tracker.mjs";
 
 // -------- Section: deferred send --------
 // Defer the actual SDK send so callers acknowledge the enqueue immediately
@@ -88,7 +96,12 @@ async function probeInstalledCounts(workspacePath) {
 // Throws `UnknownActionKindError` (from prompts.mjs) if kind is unknown —
 // callers convert that into their surface-appropriate error shape (HTTP
 // 400 vs. `{ ok: false, error }` action result).
-export async function dispatchKindPrompt(inst, kind, payload) {
+export async function dispatchKindPrompt(inst, kind, payload, {
+    compose = runFastComposition, getSnapshot = snapshot, getInstalledCounts = probeInstalledCounts,
+    sendInference,
+    startInferenceTask = startBackgroundInference,
+    buildInferencePrompt = buildArtifactInferencePrompt,
+} = {}) {
     const workspacePath = inst?.workspacePath ?? null;
 
     // Special path for the "Refresh Now" button on the Composition tab.
@@ -103,15 +116,64 @@ export async function dispatchKindPrompt(inst, kind, payload) {
     // milliseconds regardless of agent state — and only fall through to
     // the LLM Stage 2 prompt when the assembler reports Stage 2 is needed
     // (novel commands, wraps/prepends/appends directives, etc.).
-    if (kind === "composition.refresh") {
-        const fast = await runFastComposition(inst, { reason: "refresh-button" });
-        if (fast?.ok && !fast.stage2Needed) {
-            return { kind, fastComposition: true };
+    const outputsOnly = kind === "extension.inferArtifactTargets";
+    if (outputsOnly) {
+        const { commandId } = validateOutputInferenceRequest(payload);
+        await ensurePipelineOutputInference(inst, {
+            getSnapshot: (target) => getSnapshot(target),
+            session: sessionAdapter(),
+            buildPrompt: buildInferencePrompt,
+            commandIds: commandId === undefined ? undefined : [commandId],
+            startWorker: sendInference
+                ? (target, request, workerSession, isCurrent, workerId) =>
+                    sendInference(request, workerSession, isCurrent, workerId, target)
+                : undefined,
+        });
+        return { kind, fastComposition: true };
+    }
+    if (kind === "composition.refresh" || kind === "composition.inferPipeline") {
+        if (inst.pipelineInferenceTaskKey) {
+            cancelBackgroundInference(inst, inst.pipelineInferenceTaskKey);
+            delete inst.pipelineInferenceTaskKey;
         }
-        // Stage 2 needed — fall through and dispatch the LLM prompt below.
-        // The fast path still broadcast the presets/extensions/artifacts
-        // slice, so the button already cleared; the LLM turn will restamp
-        // `inferredPipeline` when it responds.
+        const refresh = startRefresh(inst);
+        const ownsWork = () => isCurrentRefresh(inst, refresh);
+        const ensureCurrent = () => {
+            if (!ownsWork()) throw new Error("Composition refresh superseded by newer refresh work");
+        };
+        const failWork = () => { if (ownsWork()) failRefresh(inst, refresh); };
+        try {
+            const fast = await compose(inst, { reason: "refresh-button" });
+            ensureCurrent();
+            if (!fast?.ok) throw new Error(`Composition refresh failed: ${fast?.reason ?? "unknown error"}`);
+            setRefreshWork(inst, { pipeline: fast.stage2Needed, outputs: false }, refresh);
+            if (!fast.stage2Needed) return { kind, fastComposition: true };
+            const counts = await getInstalledCounts(workspacePath);
+            ensureCurrent();
+            const context = { workspacePath, preset: inst?.state?.preset,
+                composition: inst?.state?.composition, ...counts };
+            const prompt = buildPrompt(kind, { runId: refresh.id }, context);
+            const taskKey = `pipeline:${refresh.id}`;
+            inst.pipelineInferenceTaskKey = taskKey;
+            setImmediate(() => {
+                if (!ownsWork()) return;
+                void Promise.resolve().then(() => startInferenceTask(
+                    inst, { prompt }, sessionAdapter(), ownsWork, taskKey,
+                )).catch((error) => {
+                    if (inst.pipelineInferenceTaskKey === taskKey) {
+                        delete inst.pipelineInferenceTaskKey;
+                    }
+                    if (ownsWork()) {
+                        failWork();
+                        void sessionAdapter().log(`Composition refresh: ${error.message}`, "warning");
+                    }
+                });
+            });
+            return { prompt, kind };
+        } catch (error) {
+            failWork();
+            throw error;
+        }
     }
 
     const { installedPresetCount, installedExtensionCount } = await probeInstalledCounts(workspacePath);
@@ -128,16 +190,16 @@ export async function dispatchKindPrompt(inst, kind, payload) {
 
 // -------- Section: dispatchPhaseCommand --------
 // Build a raw `/speckit-<phase>` slash command (optionally wrapped with the
-// tracking preamble that instructs the agent to report a terminal phase status
-// and, on success, `reportExecution`) and dispatch it. Used for Run phase /
+// tracking preamble that instructs the agent to report a terminal phase status,
+// `reportExecution`, and command completion) and dispatch it. Used for Run phase /
 // Rerun phase clicks in the UI AND the agent's `runPhase` canvas action.
 //
 // When `track: true`, the wizard prepends a small tracking preamble that
 // opens a witness capture window and lists the expected artifacts. When
 // false (handoff-style calls), neither the preamble nor the witness are
 // engaged. `buildWorkflowTrackingPreamble` returns null for
-// extension-namespaced commands (e.g. `speckit.assess.intake`), leaving
-// those dispatches unwrapped so extension skills stay preset-agnostic.
+// extension-namespaced commands (e.g. `speckit.assess.intake`), which get a
+// completion-only preamble without phase-status or witness reporting.
 export async function dispatchPhaseCommand(inst, { commandName, args = "", allowEmpty = true, track = false }) {
     let prompt = buildWorkflowSlashCommand({ commandName, args, allowEmpty });
     let phaseId = null;
@@ -151,25 +213,32 @@ export async function dispatchPhaseCommand(inst, { commandName, args = "", allow
         // uses to draw pill rows, so the witness ask and the pill display
         // can never diverge.
         try {
-            expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition, commandName);
+            expectedArtifacts = activeArtifactsForCommand(inst?.cachedComposition,
+                phaseId ? `speckit.${phaseId}` : commandName);
         } catch { /* best-effort */ }
     }
     // Only canonical phases get a status token for stale callback rejection.
     // Extension artifact availability is scanner-driven; chat owns progress.
     const run = phaseId ? beginRun(inst?.instanceId, commandName) : null;
+    const completionRun = track
+        ? beginCommandRun(inst?.instanceId, commandName, run?.runId)
+        : null;
     if (phaseId) {
         const preamble = buildWorkflowTrackingPreamble({
-            commandName,
+            commandName: completionRun?.commandId ?? commandName,
             artifactPath,
             expectedArtifacts,
             runId: run?.runId,
         });
         if (preamble) prompt = `${prompt}\n${preamble}`;
+    } else if (completionRun) {
+        prompt = `${prompt}\n${buildCommandCompletionPreamble(completionRun.commandId, completionRun.runId)}`;
     }
     await dispatchPromptToSession({
         prompt,
         onError: () => {
             if (run) clearRun(inst?.instanceId, commandName, run.runId);
+            if (completionRun) clearCommandRun(inst?.instanceId, commandName, completionRun.runId);
         },
     });
     return { prompt, commandName, tracked: Boolean(run), untracked: !run, runId: run?.runId, startedAt: run?.startedAt };

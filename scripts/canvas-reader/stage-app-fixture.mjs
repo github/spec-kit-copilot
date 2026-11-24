@@ -8,6 +8,34 @@ import { ASSET_FILES, READER_PACKAGE, REPOSITORY_ROOT, inspectScriptStrings } fr
 
 const PLUGINS = ["spec-kit-copilot-wizard", "spec-kit-copilot-sdd"];
 const EXCLUDED = new Set(["node_modules", "dist", "build", "coverage", "test-results", "playwright-report", ".git", ".vscode", "test", "tests", "e2e", "playwright.config.mjs"]);
+const DESIGNER = "extensions/speckit-canvas-designer";
+const DESIGNER_IMPORTS = new Map([
+    [`${DESIGNER}/generation.mjs`, new Map([
+        ['`data:text/javascript;base64,${bytes.toString("base64")}`', null],
+        ["`data:text/javascript;base64,${workflowPage.assets[2].content}`", null],
+    ])],
+    [`${DESIGNER}/ui/app.js`, new Map([
+        ["`/ui/generation-state.js?token=${encodeURIComponent(token)}`", "generation-state.js"],
+        ["`/ui/generated-output-state.js?token=${encodeURIComponent(token)}`", "generated-output-state.js"],
+        ["`/ui/badge-import-contract.js?token=${encodeURIComponent(token)}`", "badge-import-contract.js"],
+        ["`/ui/identity-control.js?token=${encodeURIComponent(token)}`", "identity-control.js"],
+        ["`/ui/output-evidence.js?token=${encodeURIComponent(token)}`", "output-evidence.js"],
+        ["`/ui/badges-control.js?token=${encodeURIComponent(token)}`", "badges-control.js"],
+        ["`/ui/external-control-adapter-contract.js?token=${encodeURIComponent(token)}`", "external-control-adapter-contract.js"],
+        ["`/adapters/${adapter}.mjs?token=${encodeURIComponent(token)}`", null],
+        ["`/adapters/${initial.adapters[id]}.mjs?token=${encodeURIComponent(token)}`", null],
+        ["`/adapters/${name}.mjs?token=${encodeURIComponent(token)}`", null],
+    ])],
+    [`${DESIGNER}/ui/badges-control.js`, new Map([
+        ["`./external-control-adapter-contract.js${new URL(import.meta.url).search}`", "external-control-adapter-contract.js"],
+        ["`./badge-selection-contract.js${new URL(import.meta.url).search}`", "badge-selection-contract.js"],
+        ["`./badge-import-contract.js${new URL(import.meta.url).search}`", "badge-import-contract.js"],
+        ["duplicateModule.href", "badge-duplicates.js"],
+    ])],
+    [`${DESIGNER}/ui/external-control-adapter-contract.js`, new Map([
+        ["selectionContract.href", "badge-selection-contract.js"],
+    ])],
+]);
 const require = createRequire(new URL(`../../${READER_PACKAGE}/package.json`, import.meta.url));
 const builtinImports = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -115,6 +143,80 @@ export async function verifyStagedPlugin({ pluginRoot: input } = {}) {
         return true;
     }
 
+    function designerVerifierImport(argument, owner, source) {
+        if (owner !== `${extensionPath}/server/designer-setup.mjs` ||
+            !typescript.isPropertyAccessExpression(argument) || argument.name.text !== "href" ||
+            !typescript.isCallExpression(argument.expression) ||
+            argument.expression.expression.getText(source) !== "pathToFileURL" ||
+            argument.expression.arguments.length !== 1 ||
+            argument.expression.arguments[0].getText(source) !== "verifier") return false;
+        let scope = argument.parent;
+        while (scope && !typescript.isFunctionDeclaration(scope)) scope = scope.parent;
+        if (scope?.name?.text !== "verifyPresetRegistrations" ||
+            scope.parameters[3]?.name.getText(source) !== "verifier") return false;
+
+        const nodes = [];
+        const pending = [source];
+        while (pending.length) {
+            const node = pending.pop();
+            nodes.push(node);
+            typescript.forEachChild(node, (child) => { pending.push(child); });
+        }
+        const bases = nodes.filter((node) => typescript.isVariableDeclaration(node) && node.name.getText(source) === "BASE");
+        const calls = nodes.filter((node) => typescript.isCallExpression(node) &&
+            typescript.isIdentifier(node.expression) && node.expression.text === "verifyPresetRegistrations");
+        if (bases.length !== 1 || !bases[0].initializer || !typescript.isStringLiteralLike(bases[0].initializer) ||
+            bases[0].initializer.text !== "extension-canvas-design" || calls.length !== 1 ||
+            calls[0].arguments[3]?.getText(source) !== "verifier") return false;
+        let finalizer = calls[0].parent;
+        while (finalizer && !typescript.isFunctionDeclaration(finalizer)) finalizer = finalizer.parent;
+        if (finalizer?.name?.text !== "finalizeDesignerSetup" ||
+            finalizer.parameters[0]?.name.getText(source) !== "project") return false;
+        const declarations = nodes.filter((node) => {
+            if (!typescript.isVariableDeclaration(node) || node.name.getText(source) !== "verifier") return false;
+            let parent = node.parent;
+            while (parent && !typescript.isFunctionDeclaration(parent)) parent = parent.parent;
+            return parent === finalizer;
+        });
+        const initializer = declarations[0]?.initializer;
+        return declarations.length === 1 && initializer && typescript.isCallExpression(initializer) &&
+            initializer.expression.getText(source) === "join" &&
+            initializer.arguments.length === 6 &&
+            initializer.arguments[0].getText(source) === "project" &&
+            [".specify", "extensions", null, "scripts", "verify-launch.mjs"].every((value, index) => {
+                const part = initializer.arguments[index + 1];
+                return value === null ? part.getText(source) === "BASE"
+                    : typescript.isStringLiteralLike(part) && part.text === value;
+            });
+    }
+
+    function designerImport(argument, owner, source) {
+        const imports = DESIGNER_IMPORTS.get(owner);
+        const expression = argument.getText(source);
+        if (!imports?.has(expression)) return false;
+        const target = imports.get(expression);
+        if (target) {
+            required(`${DESIGNER}/ui/${target}`);
+            if (expression.endsWith(".href")) {
+                const variable = expression.slice(0, -".href".length);
+                const declarations = [];
+                const pending = [source];
+                while (pending.length) {
+                    const node = pending.pop();
+                    if (typescript.isVariableDeclaration(node) && node.name.getText(source) === variable) declarations.push(node);
+                    typescript.forEachChild(node, (child) => { pending.push(child); });
+                }
+                const initializer = declarations[0]?.initializer;
+                if (declarations.length !== 1 || !initializer || !typescript.isNewExpression(initializer) ||
+                    initializer.expression.getText(source) !== "URL" || initializer.arguments?.length !== 2 ||
+                    !typescript.isStringLiteralLike(initializer.arguments[0]) ||
+                    initializer.arguments[0].text !== `./${target}` ||
+                    initializer.arguments[1].getText(source) !== "import.meta.url") return false;
+            }
+        }
+        return true;
+    }
+
     function inspectImports(text, owner) {
         const source = typescript.createSourceFile(owner, text, typescript.ScriptTarget.Latest, true, typescript.ScriptKind.JS);
         if (source.parseDiagnostics.length) throw new Error("Payload JavaScript cannot be parsed for import closure.");
@@ -132,6 +234,14 @@ export async function verifyStagedPlugin({ pluginRoot: input } = {}) {
                     required(browserAsset(argument.arguments[0].text));
                 } else if (argument && coreInventoryImport(argument, owner)) {
                     continue;
+                } else if (node.expression.kind === typescript.SyntaxKind.ImportKeyword && argument &&
+                    designerVerifierImport(argument, owner, source)) {
+                    // Designer loads this verifier from its installed, validated extension.
+                    continue;
+                } else if (node.expression.kind === typescript.SyntaxKind.ImportKeyword && argument &&
+                    designerImport(argument, owner, source)) {
+                    // Designer validates contributed modules before loading these scoped assets.
+                    continue;
                 } else throw new Error("Payload has an unresolved dynamic import.");
             }
             typescript.forEachChild(node, (child) => { pending.push(child); });
@@ -145,7 +255,10 @@ export async function verifyStagedPlugin({ pluginRoot: input } = {}) {
             try {
                 for (const script of dom.window.document.querySelectorAll("script")) {
                     const src = script.getAttribute("src");
-                    if (src?.startsWith("/ui/") && !src.includes("..") && !src.includes("\\")) required(`${extensionPath}${src}`);
+                    const scriptExtension = file.path.startsWith(`${DESIGNER}/`) ? DESIGNER : extensionPath;
+                    const route = scriptExtension === DESIGNER && src?.endsWith("?token=__TOKEN__")
+                        ? src.slice(0, -"?token=__TOKEN__".length) : src;
+                    if (route?.startsWith("/ui/") && !route.includes("..") && !route.includes("\\")) required(`${scriptExtension}${route}`);
                     else if (src) resolveImport(src, file.path);
                     else if (!script.type || ["module", "text/javascript"].includes(script.type)) inspectImports(script.textContent, file.path);
                 }
@@ -239,7 +352,9 @@ export async function stageAppFixture({ workspace: input, target: targetInput, p
         const root = join(REPOSITORY_ROOT, "plugins", id);
         const extensionPath = id.endsWith("wizard") ? "extensions/speckit-wizard-canvas" : "extensions/sdd-canvas";
         const files = await collectFiles(root);
-        if (id.endsWith("wizard")) files.push(...await collectRuntime(root, extensionPath));
+        if (id.endsWith("wizard")) {
+            for (const runtime of [extensionPath, DESIGNER]) files.push(...await collectRuntime(root, runtime));
+        }
         files.push({ path: "UPSTREAM_LICENSE", content: await readFile(join(REPOSITORY_ROOT, "LICENSE")) });
         payloads.push({ id, extensionPath, files });
     }

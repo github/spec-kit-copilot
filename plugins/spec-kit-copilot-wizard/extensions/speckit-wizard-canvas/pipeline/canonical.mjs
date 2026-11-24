@@ -74,10 +74,10 @@
 //
 // Scope
 // -----
-// Covers all TEN core canonicals — the five required (constitution, specify,
-// plan, tasks, implement) plus the five optional/repair canonicals (clarify,
-// analyze, checklist, taskstoissues, converge). Any of these can be overridden
-// by a preset, so all ten need a baseline for the behavior-vs-canonical diff.
+// Covers all NINE core canonicals — the five required (constitution, specify,
+// plan, tasks, implement) plus the four optional/repair canonicals (clarify,
+// analyze, checklist, converge). Any of these can be overridden by a preset,
+// so all nine need a baseline for the behavior-vs-canonical diff.
 // Extension-added commands are intentionally out of scope — they have no
 // canonical baseline to diff against.
 
@@ -146,14 +146,6 @@ export const CORE_CAPABILITIES = Object.freeze({
         notes: "Runs `.specify/scripts/{bash,powershell}/check-prerequisites.{sh,ps1} -Json`. Generates a custom checklist under specs/<slug>/checklists/ using `.specify/templates/checklist-template.md` as the structural reference. Body has `## Pre-Execution Checks` (before_checklist) and `## Post-Execution Checks` (after_checklist).",
     }),
 
-    "speckit.taskstoissues": Object.freeze({
-        templates: Object.freeze([]),
-        scripts: Object.freeze(["check-prerequisites"]),
-        hooks: Object.freeze(["before_taskstoissues", "after_taskstoissues"]),
-        writesTo: null,
-        notes: "Runs `.specify/scripts/{bash,powershell}/check-prerequisites.{sh,ps1} -Json -RequireTasks -IncludeTasks`. Creates GitHub issues from tasks.md entries via `gh issue create`; no local file writes. Body has `## Pre-Execution Checks` (before_taskstoissues) and `## Post-Execution Checks` (after_taskstoissues).",
-    }),
-
     "speckit.converge": Object.freeze({
         templates: Object.freeze([]),
         scripts: Object.freeze(["check-prerequisites"]),
@@ -174,7 +166,7 @@ const SHARED_CORE_SCRIPTS = Object.freeze([
 // but still ship in the core inventory. Hardcoded here so the "used by"
 // sub-line on template rows can attribute them to their consuming command.
 // `agent-file-template` is loaded by the unseeded `speckit.agent-context.update`
-// command (not one of the ten canonicals in CORE_CAPABILITIES).
+// command (not one of the nine canonicals in CORE_CAPABILITIES).
 const EXTRA_TEMPLATE_TO_COMMANDS = Object.freeze({
     "agent-file-template": Object.freeze(["speckit.agent-context.update"]),
 });
@@ -278,7 +270,6 @@ const CANONICAL = Object.freeze({
     clarify:       { label: "Clarify",        description: "Resolve ambiguities before planning begins",           required: false, seeded: true },
     plan:          { label: "Plan",           description: "Generate implementation plan and design artifacts",    required: true,  seeded: true },
     tasks:         { label: "Tasks",          description: "Break plan into actionable task list",                 required: true,  seeded: true },
-    taskstoissues: { label: "Tasks → Issues", description: "Convert generated task list into GitHub issues",       required: false, seeded: true },
     analyze:       { label: "Analyze",        description: "Cross-check spec, plan, and tasks consistency",        required: false, seeded: true },
     checklist:     { label: "Checklist",      description: "Generate domain-specific quality validation checklist", required: false, seeded: true },
     implement:     { label: "Implement",      description: "Execute tasks to build the feature",                   required: true,  seeded: true },
@@ -441,6 +432,19 @@ export const CORE_TEMPLATES = Object.freeze([
     "constitution-template",
     "agent-file-template",
 ]);
+
+export const CORE_OUTPUTS = Object.freeze({
+    constitution: Object.freeze([".specify/memory/constitution.md"]),
+    specify: Object.freeze(["specs/<slug>/spec.md", "specs/<slug>/checklists/requirements.md"]),
+    clarify: Object.freeze(["specs/<slug>/spec.md"]),
+    plan: Object.freeze(["specs/<slug>/plan.md", "specs/<slug>/research.md",
+        "specs/<slug>/data-model.md", "specs/<slug>/contracts/", "specs/<slug>/quickstart.md"]),
+    tasks: Object.freeze(["specs/<slug>/tasks.md"]),
+    analyze: Object.freeze([]),
+    checklist: Object.freeze(["specs/<slug>/checklists/"]),
+    implement: Object.freeze(["specs/<slug>/tasks.md"]),
+    converge: Object.freeze(["specs/<slug>/tasks.md"]),
+});
 
 export const CORE_SCRIPTS = Object.freeze([
     "check-prerequisites",

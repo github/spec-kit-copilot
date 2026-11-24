@@ -10,7 +10,7 @@
 // on the "unedited" strip did not point at the same phases on the server.
 // This module is the single derivation both sides use.
 
-import { CANONICAL_PHASES, CANONICAL_UNSEEDED, canonicalSpine } from "./canonical.mjs";
+import { CANONICAL_PHASES, CANONICAL_UNSEEDED, canonicalSpine, isCanonical } from "./canonical.mjs";
 
 export const CANONICAL_BY_FULL = Object.fromEntries(
     [...canonicalSpine(), ...CANONICAL_UNSEEDED].map((bare) => [`speckit.${bare}`, bare]),
@@ -25,6 +25,13 @@ export function stripCommandsPrefix(id) {
     if (typeof id !== "string") return id;
     const bare = id.startsWith("commands/") ? id.slice("commands/".length) : id;
     return CANONICAL_BY_FULL[bare] ?? bare;
+}
+
+export function commandAliasKey(id) {
+    if (typeof id !== "string") return "";
+    const bare = stripCommandsPrefix(id.replace(/^\/+/, "").replace(/^command:/, ""));
+    const qualified = isCanonical(bare) ? `speckit.${bare}` : bare;
+    return qualified.replaceAll(".", "-");
 }
 
 /**

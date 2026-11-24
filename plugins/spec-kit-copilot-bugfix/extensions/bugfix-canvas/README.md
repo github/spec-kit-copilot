@@ -100,8 +100,8 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger bug stages.
 **Via marketplace (recommended):**
 
 ```bash
-copilot plugin marketplace add OWNER/spec-kit-copilot
-copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
+copilot plugin marketplace add https://github.com/nicolehaugen/spec-kit-copilot.git#staging-canvas
+copilot plugin install spec-kit-copilot-bugfix@spec-kit-staging
 ```
 
 The plugin manifest lives at `plugins/spec-kit-copilot-bugfix/plugin.json` and

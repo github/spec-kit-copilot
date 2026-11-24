@@ -1,0 +1,31 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-wizard-layer-test"
+  name: "Copilot Wizard Layer Test"
+  version: "0.1.0"
+  description: "Test-only command layers for Wizard composition and pipeline journeys."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.plan"
+      file: "commands/speckit.plan.md"
+      description: "Replace the Plan command in composition tests."
+      replaces: "speckit.plan"
+      strategy: "replace"
+    - type: "command"
+      name: "speckit.specify"
+      file: "commands/speckit.specify.md"
+      description: "Prepend instructions to the Specify command."
+      replaces: "speckit.specify"
+      strategy: "prepend"
+
+tags:
+  - copilot
+  - test

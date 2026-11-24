@@ -80,18 +80,22 @@ runs the CLI.
 
 ## Spec Kit presets (`spec-kit-presets/`) — keep the plumbing boundary
 
-`spec-kit-presets/` holds Spec Kit presets maintained for Copilot. Guard the
-boundary so contributors never conflate the two toolchains:
+`spec-kit-presets/` holds **shipping Copilot-specific Spec Kit presets** — this
+repo is their canonical home. Test-only presets live outside that shipping
+directory in `tests/fixtures/test-presets/`. Guard the boundary so contributors
+never conflate the two toolchains:
 
 - **Two different consumers.** Copilot plumbing (`plugin.json`, `skills/`, `plugins/`,
   `.github/plugin/marketplace.json`) is consumed by the **`copilot plugin`** CLI/App.
   Presets are consumed by the **`specify` CLI** (`specify preset add`). They are *not*
   Copilot plugins, skills, canvases, or marketplace entries.
-- **Isolate, don't scatter.** All preset content — including its `catalog.json` — lives
-  **inside** `spec-kit-presets/`. Do **not** put a preset `catalog.json` at the repo
-  root, and do not mix it up with the Copilot marketplace manifest at
-  `.github/plugin/marketplace.json`. Keep the boundary note in
-  `spec-kit-presets/README.md`.
+- **Isolate, don't scatter.** All **shipping** preset content — including its
+  `catalog.json` — lives inside `spec-kit-presets/`. Keep `copilot-*-test`
+  fixtures beside their tests in `tests/fixtures/test-presets/`; each needs a
+  Playwright test installing from that path with `specify preset add --dev`.
+  Do **not** put a preset `catalog.json` at the repo root, and do not mix it up
+  with the Copilot marketplace manifest at `.github/plugin/marketplace.json`.
+  Keep the boundary note in `spec-kit-presets/README.md`.
 - **Naming convention: `copilot-<scope>[-<behavior>]`.** Preset ids (directory,
   `preset.yml` `id`, `catalog.json` key) carry a short **`copilot-`** prefix marking
   them Copilot-specific (e.g. `copilot-sub-agents`, `copilot-assess-ask-questions`),
@@ -99,6 +103,12 @@ boundary so contributors never conflate the two toolchains:
   Do **not** use the full `spec-kit-copilot-*` plugin prefix for preset ids — that
   namespace is Copilot plugins (`copilot plugin`), and reusing it here would re-blur
   the plumbing boundary and bloat `specify preset add`.
+- **Promotion criterion: Copilot-specific only.** A preset belongs here only if it
+  depends on Copilot's own agent mechanisms (e.g. `copilot-sub-agents` uses the VS Code
+  `runSubagent` tool / Copilot CLI sub-agents / `.github/agents/`; `copilot-assess-ask-questions`
+  requires Copilot's interactive `ask_user` tool with no plain-text fallback).
+  Agent-agnostic presets (generic themes, or workflows tied to an extension rather
+  than to Copilot's tools) do **not** belong here. Do not import them.
 - **Independent versioning & release.** Each preset carries its own `version` in
   `preset.yml` and a matching `catalog.json` entry, separate from plugin versions.
   Releases are cut by CI (`.github/workflows/release-preset.yml`), which zips the
@@ -109,8 +119,9 @@ boundary so contributors never conflate the two toolchains:
 
 ## Spec Kit extensions (`spec-kit-extensions/`)
 
-This directory and its `catalog.json` hold **Specify CLI extensions maintained
-for Copilot**, parallel to the preset catalog. Do not add these packages to the
+This directory and its `catalog.json` hold **Copilot-specific Specify CLI
+extensions**, parallel to the preset catalog. Entries must depend on Copilot
+tools or providers; do not import general-purpose extensions or add these packages to the
 Copilot plugin marketplace. Keep each catalog entry's version, requirements,
 and release URL aligned with its `extension.yml` and package README.
 Package IDs, directory names, catalog keys, and ZIP basenames use
@@ -120,34 +131,23 @@ the preset version suffix. Keep discovery tags such as `canvas-design`, template
 IDs such as `canvas-settings-*`, and Copilot provider/tool IDs independent of
 the package identity. Standard manifest filenames remain `extension.yml`.
 
-Extensions are independently versioned and released through
-`.github/workflows/release-extension-trigger.yml` (manual extension ID + version)
-and `.github/workflows/release-extension.yml`. Keep both files structurally
-aligned with their preset counterparts and Spec Kit's release model. Only
-package-specific naming prefixes, tag filters, input examples, and terminology
-differ; apply shared behavior fixes to both package types. The trigger validates its inputs,
-creates and pushes the tag; the separate tag-push workflow validates, zips, and
-publishes in one job.
-Do not add extension-only jobs, triggers, routing guards, or reusable calls.
-Bump the manifest, catalog entry, and package README together before releasing.
-Both trigger checkouts use `token: ${{ secrets.RELEASE_PAT }}` and persist that
-credential for the tag push, matching Spec Kit's core release trigger. Configure
-the repository Actions secret with a token authorized to push tags; do not
-replace it with `GITHUB_TOKEN`, whose pushes do not trigger another workflow.
-Preset publishers listen for `copilot-*-vX.Y.Z` tags and extension publishers
-listen for `extension-*-vX.Y.Z` tags, so releases do not start the other package
-type's workflow. Parse versions after the final `-v`, and pass changelog notes
-through a file rather than interpolating them into shell scripts.
-Both manual triggers must verify the requested version against the manifest and
-catalog before creating a tag. Both triggers and publishers must verify that the
-catalog `download_url` matches the release repository, tag, and ZIP asset name;
-keep these checks aligned so direct tag pushes cannot bypass them.
-Require manifest IDs to match the selected directory in both triggers and
-publishers. Package IDs use lowercase letters, digits, and single hyphen
-separators with the `copilot-` preset or `extension-` extension prefix. Reject
-symlinks in the package root or contents before reading manifests or creating
-archives; shell `zip` follows links and must never archive files outside the
-package.
+## Local development versus releases
+
+- Do not bump plugin, preset, or extension versions, marketplace metadata, or
+  catalog release URLs during routine development. Do not publish or tag a release
+  unless the user explicitly requests it. Test unreleased Canvas Design changes
+  with the Wizard's approved local-source override instead of replacing a
+  published ZIP or pretending that the hosted path contains worktree changes.
+- When a release is requested, update the component's version, matching catalog
+  entry and download URL, and directly related documentation together. Verify
+  the published ZIP against the Wizard's default hosted Generate path before
+  treating that path as release-ready. Keep an incompatible hosted path visible
+  as a release-readiness issue during local development; do not demand a version
+  bump for every development change.
+
+Release publishers validate package IDs, versions, catalog URLs, and symlinks
+before packaging. Manual triggers call the publishers directly so a
+`GITHUB_TOKEN` tag push does not need to start a separate workflow.
 
 ## Advanced CodeQL scanning
 

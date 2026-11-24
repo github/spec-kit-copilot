@@ -33,6 +33,7 @@
         </header>
 
         <main class="app-body">
+            <p id="catalog-operation-error" class="field-error" role="alert" hidden></p>
             <!-- Setup tab: Environment -> Catalogs -> Composition -->
             <section class="tab-panel active" data-panel="setup">
                 <div class="wizard-shell">
@@ -179,9 +180,9 @@
                         <p id="comp-summary" class="comp-summary muted">Refresh to load composition data.</p>
                     </div>
                     <div class="header-actions comp-actions">
-                        <p id="comp-meta" class="comp-meta muted">
-                            <span id="comp-meta-text">Refresh</span>
-                            <button id="comp-refresh" class="comp-refresh-icon" type="button" title="Refresh composition" aria-label="Refresh composition">↻</button>
+                        <button id="comp-refresh" class="comp-refresh-icon" type="button" title="Refresh composition" aria-label="Refresh composition"><span aria-hidden="true">↻</span> Refresh</button>
+                        <p id="comp-meta" class="comp-meta muted" role="status" aria-live="polite">
+                            <span id="comp-meta-text"></span>
                         </p>
                     </div>
                 </header>

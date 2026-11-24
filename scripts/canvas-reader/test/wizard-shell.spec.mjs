@@ -101,6 +101,7 @@ test("Wizard applies workflow progress received during review on return", async 
         await page.evaluate(async () => {
             const [{ state }, { handleServerMessage }] = await Promise.all([import("/ui/state.js"), import("/ui/client.js")]);
             const snapshot = structuredClone(state.snapshot);
+            snapshot.pipeline = null;
             snapshot.composition = {
                 ...snapshot.composition,
                 artifacts: [
@@ -111,16 +112,20 @@ test("Wizard applies workflow progress received during review on return", async 
                         stack: [{ layer: "extension", presetId: "ext", sourcePath: ".github/skills/speckit-specify/SKILL.md", active: true }],
                     },
                 ],
+                inferredPipeline: {
+                    shape: "standalone",
+                    pipeline: ["commands/speckit.specify", "commands/speckit.ext.custom", "commands/speckit.plan"],
+                    unplaced: [],
+                    rationale: "Updated server-owned pipeline",
+                },
             };
             handleServerMessage({ type: "state", data: snapshot });
         });
-        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceQueued)).toBe(true);
         expect(fixture.blockedWrites()).toBe(0);
         await page.locator(".artifact-viewer-back").click();
-        await expect(page.locator("#phase-card").getByRole("button", { name: /Running/ })).toBeDisabled();
-        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceQueued)).toBe(false);
-        expect(await page.evaluate(async () => (await import("/ui/state.js")).state.artifactInferenceSignature)).toBe(".github/skills/speckit-specify/SKILL.md");
-        expect(fixture.blockedWrites()).toBe(1);
+        await expect(page.locator("#phase-card").getByRole("button", { name: /Running/ })).toBeEnabled();
+        await expect(page.locator('#stepper [data-phase="speckit.ext.custom"]')).toBeVisible();
+        expect(fixture.blockedWrites()).toBe(0);
         await expect(trigger).toBeFocused();
         expect(fixture.dispatchCount()).toBe(0);
         expect(fixture.workspaceChanged()).toBe(false);
@@ -135,6 +140,7 @@ test("Wizard composition refresh completes while artifact review stays mounted",
         await page.evaluate(async () => {
             const [{ state }, { updateCompositionRefreshButton }] = await Promise.all([import("/ui/state.js"), import("/ui/composition.js")]);
             state.compositionRequested = true;
+            state.compositionRefreshId = state.snapshot?.refreshId ?? null;
             updateCompositionRefreshButton();
         });
         const refresh = page.locator("#comp-refresh");
@@ -147,6 +153,13 @@ test("Wizard composition refresh completes while artifact review stays mounted",
         await page.evaluate(async () => {
             const [{ state }, { handleServerMessage }] = await Promise.all([import("/ui/state.js"), import("/ui/client.js")]);
             handleServerMessage({ type: "composition", ...structuredClone(state.snapshot.composition) });
+        });
+        await expect(refresh).toBeDisabled();
+        await page.evaluate(async () => {
+            const [{ state }, { handleServerMessage }] = await Promise.all([import("/ui/state.js"), import("/ui/client.js")]);
+            handleServerMessage({ type: "state", data: {
+                ...structuredClone(state.snapshot), refreshId: "reader-fixture-complete", refreshStatus: "up-to-date",
+            } });
         });
         await expect(refresh).toBeEnabled();
         await expect(refresh).not.toHaveAttribute("aria-busy", "true");

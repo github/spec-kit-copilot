@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "gallery.logo",
+  "host": "designer",
+  "slot": "gallery.options",
+  "order": 10,
+  "field": {
+    "id": "gallery.logo",
+    "label": "Gallery logo",
+    "description": "PNG, JPEG, GIF, or WebP image up to 32 KiB, displayed on the generated Logo gallery page.",
+    "type": "image",
+    "control": "stock.image"
+  },
+  "generatedBinding": {
+    "presentation": "asset",
+    "page": "canvas-generated-logo-gallery",
+    "slot": "hero.logo"
+  }
+}

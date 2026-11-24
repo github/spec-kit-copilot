@@ -1,5 +1,12 @@
 /.gitattributes text eol=lf
 
+# Preserve upstream Lean command bytes used by package integrity checks.
+/spec-kit-presets/copilot-lean-sdd/commands/speckit.constitution.md -text
+/spec-kit-presets/copilot-lean-sdd/commands/speckit.specify.md -text
+/spec-kit-presets/copilot-lean-sdd/commands/speckit.plan.md -text
+/spec-kit-presets/copilot-lean-sdd/commands/speckit.tasks.md -text
+/spec-kit-presets/copilot-lean-sdd/commands/speckit.implement.md -text
+
 # Preserve exact bytes used by runtime package hash checks.
 /plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/ui/vendor/markdown-reader/** -text linguist-generated=true
 /plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/server/artifact-read.mjs -text
@@ -15,3 +22,10 @@
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.mjs -text linguist-generated=true
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/vendor/artifact-clarifications.NOTICES.txt -text linguist-generated=true
 /plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/ui/artifact-review.js -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-read.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-review.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-discovery.mjs -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-clarifications.mjs -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/review/artifact-clarifications.NOTICES.txt -text linguist-generated=true
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/ui/artifact-review.js -text
+/spec-kit-extensions/extension-canvas-design/generated-scaffold/ui/vendor/markdown-reader/** -text linguist-generated=true

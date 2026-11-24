@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "checklist-complete",
+  "label": "Markdown checklist complete",
+  "description": "The checklist must be current and contain at least one checkbox. The badge appears when every checkbox is checked. A missing, stale, or empty checklist does not mean complete.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact",
+      "label": "Checklist file"
+    },
+    {
+      "id": "prerequisites",
+      "type": "ordered-artifacts",
+      "scope": "metadata",
+      "before": "artifact",
+      "minItems": 1,
+      "label": "Earlier outputs required for currentness"
+    },
+    {
+      "id": "targetphase",
+      "type": "phase",
+      "label": "Target phase"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-content-adapter"
+}

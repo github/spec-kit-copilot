@@ -7,6 +7,7 @@ import { REPOSITORY_ROOT, inspectScriptStrings, sourceFingerprint } from "./sync
 
 const WIZARD = "plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas";
 const SDD = "plugins/spec-kit-copilot-sdd/extensions/sdd-canvas";
+const GENERATED = "spec-kit-extensions/extension-canvas-design/generated-scaffold";
 const require = createRequire(new URL(`../../${WIZARD}/ui/markdown-reader/package.json`, import.meta.url));
 
 export async function syncDomain({ verify = false } = {}) {
@@ -40,6 +41,13 @@ export async function syncDomain({ verify = false } = {}) {
         [null, `${SDD}/vendor/artifact-clarifications.NOTICES.txt`, noticeBytes],
         ...["artifact-read.mjs", "artifact-review.mjs", "artifact-discovery.mjs"].map((name) => [`${WIZARD}/server/${name}`, `${SDD}/vendor/${name}`]),
         [`${WIZARD}/ui/artifact-review.js`, `${SDD}/ui/artifact-review.js`],
+        ...["artifact-read.mjs", "artifact-review.mjs", "artifact-discovery.mjs", "artifact-clarifications.mjs", "artifact-clarifications.NOTICES.txt"]
+            .map((name) => [`${WIZARD}/server/${name}`, `${GENERATED}/review/${name}`]),
+        [`${WIZARD}/contracts/review-submission.mjs`, `${GENERATED}/review/review-submission.mjs`],
+        ...["artifact-review.js", "artifact-viewer-shell.js", "review-clarifications.js", "clarification-drafts.js", "answer-dialog.js",
+            "styles/artifact-review.css", "styles/overlays.css", "vendor/markdown-reader/markdown-reader.js",
+            "vendor/markdown-reader/markdown-reader.css", "vendor/markdown-reader/THIRD_PARTY_NOTICES.txt"]
+            .map((name) => [`${WIZARD}/ui/${name}`, `${GENERATED}/ui/${name}`]),
     ];
     const records = [];
     for (const [source, destination, generated] of mappings) {

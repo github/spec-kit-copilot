@@ -1,0 +1,33 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-phase-view-label-test"
+  name: "Copilot Phase View Label Test"
+  version: "0.1.0"
+  description: "Test-only per-phase artifact viewer button label."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the phase control presentation override."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "generated-phase-control"
+      file: "generated/phase-control.json"
+      description: "Rename the Plan phase's artifact viewer button."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

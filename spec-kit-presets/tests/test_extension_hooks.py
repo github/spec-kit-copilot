@@ -25,6 +25,7 @@ FILES = {"preset.yml", "README.md", "LICENSE", "commands/lifecycle.md"}
 START = "## Copilot extension lifecycle checkpoints"
 CLI = os.environ.get("HOOKS_SPECIFY_BIN")
 BASELINES = Path(os.environ.get("HOOKS_BASELINES_ROOT", str(PRESETS)))
+BASELINE_NAMES = ("copilot-lean-sdd", "copilot-full-sdd") if os.environ.get("HOOKS_BASELINES_ROOT") else ("copilot-lean-sdd",)
 COPILOT = os.environ.get("HOOKS_COPILOT_BIN")
 GIT_HOOK_SCRIPT = ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh"
 
@@ -523,7 +524,7 @@ class SpecifyCompositionTests(unittest.TestCase):
         )
         if version.stdout.strip() != "specify 1.2.3":
             raise AssertionError(f"Expected Specify 1.2.3, got {version.stdout!r}")
-        for name in ("copilot-lean-sdd", "copilot-full-sdd"):
+        for name in BASELINE_NAMES:
             if not (BASELINES / name / "preset.yml").is_file():
                 raise AssertionError(f"Missing canonical baseline fixture: {BASELINES / name}")
 
@@ -545,7 +546,7 @@ class SpecifyCompositionTests(unittest.TestCase):
         }
 
     def test_real_skills_composition_activation_priority_and_removal(self):
-        for baseline in ("copilot-lean-sdd", "copilot-full-sdd"):
+        for baseline in BASELINE_NAMES:
             for script in ("sh", "ps", "py"):
                 with self.subTest(baseline=baseline, script=script), tempfile.TemporaryDirectory() as temp:
                     root = Path(temp)
@@ -727,7 +728,7 @@ class CopilotBehaviorTests(unittest.TestCase):
         self.assertTrue(set(scenarios) <= {
             "success", "pre-failure", "post-failure", "absent", "malformed", "missing-plan", "denied",
         })
-        for baseline in ("copilot-lean-sdd", "copilot-full-sdd"):
+        for baseline in BASELINE_NAMES:
             for scenario in scenarios:
                 with self.subTest(baseline=baseline, scenario=scenario), tempfile.TemporaryDirectory() as temp:
                     root = Path(temp)
@@ -975,7 +976,7 @@ class CopilotBehaviorTests(unittest.TestCase):
             str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in source.rglob("*") if p.is_file()
         }
-        for baseline in ("copilot-lean-sdd", "copilot-full-sdd"):
+        for baseline in BASELINE_NAMES:
             with self.subTest(baseline=baseline), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 project = root / "project"

@@ -10,6 +10,130 @@ Copilot experience around it.
 
 **Status:** active development.
 
+## Local Wizard configuration and distribution
+
+Runtime settings and distribution metadata are separate. Runtime settings select
+catalogs and the initial Generate flag without reinstalling provider code;
+marketplace/catalog distribution preparation changes local install metadata,
+not the configuration of a running Wizard.
+
+### Runtime settings
+
+The packaged defaults live in the Wizard provider at
+`config/runtime-defaults.json`. The optional desktop override is
+`%USERPROFILE%\.copilot\spec-kit\runtime-settings.json` (the home-directory
+equivalent on other platforms). `SPECKIT_CONFIG_FILE` selects an **absolute**
+JSON file exclusively; it is not merged with the desktop file. There are no
+per-value environment overrides. Malformed/unknown settings, invalid HTTPS
+catalog URLs and explicit missing files fail visibly. Only an absent optional
+desktop file selects defaults.
+
+From the current worktree, using PowerShell:
+
+```powershell
+node dev-tools\configure-runtime.mjs show
+node dev-tools\configure-runtime.mjs use-fork
+# Review the diff and effective settings; then use that preview's digest:
+node dev-tools\configure-runtime.mjs use-fork --apply --expect "<preview expect digest>"
+node dev-tools\configure-runtime.mjs use-defaults
+node dev-tools\configure-runtime.mjs use-defaults --apply --expect "<new preview digest>"
+```
+
+`use-fork` uses `config\runtime-settings.fork.example.json`, merging its overrides
+with other valid existing settings. Use `--source "<custom JSON>"` for custom
+overrides, or `--file "<destination JSON>"` to preview/apply an explicit location.
+`use-defaults` backs up the selected override and leaves `{}` rather than deleting
+a file still referenced by an explicit selector. Replaced files receive dated
+sibling backups. Writes require `--apply` and the matching `--expect` digest;
+stale previews are rejected. Keep backups, but do not commit personal settings
+or backup files.
+
+Settings resolve at provider startup: reload/restart and verify **both** installed
+providers after changes. A successful file write is not proof of reload. Prefer
+the default user-level location for desktop/Designer children; do not assume a
+shell's explicit selector is inherited by a child. Switching settings does not
+undo locally refreshed provider code; explicitly reinstall/update from the
+marketplace to restore published code.
+
+### Project development skills
+
+Canonical repository skills live in `.github\skills`, not the shipping core
+`skills` plugin:
+
+- `dev-tools-speckit-wizard-installed-refresh`: compare inventories, back up and hash-verify
+  both installed providers from this worktree; configure settings only on request.
+- `dev-tools-speckit-wizard-installed-open`: verify the exact installed plugin/provider and
+  persisted disabled settings; ordinary opening uses the configured Generate
+  default, explicit Generate requests enable it, focus-only reopening preserves it.
+- `dev-tools-speckit-wizard-local-generate-launch`: refresh, then explicitly enable Generate;
+  leave phase selection, Designer launch/settings and Generate submission to the user.
+- `dev-tools-speckit-wizard-project-reset`: back up and clear a worktree's Spec Kit
+  setup, generated skills, feature specs, and Wizard state for a fresh local test.
+- `dev-tools-speckit-distribution`: prepare local metadata, orchestrate explicitly authorized
+  releases, or verify published installations.
+
+Use one active installed Wizard/Designer pair; sample/session previews are not
+installed-provider or functional journey evidence. For local Generate testing,
+approve **both** this worktree's `spec-kit-extensions\extension-canvas-design` and
+`spec-kit-presets\copilot-vertical-phase-control` paths in Wizard Local development.
+Verify actual child installations, resolved contributions and generated output
+before claiming end-to-end success. Do not modify symlinked Specify development
+installations.
+
+Development helpers live in `dev-tools` and project development skills use the
+`dev-tools-` prefix to distinguish them from shipping and personal skills.
+Personal skills remain untouched. Run `/skills reload` and verify project discovery.
+
+### Distribution and releases
+
+Distribution configuration requires `copilotCatalogName` for the printed
+extension/preset registration commands. Set it to the same registration name
+as the runtime settings used for that distribution; preparation does not
+change runtime settings or migrate existing registrations.
+
+Metadata changes are staged before application. If an apply fails, earlier
+writes are rolled back and the error lists retained backups. A rollback conflict
+or filesystem failure is reported explicitly for manual recovery; this is not a
+crash-safe transaction across files.
+Staged-file cleanup attempts every file and reports cleanup failures alongside
+the original apply/rollback error. Catalog refs must also pass local syntax
+validation; preparation does not check whether the ref exists remotely.
+On POSIX systems, backups and replacements retain the existing file's permission
+bits. This helper does not manage Windows ACLs.
+
+Select `config\distribution.upstream.example.json`,
+`config\distribution.fork.example.json`, or custom JSON explicitly:
+
+```powershell
+node dev-tools\prepare-distribution.mjs --config config\distribution.fork.example.json
+# Only after reviewing the affected-file diff:
+node dev-tools\prepare-distribution.mjs --config config\distribution.fork.example.json --apply --expect "<preview expect digest>"
+node --test tests\dev-tools\*.test.mjs
+```
+
+Configuration declares GitHub repository, catalog ref and marketplace display
+metadata. Preparation derives catalog, documentation, installation and exact
+versioned ZIP links. It changes only marketplace display fields, catalog self URLs,
+and Canvas Design/vertical-control URL fields, preserving unrelated entries,
+formatting, IDs, versions and requirements. Manifest/catalog version conflicts or
+changed preview inputs stop the operation; overwritten files receive backups.
+Printed marketplace/Specify commands are **not executed**. Preparation does not
+publish catalogs, change workflows, commit, push, tag, or bump versions.
+
+For an explicitly requested release, align only selected component versions and
+metadata/docs, validate, and commit/push only with authorization. Reuse the existing
+Release Extension Trigger and Release Preset Trigger from the prepared release
+commit/ref; publisher validation requires asset URLs matching `GITHUB_REPOSITORY`.
+Do not relocate unrelated upstream packages. Publish assets before promoting the
+served catalog/marketplace ref; publishing a ZIP does not update hosted catalogs.
+Never move an existing tag or replace a published ZIP for development testing.
+
+Hosted readiness requires the **actual published archives selected by the served
+catalogs**, installed without local-source overrides, and verified through
+Wizard/Designer/generated output. Local-source success is separate evidence;
+hosted incompatibility is a release-readiness concern, not a reason to routinely
+bump versions or publish development edits.
+
 > [!NOTE]
 > **Experience visual, Copilot-interactive Spec Kit canvases**
 >
@@ -43,7 +167,7 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get star
 | `spec-kit-copilot-assess` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `assess` extension |
 | `spec-kit-copilot-bugfix` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the Spec Kit `bug` extension |
 | `spec-kit-copilot-sdd` | 0.1.0 | Copilot App canvas | Optional visual dashboard for the core spec-driven development workflow |
-| `spec-kit-copilot-wizard` | 0.4.0 | Copilot App canvases | Guided wizard and an under-development Designer shell (not ready for use) |
+| `spec-kit-copilot-wizard` | 0.4.25 | Copilot App canvases | Guided wizard and a composable Designer generator (under development) |
 
 The plugins are independently installable and versioned. Install the core skills,
 the assessment canvas, the bug fix canvas, the spec-driven development canvas, the
@@ -51,24 +175,24 @@ wizard canvas, or any combination.
 
 ## Spec Kit presets
 
-This repo also hosts **Spec Kit presets maintained for the Copilot experience** under
+This repo also hosts **shipping Copilot-specific Spec Kit presets** under
 [`spec-kit-presets/`](spec-kit-presets). These are *not* Copilot plugins — they are
 consumed by the **`specify` CLI** (`specify preset add`), and are kept in their own
 isolated subtree (with their own `catalog.json`) so Spec Kit plumbing is never
-confused with Copilot plugin/marketplace plumbing.
+confused with Copilot plugin/marketplace plumbing. Test-only presets live in
+[`tests/fixtures/test-presets/`](tests/fixtures/test-presets/) instead.
 
 | Preset | Requires | Copilot purpose |
 | --- | --- | --- |
 | [`copilot-lean-sdd`](spec-kit-presets/copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream-derived minimal SDD baseline with Copilot skill invocation and interactive `ask_user`; nine hook-free command replacements. Initial release pending; use the documented local-development install. |
-| [`copilot-full-sdd`](spec-kit-presets/copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Alternative full SDD baseline retaining traditional artifacts and quality gates; nine command replacements without extension lifecycle-hook dispatch. Initial release pending; use the documented local-development install. |
 | [`copilot-sub-agents`](spec-kit-presets/copilot-sub-agents) | Spec Kit `>= 0.8.0` | Uses Copilot delegation — VS Code `runSubagent`, Copilot CLI sub-agents, `.github/agents/` |
 | [`copilot-assess-ask-questions`](spec-kit-presets/copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (no plain-text fallback) |
-| [`copilot-extension-hooks`](spec-kit-presets/copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in Specify extension lifecycle dispatch through Copilot skills; not native Copilot hooks |
+| [`copilot-vertical-phase-control`](spec-kit-presets/copilot-vertical-phase-control) | Spec Kit `>= 1.0.7`, `extension-canvas-design` | Replaces the generated phase control with the Copilot Autopilot workflow |
+| [`copilot-extension-hooks`](spec-kit-presets/copilot-extension-hooks) | Specify `==1.2.3`, one compatible SDD baseline | Opt-in Specify extension lifecycle dispatch through Copilot skills; not native Copilot hooks |
 
 See [`spec-kit-presets/README.md`](spec-kit-presets/README.md) for the plumbing
-boundary, install commands, and versioning. Maintainers judge whether a package
-belongs here, in core Spec Kit, or in an external repository based on its purpose
-and maintenance needs, not whether its instructions are portable. See
+boundary, install commands, and versioning. Shipping presets and extensions must
+depend on Copilot-specific mechanisms. See
 [contribution scope and placement](CONTRIBUTING.md#scope-and-package-placement).
 
 ## Core skills plugin
@@ -108,6 +232,15 @@ own README for full details.
 | [`sdd-canvas`](plugins/spec-kit-copilot-sdd/extensions/sdd-canvas/README.md) | `spec-kit-copilot-sdd` | Dashboard for the core spec-driven workflow — constitution → specify → clarify → plan → tasks → analyze → checklist → implement. |
 | [`speckit-wizard-canvas`](plugins/spec-kit-copilot-wizard/extensions/speckit-wizard-canvas/README.md) | `spec-kit-copilot-wizard` | Guided wizard for the full Spec Kit lifecycle — setup → constitution → specify → clarify → plan → tasks → analyze → checklist → implement, with preset / extension / composition inspectors. |
 | [`speckit-canvas-designer`](plugins/spec-kit-copilot-wizard/extensions/speckit-canvas-designer/README.md) | `spec-kit-copilot-wizard` | Under development; not ready for use. Direct opening shows only an empty shell. |
+
+The Designer's Generate action freezes Essentials and the Wizard handoff, then
+the Canvas Design extension copies its maintained SDK entry point and workflow
+modules into a **new** project extension directory, then validates it in place.
+It no longer invokes `create-canvas` or overwrites a generated canvas. To
+propagate generator changes to an existing canvas in a Designer session, use
+the project-local `refresh-generated-canvas` skill in `.github/skills/`, which
+checks the target and merges user changes rather than blindly copying files. See
+the [Canvas Design generation details](spec-kit-extensions/extension-canvas-design/README.md#how-it-works).
 
 ### Previews
 
@@ -150,13 +283,18 @@ This repository ships a marketplace manifest at
 marketplace, then install any combination of the plugins:
 
 ```bash
-copilot plugin marketplace add OWNER/spec-kit-copilot
-copilot plugin install spec-kit-copilot@spec-kit-marketplace
-copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
-copilot plugin install spec-kit-copilot-bugfix@spec-kit-marketplace
-copilot plugin install spec-kit-copilot-sdd@spec-kit-marketplace
-copilot plugin install spec-kit-copilot-wizard@spec-kit-marketplace
+copilot plugin marketplace add https://github.com/nicolehaugen/spec-kit-copilot.git#staging-canvas
+copilot plugin install spec-kit-copilot@spec-kit-staging
+copilot plugin install spec-kit-copilot-assess@spec-kit-staging
+copilot plugin install spec-kit-copilot-bugfix@spec-kit-staging
+copilot plugin install spec-kit-copilot-sdd@spec-kit-staging
+copilot plugin install spec-kit-copilot-wizard@spec-kit-staging
 ```
+
+This fork's staging marketplace is served from `staging-canvas`; the default-branch
+marketplace is separate. Disable other installed Wizard providers while testing;
+the plugin and canvas IDs intentionally remain unchanged. The staging catalogs
+resolve to this fork's published release ZIPs.
 
 ### Local development loading
 

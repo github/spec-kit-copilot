@@ -1,0 +1,51 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-badge-input-test"
+  name: "Copilot Badge Input Test"
+  version: "0.1.0"
+  description: "Test-only badge rule with a custom Designer input control."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "badges-settings"
+      file: "designer/badges.json"
+      strategy: "replace"
+    - type: "template"
+      name: "badge-rule-test-phase"
+      file: "generated/rule.json"
+      strategy: "replace"
+    - type: "template"
+      name: "badge-rule-test-phase-adapter"
+      file: "generated/evaluator.mjs"
+      strategy: "replace"
+    - type: "template"
+      name: "designer-badge-test-control"
+      file: "designer/control.json"
+      strategy: "replace"
+    - type: "template"
+      name: "designer-badge-test-adapter"
+      file: "designer/adapter.mjs"
+      strategy: "replace"
+    - type: "template"
+      name: "designer-badge-test-binding"
+      file: "designer/binding.json"
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "test"

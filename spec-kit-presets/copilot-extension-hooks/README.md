@@ -4,6 +4,7 @@ Copilot Extension Hooks **1.0.0** is an independently configurable, opt-in
 Specify preset for Copilot **skills mode**. It wraps one selected
 `copilot-lean-sdd` or `copilot-full-sdd` baseline without replacing or editing
 its body, metadata, artifact requirements, approval gates, or safeguards.
+This fork includes Lean; Full is available separately from the upstream project.
 It is not a Copilot plugin and does not control Copilot native hooks/events.
 
 Requires released Specify CLI **1.2.3 exactly**, a project initialized by that
@@ -24,7 +25,7 @@ specify --version                        # must report 1.2.3
 specify init /path/to/project --integration copilot --integration-options="--skills" --non-interactive --script sh
 cd /path/to/project
 specify preset add --dev /path/to/spec-kit-copilot/spec-kit-presets/copilot-lean-sdd --priority 10
-# OR install copilot-full-sdd at priority 10, not both baselines.
+# OR install upstream's copilot-full-sdd at priority 10, not both baselines.
 specify preset add --dev /path/to/spec-kit-copilot/spec-kit-presets/copilot-extension-hooks --priority 5
 specify preset resolve speckit.plan
 ```
@@ -127,8 +128,9 @@ explicit mandatory-failure reporting are added. Copyright GitHub, Inc.;
 
 Run `python -m unittest discover -s spec-kit-presets/tests -p 'test_extension_hooks.py' -v`
 with PyYAML installed. Set `HOOKS_SPECIFY_BIN` to Specify 1.2.3 and
-`HOOKS_BASELINES_ROOT` to a source tree's `spec-kit-presets` containing both
-canonical baselines to include real init/install/composition/removal checks.
+`HOOKS_BASELINES_ROOT` to an upstream source tree's `spec-kit-presets` containing
+both canonical baselines to exercise both; without it, these checks use the
+fork's included Lean baseline.
 Set `HOOKS_PRESET_ARCHIVE` to an externally built release ZIP to compare its
 file names, count, and file bytes with the package, normalizing CRLF to LF on
 both sides while preserving every other byte. This archive check is

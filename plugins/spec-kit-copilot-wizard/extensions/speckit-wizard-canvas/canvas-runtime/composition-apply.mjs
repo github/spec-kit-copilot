@@ -13,8 +13,10 @@ import { applyPatch, writeState, readState, validateInferredPipeline, activeFing
 import { assembleComposition, computeStage2Necessity } from "../composition/assembler.mjs";
 import { fsDeps } from "./instances.mjs";
 import { snapshot } from "./snapshot.mjs";
+import { commitOwnedFile } from "./owned-commit.mjs";
 
-export async function persistAndBroadcast(inst, patch) {
+export async function persistAndBroadcast(inst, patch, { assertCurrent, isCurrent, publish } = {}) {
+    if (assertCurrent && !inst.workspacePath) throw new Error("Pipeline persistence requires a workspace");
     if (inst.workspacePath) {
         try {
             // Re-hydrate from disk before writing so external edits and
@@ -22,18 +24,29 @@ export async function persistAndBroadcast(inst, patch) {
             // in-memory copy. The caller passes only the delta for this
             // handler; the rest of the state comes from disk.
             const onDisk = await readState(inst.workspacePath, fsDeps).catch(() => null);
+            assertCurrent?.();
             const base = onDisk?.state ?? inst.state ?? {};
             const merged = patch ? applyPatch(base, patch) : applyPatch(base, {});
-            inst.state = merged;
-            await writeState(inst.workspacePath, merged, fsDeps);
-        } catch {
+            if (assertCurrent) {
+                await writeState(inst.workspacePath, merged, fsDeps, (temp, target) =>
+                    commitOwnedFile(temp, target, assertCurrent, () => {
+                        inst.state = merged;
+                        publish();
+                    }));
+            } else {
+                inst.state = merged;
+                await writeState(inst.workspacePath, merged, fsDeps);
+            }
+        } catch (error) {
+            if (assertCurrent) throw error;
             // state.json write failed — best-effort; the in-memory snapshot
             // below still reflects the requested patch.
         }
     }
+    if (isCurrent && !isCurrent()) return null;
     // Re-scan to reflect on-disk truth.
-    const snap = await snapshot(inst);
-    inst.broadcast({ type: "state", data: snap });
+    const snap = await snapshot(inst, isCurrent);
+    if (snap && (!isCurrent || isCurrent())) inst.broadcast({ type: "state", data: snap });
     return snap;
 }
 
@@ -163,7 +176,7 @@ export function normalizeHookArtifactsInComposition(composition) {
     };
 }
 
-export async function applyComposition(inst, input) {
+export async function applyComposition(inst, input, ownership = {}) {
     const normalizeProvides = (p) => {
         if (!p || typeof p !== "object") return p;
         const provides = p.provides;
@@ -291,9 +304,17 @@ export async function applyComposition(inst, input) {
         const norm = normalizeExecutionReports(nextReports);
         if (norm) composition.executionReports = norm;
     }
-    inst.cachedComposition = composition;
-    inst.broadcast({ type: "composition", ...composition });
-    await persistAndBroadcast(inst, { composition });
+    const publish = () => {
+        inst.cachedComposition = composition;
+        inst.broadcast({ type: "composition", ...composition });
+        if (ipResult.ok) ownership.onCommitted?.();
+    };
+    if (ownership.assertCurrent) {
+        await persistAndBroadcast(inst, { composition }, { ...ownership, publish });
+    } else {
+        publish();
+        await persistAndBroadcast(inst, { composition });
+    }
     // Surface inferredPipeline drop as a warning log so the wizard sidebar
     // shows the failure — otherwise the UI silently falls back to canonical
     // spine and users can't tell whether the LLM omitted the field or the
@@ -337,6 +358,16 @@ export async function applyComposition(inst, input) {
 // leave the composition slice alone.
 export async function runFastComposition(inst, { reason } = {}) {
     if (!inst?.workspacePath) return { ok: false, reason: "no-workspace" };
+    const refresh = inst.refreshStatus;
+    const isCurrent = () => inst.refreshStatus === refresh;
+    const assertCurrent = () => {
+        if (!isCurrent()) throw new Error("Composition refresh superseded by newer refresh work");
+    };
+    if (reason !== "refresh-button" && inst.refreshStatus?.status === "up-to-date") {
+        inst.refreshStatus.status = "ready";
+    }
+    inst.compositionRefreshCount = (inst.compositionRefreshCount ?? 0) + 1;
+    inst.broadcast({ type: "composition-progress", refreshing: true });
     try {
         const payload = await assembleComposition({
             workspaceRoot: inst.workspacePath,
@@ -353,10 +384,14 @@ export async function runFastComposition(inst, { reason } = {}) {
             payload.inferredPipeline = stage2.syntheticPipeline;
         }
 
-        await applyComposition(inst, payload);
+        await applyComposition(inst, payload, { assertCurrent, isCurrent });
         return { ok: true, reason, stage2Needed: stage2.needed };
     } catch (err) {
         return { ok: false, reason: String(err?.message ?? err) };
+    } finally {
+        inst.compositionRefreshCount--;
+        inst.broadcast({ type: "composition-progress",
+            refreshing: inst.compositionRefreshCount > 0 });
     }
 }
 

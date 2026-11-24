@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "page", "slot", "field", "order"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "page": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,79}$"},
+    "slot": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,79}$"},
+    "field": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"},
+    "order": {"type": "integer", "minimum": -100000, "maximum": 100000},
+    "control": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,79}$"}
+  }
+}

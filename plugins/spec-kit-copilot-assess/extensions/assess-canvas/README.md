@@ -98,8 +98,8 @@ normalized to `[a-z0-9-]`, so the canvas can only trigger assess stages.
 **Via marketplace (recommended):**
 
 ```bash
-copilot plugin marketplace add OWNER/spec-kit-copilot
-copilot plugin install spec-kit-copilot-assess@spec-kit-marketplace
+copilot plugin marketplace add https://github.com/nicolehaugen/spec-kit-copilot.git#staging-canvas
+copilot plugin install spec-kit-copilot-assess@spec-kit-staging
 ```
 
 The plugin manifest lives at `plugins/spec-kit-copilot-assess/plugin.json` and

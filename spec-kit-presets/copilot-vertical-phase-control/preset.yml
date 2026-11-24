@@ -1,0 +1,38 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-vertical-phase-control"
+  name: "Copilot Vertical Phase Control"
+  version: "1.0.1"
+  description: "Copilot Autopilot and a vertical phase list for the generated Canvas Design Workflow page."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the vertical phase control replacement."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "generated-phase-control"
+      file: "generated/phase-control.json"
+      description: "Declare the vertical phase control's managed-run capability."
+      strategy: "replace"
+    - type: "template"
+      name: "generated-phase-adapter"
+      file: "generated/phase-adapter.mjs"
+      description: "Show Workflow phases as a vertical list with Copilot Autopilot and step controls."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "autopilot"

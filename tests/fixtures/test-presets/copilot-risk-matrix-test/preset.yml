@@ -1,0 +1,49 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-risk-matrix-test"
+  name: "Copilot Risk Matrix Test"
+  version: "0.1.1"
+  description: "Test-only paired Designer and generated risk-matrix control."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the risk control, placements, and both adapters."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-control-risk-matrix"
+      file: "controls/risk-matrix/control.json"
+      description: "Shared typed risk-matrix control definition."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-contributions-risk-designer"
+      file: "designer/settings/risk-rating.json"
+      description: "Risk rating in the Essentials Designer slot."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-control-risk-matrix-designer"
+      file: "controls/risk-matrix/designer.mjs"
+      description: "Complete interactive Designer risk-matrix adapter."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-control-risk-matrix-generated"
+      file: "controls/risk-matrix/generated.mjs"
+      description: "Complete read-only generated risk-matrix adapter."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "risk"
+  - "test"

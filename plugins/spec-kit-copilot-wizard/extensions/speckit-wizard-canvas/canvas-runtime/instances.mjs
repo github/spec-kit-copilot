@@ -45,6 +45,7 @@ export function newInstance(instanceId) {
         sseClients: null,
         broadcast: (msg) => { /* replaced by startServer */ void msg; },
         workspacePath: null,
+        closed: false,
         designerLaunchPending: false,
         cwdBoundState: null,     // last scanner snapshot
         state: null,             // normalized state.json contents
@@ -127,6 +128,8 @@ export function sessionAdapter() {
         // Expose the live SDK `rpc` surface so downstream consumers (notably
         // `runSkillsReload` in server/handlers-ops.mjs) can invoke `session.rpc.skills.reload()`.
         get rpc() { return _session?.rpc ?? undefined; },
+        get sessionId() { return _session?.sessionId; },
+        get workspacePath() { return _session?.workspacePath; },
     };
 }
 

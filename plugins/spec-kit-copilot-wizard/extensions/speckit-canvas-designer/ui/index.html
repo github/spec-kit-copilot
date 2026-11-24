@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spec Kit Canvas Designer</title>
+    <link rel="stylesheet" href="/ui/styles.css?token=__TOKEN__">
+    <script type="module" src="/ui/app.js?token=__TOKEN__"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand"><span class="brand-mark">S</span><span class="brand-text">Spec Kit Canvas Designer</span></div>
+        <div class="toolbar-actions">
+            <button type="button" id="theme-toggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+            <span id="save-help"><button type="button" id="save-settings" disabled>Save</button></span>
+            <span id="conn-status" class="conn conn-connecting" role="status">Connecting</span>
+        </div>
+        <nav class="tabs" role="tablist" aria-label="Designer pages"></nav>
+    </header>
+    <main class="app-body">
+        <p id="preview-banner" class="preview-banner" role="status" hidden>UX preview · Sample badge data only. Changes are not saved; Save and Generate are unavailable.</p>
+        <p id="generation-note" role="status" hidden></p>
+        <p id="generation-error" role="alert" hidden></p>
+        <p id="composition-error" role="alert" hidden></p>
+        <p id="page-error" role="alert" tabindex="-1" hidden></p>
+        <p id="action-message" role="status" hidden></p>
+        <button type="button" id="generate-canvas" class="primary" disabled hidden>Generate canvas</button>
+        <button type="button" id="open-generated-canvas" hidden>Open canvas</button>
+        <section id="settings-page" role="tabpanel" aria-busy="true"><h1>Loading settings...</h1></section>
+    </main>
+    <dialog id="provider-approval" class="designer-dialog" aria-labelledby="provider-approval-title">
+        <header class="designer-dialog-head"><h2 id="provider-approval-title">Approve generated value providers</h2></header>
+        <div class="designer-dialog-body">
+            <p>These JavaScript modules will run locally with your user privileges. Confirm the resolved source and SHA-256 of each module before packaging it.</p>
+            <dl id="provider-approval-list"></dl>
+        </div>
+        <form method="dialog" class="designer-dialog-foot">
+            <button type="submit" value="cancel">Cancel</button>
+            <button type="submit" value="approve" class="primary">Approve and Generate</button>
+        </form>
+    </dialog>
+    <dialog id="replace-canvas" class="designer-dialog" aria-labelledby="replace-canvas-title">
+        <header class="designer-dialog-head"><h2 id="replace-canvas-title">Replace generated canvas?</h2></header>
+        <div class="designer-dialog-body"><p id="replace-canvas-description"></p></div>
+        <form method="dialog" class="designer-dialog-foot">
+            <button type="submit" value="cancel">Cancel</button>
+            <button type="submit" value="replace" class="primary">Replace all files</button>
+        </form>
+    </dialog>
+</body>
+</html>

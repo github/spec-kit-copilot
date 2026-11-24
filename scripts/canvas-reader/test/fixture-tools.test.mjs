@@ -61,6 +61,7 @@ test("staging copies complete existing plugins without reader development depend
         }
         const wizard = result.plugins.find((plugin) => plugin.id === "spec-kit-copilot-wizard");
         assert.ok(wizard.files.some((file) => file.path.includes("node_modules/js-yaml/")));
+        assert.ok(wizard.files.some((file) => file.path.includes("speckit-canvas-designer/node_modules/es-module-lexer/")));
         await assert.rejects(stageAppFixture({ workspace: fixture.workspace, target }), /exists|overwrite/i);
         await rm(target, { recursive: true });
     } finally { await fixture.stop(); }

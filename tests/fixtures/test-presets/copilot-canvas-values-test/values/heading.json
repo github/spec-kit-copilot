@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "demo.heading",
+  "label": "Heading",
+  "schema": { "type": "string", "maxLength": 80 },
+  "source": { "kind": "constant", "value": "Sample heading" },
+  "presentation": "stock.readonly",
+  "section": { "id": "demo", "title": "Demo values" }
+}

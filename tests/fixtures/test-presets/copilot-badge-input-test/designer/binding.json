@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "id": "test-phase",
+  "rule": "test-phase",
+  "control": "test.phase-choice"
+}

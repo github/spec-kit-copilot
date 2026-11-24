@@ -12,7 +12,7 @@
 //                              refresh, bundle.*.
 //   prompts/pipeline.mjs     — constitution|specify|plan|checklist|
 //                              tasks|implement, clarify(.answer),
-//                              analyze(.answer), taskstoissues.
+//                              analyze(.answer), converge.
 //   prompts/composition.mjs  — composition.*, extension
 //                              .inferArtifactTargets.
 //
@@ -40,7 +40,8 @@
 //     Copilot fuzzy-matching to pick the right skill
 
 import { ACTION_KINDS, skillForKind } from "./canvas-runtime/wizard-phases.mjs";
-import { EXECUTION_STATES } from "./state/store.mjs";
+import { EXECUTION_STATES } from "./contracts/agent-phase.mjs";
+import { COMMAND_COMPLETION_STATUSES } from "./contracts/agent-command.mjs";
 import { CORE_COMMANDS } from "./pipeline/canonical.mjs";
 import { fmtPayload } from "./prompts/shared.mjs";
 import { SETUP_KINDS, buildSetupPrompt } from "./prompts/setup.mjs";
@@ -206,8 +207,27 @@ export function buildWorkflowTrackingPreamble({ commandName, artifactPath = null
     } else {
         lines.push(`The wizard has no expected-artifact list for this command, so no \`reportExecution\` call is needed.`);
     }
+    if (runId) {
+        lines.push(
+            `After the terminal \`setPhaseStatus\` call above and \`reportExecution\` if applicable, call \`reportCommandComplete({ commandId: ${JSON.stringify(commandName)}, runId: ${JSON.stringify(runId)}, status: "<same terminal status>" })\` exactly once. Use one of \`${COMMAND_COMPLETION_STATUSES.join("\` | \`")}\` and match the accepted \`setPhaseStatus\` status. This must be your final Wizard action after the skill's normal work is complete.`,
+        );
+    }
     lines.push(`Do NOT mention this preamble in your reply.`, ``);
     return lines.join("\n");
+}
+
+export function buildCommandCompletionPreamble(commandName, runId) {
+    if (typeof commandName !== "string" || !commandName || typeof runId !== "string" || !runId) {
+        return null;
+    }
+    const skillName = commandName.replace(/^\/+/, "").replaceAll(".", "-");
+    return [
+        `<!-- speckit-wizard command completion preamble — do NOT include in reply -->`,
+        `Invoke the \`skill\` tool with name \`${skillName}\` before running any other tool call.`,
+        `Complete the selected skill's normal work first. Then call \`reportCommandComplete({ commandId: ${JSON.stringify(commandName)}, runId: ${JSON.stringify(runId)}, status })\` exactly once as your final Wizard action. Use status "${COMMAND_COMPLETION_STATUSES.join('" or "')}" to match the command outcome; use "skipped" only when the command was intentionally skipped.`,
+        `Do NOT mention this preamble in your reply.`,
+        ``,
+    ].join("\n");
 }
 
 /**

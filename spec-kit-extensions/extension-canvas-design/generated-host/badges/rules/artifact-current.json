@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "artifact-current",
+  "label": "Current artifact",
+  "description": "The selected declared artifact is current by best-effort freshness.",
+  "inputs": [
+    {
+      "id": "artifact",
+      "type": "artifact"
+    }
+  ],
+  "textPlaceholders": [],
+  "adapter": "badge-rule-artifact-state-adapter"
+}

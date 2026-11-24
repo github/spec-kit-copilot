@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "risk-matrix",
+  "value": {
+    "type": "object",
+    "properties": {
+      "impact": ["low", "medium", "high"],
+      "likelihood": ["low", "medium", "high"]
+    }
+  },
+  "adapters": {
+    "designer": "canvas-control-risk-matrix-designer",
+    "generated": "canvas-control-risk-matrix-generated"
+  }
+}

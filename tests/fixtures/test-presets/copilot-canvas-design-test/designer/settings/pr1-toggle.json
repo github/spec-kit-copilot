@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "pr1-test-toggle",
+  "host": "designer",
+  "slot": "pr1-test.options",
+  "order": 20,
+  "field": {
+    "id": "pr1Test.enabled",
+    "label": "Test enabled",
+    "type": "boolean",
+    "control": "stock.checkbox",
+    "default": true
+  }
+}

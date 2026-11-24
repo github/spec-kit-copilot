@@ -197,6 +197,26 @@ for (const canvas of ["wizard", "sdd"]) {
             await assert.rejects(staging.verifyStagedPlugin({ pluginRoot }), /import|outside|dependency|closed/i);
             await writeFile(source, content);
         }
+        if (canvas === "wizard") {
+            const designer = join(extensionRoot, "server", "designer-setup.mjs");
+            const original = await readFile(designer, "utf8");
+            for (const [before, after] of [
+                ['"verify-launch.mjs"', '"other-script.mjs"'],
+                ["import(pathToFileURL(verifier).href)", "import(pathToFileURL(other).href)"],
+            ]) {
+                assert.ok(original.includes(before));
+                await writeFile(designer, original.replace(before, after));
+                await assert.rejects(staging.verifyStagedPlugin({ pluginRoot }), /unresolved dynamic import/i);
+                await writeFile(designer, original);
+            }
+            const designerUi = join(pluginRoot, "extensions", "speckit-canvas-designer", "ui", "app.js");
+            const uiSource = await readFile(designerUi, "utf8");
+            const allowed = "`/adapters/${adapter}.mjs?token=${encodeURIComponent(token)}`";
+            assert.ok(uiSource.includes(allowed));
+            await writeFile(designerUi, uiSource.replace(allowed, "`https://untrusted.invalid/${adapter}`"));
+            await assert.rejects(staging.verifyStagedPlugin({ pluginRoot }), /unresolved dynamic import/i);
+            await writeFile(designerUi, uiSource);
+        }
         const privateFile = join(pluginRoot, ".env.private");
         await writeFile(privateFile, "SYNTHETIC_PRIVATE_DATA");
         await assert.rejects(staging.verifyStagedPlugin({ pluginRoot }), /forbidden|unexpected|private/i);

@@ -1,27 +1,39 @@
 // HTTP handlers for phase-family endpoints: /api/prompt, /api/phase/submit.
 //
 // These are thin wrappers that parse the HTTP body and delegate to the
-// shared dispatch helpers in `canvas-runtime/dispatch.mjs`. The same
-// helpers are called from the agent-facing canvas actions (runPhase,
-// addPreset, addExtension), so a UI click and an agent NL invocation
-// produce byte-identical prompts.
+// shared phase dispatch helpers and direct package-operation service. UI
+// clicks and agent-facing canvas actions use the same underlying operation.
 
 import { UnknownActionKindError } from "../prompts.mjs";
 import { ACTION_KINDS, PHASE_BY_ID } from "../canvas-runtime/wizard-phases.mjs";
 import { dispatchKindPrompt, dispatchPhaseCommand } from "../canvas-runtime/dispatch.mjs";
 import { jsonError, jsonRes } from "./http-utils.mjs";
+import { catalogOperationKind } from "../contracts/catalog-operation.mjs";
+import { catalogFailure, runCatalogOperation } from "../canvas-runtime/catalog-operations.mjs";
+import { isPhaseSetupReady } from "../contracts/setup-readiness.mjs";
+import { reviewAnswersMatchArguments, validateReviewSubmission } from "../contracts/review-submission.mjs";
+import { OutputInferenceRequestError } from "../contracts/output-inference-request.mjs";
 
-export async function handlePrompt(res, body, { log, getInstance }) {
+export async function handlePrompt(res, body, { log, getInstance, catalogOperation = runCatalogOperation }) {
     const kind = body?.kind;
     const payload = body?.payload ?? {};
     if (!kind) return jsonError(res, 400, "missing kind");
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
 
     const inst = getInstance();
+    if (catalogOperationKind(kind)) {
+        try {
+            return jsonRes(res, 200, await catalogOperation(inst, kind, payload));
+        } catch (error) {
+            return jsonRes(res, error.status ?? 500, catalogFailure(error));
+        }
+    }
     try {
         await dispatchKindPrompt(inst, kind, payload);
     } catch (err) {
-        if (err instanceof UnknownActionKindError) return jsonError(res, 400, err.message);
+        if (err instanceof UnknownActionKindError || err instanceof OutputInferenceRequestError) {
+            return jsonError(res, 400, err.message);
+        }
         return jsonError(res, 500, `prompt build failed: ${err?.message ?? err}`);
     }
     // Ephemeral feedback line so the click "landed" visually.
@@ -67,33 +79,21 @@ export async function dispatchWorkflowCommand(res, { commandName, args, allowEmp
     }
 }
 
-async function isPhaseSetupComplete(deps) {
-    const snapshot = (await deps.getState?.()) ?? deps.getInstance?.()?.state;
-    if (!snapshot) return false;
-    const setup = snapshot.setup ?? {};
-    const env = snapshot.environment ?? {};
-    const pluginOk = Boolean(env.pluginInstalled || setup.pluginInstalled);
-    const cliOk = Boolean(env.cliInstalled || setup.cliInstalled);
-    return pluginOk &&
-        cliOk &&
-        Boolean(snapshot.projectInitialized || setup.projectInitialized) &&
-        Boolean(setup.skillsReloaded);
-}
-
 async function validateReviewedClarifications(res, body, service) {
-    if (!service) {
-        jsonError(res, 409, "Review context is no longer available.");
-        return false;
-    }
-    const review = body.review;
     try {
-        await service.validateClarifications(review.contextId, review.artifactId, review.expectedRevision, review.answers, body.commandName);
+        await validateReviewSubmission(service, body.review, body.commandName);
         return true;
     } catch (error) {
-        const changed = error?.code === "changed_source";
-        jsonError(res, changed ? 409 : 400, changed
-            ? "Clarification source changed. Refresh before submitting."
-            : "Clarification answers are invalid or exceed the review submission limit.");
+        if (error?.code === "review_unavailable") {
+            jsonError(res, 409, "Review context is not available.");
+        } else if (error?.code === "changed_source") {
+            jsonError(res, 409, "Clarification source changed. Refresh before submitting.");
+        } else if (["invalid_request", "invalid_context", "artifact_unavailable", "artifact_too_large",
+            "unsupported_artifact", "invalid_encoding"].includes(error?.code)) {
+            jsonError(res, 400, "Clarification answers are invalid or exceed the review submission limit.");
+        } else {
+            throw error;
+        }
         return false;
     }
 }
@@ -110,13 +110,23 @@ export async function handlePhaseSubmit(res, body, deps) {
     if (typeof body?.commandName === "string") {
         const service = body.review ? deps.getInstance?.()?.reviewService : null;
         if (body.review && !await validateReviewedClarifications(res, body, service)) return;
-        if (!await isPhaseSetupComplete(deps)) {
+        if (!isPhaseSetupReady(await deps.getState())) {
             return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
         }
+        if (body.review && deps.getInstance?.()?.reviewService !== service) {
+            return jsonError(res, 409, "Review context is not available.");
+        }
         if (body.review && !await validateReviewedClarifications(res, body, service)) return;
+        if (body.review && deps.getInstance?.()?.reviewService !== service) {
+            return jsonError(res, 409, "Review context is not available.");
+        }
+        const args = typeof body.args === "string" ? body.args : "";
+        if (body.review && !reviewAnswersMatchArguments(args, body.review.answers)) {
+            return jsonError(res, 400, "Dispatched arguments must include the validated clarification answers.");
+        }
         return dispatchWorkflowCommand(res, {
             commandName: body.commandName,
-            args: typeof body.args === "string" ? body.args : "",
+            args,
             allowEmpty: body.allowEmpty !== false,
             track: true,
         }, deps);
@@ -127,7 +137,7 @@ export async function handlePhaseSubmit(res, body, deps) {
     const kind = body?.kind || phaseSubmitKind(phase);
     if (!kind) return jsonError(res, 400, `no dispatch kind for phase ${phase}`);
     if (!ACTION_KINDS.has(kind)) return jsonError(res, 400, `unknown kind: ${kind}`);
-    if (!await isPhaseSetupComplete(deps)) {
+    if (!isPhaseSetupReady(await deps.getState())) {
         return jsonError(res, 409, "Complete setup before running phases or applying clarifications.");
     }
     return handlePrompt(res, { kind, payload: body?.values ?? {} }, deps);

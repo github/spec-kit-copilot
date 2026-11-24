@@ -606,7 +606,7 @@ export function artifactSourcePath(artifact, activeLayer) {
             // Ids arrive as `commands/speckit.<name>` (or bare `speckit.<name>`).
             const bare = bareCommandId(rawId);
             if (!bare) return null;
-            return `.github/skills/speckit-${bare}/SKILL.md`;
+            return `.github/skills/speckit-${bare.replaceAll(".", "-")}/SKILL.md`;
         }
         case "template": {
             const bare = rawId.replace(/^templates\//, "").replace(/\.md$/, "");

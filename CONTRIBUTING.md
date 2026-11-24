@@ -24,15 +24,14 @@ Maintainers decide where a contribution belongs based on its purpose, audience,
 ownership, maintenance burden, and duplication of existing functionality:
 
 - **This repository** hosts integrations and packages maintained for the Copilot
-  experience. They may preserve upstream, agent-agnostic instructions where appropriate;
-  depending on a Copilot-specific tool is not a requirement.
+  experience. Shipping presets and Specify extensions must depend on Copilot-specific
+  tools or mechanisms.
 - **Core Spec Kit** is the natural home for shared capabilities and agent-neutral
   behavior intended for the common product.
 - **External repositories** can host independently maintained or specialized
   packages that neither project needs to own.
 
-These are considerations, not automatic placement rules. Portability alone neither
-qualifies nor disqualifies a preset, extension, plugin, or other contribution.
+Portability alone neither qualifies nor disqualifies other contributions.
 Discuss uncertain placement with the maintainers before implementing it; avoid
 importing unrelated generic packages simply to expand the catalog.
 

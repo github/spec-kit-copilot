@@ -49,6 +49,13 @@ jobs:
           npm ci --prefix ../.. --ignore-scripts --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Install existing Designer runtime from its lockfile
+        run: |
+          Push-Location "../../../speckit-canvas-designer"
+          npm ci --omit=dev --ignore-scripts --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+
       - name: Audit dependencies
         run: |
           npm audit --audit-level=low --ignore-scripts

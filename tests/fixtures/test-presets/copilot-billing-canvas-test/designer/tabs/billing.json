@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "canvas-settings-billing",
+  "title": "Billing",
+  "description": "Configure the generated canvas's billing details.",
+  "order": 35,
+  "enabled": true,
+  "slots": [{"id": "billing.options"}],
+  "fields": []
+}

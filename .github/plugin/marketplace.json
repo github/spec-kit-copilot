@@ -1,11 +1,11 @@
 {
-  "name": "spec-kit-marketplace",
+  "name": "spec-kit-staging",
   "owner": {
-    "name": "GitHub"
+    "name": "Spec Kit Staging"
   },
   "metadata": {
-    "description": "Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
-    "version": "0.21.0"
+    "description": "Staging Spec Kit integrations for GitHub Copilot CLI and the GitHub Copilot App.",
+    "version": "0.21.21"
   },
   "plugins": [
     {
@@ -34,8 +34,8 @@
     },
     {
       "name": "spec-kit-copilot-wizard",
-      "description": "Adds the guided Spec Kit Wizard and an under-development Designer shell for future workflow-specific canvases based on Wizard pipeline and customization handoffs; Designer is not ready for use.",
-      "version": "0.4.0",
+      "description": "Adds the guided Spec Kit Wizard and an Essentials-driven Designer generator for source-owned workflow canvases; still under development.",
+      "version": "0.4.25",
       "source": "plugins/spec-kit-copilot-wizard"
     }
   ]

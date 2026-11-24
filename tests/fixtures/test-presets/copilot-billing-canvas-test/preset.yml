@@ -1,0 +1,39 @@
+schema_version: "1.0"
+
+preset:
+  id: "copilot-billing-canvas-test"
+  name: "Copilot Billing Canvas Test"
+  version: "0.1.0"
+  description: "Test-only Billing Designer page with a generated stock-text consumer."
+  author: "spec-kit-copilot"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.0.7"
+  extensions:
+    - extension-canvas-design
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.extension-canvas-design.load-page"
+      file: "commands/load-page.md"
+      description: "Register the Billing Designer page and cost code."
+      replaces: "speckit.extension-canvas-design.load-page"
+      strategy: "append"
+    - type: "template"
+      name: "canvas-settings-billing"
+      file: "designer/tabs/billing.json"
+      description: "Explicit Billing Designer page registration."
+      strategy: "replace"
+    - type: "template"
+      name: "canvas-contributions-billing"
+      file: "designer/settings/billing.json"
+      description: "Cost code stock-text field and read-only generated binding."
+      strategy: "replace"
+
+tags:
+  - "copilot"
+  - "canvas-design"
+  - "billing"
+  - "test"

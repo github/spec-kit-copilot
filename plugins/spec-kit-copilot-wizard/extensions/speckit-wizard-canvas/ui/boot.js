@@ -40,11 +40,6 @@ let __bannerDismissedFor = null;
 // re-freezes the boot dialog instead of silently reusing this decision.
 let __continueAnywayFor = null;
 
-// Runtime dependencies the extension needs to fully function. Surfaced in
-// the in-wizard banner as a copy/paste-friendly install command. Keep in
-// sync with package.json.
-const RUNTIME_DEP_PACKAGES = ["js-yaml"];
-
 export function installBootOverlay({ token }) {
     __token = token || null;
     __root = document.getElementById("boot-overlay");
@@ -180,12 +175,14 @@ function renderBanner() {
 
     const title = document.createElement("div");
     title.className = "deps-error-banner-title";
-    title.textContent = "Missing dependency: " + RUNTIME_DEP_PACKAGES.join(", ");
+    title.textContent = "Missing dependency: " + (__depsError.packageName ?? "js-yaml");
     body.appendChild(title);
 
     const msg = document.createElement("div");
     msg.className = "deps-error-banner-msg";
-    msg.textContent = "Some wizard features (catalog parsing, preset details) may not work. To fix, install the package manually and reload this canvas.";
+    msg.textContent = __depsError.packageName === "es-module-lexer"
+        ? "Designer cannot open without its renderer parser. Install it in the shown folder and reload this canvas."
+        : "Wizard catalog and composition features need this package. Install it in the shown folder and reload this canvas.";
     body.appendChild(msg);
 
     const steps = document.createElement("ol");
@@ -205,7 +202,7 @@ function renderBanner() {
     cmdWrap.textContent = "Run: ";
     const cmd = document.createElement("code");
     cmd.className = "deps-error-banner-cmd";
-    cmd.textContent = "npm install " + RUNTIME_DEP_PACKAGES.join(" ");
+    cmd.textContent = "npm ci --omit=dev";
     cmdWrap.appendChild(cmd);
     step2.appendChild(cmdWrap);
     steps.appendChild(step2);
@@ -362,7 +359,7 @@ function renderErrorCard(err) {
 
     const proceedNote = document.createElement("p");
     proceedNote.className = "boot-error-proceed-note";
-    proceedNote.textContent = "If you continue, you'll need to run `npm install " + RUNTIME_DEP_PACKAGES.join(" ") + "` manually and reload the canvas for full functionality.";
+    proceedNote.textContent = "If you continue, run `npm ci --omit=dev` in the shown extension folder and reload for full functionality.";
     card.appendChild(proceedNote);
 
     card.appendChild(actions);
@@ -379,4 +376,3 @@ async function callDeps(path, body) {
     });
     return res.json().catch(() => ({}));
 }
-

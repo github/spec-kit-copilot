@@ -8,6 +8,7 @@
     display: flex; flex-direction: column; gap: 1rem;
     min-height: 640px;
 }
+.phase-card[hidden] { display: none; }
 /* Form sits right after the customizations block; the input label grows to
    fill remaining space so the textarea is as tall as it needs to be, and
    the Continue nav row stays pinned to the bottom of the card. */

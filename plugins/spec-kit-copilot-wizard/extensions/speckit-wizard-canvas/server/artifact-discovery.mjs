@@ -103,7 +103,7 @@ export function deriveWizardArtifacts(snapshot, primary) {
         if (artifact.kind === "command") {
             const name = String(artifact.id).replace(/^commands\//, "");
             if (/^speckit\.[a-z0-9.-]+$/i.test(name)) {
-                add(`.github/skills/${name.replace(/^speckit\./, "speckit-")}/SKILL.md`, { role: "command", owningCommand: name, optional: true });
+                add(`.github/skills/${name.replaceAll(".", "-")}/SKILL.md`, { role: "command", owningCommand: name, optional: true });
             }
         } else if (artifact.kind === "template" && !winner?.sourcePath) {
             const name = String(artifact.id ?? "").replace(/^templates\//, "").replace(/\.md$/, "");

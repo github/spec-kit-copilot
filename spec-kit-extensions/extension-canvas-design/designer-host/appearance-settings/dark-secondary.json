@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schemas/external-designer.setting-definition.schema.json",
+  "schemaVersion": 1,
+  "id": "stock.dark-secondary",
+  "host": "designer",
+  "slot": "appearance.options",
+  "order": 90,
+  "field": {"id": "canvas.secondaryDark", "type": "string", "control": "stock.text",
+    "label": "Dark secondary surface", "description": "Optional secondary panels and muted surface color, with or without #. Leave blank for the default."}
+}
