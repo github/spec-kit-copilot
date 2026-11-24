@@ -25,7 +25,7 @@ for maintainer guidance on which packages belong here.
 | --- | --- | --- |
 | [`copilot-extension-hooks`](copilot-extension-hooks) | Specify `==1.2.3`, one Copilot Lean/Full SDD baseline | Opt-in lifecycle dispatch through installed Copilot command skills; preserves the selected baseline and does not control native hooks. See its explicit activation/regeneration flow. |
 | [`copilot-full-sdd`](copilot-full-sdd) | Spec Kit `== 1.2.3`, Copilot skills mode | Full core workflow registered as Copilot skills, without extension lifecycle hooks and with safeguards for creating and updating specs. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-full-sdd-v1.0.0). |
-| [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. Initial release pending. |
+| [`copilot-lean-sdd`](copilot-lean-sdd) | Spec Kit `>= 1.0.8`, Copilot skills mode | Upstream Lean's minimal artifacts with Copilot skill invocation and `ask_user`; replaces all nine core SDD commands without extension lifecycle-hook dispatch. [1.0.0 release](https://github.com/github/spec-kit-copilot/releases/tag/copilot-lean-sdd-v1.0.0). |
 | [`copilot-sub-agents`](copilot-sub-agents) | Spec Kit `>= 0.8.0` | Built around Copilot delegation mechanisms — VS Code's `runSubagent` tool, Copilot CLI sub-agent processes, and custom agents in `.github/agents/` / `~/.copilot/agents/`. |
 | [`copilot-assess-ask-questions`](copilot-assess-ask-questions) | Spec Kit `>= 0.9.0`, the `assess` extension | Drives the assess pipeline through Copilot's interactive `ask_user` tool (App, CLI, VS Code). No plain-text fallback — not meant for agents without an interactive question tool. |
 
@@ -42,19 +42,14 @@ specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-cop
 # then add by id — the normal way:
 specify preset add copilot-sub-agents
 specify preset add copilot-assess-ask-questions   # also: specify extension add assess
-specify preset add copilot-full-sdd
 ```
 
-For Full SDD, follow the [installation prerequisites](copilot-full-sdd#installation-and-prerequisites)
-before installing. Full and Lean are alternative baselines, not cumulative layers.
+Choose one SDD baseline and follow its installation prerequisites:
+[Full SDD](copilot-full-sdd#installation-and-prerequisites) (`specify preset add copilot-full-sdd`)
+or [Lean SDD](copilot-lean-sdd#installation-and-prerequisites) (`specify preset add copilot-lean-sdd`).
+Do not install both in the same project.
 
-`copilot-lean-sdd` **1.0.0 is not released yet**. Its catalog entry reserves the
-normal release URL; it is not evidence that the asset exists. Until publication,
-use the local-development installation below. After publication, the same catalog
-supports `specify preset add copilot-lean-sdd`. See its [README](copilot-lean-sdd)
-for baseline selection, prerequisites, and compatibility limits.
-
-`copilot-extension-hooks` **1.0.0 is also pending release**; use its
+`copilot-extension-hooks` **1.0.0 is pending release**; use its
 [local-development install](copilot-extension-hooks#install-and-configure).
 It is an opt-in layer over one selected baseline, not another baseline.
 After publication, install it with `specify preset add copilot-extension-hooks --priority 5`.
