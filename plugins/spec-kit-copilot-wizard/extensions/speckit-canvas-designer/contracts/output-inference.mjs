@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { INFERENCE_SKILL_LIMIT } from "../../speckit-wizard-canvas/contracts/inference-limits.mjs";
 import { validatePendingOutputs, validatePhaseOutputs } from "./wizard-handoff.mjs";
 
-export const INFERENCE_SKILL_LIMIT = 512 * 1024;
+export { INFERENCE_SKILL_LIMIT };
 export const INFERENCE_INPUT_LIMIT = 4 * 1024 * 1024;
 export const INFERENCE_RESULT_LIMIT = 1024 * 1024;
 

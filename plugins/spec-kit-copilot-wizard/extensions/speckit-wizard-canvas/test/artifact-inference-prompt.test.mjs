@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { effectiveSource } from "../artifact-evidence.mjs";
-import { buildArtifactInferencePrompt } from "../canvas-runtime/artifact-inference-prompt.mjs";
+import { buildArtifactInferencePrompt, captureArtifactInferenceSources } from "../canvas-runtime/artifact-inference-prompt.mjs";
+import { validateInferenceInput } from "../../speckit-canvas-designer/contracts/output-inference.mjs";
 
 test("inference prompt bundles all requested installed skills and verifies their fingerprints", async () => {
     const root = await mkdtemp(join(tmpdir(), "wizard-inference-prompt-"));
@@ -64,4 +65,41 @@ test("inference prompt rejects a batch that exceeds its bounded skill-text size"
     } finally {
         await rm(root, { recursive: true, force: true });
     }
+});
+
+test("Wizard capture and Designer validation enforce the same aggregate skill-text boundary", async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "wizard-inference-boundary-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const ids = ["plan", "tasks"];
+    for (const id of ids) {
+        const path = join(root, ".github", "skills", `speckit-${id}`, "SKILL.md");
+        await mkdir(join(path, ".."), { recursive: true });
+        await writeFile(path, "x".repeat(256 * 1024));
+    }
+
+    async function inputs() {
+        const sources = await Promise.all(ids.map((id) => effectiveSource(root, `speckit.${id}`)));
+        const commands = sources.map((source, index) => ({
+            phase: ids[index], commandId: `speckit.${ids[index]}`, skillPath: source.skillPath,
+            fingerprint: source.fingerprint, sources: source.sources, text: source.skillText,
+        }));
+        const input = { schemaVersion: 1, workspacePath: root, commands };
+        const pendingOutputs = {
+            inputHash: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+            commands: commands.map(({ phase, commandId, fingerprint }) => ({ phase, commandId, fingerprint })),
+        };
+        const workflow = { selectedPhases: ids, pendingOutputs,
+            outputEvidence: Object.fromEntries(ids.map((id) => [id, { outputs: [], view: null }])) };
+        return { input, handoff: { workflow }, requests: commands };
+    }
+
+    const valid = await inputs();
+    assert.equal((await captureArtifactInferenceSources({ workspacePath: root, commands: valid.requests })).length, 2);
+    assert.equal(validateInferenceInput(valid.input, valid.handoff), valid.input);
+
+    await writeFile(join(root, ".github", "skills", "speckit-tasks", "SKILL.md"), "x".repeat(256 * 1024 + 1));
+    const oversized = await inputs();
+    await assert.rejects(captureArtifactInferenceSources({ workspacePath: root, commands: oversized.requests }),
+        /exceed the 524288-byte inference input limit/);
+    assert.throws(() => validateInferenceInput(oversized.input, oversized.handoff), /exceeds 512 KiB/);
 });

@@ -1,7 +1,7 @@
 import { effectiveSource } from "../artifact-evidence.mjs";
 import { buildPrompt } from "../prompts.mjs";
 import { artifactInferenceDirections } from "../prompts/composition.mjs";
-import { INFERENCE_SKILL_LIMIT } from "../../speckit-canvas-designer/contracts/output-inference.mjs";
+import { INFERENCE_SKILL_LIMIT } from "../contracts/inference-limits.mjs";
 
 export async function captureArtifactInferenceSources({ workspacePath, commands }) {
     const skills = await Promise.all(commands.map(async (request) => {

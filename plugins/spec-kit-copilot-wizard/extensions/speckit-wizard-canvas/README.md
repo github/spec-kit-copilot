@@ -211,6 +211,8 @@ the Wizard's output-inference worker. After installation, the child infers only
 pipeline commands without usable evidence before opening Designer. The setup
 dialog explains this and reads "Queuing Designer session…" while submitting;
 the queue acknowledgment does not mean the child or Designer is ready.
+Bundled skill text is limited to 512 KiB per inference batch. Wizard startup
+does not require the Designer provider, though launching Designer does.
 When composition refresh needs LLM pipeline-order inference, it runs as a
 background task and applies its result through the existing run-correlated
 `showInferredPipeline` callback.
