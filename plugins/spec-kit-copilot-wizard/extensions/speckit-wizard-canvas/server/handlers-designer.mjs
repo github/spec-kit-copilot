@@ -250,6 +250,16 @@ async function verifiedRunOutput(workspacePath, snapshot, scan, id) {
     return null;
 }
 
+function portableRunOutput(observed, outputs) {
+    if (!observed || observed.includes("<slug>")) return observed;
+    const actual = observed.split("/");
+    return outputs.find((output) => {
+        const parts = output.split("/");
+        return parts.length === actual.length && parts.includes("<slug>")
+            && parts.every((part, index) => part === "<slug>" || part === actual[index]);
+    }) ?? observed;
+}
+
 export async function partitionDesignerOutputs(snapshot, scan, workspacePath) {
     const outputs = {}, missing = [], unavailable = [];
     for (const id of designerPhaseIds(snapshot)) {
@@ -271,7 +281,8 @@ export async function partitionDesignerOutputs(snapshot, scan, workspacePath) {
         const fromMetadata = outputsFromEvidence({
             candidates: trusted, primaryIndex: trusted.indexOf(primary),
         });
-        const observed = await verifiedRunOutput(workspacePath, snapshot, scan, id);
+        const observed = portableRunOutput(
+            await verifiedRunOutput(workspacePath, snapshot, scan, id), fromMetadata.outputs);
         const paths = observed
             ? [observed, ...fromMetadata.outputs.filter((path) => path.toLowerCase() !== observed.toLowerCase())]
             : fromMetadata.outputs;

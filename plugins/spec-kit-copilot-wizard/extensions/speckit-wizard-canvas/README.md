@@ -207,7 +207,10 @@ for the current user-visible pipeline and dispatches inference in the background
 while the phase runs. The Output(s) row shows "Retrieving outputs…" while those
 details are pending. Canvas Designer launch reuses verified pipeline outputs,
 including partial output lists, and queues the child session without waiting for
-the Wizard's output-inference worker. After installation, the child infers only
+the Wizard's output-inference worker. When a verified run path matches a trusted
+`<slug>` template, Designer receives the template as its default rather than an
+extra run-specific path; explicitly declared fixed outputs remain available.
+After installation, the child infers only
 pipeline commands without usable evidence before opening Designer. The setup
 dialog explains this and reads "Queuing Designer session…" while submitting;
 the queue acknowledgment does not mean the child or Designer is ready.

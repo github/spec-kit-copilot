@@ -1065,6 +1065,63 @@ test("known pipeline outputs skip bundling despite general inference requests", 
     assert.doesNotMatch(launch.sent[0].prompt, /stage:"outputs"/);
 });
 
+test("Designer handoff keeps a trusted slug template for a verified run output", async (t) => {
+    const workspace = await realpath(await mkdtemp(join(tmpdir(), "designer-launch-template-")));
+    t.after(() => rm(workspace, { recursive: true, force: true }));
+    await mkdir(join(workspace, ".specify", "assessments", "demo"), { recursive: true });
+    await writeFile(join(workspace, ".specify", "assessments", "demo", "intake.md"), "# Intake");
+    const phase = "speckit.assess.intake";
+    const observed = ".specify/assessments/demo/intake.md";
+    const template = ".specify/assessments/<slug>/intake.md";
+    const fixed = ".specify/memory/shared.md";
+    for (const source of ["declaration", "inference"]) {
+        const launch = fixture();
+        launch.inst.workspacePath = workspace;
+        launch.inst.cwdBoundState = { workspacePath: workspace, specsDir: null,
+            completedPhasePaths: { [`commands/${phase}`]: observed },
+            phases: { [`commands/${phase}`]: { status: "done" } } };
+        launch.setSnapshot({ ...snapshot, workspacePath: workspace, specsDir: null,
+            projectInitialized: true, pipeline: [{ id: phase }],
+            artifactEvidence: { [phase]: { fingerprint: "a".repeat(64), candidates: [
+                source === "inference"
+                    ? { kind: "file", source, path: "intake.md",
+                        root: { name: "ASSESSMENT_DIR", path: ".specify/assessments/<slug>" } }
+                    : { kind: "file", source, path: template },
+                { kind: "file", source: "declaration", path: fixed },
+                ...(source === "inference" ? [{ kind: "file", source: "manual", path: observed }] : []),
+            ] } } });
+        const response = await launch.post({ ...request(), expectedPhases: [phase] });
+        assert.equal(response.statusCode, 202, response.body.error);
+        assert.deepEqual(launch.sent[0].handoff.workflow.outputEvidence[phase],
+            { outputs: [template, fixed, ...(source === "inference" ? [observed] : [])], view: template });
+    }
+});
+
+test("Designer handoff retains fixed run outputs that do not match a trusted template", async (t) => {
+    const workspace = await realpath(await mkdtemp(join(tmpdir(), "designer-launch-fixed-")));
+    t.after(() => rm(workspace, { recursive: true, force: true }));
+    await mkdir(join(workspace, ".specify", "assessments", "demo", "nested"), { recursive: true });
+    await writeFile(join(workspace, ".specify", "assessments", "demo", "nested", "intake.md"), "# Intake");
+    const phase = "speckit.assess.intake";
+    const observed = ".specify/assessments/demo/nested/intake.md";
+    const template = ".specify/assessments/<slug>/intake.md";
+    const launch = fixture();
+    launch.inst.workspacePath = workspace;
+    launch.inst.cwdBoundState = { workspacePath: workspace, specsDir: null,
+        completedPhasePaths: { [`commands/${phase}`]: observed },
+        phases: { [`commands/${phase}`]: { status: "done" } } };
+    launch.setSnapshot({ ...snapshot, workspacePath: workspace, specsDir: null,
+        projectInitialized: true, pipeline: [{ id: phase }],
+        artifactEvidence: { [phase]: { candidates: [
+            { kind: "file", source: "declaration", path: template },
+            { kind: "file", source: "manual", path: observed },
+        ] } } });
+    const response = await launch.post({ ...request(), expectedPhases: [phase] });
+    assert.equal(response.statusCode, 202, response.body.error);
+    assert.deepEqual(launch.sent[0].handoff.workflow.outputEvidence[phase],
+        { outputs: [observed, template], view: observed });
+});
+
 test("unverified run paths and generic core guesses do not skip inference", async (t) => {
     const workspace = await realpath(await mkdtemp(join(tmpdir(), "designer-launch-unverified-")));
     t.after(() => rm(workspace, { recursive: true, force: true }));
