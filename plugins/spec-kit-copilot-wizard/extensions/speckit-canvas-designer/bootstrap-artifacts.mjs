@@ -2,9 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { HANDOFF_LIMIT, validateHandoff, validateHandoffId } from "./handoff.mjs";
+import { HANDOFF_LIMIT, readHandoff, validateHandoff, validateHandoffId } from "./handoff.mjs";
 import { assertDiagnosticSize, BootstrapError, bootstrapSessionContext, DIAGNOSTIC_LIMIT,
     validateLaunchReference } from "./contracts/bootstrap.mjs";
+import { INFERENCE_INPUT_LIMIT, INFERENCE_RESULT_LIMIT, mergeInferenceOutputs,
+    validateInferenceInput, validateInferenceSubmission } from "./contracts/output-inference.mjs";
+
+const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 async function directories(root, id, create = false) {
     validateHandoffId(id);
@@ -73,7 +77,8 @@ async function readBytes(root, id, name, limit, openFile = open) {
     }
 }
 
-async function writeBytes(root, id, name, bytes, replace = false) {
+async function writeBytes(root, id, name, bytes, replace = false, limit = HANDOFF_LIMIT) {
+    if (bytes.length > limit) throw new Error("Oversized Designer artifact");
     const snapshots = await directories(root, id, true);
     const folder = snapshots.at(-1).path;
     const path = join(folder, name);
@@ -95,7 +100,7 @@ async function writeBytes(root, id, name, bytes, replace = false) {
             try { await link(temporary, path); }
             catch (error) {
                 if (error.code !== "EEXIST") throw error;
-                const current = await readBytes(root, id, name, HANDOFF_LIMIT);
+                const current = await readBytes(root, id, name, limit);
                 if (!current.equals(bytes)) throw new Error("Designer handoff already exists with different bytes");
             }
         }
@@ -111,14 +116,26 @@ function parse(bytes) {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
-export async function stageDesignerHandoff(session, handoff) {
+export async function stageDesignerHandoff(session, handoff, inferenceInput) {
     const context = await bootstrapSessionContext(session);
     validateHandoff(handoff, handoff.handoffId);
     const bytes = Buffer.from(JSON.stringify(handoff), "utf8");
     if (bytes.length > HANDOFF_LIMIT) throw new Error("Designer handoff exceeds 64KB");
     const reference = validateLaunchReference({ sourceSessionId: context.sessionId,
         sourceRoot: await realpath(context.root), handoffId: handoff.handoffId,
-        sha256: createHash("sha256").update(bytes).digest("hex") });
+        sha256: hash(bytes) });
+    if (handoff.schemaVersion === 2) {
+        validateInferenceInput(inferenceInput, handoff);
+        const input = Buffer.from(JSON.stringify(inferenceInput), "utf8");
+        if (inferenceInput.workspacePath !== context.project
+            || hash(input) !== handoff.workflow.pendingOutputs.inputHash) {
+            throw new Error("Designer inference inputs do not match the frozen launch");
+        }
+        await writeBytes(reference.sourceRoot, reference.handoffId, "inference-input.json",
+            input, false, INFERENCE_INPUT_LIMIT);
+    } else if (inferenceInput !== undefined) {
+        throw new Error("Complete Designer handoffs cannot contain pending inference inputs");
+    }
     await writeBytes(reference.sourceRoot, reference.handoffId, "handoff.json", bytes);
     return reference;
 }
@@ -130,11 +147,90 @@ export async function transferDesignerHandoff(reference, context, openFile = ope
         throw new BootstrapError("designer_child_required", "Designer setup must run in the app-native child session, not the Wizard.");
     }
     const bytes = await readBytes(reference.sourceRoot, reference.handoffId, "handoff.json", HANDOFF_LIMIT, openFile);
-    if (createHash("sha256").update(bytes).digest("hex") !== reference.sha256) {
+    if (hash(bytes) !== reference.sha256) {
         throw new Error("Designer handoff bytes changed; stop and relaunch.");
     }
-    validateHandoff(parse(bytes), reference.handoffId);
+    const handoff = validateHandoff(parse(bytes), reference.handoffId);
+    if (handoff.schemaVersion === 2) {
+        const input = await readBytes(reference.sourceRoot, reference.handoffId,
+            "inference-input.json", INFERENCE_INPUT_LIMIT, openFile);
+        if (hash(input) !== handoff.workflow.pendingOutputs.inputHash) {
+            throw new Error("Designer inference inputs changed; stop and relaunch.");
+        }
+        validateInferenceInput(parse(input), handoff);
+        await writeBytes(context.root, reference.handoffId, "inference-input.json",
+            input, false, INFERENCE_INPUT_LIMIT);
+    }
     await writeBytes(context.root, reference.handoffId, "handoff.json", bytes);
+}
+
+export async function readInferenceInput(root, handoff) {
+    if (handoff.schemaVersion !== 2) throw new Error("Designer launch has no pending inference");
+    const bytes = await readBytes(root, handoff.handoffId, "inference-input.json", INFERENCE_INPUT_LIMIT);
+    if (hash(bytes) !== handoff.workflow.pendingOutputs.inputHash) {
+        throw new Error("Designer inference inputs changed; stop and relaunch.");
+    }
+    return validateInferenceInput(parse(bytes), handoff);
+}
+
+export async function assertInferenceSourcesCurrent(input) {
+    if (await realpath(input.workspacePath) !== input.workspacePath) {
+        throw new Error("Designer inference source workspace changed; stop and relaunch.");
+    }
+    const { effectiveSource } = await import("../speckit-wizard-canvas/artifact-evidence.mjs");
+    for (const request of input.commands) {
+        const source = await effectiveSource(input.workspacePath, request.commandId);
+        if (!source || source.skillPath !== request.skillPath
+            || source.fingerprint !== request.fingerprint || source.skillText !== request.text
+            || JSON.stringify(source.sources) !== JSON.stringify(request.sources)) {
+            throw new Error(`Installed skill changed or is unavailable for ${request.commandId}`);
+        }
+    }
+}
+
+async function validateInferenceResult(result, handoff) {
+    if (!result || typeof result !== "object" || Array.isArray(result)
+        || Object.keys(result).sort().join() !== "entries,handoffId,inputHash,schemaVersion,sourceFingerprint"
+        || result.schemaVersion !== 1 || result.handoffId !== handoff.handoffId
+        || result.sourceFingerprint !== handoff.sourceFingerprint
+        || result.inputHash !== handoff.workflow.pendingOutputs.inputHash) {
+        throw new Error("Designer inference result does not match the frozen launch");
+    }
+    return validateInferenceSubmission({ entries: result.entries }, handoff);
+}
+
+export async function readInferenceResult(root, handoff, { optional = false } = {}) {
+    let bytes;
+    try { bytes = await readBytes(root, handoff.handoffId, "inference-result.json", INFERENCE_RESULT_LIMIT); }
+    catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        if (optional) return null;
+        throw new Error("Designer output inference is pending; complete it before opening Designer.", { cause: error });
+    }
+    const submission = await validateInferenceResult(parse(bytes), handoff);
+    return { submission, hash: hash(bytes) };
+}
+
+export async function writeInferenceResult(root, handoff, submission) {
+    const validated = await validateInferenceSubmission(submission, handoff);
+    await mergeInferenceOutputs(handoff, validated);
+    const result = { schemaVersion: 1, handoffId: handoff.handoffId,
+        sourceFingerprint: handoff.sourceFingerprint,
+        inputHash: handoff.workflow.pendingOutputs.inputHash, entries: validated.entries };
+    const bytes = Buffer.from(JSON.stringify(result), "utf8");
+    await writeBytes(root, handoff.handoffId, "inference-result.json",
+        bytes, false, INFERENCE_RESULT_LIMIT);
+    return readInferenceResult(root, handoff);
+}
+
+export async function readResolvedHandoff(root, id, expectedHash) {
+    const handoff = await readHandoff(root, id, undefined, expectedHash);
+    if (handoff.schemaVersion === 1) return handoff;
+    const canonical = await realpath(root);
+    await readInferenceInput(canonical, handoff);
+    const result = await readInferenceResult(canonical, handoff);
+    return { ...handoff, resolvedOutputEvidence: await mergeInferenceOutputs(handoff, result.submission),
+        outputResultHash: result.hash };
 }
 
 export async function readBootstrapRecord(root, id) {
@@ -151,7 +247,7 @@ export async function writeBootstrapRecord(root, id, record) {
     assertDiagnosticSize(record);
     const bytes = Buffer.from(JSON.stringify(record), "utf8");
     if (bytes.length > DIAGNOSTIC_LIMIT) throw new Error("Designer bootstrap diagnostics exceed 16 MiB");
-    return writeBytes(root, id, "bootstrap.json", bytes, true);
+    return writeBytes(root, id, "bootstrap.json", bytes, true, DIAGNOSTIC_LIMIT);
 }
 
 export async function requireSetupRecord(root, id, hash) {

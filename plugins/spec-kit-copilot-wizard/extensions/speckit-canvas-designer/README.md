@@ -110,9 +110,12 @@ Wizard and verifies IDs, versions, enabled states and priorities before opening
 Designer; unreproducible packages fail launch rather than being omitted. Local
 development selections may override a hosted package only if the frozen runtime
 identity, version and priority remain reproducible. The child LLM explicitly
-invokes bootstrap `install`, then `finalize-open`.
+invokes bootstrap `install`, then, when needed, `outputs`, and finally
+`finalize-open`. It tells the user before starting inference and reports
+completion or a concrete failure; the Wizard's queued acknowledgment is not
+confirmation that Designer has opened.
 These stages reuse the real Specify install/finalize helpers; source code does
-not run setup automatically or shortcut package composition. The second stage
+not run setup automatically or shortcut package composition. The final stage
 reloads skills once after a successful install, verifies the composed
 `speckit-extension-canvas-design-load-page` skill and its explicitly declared
 templates through Specify, and passes the complete typed inventory of names,
@@ -126,7 +129,23 @@ missing capabilities or verifier are explicit failures, with no legacy manual
 resolution/open fallback. Native session metadata must identify distinct checkout
 and session-state roots. Both paths are resolved canonically before comparison
 and use; filesystem aliases of the same directory fail before handoff staging
-writes files.
+writes files. The bootstrap stages are nonvisual host orchestration, not a
+customizable control, so they need no JSON definition or renderer template pair.
+
+The Wizard reuses verified run outputs, declarations, confirmed core outputs,
+and fingerprint-matched inference for the selected pipeline. A partial verified
+list is sufficient; users can add missing outputs manually. Complete launches
+retain handoff schema version 1. For missing outputs, schema version 2 binds
+`inference-input.json` to the handoff and carries only the affected commands'
+original Wizard skill text and source hashes. The `outputs` stage returns those
+requests, validates one result per command, and writes a launch-bound
+`inference-result.json`. Valid `none` or `unknown` results do not invent output
+paths. Source drift before acceptance, unsafe results, or missing/changed
+artifacts stop the journey. Retry reuses a valid result, and direct native
+open, Save, and Generate require the same validated
+launch-bound artifacts without rereading mutable Wizard source files. Child
+results do not modify the Wizard cache. Older providers reject the new handoff
+or stage rather than silently running inference in the Wizard.
 
 **Trust boundary and installation approval.** Bootstrap assumes a trusted local
 agent acting on behalf of the machine's user. In the Designer launch dialog,
@@ -261,8 +280,8 @@ phase navigation, while creating a workflow. It labels the workflow there.
 When Allow custom artifact directory slug is on, the generated workflow accepts an optional
 Artifact directory slug. If entered, it previews the View target; the created
 directory, which may include a numeric prefix, remains authoritative.
-Wizard-inferred output evidence remains in the handoff and frozen generation
-data without an Outputs page. Badge input controls may declare additional
+Resolved Wizard/child output evidence remains in the frozen generation data
+without an Outputs page. Badge input controls may declare additional
 Markdown files that a phase is expected to produce when inference missed them.
 They appear as additional output links and are available as badge evidence,
 without changing the inferred default View target.

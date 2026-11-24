@@ -4,7 +4,7 @@ import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { readHandoff } from "./handoff.mjs";
+import { readResolvedHandoff } from "./bootstrap-artifacts.mjs";
 import { validateBadges } from "./contracts/external-badges.mjs";
 import { validateBadgeImport } from "./contracts/badge-import.mjs";
 import { BADGE_IMPORT_REQUEST_LIMIT, validateBadgeImportRequest, validateBadgeImportResponse }
@@ -134,6 +134,15 @@ export async function startShell(handoff = null, model = null,
     const skillAvailable = generateSkillAvailable && openSkillAvailable;
     const generationError = handoff?.workflow?.installed && project && !skillAvailable
         ? generateSkillAvailable ? SPLIT_UNAVAILABLE : GENERATE_UNAVAILABLE : null;
+    const assertCurrentHandoff = async (action) => {
+        const current = await readResolvedHandoff(workspace, handoff.handoffId);
+        if (current.sourceFingerprint !== handoff.sourceFingerprint) {
+            throw new Error(`Designer handoff changed; reopen before ${action}`);
+        }
+        if (current.outputResultHash !== handoff.outputResultHash) {
+            throw new Error(`Designer inferred outputs changed; reopen before ${action}`);
+        }
+    };
     const state = async () => {
         const availability = generationAvailability(generating, false);
         return { ...model, badges: model?.badges ?? [],
@@ -236,10 +245,7 @@ export async function startShell(handoff = null, model = null,
                     chunks.push(chunk);
                 }
                 const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-                const currentHandoff = await readHandoff(workspace, handoff.handoffId);
-                if (currentHandoff.sourceFingerprint !== handoff.sourceFingerprint) {
-                    throw new Error("Designer handoff changed; reopen before saving");
-                }
+                await assertCurrentHandoff("saving");
                 model = await saveDesignerSettings(workspace, handoff, model, request);
                 res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
                 res.end(JSON.stringify(await state()));
@@ -248,6 +254,7 @@ export async function startShell(handoff = null, model = null,
                     || /Invalid Designer|Invalid outputs for phase|unexpected or missing fields|Pipeline artifacts cannot be changed|Constitution output is fixed/.test(error.message);
                 const conflict = [
                     "Designer handoff changed; reopen before saving",
+                    "Designer inferred outputs changed; reopen before saving",
                     "Designer settings changed elsewhere. Copy any unsaved edits, then close and reopen Designer before saving.",
                     "Saved Designer settings do not match the current handoff or pages",
                 ].includes(error.message);
@@ -367,6 +374,7 @@ export async function startShell(handoff = null, model = null,
                 }
                 const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
                 validateGenerateSubmission(input, model);
+                await assertCurrentHandoff("generating");
                 const currentGenerateSkill = await hasProjectSkill(project, GENERATE_SKILL);
                 if (!currentGenerateSkill || !await hasProjectSkill(project, OPEN_SKILL)) {
                     res.writeHead(409, { "Content-Type": "application/json; charset=utf-8" })
@@ -433,6 +441,8 @@ export async function startShell(handoff = null, model = null,
                     .end(JSON.stringify(result));
             } catch (error) {
                 const status = error.code ? 500 : error.message.startsWith("Designer settings changed elsewhere.")
+                        || error.message === "Designer handoff changed; reopen before generating"
+                        || error.message === "Designer inferred outputs changed; reopen before generating"
                         || error.message.startsWith("Canvas already exists:") ? 409 : 422;
                 res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" })
                     .end(JSON.stringify(validateOutputError({ error: error.message })));

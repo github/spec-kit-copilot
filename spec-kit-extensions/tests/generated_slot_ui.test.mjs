@@ -59,10 +59,12 @@ test("a timed-out Run clears the in-flight guard without automatically resubmitt
     const messages = [];
     const actions = runInNewContext(`let sending = false;
         ${section("async function api(", "async function retryRevision(")}
-        ${section("async function send(", "async function refreshArtifact(")}
+        ${section("async function waitForWorkflowCreation()", "async function createWorkflow(")}
+        ${section("async function send(", "let viewerConnected")}
         ({ send, pending: () => Boolean(sending) })`, {
         token: "test", model: { constitutionReady: true, userProvidesSlug: false,
             selected: "specs/demo", statuses: {} },
+        workflowCreation: Promise.resolve(),
         selectedPending: () => false, renderStatus() {}, flush: async () => {},
         refresh: async () => {}, message: (text) => messages.push(text),
         AbortSignal: { timeout() {
@@ -171,6 +173,7 @@ test("first open uses the existing workflow endpoint and selects the new pending
     const calls = [];
     const context = {
         model: null, workflowQuery: "", slugTouched: false, current: 0,
+        workflowCreation: Promise.resolve(),
         flush: async () => {},
         refresh: async () => {
             context.model = { revision: calls.length, phases: [{ id: "specify", project: false }],
@@ -198,6 +201,7 @@ test("first-open workflow creation does not duplicate one created by another pan
     const calls = [];
     const context = {
         model: { revision: 0, items: [] },
+        workflowCreation: Promise.resolve(),
         flush: async () => {},
         api: async (path, input) => {
             calls.push({ path, revision: input.revision });
@@ -501,12 +505,15 @@ test("rerunning a phase or Constitution requires overwrite confirmation, but fir
     let confirmations = 0, submissions = 0, approved = false;
     const context = {
         model, sending: false, window: { confirm: () => { confirmations++; return approved; } },
+        workflowCreation: Promise.resolve(),
         selectedPending: () => false, slugError: () => null,
         message: () => {}, renderStatus: () => {}, flush: async () => {},
         api: async () => { submissions++; }, refresh: async () => {},
         $: () => null, AbortSignal: { timeout: () => new AbortController().signal },
     };
-    const send = runInNewContext(`${section("async function send(", "async function refreshArtifact(")}
+    const send = runInNewContext(`
+        ${section("async function waitForWorkflowCreation()", "async function createWorkflow(")}
+        ${section("async function send(", "let viewerConnected")}
         send`, context);
     const phase = { id: "specify", project: false };
     const constitution = { id: "constitution", project: true };
@@ -532,49 +539,54 @@ test("rerunning a phase or Constitution requires overwrite confirmation, but fir
 
 test("a not-yet-created output opens the viewer with a message and browses its folder", async () => {
     const calls = [];
-    const messages = [];
     let refreshed = 0;
     const elements = new Map();
     const element = (id) => {
-        if (!elements.has(id)) elements.set(id, { id, textContent: "", replaceChildren() {},
-            showModal() { this.open = true; }, focus() {} });
+        if (!elements.has(id)) elements.set(id, { id, hidden: true });
         return elements.get(id);
     };
+    const body = { textContent: "", setAttribute(name, value) { this[name] = value; } };
     const context = {
         model: { selected: "specs/demo" },
         URLSearchParams,
+        document: { activeElement: null },
+        viewerGeneration: 0,
+        viewer: null,
+        restoreArtifactReturn: null,
+        clarificationReview: { reviewSubmissionPending: () => false, discardReviewDrafts() {} },
+        captureViewerReturn: () => () => {},
+        closeArtifact() {},
+        mountArtifactViewerShell: (root) => { root.hidden = false; return { body }; },
         api: async (path, input) => {
             calls.push({ path, input });
             if (path.startsWith("/api/artifact")) throw Object.assign(new Error("Not found"), { status: 404 });
         },
         $: element,
-        message: (text, id, error) => messages.push([text, id, Boolean(error)]),
         refresh: async () => { refreshed += 1; },
-        refreshArtifact: async () => { throw new Error("No artifact should be read"); },
     };
     const openArtifact = runInNewContext(`${section("async function openArtifact(", 'document.addEventListener("input"')}
         openArtifact`, context);
     await openArtifact({ id: "specify", project: false }, "specs/<slug>/notes.md");
-    assert.equal(element("artifact-viewer").open, true);
+    assert.equal(element("phase-artifact-viewer").hidden, false);
     assert.equal(calls.length, 2);
     assert.match(calls[0].path, /^\/api\/artifact\?/);
     assert.equal(calls[1].path, "/api/reveal");
     assert.equal(calls[1].input.phase, "specify");
     assert.equal(calls[1].input.itemId, "specs/demo");
     assert.equal(calls[1].input.output, "specs/<slug>/notes.md");
-    assert.deepEqual(messages.at(-1), ["No output found yet. Opened the output folder so you can look for it.",
-        "artifact-message", false]);
+    assert.equal(body.textContent, "No output found yet. Opened the output folder so you can look for it.");
+    assert.equal(body.role, "status");
     assert.equal(refreshed, 1);
     context.api = async (path) => {
         if (path === "/api/reveal") throw new Error("Explorer unavailable");
         throw Object.assign(new Error("Not found"), { status: 404 });
     };
     await openArtifact({ id: "specify" });
-    assert.match(messages.at(-1)[0], /Could not open the output folder: Explorer unavailable/);
+    assert.match(body.textContent, /Could not open the output folder: Explorer unavailable/);
     elements.clear();
     context.api = async () => { throw Object.assign(new Error("Access denied"), { status: 403 }); };
     await assert.rejects(openArtifact({ id: "specify" }), /Access denied/);
-    assert.equal(elements.has("artifact-viewer"), false);
+    assert.equal(elements.has("phase-artifact-viewer"), false);
 });
 
 class Element {

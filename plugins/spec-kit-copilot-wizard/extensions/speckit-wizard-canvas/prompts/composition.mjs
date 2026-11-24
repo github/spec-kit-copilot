@@ -33,6 +33,15 @@ export const COMPOSITION_KINDS = new Set([
     "extension.inferArtifactTargets",
 ]);
 
+export function artifactInferenceDirections() {
+    return [
+        "Report up to 12 Markdown output candidates per command: kind file/folder/none/unknown, source inference, effect creates/updates/unknown, and concise supporting evidence. Include every established output; omit inputs, templates, scaffold folders, non-Markdown metadata and guesses.",
+        "Choose exactly one location form per candidate: a repository-relative path alone; a path with relativeTo: \"feature\"; or a path with root: {name, path?}. Never include root and relativeTo on the same candidate.",
+        "For outputs in the active feature directory, including helpers that call it FEATURE_DIR, use {\"path\":\"plan.md\",\"relativeTo\":\"feature\"} without root. For a different named output directory, use {\"path\":\"summary.md\",\"root\":{\"name\":\"REPORT_DIR\",\"path\":\"reports/<slug>\"}} without relativeTo; include root.path only if the installed skill or referenced helper establishes it. Use <slug> only as a whole segment of a repository-relative root pattern.",
+        "When the output is not established, return kind unknown with evidence. When writes are explicitly forbidden return kind none. Set primaryIndex to the zero-based main file candidate or null when no clear primary file. Never choose a folder as primary.",
+    ];
+}
+
 export function buildCompositionPrompt(kind, payload, context, { workspacePath, skill }) {
     void context;
     switch (kind) {
@@ -174,10 +183,7 @@ export function buildCompositionPrompt(kind, payload, context, { workspacePath, 
                 JSON.stringify(skillSources),
                 "Before POST, GET /api/state on the artifactInferenceEndpoint origin with the same token query parameter. Use its artifactInferenceRequests as the data source for command IDs and fingerprints; never manually transcribe or invent a fingerprint.",
                 "Select only the listed commands from artifactInferenceRequests by commandId; ignore unrelated requests. A listed ID missing from requests may be skipped only when artifactEvidence for that ID has the same fingerprint as the bundled command and contains primaryIndex, confirming its result is already resolved. For artifactEvidence lookup, first use the full ID; for a single-segment canonical command such as speckit.plan, also check its bare key plan. Otherwise, if a listed ID is missing, duplicated, or lacks a fingerprint or inference result, stop without POST and report the mismatch. Verify each remaining listed command appears exactly once and its skillPath and fingerprint match the bundled command details. Build entries programmatically by joining your inferred candidates by command ID to those selected requests, copying each fingerprint directly from its request object. If every listed command was already resolved, stop without POST.",
-                "Report up to 12 Markdown output candidates per command: kind file/folder/none/unknown, source inference, effect creates/updates/unknown, and concise supporting evidence. Include every established output; omit inputs, templates, scaffold folders, non-Markdown metadata and guesses.",
-                "Choose exactly one location form per candidate: a repository-relative path alone; a path with relativeTo: \"feature\"; or a path with root: {name, path?}. Never include root and relativeTo on the same candidate.",
-                "For outputs in the active feature directory, including helpers that call it FEATURE_DIR, use {\"path\":\"plan.md\",\"relativeTo\":\"feature\"} without root. For a different named output directory, use {\"path\":\"summary.md\",\"root\":{\"name\":\"REPORT_DIR\",\"path\":\"reports/<slug>\"}} without relativeTo; include root.path only if the installed skill or referenced helper establishes it. Use <slug> only as a whole segment of a repository-relative root pattern.",
-                "When the output is not established, return kind unknown with evidence. When writes are explicitly forbidden return kind none. Set primaryIndex to the zero-based main file candidate or null when no clear primary file. Never choose a folder as primary.",
+                ...artifactInferenceDirections(),
                 "Descriptions and args hints (≤120 chars) may be included from the skill; omit rather than invent. Preserve existing legacy metadata by omitting writesTo.",
                 `POST ${endpoint} with JSON {"entries":{"commands/<full-command-id>":{"outputEvidence":{"fingerprint":"<fingerprint copied programmatically from matching GET request>","candidates":[{"kind":"unknown","source":"inference","effect":"unknown","evidence":"No portable Markdown output path is established."}],"primaryIndex":null},"description":"<optional tagline>","argsHint":"<optional hint>","argsWhenEmpty":"<optional empty-input hint>"}}}.`,
                 "Verify 200 ok; on 4xx/5xx report the response and stop. Do not modify files or invoke more commands.",

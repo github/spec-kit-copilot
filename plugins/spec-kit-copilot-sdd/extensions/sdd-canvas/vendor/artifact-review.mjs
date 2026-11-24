@@ -56,7 +56,7 @@ export function createReviewStore({
     canvasId, instanceId, workspacePath, validateScope, discover, resolveMember,
     now = Date.now, ttlMs = 15 * 60_000, maxContexts = 20, onInvalidate = () => {},
 }) {
-    if (!["speckit-wizard", "sdd-canvas"].includes(canvasId) || !boundedString(instanceId) ||
+    if (!["speckit-wizard", "sdd-canvas", "generated-workflow"].includes(canvasId) || !boundedString(instanceId) ||
         typeof workspacePath !== "string" || !path.isAbsolute(workspacePath) ||
         ![validateScope, discover, resolveMember].every((callback) => typeof callback === "function") ||
         typeof onInvalidate !== "function" ||
@@ -260,7 +260,7 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
         const reference = references.get(context.id)?.get(relativePath);
         if (reference) {
             await readArtifact(workspacePath, reference.originPath, { expectedRevision: reference.originRevision });
-            return hydrate(reference);
+            if (!candidate.owningCommand || candidate.role === "reference") return hydrate(reference);
         }
         return hydrate(candidate);
     }
@@ -309,6 +309,10 @@ export function createArtifactReviewService({ canvasId, instanceId, workspacePat
             return { ...page, primaryArtifactId: primary.id, clarificationBatchMaxBytes: CLARIFICATION_BATCH_MAX_BYTES };
         },
         list: (contextId, options) => store.list(contextId, options),
+        async selectionFor(contextId) {
+            await store.getContext(contextId);
+            return { ...selections.get(contextId)?.selection };
+        },
         async content(contextId, artifactId, options) {
             const artifact = await store.resolve(contextId, artifactId);
             const document = await readArtifact(workspacePath, artifact.relativePath, options);

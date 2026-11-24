@@ -262,6 +262,10 @@ export async function scanWorkspace(workspacePath, deps) {
         reportedPhasePaths: Object.fromEntries(Object.entries(stateFromDisk.phases ?? {})
             .filter(([, phase]) => phase?.lastRunAt && typeof phase.artifactPath === "string")
             .map(([id, phase]) => [id, phase.artifactPath])),
+        completedPhasePaths: Object.fromEntries(Object.entries(stateFromDisk.phases ?? {})
+            .filter(([, phase]) => phase?.status === "done" && phase.lastRunAt
+                && typeof phase.artifactPath === "string")
+            .map(([id, phase]) => [id, phase.artifactPath])),
         pipeline: stateFromDisk.pipeline ?? null,
         slug,
         specsDir,

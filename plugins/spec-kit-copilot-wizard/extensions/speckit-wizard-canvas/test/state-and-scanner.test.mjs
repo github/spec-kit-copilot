@@ -873,6 +873,22 @@ test("scanWorkspace with empty workspace returns un-initialized state", async ()
     assert.deepEqual(scan.composition.extensions, []);
 });
 
+test("scanWorkspace exposes reported paths from completed runs separately", async () => {
+    const timestamp = "2024-01-02T03:04:05.000Z";
+    const fs = makeFs({
+        "/proj/.speckit-wizard/state.json": JSON.stringify({ phases: {
+            plan: { status: "done", lastRunAt: timestamp, artifactPath: "specs/feature/plan.md" },
+            tasks: { status: "in_progress", lastRunAt: timestamp, artifactPath: "specs/feature/tasks.md" },
+            analyze: { status: "done", artifactPath: "specs/feature/analysis.md" },
+        } }),
+    });
+    const scan = await scanWorkspace("/proj", fs);
+    assert.deepEqual(scan.completedPhasePaths, { plan: "specs/feature/plan.md" });
+    assert.deepEqual(scan.reportedPhasePaths, {
+        plan: "specs/feature/plan.md", tasks: "specs/feature/tasks.md",
+    });
+});
+
 test("scanWorkspace picks up constitution.md and sets phase status", async () => {
     const fs = makeFs({
         "/proj/.specify": "__DIR__",

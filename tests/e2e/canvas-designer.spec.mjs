@@ -178,6 +178,31 @@ test("launch queues a session and closes the dialog", async ({ page }) => {
         .getByRole("checkbox", { name: /Copilot preset/ })).not.toBeChecked();
 });
 
+test("explains child output preparation while the Designer session is queued", async ({ page }) => {
+    const dialog = page.getByRole("dialog", { name: "Canvas Designer setup" });
+    await expect(dialog.getByText("Missing output information is prepared in that session before Designer opens.",
+        { exact: false })).toBeVisible();
+    let release;
+    const paused = new Promise((resolve) => { release = resolve; });
+    await page.route("**/api/designer/launch?*", async (route) => {
+        await paused;
+        await route.continue();
+    });
+    const responsePromise = page.waitForResponse((response) =>
+        response.url().includes("/api/designer/launch") && response.request().method() === "POST");
+    const submit = dialog.locator(".designer-submit");
+    await submit.click();
+    try {
+        await expect(submit).toHaveText("Queuing Designer session…");
+        await expect(submit).toBeDisabled();
+        await expect(submit).toHaveAttribute("aria-busy", "true");
+    } finally {
+        release();
+    }
+    await expectQueuedLaunch(await responsePromise);
+    await expect(dialog).toHaveCount(0);
+});
+
 test("activation failure preserves selections for a one-click retry", async ({ page }) => {
     const requests = [];
     await page.route("**/api/designer/launch?*", async (route) => {

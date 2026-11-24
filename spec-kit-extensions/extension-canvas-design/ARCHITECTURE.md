@@ -462,6 +462,22 @@ These paths are a proposed package convention. **Files do not become active mere
 
 For the future standalone Copilot plugin, those app files would be placed under its `extensions/<canvas-id>/` directory with a plugin-level `plugin.json`. The generated app imports its **own packaged modules**, not modules in the Designer child’s `.specify` directory.
 
+### Artifact review
+
+The artifact viewer is fixed shell UI, not a Designer contribution. Newly
+generated canvases package the Wizard's reader, controller, clarification
+controls, and styles. `scripts/canvas-reader/sync-domain.mjs --verify` checks
+that these copies match the Wizard sources. The generated runtime retains
+ownership of workflow membership, artifact paths, and phase execution.
+
+The generated review context uses `stage` for the configured phase ID,
+`feature` for the workflow item ID (or `project` for Constitution), and optional
+`source` for a declared output template, not an arbitrary checkout path.
+`POST /api/review/submit` uses `review/generated-review-contract.mjs` to
+validate the selected artifact, revision, command, and answer batch. The runtime
+derives the target from the live review context and validates again before
+dispatch. Existing Run, state, event, and artifact-reporting contracts are unchanged.
+
 ## 13. Illustrative JSON contracts
 
 These examples describe the **proposed Canvas Design contract**, not the current `external-designer.tab-definition.schema.json`. Specify can resolve the JSON templates; the Designer Canvas interprets and validates their contents.

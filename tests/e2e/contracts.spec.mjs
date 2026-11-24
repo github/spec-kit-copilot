@@ -37,12 +37,12 @@ test("raw Specify inventory survives a browser launch and the Wizard handoff ope
     };
     const snapshot = {
         featureFlags: { generateCanvas: true },
-        workspacePath: checkout, currentPhase: "constitution",
+        workspacePath: checkout, projectInitialized: true, currentPhase: "constitution",
         setup: { pluginInstalled: true, cliInstalled: true, projectInitialized: true, skillsReloaded: true },
         boot: { phase: "ready", steps: [] }, phases: {}, commands: [],
         pipeline: [{ id: "speckit.constitution" }, { id: "speckit.specify" }],
         artifactEvidence: { specify: { candidates: [{
-            kind: "file", relativeTo: "feature", path: "spec.md",
+            kind: "file", source: "declaration", effect: "unknown", path: "specs/<slug>/spec.md",
         }], primaryIndex: 0 } },
         catalog: { designerFingerprint: "contracts-e2e", presets: [],
             extensions: [base, runtime], bundles: [] },

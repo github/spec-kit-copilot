@@ -101,11 +101,19 @@ test("Wizard reader uses the existing preview body and returns focus without dis
         await openArtifactViewer(phase);
         assert.ok(mounted, "The reader must mount in the existing preview.");
         assert.ok(document.querySelector(".artifact-viewer-body").contains(mounted.element));
+        const viewer = document.getElementById("phase-artifact-viewer");
+        assert.equal(viewer.getAttribute("role"), "dialog");
+        assert.equal(viewer.getAttribute("aria-modal"), "true");
+        assert.equal(viewer.getAttribute("aria-labelledby"), "artifact-viewer-title");
+        assert.equal(document.activeElement, viewer.querySelector(".artifact-viewer-back"));
         assert.match(mounted.options.document.revision, /^sha256:[0-9a-f]{64}$/);
         assert.equal(mounted.options.document.artifact.relativePath, phase.artifactPath);
         assert.equal(document.querySelectorAll(".clarify-pill").length, 0);
-        await closeArtifactViewer();
+        document.activeElement.dispatchEvent(new document.defaultView.KeyboardEvent("keydown", {
+            key: "Escape", bubbles: true, cancelable: true,
+        }));
         assert.equal(disposed, 1);
+        assert.equal(viewer.hidden, true);
         assert.equal(document.activeElement, trigger);
         assert.equal(document.getElementById("workflow").scrollTop, 120);
         assert.equal(state.currentPhase, "specify");
