@@ -16,22 +16,35 @@ available to the Copilot host.
 
 ## Install and configure
 
-**Initial release pending.** The catalog reserves a release URL; source addition
-does not publish an asset. For local development in a disposable project:
+[Copilot Extension Hooks 1.0.0](https://github.com/github/spec-kit-copilot/releases/tag/copilot-extension-hooks-v1.0.0)
+is available from the preset catalog. In a fresh Copilot skills-mode project,
+register the catalog, install one baseline, then add the opt-in hooks layer:
 
 ```bash
 specify --version                        # must report 1.2.3
 specify init /path/to/project --integration copilot --integration-options="--skills" --non-interactive --script sh
 cd /path/to/project
+specify preset catalog add https://raw.githubusercontent.com/github/spec-kit-copilot/main/spec-kit-presets/catalog.json \
+  --name spec-kit-copilot --install-allowed
+# Choose one baseline; substitute copilot-full-sdd for Lean if preferred.
+specify preset add copilot-lean-sdd --priority 10
+specify preset add copilot-extension-hooks --priority 5
+specify preset resolve speckit.plan
+```
+
+Use `--script ps` or `--script py` as appropriate. The resolution check should
+identify `copilot-extension-hooks` as the source for `speckit.plan`.
+
+For local development, initialize a disposable project as above, then install
+from a working clone instead of registering the catalog. Substitute the
+`copilot-full-sdd` directory if using Full:
+
+```bash
 specify preset add --dev /path/to/spec-kit-copilot/spec-kit-presets/copilot-lean-sdd --priority 10
-# OR install copilot-full-sdd at priority 10, not both baselines.
 specify preset add --dev /path/to/spec-kit-copilot/spec-kit-presets/copilot-extension-hooks --priority 5
 specify preset resolve speckit.plan
 ```
 
-Use `--script ps` or `--script py` as appropriate. After publication,
-[register the preset catalog](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#installing-a-preset), then install
-the selected baseline and `specify preset add copilot-extension-hooks --priority 5`.
 See the shared [release guide](https://github.com/github/spec-kit-copilot/blob/main/spec-kit-presets/README.md#versioning--distribution).
 
 **Lower preset numbers have higher precedence.** The hooks layer must precede
@@ -103,10 +116,10 @@ The validated explicit flow, with a surviving enabled baseline, is:
 specify preset remove copilot-extension-hooks
 
 # Turn hooks back on, or apply a different wrapper priority:
-specify preset add --dev /path/to/spec-kit-copilot/spec-kit-presets/copilot-extension-hooks --priority 5
-# After publication, use: specify preset add copilot-extension-hooks --priority 5
+specify preset add copilot-extension-hooks --priority 5
 ```
 
+For a local development install, re-add the preset using the `--dev` command above.
 Inspect generated skills after each change, then run `/skills reload` in the
 current Copilot session (or start a new session). Removal/reinstallation is an
 explicit configuration operation, not an automatic migration; authored workflow
