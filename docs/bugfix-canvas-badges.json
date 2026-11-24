@@ -1,0 +1,522 @@
+{
+  "schemaVersion": 1,
+  "canvas": {
+    "id": "bugfix-canvas",
+    "displayName": "Bug Fix Triage Pipeline",
+    "description": "Three-stage bug triage pipeline that takes a bug report from triaged to a verified fix.",
+    "workflowListName": "Bugs",
+    "workflowItemName": "Bug"
+  },
+  "userProvidesSlug": true,
+  "showSetup": true,
+  "runtimeSetup": {
+    "presets": [],
+    "extensions": [],
+    "bundles": []
+  },
+  "dialogs": [
+    {
+      "id": "generated-setup-dialog",
+      "adapter": "generated-dialog-adapter",
+      "hash": "5b159f6f6c607b687d49032b3d9fe42f5340f9e1a5c0547902ca1aa28941833e",
+      "adapterHash": "d0b96d139029b901ea272c63c5c1af79b9162cdbce6812f5bd01db056d41602b",
+      "sourceId": "extension:extension-canvas-design"
+    }
+  ],
+  "buttons": [
+    {
+      "id": "generated-setup-button",
+      "page": "setup",
+      "slot": "setup.actions",
+      "order": 0,
+      "control": "project.setup-button",
+      "label": "Set up project",
+      "presentation": "primary",
+      "action": {
+        "type": "project.setup"
+      },
+      "dialog": "generated-setup-dialog",
+      "hash": "55418675653add30c9083fb524f367771023d8844edb54e0816a612342c7630a"
+    }
+  ],
+  "buttonControls": [
+    {
+      "id": "project.setup-button",
+      "adapter": "generated-setup-button-adapter",
+      "hash": "beb27bbef03b1cd0d822e4784996336c401bffdddf8fea05c586ce856a771e82",
+      "adapterHash": "00fb9621996135d34d349120373b5e2363adf9eed17ae60dbb2f3b388587db30",
+      "name": "generated-setup-button-control"
+    }
+  ],
+  "workflowPage": {
+    "title": "Workflow",
+    "order": 0,
+    "slots": [
+      {
+        "id": "workflow.phases"
+      },
+      {
+        "id": "workflow.actions"
+      },
+      {
+        "id": "workflow.list"
+      },
+      {
+        "id": "workflow.summary"
+      }
+    ],
+    "phaseSlots": [
+      {
+        "id": "phase.card"
+      },
+      {
+        "id": "phase.output"
+      }
+    ],
+    "phaseControl": "generated-phase-control",
+    "adapter": "generated-phase-adapter",
+    "placement": {
+      "page": "workflow",
+      "slot": "workflow.phases"
+    },
+    "viewLabels": {},
+    "definitionHash": "5f00b7bfa4ac4702cb14594f9c77725a29958453e7bbf1d538c3843c96486a89",
+    "controlHash": "0a50cfc38150959c7c428a4999bba92e3624c94eb8633a788ea107059a2a4e9a",
+    "hash": "79333825fabcd15d4bd8565472f23893074c52fd3c5c0b364ece09cc720d94f5",
+    "managedRun": false,
+    "pageAdapter": "generated-workflow-page-adapter",
+    "pageAdapterHash": "bbfa9e297bc9dc63ea0bdd19db4141c1c6182a3715cd0fbcd127d57ef731dd7e",
+    "badgeDestinations": [
+      "workflow.list",
+      "workflow.summary",
+      "phase.card",
+      "phase.output"
+    ]
+  },
+  "badges": {
+    "instances": [
+      {
+        "id": "44c5dbb5-2a96-4030-b617-66cdd7e39a94",
+        "type": "value-match",
+        "inputs": {
+          "artifact": {
+            "phase": "speckit.bug.assess",
+            "output": ".specify/bugs/<slug>/assessment.md"
+          },
+          "choices": [
+            {
+              "id": "3fec4351-42c3-4ebb-abd8-5eef8e3e5ede",
+              "value": "**Severity**: critical",
+              "color": "red",
+              "summaryText": "Critical",
+              "text": "Critical"
+            },
+            {
+              "id": "19a7c99b-63be-4220-90b3-aaeb59ba8f3b",
+              "value": "**Severity**: high",
+              "color": "red",
+              "text": "High",
+              "summaryText": "High"
+            },
+            {
+              "id": "616df111-c290-4225-92e0-a18d8dd2489c",
+              "value": "**Severity**: medium",
+              "color": "amber",
+              "text": "Medium",
+              "summaryText": "Medium"
+            },
+            {
+              "id": "018991fe-0c98-4687-9541-2988d96a6cea",
+              "value": "**Severity**: low",
+              "color": "amber",
+              "text": "Low",
+              "summaryText": "Low"
+            }
+          ]
+        },
+        "category": "Severity",
+        "color": "amber",
+        "showIn": [
+          "workflow-summary",
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": []
+      },
+      {
+        "id": "8df03583-83ac-43e6-b6c4-30f05169e846",
+        "type": "value-match",
+        "inputs": {
+          "artifact": {
+            "phase": "speckit.bug.assess",
+            "output": ".specify/bugs/<slug>/assessment.md"
+          },
+          "choices": [
+            {
+              "id": "e7fda020-7255-4ff6-aadc-ad58bab5f66a",
+              "value": "- **Verdict**: valid",
+              "color": "green",
+              "text": "Valid"
+            },
+            {
+              "id": "7cb91852-74ff-4af5-b3dc-0a12d7715ffa",
+              "value": "- **Verdict**: likely valid",
+              "color": "amber",
+              "text": "Likely valid"
+            },
+            {
+              "id": "72d5a962-5921-4aad-98ed-4afff5052902",
+              "value": "- **Verdict**: invalid",
+              "color": "red",
+              "text": "Invalid"
+            }
+          ]
+        },
+        "category": "Verdict",
+        "color": "amber",
+        "showIn": [
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": []
+      },
+      {
+        "id": "370e7fac-264b-4266-83f8-739a310c96cb",
+        "type": "value-match",
+        "inputs": {
+          "artifact": {
+            "phase": "speckit.bug.assess",
+            "output": ".specify/bugs/<slug>/assessment.md"
+          },
+          "choices": [
+            {
+              "id": "416b1773-c71e-4551-8c49-7bbe429d1906",
+              "value": "**Status**: applied",
+              "color": "green",
+              "text": "Applied"
+            },
+            {
+              "id": "2060f5eb-b22e-403e-99da-43f6d9aaa274",
+              "value": "**Status**: partial",
+              "color": "amber",
+              "text": "Partial"
+            },
+            {
+              "id": "3853853f-c8b8-4820-ae45-0370fa7c77c7",
+              "value": "**Status**: not-applied",
+              "color": "red",
+              "text": "Not applied"
+            }
+          ]
+        },
+        "category": "Fix",
+        "color": "amber",
+        "showIn": [
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": []
+      },
+      {
+        "id": "c1db248a-2a6b-444c-84e8-a92a347af67b",
+        "type": "value-match",
+        "inputs": {
+          "artifact": {
+            "phase": "speckit.bug.test",
+            "output": ".specify/bugs/<slug>/test.md"
+          },
+          "choices": [
+            {
+              "id": "fbf0dcd1-49e9-4afa-9a2f-2e10dd5a1db1",
+              "value": "**Result**: verified",
+              "color": "green",
+              "text": "Verified",
+              "summaryText": "Verified"
+            },
+            {
+              "id": "93e1aeaf-e45d-45a4-8c90-4690033c664c",
+              "value": "**Result**: partial",
+              "color": "amber",
+              "text": "Partial",
+              "summaryText": "Partial"
+            },
+            {
+              "id": "37cb0942-6c62-4246-a75c-2fb49f15857a",
+              "value": "**Result**: failed",
+              "color": "red",
+              "text": "Failed",
+              "summaryText": "Failed"
+            }
+          ]
+        },
+        "category": "Test",
+        "color": "amber",
+        "showIn": [
+          "workflow-list",
+          "workflow-summary"
+        ],
+        "phase": null,
+        "targets": []
+      },
+      {
+        "id": "d84cb75d-ee11-43c1-8eaa-8b02e6fbd6ce",
+        "type": "phase-artifact-complete",
+        "inputs": {
+          "target": {
+            "phase": "speckit.bug.assess",
+            "output": ".specify/bugs/<slug>/assessment.md"
+          },
+          "prerequisites": []
+        },
+        "category": "Phase",
+        "text": "Assess",
+        "summaryText": "Assess",
+        "color": "theme",
+        "showIn": [
+          "workflow-summary",
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": [
+          {
+            "phase": "speckit.bug.assess",
+            "output": null
+          }
+        ],
+        "phaseText": "Completed"
+      },
+      {
+        "id": "16bcada7-548f-403e-b41e-e8047a503775",
+        "type": "phase-artifact-complete",
+        "inputs": {
+          "target": {
+            "phase": "speckit.bug.fix",
+            "output": ".specify/bugs/<slug>/fix.md"
+          },
+          "prerequisites": [
+            {
+              "phase": "speckit.bug.assess",
+              "output": ".specify/bugs/<slug>/assessment.md"
+            }
+          ]
+        },
+        "category": "Phase",
+        "text": "Fix",
+        "phaseText": "Completed",
+        "summaryText": "Fix",
+        "color": "theme",
+        "showIn": [
+          "workflow-summary",
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": [
+          {
+            "phase": "speckit.bug.fix",
+            "output": null
+          }
+        ]
+      },
+      {
+        "id": "0656d8dd-9e7a-44f1-b78f-17f1768006bc",
+        "type": "phase-artifact-complete",
+        "inputs": {
+          "target": {
+            "phase": "speckit.bug.test",
+            "output": ".specify/bugs/<slug>/test.md"
+          },
+          "prerequisites": [
+            {
+              "phase": "speckit.bug.assess",
+              "output": ".specify/bugs/<slug>/assessment.md"
+            },
+            {
+              "phase": "speckit.bug.fix",
+              "output": ".specify/bugs/<slug>/fix.md"
+            }
+          ]
+        },
+        "category": "Phase",
+        "text": "Test",
+        "phaseText": "Completed",
+        "summaryText": "Test",
+        "color": "theme",
+        "showIn": [
+          "workflow-summary",
+          "workflow-list"
+        ],
+        "phase": null,
+        "targets": [
+          {
+            "phase": "speckit.bug.test",
+            "output": null
+          }
+        ]
+      }
+    ],
+    "types": [
+      {
+        "schemaVersion": 1,
+        "id": "value-match",
+        "title": "Value match",
+        "description": "Search an output for ordered text matches and show the first matching badge.",
+        "rule": "value-match",
+        "defaultText": "Value matched",
+        "defaultColor": "amber",
+        "enabled": true,
+        "hash": "45c3d281f4fbb6803fd1917c1fa3fe533ad819ef46f479f7d61c7769ab7fd435"
+      },
+      {
+        "schemaVersion": 1,
+        "id": "phase-artifact-complete",
+        "title": "Phase artifact complete",
+        "description": "Show when the selected output and chosen earlier outputs are current. Among matching phase artifact badges, only the furthest phase appears at each location; summary counts remain cumulative.",
+        "rule": "phase-artifact-complete",
+        "replacementGroup": "phase-completion",
+        "defaultText": "Phase complete",
+        "defaultColor": "green",
+        "enabled": true,
+        "hash": "45c3d281f4fbb6803fd1917c1fa3fe533ad819ef46f479f7d61c7769ab7fd435"
+      }
+    ],
+    "rules": [
+      {
+        "schemaVersion": 1,
+        "id": "value-match",
+        "label": "Value match",
+        "description": "Search one Markdown output for the first matching entry, ignoring capitalization.",
+        "inputs": [
+          {
+            "id": "artifact",
+            "type": "artifact",
+            "label": "Output to search"
+          },
+          {
+            "id": "choices",
+            "type": "badge-selection",
+            "label": "Match order"
+          }
+        ],
+        "textPlaceholders": [],
+        "adapter": "badge-rule-content-adapter",
+        "hash": "e19b2f1f99b7ced7a88de28fb70a84933df5cd68bdd98a06b84f9ed3f03222ca"
+      },
+      {
+        "schemaVersion": 1,
+        "id": "phase-artifact-complete",
+        "label": "Phase artifact complete",
+        "description": "The selected output must exist. If earlier outputs are selected, they must also exist, and each later file must be at least as recent as the one before it.",
+        "placementPhaseInput": "target",
+        "inputs": [
+          {
+            "id": "target",
+            "type": "artifact",
+            "scope": "metadata",
+            "label": "Phase and output to check"
+          },
+          {
+            "id": "prerequisites",
+            "type": "ordered-artifacts",
+            "scope": "metadata",
+            "before": "target",
+            "label": "Which earlier outputs must be current?"
+          }
+        ],
+        "textPlaceholders": [],
+        "adapter": "badge-rule-phase-artifact-complete-adapter",
+        "hash": "296e3917f7deea5f07d1ce81b03293a813a6971912d3da9c2f94eab7ea304903"
+      }
+    ]
+  },
+  "brandAsset": {
+    "file": "logo.png",
+    "mime": "image/png",
+    "hash": "0296bdc86621af84ffc08af8bf301398cacea1adcb52b765e7d27d4f4d6fbd9d"
+  },
+  "mainPageAsset": {
+    "file": "main-page-logo.png",
+    "mime": "image/png",
+    "hash": "ef4d3943b11a81ab5e29855eb0fa84fb99334c380a75cfc10ff772e31d7f29b7"
+  },
+  "imageControl": {
+    "adapter": "generated-control-adapter-image",
+    "definition": "shared-controls-image",
+    "hash": "ea742d9470e7082247b4c07dcaeeecdb1be71ffebdde1e1adf7a42e63e05b9b8",
+    "definitionHash": "72c7f721f77abe096bdf25d67983518bcf169e441d2ce184ee80d725aff5037e"
+  },
+  "textControl": {
+    "adapter": "generated-control-adapter-text",
+    "definition": "shared-controls-text",
+    "hash": "16ea72847c37c020a30ede20c52124234ef6feb4ee5bf280dfa6df15b787c205",
+    "definitionHash": "f4757cf468d72a90a5845cb22466784cfa9de8d06af473316bfe79c74600fe58"
+  },
+  "textPlacements": [
+    {
+      "id": "canvas.description",
+      "label": "Description",
+      "presentation": "text",
+      "slot": "workflow.description"
+    },
+    {
+      "id": "canvas.workflowListName",
+      "label": "Header text",
+      "presentation": "text",
+      "slot": "workflow.heading"
+    }
+  ],
+  "phases": [
+    "speckit.bug.assess",
+    "speckit.bug.fix",
+    "speckit.bug.test"
+  ],
+  "phaseDescriptions": {
+    "speckit.bug.assess": "Assess a bug report (pasted text or URL) against the codebase and produce an assessment with possible remediation",
+    "speckit.bug.fix": "Apply the remediation from a bug assessment and record what was changed",
+    "speckit.bug.test": "Validate that a previously fixed bug is resolved and record the verification report"
+  },
+  "phaseOutputs": {
+    "speckit.bug.assess": {
+      "expectsArtifact": false,
+      "outputPath": null
+    },
+    "speckit.bug.fix": {
+      "expectsArtifact": false,
+      "outputPath": null
+    },
+    "speckit.bug.test": {
+      "expectsArtifact": false,
+      "outputPath": null
+    }
+  },
+  "phaseArtifacts": {
+    "speckit.bug.assess": {
+      "outputs": [
+        ".specify/bugs/<slug>/assessment.md"
+      ],
+      "view": ".specify/bugs/<slug>/assessment.md"
+    },
+    "speckit.bug.fix": {
+      "outputs": [
+        ".specify/bugs/<slug>/fix.md"
+      ],
+      "view": ".specify/bugs/<slug>/fix.md"
+    },
+    "speckit.bug.test": {
+      "outputs": [
+        ".specify/bugs/<slug>/test.md"
+      ],
+      "view": ".specify/bugs/<slug>/test.md"
+    }
+  },
+  "installed": {
+    "presets": [],
+    "extensions": [
+      {
+        "id": "bug",
+        "version": "1.0.0",
+        "priority": 10
+      }
+    ],
+    "bundles": []
+  }
+}
