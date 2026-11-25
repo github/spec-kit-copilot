@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -6,10 +7,11 @@ import { mkdtemp, mkdir, open, readFile, readdir, rename, rm, symlink, writeFile
 import { createServer } from "node:http";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join, posix } from "node:path";
+import { join, posix, toNamespacedPath } from "node:path";
 import { test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { runInNewContext } from "node:vm";
 import { materialize, readBoundedSessionFile, renameDirectoryWithoutReplacement } from "../extension-canvas-design/scripts/generate.mjs";
 import { createRuntime, existingOutputFolder } from "../extension-canvas-design/generated-scaffold/runtime.mjs";
@@ -985,7 +987,7 @@ test("Specify inventories supply observed package versions and reject invalid re
     assert.deepEqual(calls, kinds.map((kind) => ({
         args: [kind === "presets" ? "preset" : kind === "extensions" ? "extension" : "bundle",
             "list", "--json"], cwd: "child",
-        env: { ...process.env, PATH: augmentedPath }, shell: process.platform === "win32",
+        env: { ...process.env, PATH: augmentedPath }, shell: false,
     })));
     assert.deepEqual(await readCurrentInstalledVersions("child",
         { presets: [], extensions: [], bundles: [] }, run),
@@ -1022,6 +1024,26 @@ test("Specify inventories supply observed package versions and reject invalid re
     assert.equal(missingCli.warnings.length, 3);
     assert.deepEqual(missingCli.inventory, { presets: [], extensions: [], bundles: [] });
 });
+
+test("Windows inventory reads from a namespaced project path",
+    { skip: process.platform !== "win32" }, async (t) => {
+        const project = await mkdtemp(join(tmpdir(), "designer inventory-"));
+        t.after(() => rm(project, { recursive: true, force: true }));
+        await mkdir(join(project, ".specify"));
+        const extensions = [{ id: "bug", version: "1.0.2", priority: 1 }];
+        await writeFile(join(project, ".specify", "inventory.json"), JSON.stringify(extensions));
+        const exec = promisify(execFile);
+        const run = (command, args, options) => {
+            assert.equal(command, "specify.exe");
+            assert.deepEqual(args, ["extension", "list", "--json"]);
+            return exec(process.execPath, ["-e",
+                'process.stdout.write(require("node:fs").readFileSync(".specify/inventory.json", "utf8"))'], options);
+        };
+        assert.deepEqual(await readCurrentInstalledVersions(toNamespacedPath(project),
+            { presets: [], extensions: [{ id: "bug" }], bundles: [] }, run), {
+            inventory: { presets: [], extensions, bundles: [] }, warnings: [],
+        });
+    });
 
 test("generated package versions reflect the installed inventory without blocking drift", async (t) => {
     const current = { presets: [{ id: "copilot-sub-agents", version: "1.2.3", priority: 4 }],

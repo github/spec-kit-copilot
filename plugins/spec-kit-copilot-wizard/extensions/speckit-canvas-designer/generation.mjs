@@ -128,7 +128,7 @@ export async function readCurrentInstalledVersions(project, frozen, run = execFi
         try {
             const { stdout } = await run(process.platform === "win32" ? "specify.exe" : "specify",
                 [command, "list", "--json"],
-                await specifySpawnOptions(project, { timeout: 10000, maxBuffer: 128 * 1024 }));
+                await specifySpawnOptions(project, { timeout: 10000, maxBuffer: 128 * 1024, shell: false }));
             inventory[kind] = normalizeObservedVersions(stdout, kind, relevantIds);
         } catch (error) {
             inventory[kind] = [];

@@ -427,7 +427,8 @@ path appears only for the current Canvas ID's verified output when no
 regeneration is pending; otherwise the page asks for generation and verification.
 At Generate, Designer checks the child checkout's Specify inventory for packages
 in the Wizard handoff and freezes their installed versions alongside the original
-Wizard snapshot. Unrelated installed packages do not affect version verification.
+Wizard snapshot. On Windows, inventory checks run Specify directly so extended-length
+checkout paths are supported. Unrelated installed packages do not affect version verification.
 Version drift is reported as a warning rather than blocking generation. If
 Specify's inventory cannot be read or a package is missing, that package's
 generated version is marked `unverified` and the warning remains visible.
